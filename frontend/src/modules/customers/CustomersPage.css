@@ -1,0 +1,351 @@
+.customers-page {
+  padding-top: 20px;
+}
+
+.customers-page__summary-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.summary-card {
+  display: flex;
+  padding: 18px 18px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #f9fbff, #eef4ff);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+}
+
+.summary-card__icon-wrap {
+  margin-right: 14px;
+}
+
+.summary-card__icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+}
+
+.summary-card--blue .summary-card__icon {
+  background-color: #e0f2fe;
+}
+
+.summary-card--orange .summary-card__icon {
+  background-color: #ffedd5;
+}
+
+.summary-card--red .summary-card__icon {
+  background-color: #fee2e2;
+}
+
+.summary-card--green .summary-card__icon {
+  background-color: #dcfce7;
+}
+
+.summary-card__body {
+  flex: 1;
+}
+
+.summary-card__title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.summary-card__title {
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.summary-card__chip {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background-color: #dcfce7;
+  color: #15803d;
+  font-weight: 500;
+}
+
+.summary-card__value {
+  margin-top: 6px;
+  font-size: 22px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.summary-card__sub {
+  margin-top: 2px;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.customers-page__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.customers-page__toolbar-left {
+  display: flex;
+  gap: 10px;
+}
+
+.customers-page__toolbar-filters {
+  display: flex;
+  gap: 8px;
+}
+
+.btn {
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.btn--primary {
+  background: linear-gradient(135deg, #0ea5e9, #2563eb);
+  color: #ffffff;
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.35);
+}
+
+.btn--secondary {
+  background-color: #ffffff;
+  color: #111827;
+  border: 1px solid #e5e7eb;
+}
+
+.filter-tab {
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-color: transparent;
+  font-size: 14px;
+  cursor: pointer;
+  color: #4b5563;
+  transition: all 0.2s ease;
+}
+
+.filter-tab--active {
+  background: linear-gradient(135deg, var(--color-primary), var(--color-primary-dark));
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(14, 165, 233, 0.25);
+}
+
+.filter-tab:not(.filter-tab--active):hover {
+  background-color: #f3f4f6;
+  border-color: #cbd5e1;
+}
+
+.customers-page__table-card {
+  margin-top: 18px;
+  background-color: #ffffff;
+  border-radius: 18px;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.1);
+  overflow: hidden;
+}
+
+.customers-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.customers-table thead tr {
+  background-color: #f9fafb;
+}
+
+.customers-table th,
+.customers-table td {
+  padding: 14px 20px;
+  text-align: left;
+}
+
+.customers-table th {
+  font-size: 12px;
+  font-weight: 600;
+  color: #9ca3af;
+}
+
+.customers-table tbody tr {
+  border-top: 1px solid #eef2ff;
+}
+
+.customers-table__cell--right {
+  text-align: right;
+}
+
+.customers-table__cell--center {
+  text-align: center;
+}
+
+.customers-table__code {
+  font-weight: 600;
+  color: #111827;
+}
+
+.customers-table__name {
+  font-weight: 600;
+  color: #111827;
+}
+
+.customers-table__tag {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 4px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.customers-table__tag-icon {
+  margin-right: 4px;
+}
+
+.customers-table__tag--vip {
+  background: linear-gradient(135deg, #fef3c7, #fde68a);
+  color: #92400e;
+}
+
+.customers-table__tag--regular {
+  background: linear-gradient(135deg, #dbeafe, #bfdbfe);
+  color: #1e40af;
+}
+
+.customers-table__tag--new {
+  background: linear-gradient(135deg, #d1fae5, #a7f3d0);
+  color: #065f46;
+}
+
+.customers-table__email {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.customers-table__debt {
+  font-weight: 700;
+}
+
+.customers-table__debt--orange {
+  color: #ea580c;
+}
+
+.customers-table__debt--red {
+  color: #dc2626;
+}
+
+.customers-table__debt--green {
+  color: #16a34a;
+}
+
+.customers-table__debt-sub {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+}
+
+.status-pill--warning {
+  background: linear-gradient(135deg, #fef3c7, #fde68a);
+  color: #92400e;
+}
+
+.status-pill--danger {
+  background: linear-gradient(135deg, #fee2e2, #fecaca);
+  color: #991b1b;
+}
+
+.status-pill--success {
+  background: linear-gradient(135deg, #d1fae5, #a7f3d0);
+  color: #065f46;
+}
+
+.customers-table__due-date {
+  font-size: 14px;
+}
+
+.customers-table__due-date--danger {
+  color: #dc2626;
+  font-weight: 600;
+}
+
+.customers-table__due-date--warning {
+  color: #111827;
+}
+
+.customers-table__due-date--success {
+  color: #6b7280;
+}
+
+.icon-btn {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 16px;
+  margin-right: 4px;
+}
+
+.icon-btn--danger {
+  color: #dc2626;
+}
+
+.customers-table__actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.customers-page__pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 18px;
+  padding-top: 12px;
+  border-top: 1px solid #e5e7eb;
+  font-size: 13px;
+  color: #4b5563;
+}
+
+.customers-page__pagination-controls {
+  display: flex;
+  gap: 6px;
+}
+
+.customers-page__pagination-btn {
+  min-width: 32px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 2px solid #cbd5e1;
+  background-color: #ffffff;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: #1f2937;
+  transition: all 0.2s ease;
+}
+
+.customers-page__pagination-btn--active {
+  background: linear-gradient(135deg, var(--color-primary), var(--color-primary-dark));
+  color: #ffffff;
+  border-color: var(--color-primary);
+}
+
+.customers-page__pagination-btn:not(.customers-page__pagination-btn--active):hover {
+  background-color: #f3f4f6;
+  border-color: #94a3b8;
+}
+
