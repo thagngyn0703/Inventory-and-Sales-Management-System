@@ -1,0 +1,35 @@
+.home-page {
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    background: #f3f4f6;
+    font-family: system-ui, sans-serif;
+}
+
+.home-card {
+    background: #ffffff;
+    padding: 30px;
+    border-radius: 16px;
+    text-align: center;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+    min-width: 320px;
+}
+
+.home-card h1 {
+    margin-bottom: 12px;
+}
+
+.home-btn {
+    margin-top: 20px;
+    padding: 10px 18px;
+    border-radius: 10px;
+    border: none;
+    background: #2563eb;
+    color: #ffffff;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.home-btn:hover {
+    background: #1d4ed8;
+}
