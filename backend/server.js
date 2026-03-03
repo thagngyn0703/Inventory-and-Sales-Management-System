@@ -4,6 +4,7 @@ const cors = require('cors');
 const mongoose = require('mongoose');
 
 const authRoutes = require('./routes/auth');
+const categoryRoutes = require('./routes/categories');
 const { hasSmtpConfig } = require('./services/emailService');
 
 const app = express();
@@ -24,6 +25,7 @@ app.use(express.json());
 
 // Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/categories', categoryRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
