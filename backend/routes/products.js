@@ -9,8 +9,8 @@ function escapeRegex(s) {
   return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-// POST /api/products  (user, admin)
-router.post('/', requireAuth, requireRole(['user', 'admin']), async (req, res) => {
+// POST /api/products  (manager, admin)
+router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
   try {
     const {
       category_id,
@@ -53,8 +53,8 @@ router.post('/', requireAuth, requireRole(['user', 'admin']), async (req, res) =
   }
 });
 
-// GET /api/products?q=...  (user, admin)
-router.get('/', requireAuth, requireRole(['user', 'admin']), async (req, res) => {
+// GET /api/products?q=...  (manager, warehouse, sales, admin)
+router.get('/', requireAuth, requireRole(['manager', 'warehouse', 'sales', 'admin']), async (req, res) => {
   try {
     const { q = '' } = req.query;
     const query = String(q || '').trim();
