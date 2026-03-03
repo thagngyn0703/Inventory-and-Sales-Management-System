@@ -1,11 +1,10 @@
-const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '.env') });
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
 
 const authRoutes = require('./routes/auth');
-const productRoutes = require('./routes/products');
+const categoryRoutes = require('./routes/categories');
 const { hasSmtpConfig } = require('./services/emailService');
 
 const app = express();
@@ -13,10 +12,6 @@ const PORT = process.env.PORT || 8000;
 
 if (!process.env.JWT_SECRET) {
     console.warn('Cảnh báo: JWT_SECRET chưa được cấu hình trong .env');
-}
-if (!process.env.MONGO_URI) {
-    console.error('Lỗi: MONGO_URI chưa được cấu hình trong file .env');
-    process.exit(1);
 }
 if (hasSmtpConfig) {
     console.log('SMTP: đã cấu hình — email xác minh sẽ gửi vào email đăng ký');
@@ -30,7 +25,7 @@ app.use(express.json());
 
 // Routes
 app.use('/api/auth', authRoutes);
-app.use('/api/products', productRoutes);
+app.use('/api/categories', categoryRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

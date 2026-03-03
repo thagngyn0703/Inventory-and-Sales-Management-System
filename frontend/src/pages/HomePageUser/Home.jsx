@@ -1,10 +1,10 @@
 import { useNavigate } from "react-router-dom";
+import Sidebar from "../../components/Sidebar";
 import "./Home.css";
 
 export default function Home() {
     const navigate = useNavigate();
     const user = JSON.parse(localStorage.getItem("user"));
-    const canViewProducts = true;
 
     const logout = () => {
         localStorage.removeItem("token");
@@ -13,29 +13,21 @@ export default function Home() {
     };
 
     return (
-        <div className="home-page">
-            <div className="home-card">
-                <h1>🏠 Home</h1>
-                <p>
-                    Xin chào <b>{user?.email || "User"}</b>
-                </p>
-                <p>
-                    Role: <b>{user?.role || "user"}</b>
-                </p>
+        <div className="home-page-with-sidebar">
+            <div className="home-content">
+                <div className="home-card">
+                    <h1>🏠 Home</h1>
+                    <p>
+                        Xin chào <b>{user?.email || "User"}</b>
+                    </p>
+                    <p>
+                        Role: <b>{user?.role || "user"}</b>
+                    </p>
 
-                {canViewProducts && (
-                    <button
-                        className="home-btn"
-                        style={{ background: "#111827" }}
-                        onClick={() => navigate("/admin/products")}
-                    >
-                        📦 Product list
+                    <button className="home-btn" onClick={logout}>
+                        Đăng xuất
                     </button>
-                )}
-
-                <button className="home-btn" onClick={logout}>
-                    Đăng xuất
-                </button>
+                </div>
             </div>
         </div>
     );

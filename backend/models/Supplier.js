@@ -1,47 +1,33 @@
 const { Schema, model } = require('mongoose');
 
-const productSchema = new Schema(
+const supplierSchema = new Schema(
     {
-        category_id: {
-            type: Schema.Types.ObjectId,
-            ref: 'Category',
-            required: true,
-        },
         name: {
             type: String,
             required: true,
             trim: true,
         },
-        sku: {
-            type: String,
-            required: true,
-            unique: true,
-            trim: true,
-        },
-        barcode: {
+        phone: {
             type: String,
             trim: true,
         },
-        cost_price: {
-            type: Number,
-            default: 0,
+        email: {
+            type: String,
+            trim: true,
+            lowercase: true,
         },
-        sale_price: {
-            type: Number,
-            default: 0,
-        },
-        stock_qty: {
-            type: Number,
-            default: 0,
-        },
-        reorder_level: {
-            type: Number,
-            default: 0,
+        address: {
+            type: String,
+            trim: true,
         },
         status: {
             type: String,
             enum: ['active', 'inactive'],
             default: 'active',
+        },
+        payable_account: {
+            type: Number,
+            default: 0,
         },
         created_at: {
             type: Date,
@@ -57,4 +43,4 @@ const productSchema = new Schema(
     }
 );
 
-module.exports = model('Product', productSchema);
+module.exports = model('Supplier', supplierSchema);

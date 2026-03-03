@@ -6,13 +6,30 @@
     font-family: system-ui, sans-serif;
 }
 
+.home-page-with-sidebar {
+    display: flex;
+    min-height: 100vh;
+    background: #f3f4f6;
+    font-family: system-ui, sans-serif;
+}
+
+.home-content {
+    flex: 1;
+    margin-left: 250px;
+    padding: 40px 20px;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+}
+
 .home-card {
     background: #ffffff;
     padding: 30px;
     border-radius: 16px;
     text-align: center;
     box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
-    min-width: 320px;
+    width: 100%;
+    max-width: 500px;
 }
 
 .home-card h1 {

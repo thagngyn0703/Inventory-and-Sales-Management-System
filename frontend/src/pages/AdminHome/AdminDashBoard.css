@@ -7,11 +7,28 @@
     font-family: system-ui, sans-serif;
 }
 
+.admin-page-with-sidebar {
+    display: flex;
+    min-height: 100vh;
+    background: #111827;
+    color: #ffffff;
+    font-family: system-ui, sans-serif;
+}
+
+.admin-content {
+    flex: 1;
+    margin-left: 250px;
+    padding: 40px 20px;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+}
+
 .admin-card {
     background: #f9fafb;
     padding: 30px;
     border-radius: 18px;
-    width: 90%;
+    width: 100%;
     max-width: 600px;
     border: 1px solid #e5e7eb;
 }
