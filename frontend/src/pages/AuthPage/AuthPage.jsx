@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 // import "./AuthPage.css";
 import { useNavigate } from "react-router-dom";
 
@@ -7,11 +7,15 @@ import { useNavigate } from "react-router-dom";
 
 const API_BASE = "http://localhost:8000/api";
 
+const SAVED_EMAIL_KEY = "saved_login_email";
+const SAVED_PASSWORD_KEY = "saved_login_password";
+const SAVE_PASSWORD_KEY = "save_password_checked";
+
 const isEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 
 export default function AuthPage() {
     const navigate = useNavigate();
-    const [mode, setMode] = useState("login"); // "login" | "register" | "verify"
+    const [mode, setMode] = useState("login"); // "login" | "register" | "verify" | "forgot" | "reset"
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
 
@@ -20,6 +24,7 @@ export default function AuthPage() {
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [confirmPassword, setConfirmPassword] = useState("");
+    const [role, setRole] = useState("warehouse_staff"); // manager | warehouse_staff | sales_staff
 
     // Sau khi đăng ký thành công, chuyển sang bước nhập mã (giữ email)
     const [pendingVerifyEmail, setPendingVerifyEmail] = useState("");
@@ -28,8 +33,30 @@ export default function AuthPage() {
     const [showPw, setShowPw] = useState(false);
     const [showConfirmPw, setShowConfirmPw] = useState(false);
 
+    const [savePassword, setSavePassword] = useState(() => {
+        try { return localStorage.getItem(SAVE_PASSWORD_KEY) === "1"; } catch { return false; }
+    });
+    const [forgotEmail, setForgotEmail] = useState("");
+    const [resetToken, setResetToken] = useState("");
+    const [newPassword, setNewPassword] = useState("");
+    const [confirmNewPassword, setConfirmNewPassword] = useState("");
+
+    useEffect(() => {
+        if (mode !== "login") return;
+        try {
+            const savedEmail = localStorage.getItem(SAVED_EMAIL_KEY);
+            const savedPw = localStorage.getItem(SAVED_PASSWORD_KEY);
+            if (savedEmail) setEmail(savedEmail);
+            if (savedPw) setPassword(savedPw);
+        } catch (_) {}
+    }, [mode]);
+
     const title =
-        mode === "login"
+        mode === "forgot"
+            ? "Quên mật khẩu"
+            : mode === "reset"
+                ? "Đặt lại mật khẩu"
+                : mode === "login"
             ? "Login"
             : mode === "register"
                 ? "Create account"
@@ -41,19 +68,37 @@ export default function AuthPage() {
         if (mode === "verify") {
             return pendingVerifyEmail.trim() && verificationToken.trim().length >= 4;
         }
+        if (mode === "forgot") {
+            return forgotEmail.trim() && isEmail(forgotEmail.trim());
+        }
+        if (mode === "reset") {
+            return forgotEmail.trim() && resetToken.trim().length >= 4 && newPassword.length >= 6 && newPassword === confirmNewPassword;
+        }
         if (!email.trim() || !password) return false;
         if (!isEmail(email.trim())) return false;
         if (password.length < 6) return false;
         if (mode === "register") {
             if (!fullName.trim()) return false;
             if (confirmPassword !== password) return false;
+            if (!role) return false;
         }
         return true;
-    }, [mode, fullName, email, password, confirmPassword, pendingVerifyEmail, verificationToken]);
+    }, [mode, fullName, email, password, confirmPassword, role, pendingVerifyEmail, verificationToken, forgotEmail, resetToken, newPassword, confirmNewPassword]);
 
     const validate = () => {
         if (mode === "verify") {
             if (!verificationToken.trim()) return "Vui lòng nhập mã xác minh.";
+            return "";
+        }
+        if (mode === "forgot") {
+            if (!forgotEmail.trim()) return "Vui lòng nhập email.";
+            if (!isEmail(forgotEmail.trim())) return "Email không hợp lệ.";
+            return "";
+        }
+        if (mode === "reset") {
+            if (!resetToken.trim()) return "Vui lòng nhập mã xác nhận.";
+            if (newPassword.length < 6) return "Mật khẩu mới phải >= 6 ký tự.";
+            if (newPassword !== confirmNewPassword) return "Mật khẩu nhập lại không khớp.";
             return "";
         }
         const e = email.trim();
@@ -79,6 +124,44 @@ export default function AuthPage() {
 
         setLoading(true);
         try {
+            if (mode === "forgot") {
+                const res = await fetch(`${API_BASE}/auth/forgot-password`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ email: forgotEmail.trim() }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data.message || data.error || "Gửi mã thất bại");
+                setError("");
+                setForgotEmail((data.email && data.email.trim()) ? data.email.trim().toLowerCase() : forgotEmail.trim().toLowerCase());
+                setResetToken("");
+                setNewPassword("");
+                setConfirmNewPassword("");
+                setMode("reset");
+                setLoading(false);
+                return;
+            }
+            if (mode === "reset") {
+                const res = await fetch(`${API_BASE}/auth/reset-password`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        email: forgotEmail.trim().toLowerCase(),
+                        token: String(resetToken).trim().replace(/\D/g, ""),
+                        newPassword,
+                    }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data.message || data.error || "Đặt lại mật khẩu thất bại");
+                alert(data.message || "Đặt lại mật khẩu thành công. Bạn có thể đăng nhập.");
+                setMode("login");
+                setForgotEmail("");
+                setResetToken("");
+                setNewPassword("");
+                setConfirmNewPassword("");
+                setLoading(false);
+                return;
+            }
             if (mode === "verify") {
                 const res = await fetch(`${API_BASE}/auth/verify-email`, {
                     method: "POST",
@@ -105,7 +188,7 @@ export default function AuthPage() {
             const payload =
                 mode === "login"
                     ? { email: email.trim(), password }
-                    : { fullName: fullName.trim(), email: email.trim(), password };
+                    : { fullName: fullName.trim(), email: email.trim(), password, role };
 
             const res = await fetch(`${API_BASE}${endpoint}`, {
                 method: "POST",
@@ -123,18 +206,29 @@ export default function AuthPage() {
                 if (data.token) localStorage.setItem("token", data.token);
                 if (data.user) localStorage.setItem("user", JSON.stringify(data.user));
 
+                if (savePassword) {
+                    try {
+                        localStorage.setItem(SAVED_EMAIL_KEY, email.trim());
+                        localStorage.setItem(SAVED_PASSWORD_KEY, password);
+                        localStorage.setItem(SAVE_PASSWORD_KEY, "1");
+                    } catch (_) {}
+                } else {
+                    try {
+                        localStorage.removeItem(SAVED_EMAIL_KEY);
+                        localStorage.removeItem(SAVED_PASSWORD_KEY);
+                        localStorage.removeItem(SAVE_PASSWORD_KEY);
+                    } catch (_) {}
+                }
+
                 const role = data.user?.role;
 
-                if (role === "admin") {
+                if (role === "manager" || role === "admin") {
                     navigate("/admin", { replace: true });
-                } else if (role === "user") {
+                } else if (role === "warehouse_staff" || role === "sales_staff") {
                     navigate("/home", { replace: true });
                 } else {
-                    setError("Role không hợp lệ");
+                    setError("Vai trò không hợp lệ");
                 }
-                console.log("USER LOGIN:", data.user);
-                console.log("ROLE:", data.user?.role, typeof data.user?.role);
-
             }
             else {
                 setPendingVerifyEmail(data.email || email.trim());
@@ -154,6 +248,7 @@ export default function AuthPage() {
         setEmail("");
         setPassword("");
         setConfirmPassword("");
+        setRole("warehouse_staff");
         setShowPw(false);
         setShowConfirmPw(false);
         setVerificationToken("");
@@ -175,6 +270,8 @@ export default function AuthPage() {
 
     const showLoginRegisterForm = mode === "login" || mode === "register";
     const showVerifyForm = mode === "verify";
+    const showForgotForm = mode === "forgot";
+    const showResetForm = mode === "reset";
 
     return (
         <div style={styles.page}>
@@ -186,10 +283,71 @@ export default function AuthPage() {
                         {mode === "register" && "Tạo tài khoản mới để bắt đầu"}
                         {mode === "verify" &&
                             "Nhập mã 6 số đã gửi đến email của bạn để kích hoạt tài khoản"}
+                        {mode === "forgot" && "Nhập email đăng ký để nhận mã đặt lại mật khẩu"}
+                        {mode === "reset" && "Nhập mã đã gửi đến email và mật khẩu mới"}
                     </p>
                 </div>
 
-                {showVerifyForm ? (
+                {showForgotForm ? (
+                    <form onSubmit={handleSubmit} style={styles.form}>
+                        <div style={styles.field}>
+                            <label style={styles.label}>Email</label>
+                            <input
+                                style={styles.input}
+                                value={forgotEmail}
+                                onChange={(e) => setForgotEmail(e.target.value)}
+                                placeholder="you@example.com"
+                                type="email"
+                                autoComplete="email"
+                            />
+                        </div>
+                        {error && <div style={styles.errorBox}>{error}</div>}
+                        <button
+                            type="submit"
+                            style={{ ...styles.submitBtn, opacity: canSubmit && !loading ? 1 : 0.6, cursor: canSubmit && !loading ? "pointer" : "not-allowed" }}
+                            disabled={!canSubmit || loading}
+                        >
+                            {loading ? "Đang gửi..." : "Gửi mã qua email"}
+                        </button>
+                        <button type="button" onClick={() => { setMode("login"); setError(""); setEmail(forgotEmail || email); setForgotEmail(""); }} style={styles.switchBtn}>
+                            Quay lại đăng nhập
+                        </button>
+                    </form>
+                ) : showResetForm ? (
+                    <form onSubmit={handleSubmit} style={styles.form}>
+                        <div style={styles.field}>
+                            <label style={styles.label}>Email</label>
+                            <input style={{ ...styles.input, background: "#f5f5f5", color: "#555" }} value={forgotEmail} readOnly />
+                        </div>
+                        <div style={styles.field}>
+                            <label style={styles.label}>Mã xác nhận (6 số)</label>
+                            <input
+                                style={styles.input}
+                                value={resetToken}
+                                onChange={(e) => setResetToken(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                                placeholder="123456"
+                                inputMode="numeric"
+                                maxLength={6}
+                            />
+                        </div>
+                        <div style={styles.field}>
+                            <label style={styles.label}>Mật khẩu mới</label>
+                            <input style={styles.input} type={showPw ? "text" : "password"} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="******" autoComplete="new-password" />
+                            <small style={styles.hint}>Tối thiểu 6 ký tự.</small>
+                        </div>
+                        <div style={styles.field}>
+                            <label style={styles.label}>Nhập lại mật khẩu mới</label>
+                            <input style={styles.input} type="password" value={confirmNewPassword} onChange={(e) => setConfirmNewPassword(e.target.value)} placeholder="******" autoComplete="new-password" />
+                        </div>
+                        {error && <div style={styles.errorBox}>{error}</div>}
+                        <button type="submit" style={{ ...styles.submitBtn, opacity: canSubmit && !loading ? 1 : 0.6, cursor: canSubmit && !loading ? "pointer" : "not-allowed" }} disabled={!canSubmit || loading}>
+                            {loading ? "Đang xử lý..." : "Đặt lại mật khẩu"}
+                        </button>
+                        <button type="button" onClick={() => { setMode("forgot"); setResetToken(""); setNewPassword(""); setConfirmNewPassword(""); setError(""); }} style={styles.switchBtn}>
+                            Quay lại bước trước
+                        </button>
+                    </form>
+                ) : showVerifyForm ? (
                     <form onSubmit={handleSubmit} style={styles.form}>
                         <div style={styles.field}>
                             <label style={styles.label}>Email</label>
@@ -244,6 +402,21 @@ export default function AuthPage() {
                                 </div>
                             )}
 
+                            {mode === "register" && (
+                                <div style={styles.field}>
+                                    <label style={styles.label}>Vai trò</label>
+                                    <select
+                                        style={styles.input}
+                                        value={role}
+                                        onChange={(e) => setRole(e.target.value)}
+                                    >
+                                        <option value="manager">Manager</option>
+                                        <option value="warehouse_staff">Warehouse Staff</option>
+                                        <option value="sales_staff">Sales Staff</option>
+                                    </select>
+                                </div>
+                            )}
+
                             <div style={styles.field}>
                                 <label style={styles.label}>Email</label>
                                 <input
@@ -278,6 +451,28 @@ export default function AuthPage() {
                                 </div>
                                 <small style={styles.hint}>Tối thiểu 6 ký tự.</small>
                             </div>
+
+                            {mode === "login" && (
+                                <>
+                                    <div style={styles.field}>
+                                        <label style={{ ...styles.label, display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontWeight: 400 }}>
+                                            <input
+                                                type="checkbox"
+                                                checked={savePassword}
+                                                onChange={(e) => setSavePassword(e.target.checked)}
+                                            />
+                                            Lưu mật khẩu
+                                        </label>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => { setMode("forgot"); setForgotEmail(email.trim()); setError(""); }}
+                                        style={{ ...styles.switchBtn, marginTop: 0, padding: "4px 0", fontSize: 13 }}
+                                    >
+                                        Quên mật khẩu?
+                                    </button>
+                                </>
+                            )}
 
                             {mode === "register" && (
                                 <div style={styles.field}>

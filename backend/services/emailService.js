@@ -1,5 +1,19 @@
 const nodemailer = require('nodemailer');
 
+function getTransporter() {
+    const host = process.env.SMTP_HOST;
+    const user = process.env.SMTP_USER;
+    const pass = process.env.SMTP_PASS;
+    if (!host || !user || !pass) return null;
+    const port = parseInt(process.env.SMTP_PORT || '587', 10);
+    return nodemailer.createTransport({
+        host,
+        port,
+        secure: port === 465,
+        auth: { user, pass },
+    });
+}
+
 const SMTP_HOST = process.env.SMTP_HOST;
 const SMTP_PORT = parseInt(process.env.SMTP_PORT || '587', 10);
 const SMTP_USER = process.env.SMTP_USER;
@@ -68,4 +82,46 @@ async function sendVerificationEmail(registeredEmail, fullName, verificationToke
     return false;
 }
 
-module.exports = { sendVerificationEmail, hasSmtpConfig };
+/**
+ * Gửi mã đặt lại mật khẩu qua email.
+ * @param {string} to - Email người dùng
+ * @param {string} resetToken - Mã 6 số
+ * @returns {Promise<boolean>}
+ */
+async function sendPasswordResetEmail(to, resetToken) {
+    const emailTo = to.trim().toLowerCase();
+    const subject = 'Đặt lại mật khẩu - Mã xác nhận';
+    const html = `
+        <div style="font-family: Arial, sans-serif; max-width: 500px;">
+            <h2>Đặt lại mật khẩu</h2>
+            <p>Bạn đã yêu cầu đặt lại mật khẩu cho tài khoản <strong>${emailTo}</strong>.</p>
+            <p>Mã xác nhận của bạn:</p>
+            <p style="font-size: 24px; letter-spacing: 4px; font-weight: bold; background: #f0f0f0; padding: 12px; border-radius: 8px;">${resetToken}</p>
+            <p style="color: #666;">Mã có hiệu lực trong 1 giờ. Nếu bạn không yêu cầu đặt lại mật khẩu, hãy bỏ qua email này.</p>
+        </div>
+    `;
+    const text = `Mã đặt lại mật khẩu: ${resetToken}. Mã có hiệu lực trong 1 giờ.`;
+
+    const transport = getTransporter() || transporter;
+    if (transport) {
+        try {
+            await transport.sendMail({
+                from: EMAIL_FROM,
+                to: emailTo,
+                subject,
+                text,
+                html,
+            });
+            return true;
+        } catch (err) {
+            console.error('Lỗi gửi email đặt lại mật khẩu:', err.message);
+            console.error('Chi tiết:', err.code, err.response);
+            throw err;
+        }
+    }
+    console.warn('--- SMTP chưa cấu hình: không gửi email đặt lại mật khẩu. ---');
+    console.warn('To:', emailTo, 'Mã (không gửi):', resetToken);
+    return false;
+}
+
+module.exports = { sendVerificationEmail, sendPasswordResetEmail, hasSmtpConfig };

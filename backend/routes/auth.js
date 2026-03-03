@@ -4,11 +4,13 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const User = require('../models/User');
 const UnauthenticatedUser = require('../models/UnauthenticatedUser');
-const { sendVerificationEmail } = require('../services/emailService');
+const PasswordReset = require('../models/PasswordReset');
+const { sendVerificationEmail, sendPasswordResetEmail } = require('../services/emailService');
 
 const router = express.Router();
 
 const VERIFICATION_TOKEN_EXPIRY_HOURS = 24;
+const RESET_TOKEN_EXPIRY_HOURS = 1;
 
 function generateVerificationToken() {
     return crypto.randomInt(100000, 999999).toString();
@@ -17,10 +19,15 @@ function generateVerificationToken() {
 // POST /api/auth/register — Lưu vào UnauthenticatedUser, gửi mã qua email
 router.post('/register', async (req, res) => {
     try {
-        const { fullName, email, password } = req.body;
+        const { fullName, email, password, role } = req.body;
 
         if (!fullName || !email || !password) {
             return res.status(400).json({ message: 'Thiếu dữ liệu bắt buộc' });
+        }
+
+        const validRoles = ['manager', 'warehouse_staff', 'sales_staff'];
+        if (!role || !validRoles.includes(role)) {
+            return res.status(400).json({ message: 'Vui lòng chọn vai trò: Manager, Warehouse Staff hoặc Sales Staff' });
         }
 
         if (password.length < 6) {
@@ -57,6 +64,7 @@ router.post('/register', async (req, res) => {
             fullName: fullName.trim(),
             email: normalizedEmail,
             password: hashedPassword,
+            role,
             verificationToken,
             verificationTokenExpires,
         });
@@ -109,6 +117,7 @@ router.post('/verify-email', async (req, res) => {
             fullName: unauth.fullName,
             email: unauth.email,
             password: unauth.password,
+            role: unauth.role,
         });
 
         // Xóa khỏi collection UnauthenticatedUser ngay sau khi xác thực thành công
@@ -126,11 +135,118 @@ router.post('/verify-email', async (req, res) => {
                 id: user._id,
                 fullName: user.fullName,
                 email: user.email,
+                role: user.role,
             },
         });
     } catch (err) {
         console.error(err);
         res.status(500).json({ message: 'Server error' });
+    }
+});
+
+// POST /api/auth/forgot-password — Gửi mã đặt lại mật khẩu qua email
+router.post('/forgot-password', async (req, res) => {
+    try {
+        const { email } = req.body;
+        if (!email || !email.trim()) {
+            return res.status(400).json({ message: 'Vui lòng nhập email' });
+        }
+
+        const normalizedEmail = email.toLowerCase().trim();
+        const user = await User.findOne({ email: normalizedEmail });
+        if (!user) {
+            return res.status(400).json({ message: 'Không tìm thấy tài khoản với email này' });
+        }
+
+        await PasswordReset.deleteMany({ email: normalizedEmail });
+
+        const token = generateVerificationToken();
+        const tokenDigitsOnly = String(token).replace(/\D/g, '');
+        const expiresAt = new Date(Date.now() + RESET_TOKEN_EXPIRY_HOURS * 60 * 60 * 1000);
+
+        const emailSent = await sendPasswordResetEmail(normalizedEmail, tokenDigitsOnly);
+        if (!emailSent) {
+            return res.status(503).json({
+                message: 'Hệ thống chưa cấu hình gửi email. Vui lòng cấu hình SMTP trong .env.',
+            });
+        }
+
+        await PasswordReset.create({ email: normalizedEmail, token: tokenDigitsOnly, expiresAt });
+
+        res.json({
+            message: 'Mã đặt lại mật khẩu đã được gửi đến email của bạn. Vui lòng kiểm tra hộp thư (và thư mục spam).',
+            email: normalizedEmail,
+        });
+    } catch (err) {
+        console.error('Lỗi forgot-password:', err.message);
+        console.error('err.code:', err.code, 'err.responseCode:', err.responseCode);
+        if (err.code === 'EAUTH') {
+            return res.status(503).json({
+                message: 'Lỗi xác thực SMTP. Kiểm tra SMTP_USER và SMTP_PASS trong .env (Gmail: dùng App Password).',
+            });
+        }
+        if (err.code === 'ECONNREFUSED' || err.code === 'ETIMEDOUT' || err.code === 'ENOTFOUND') {
+            return res.status(503).json({
+                message: 'Không kết nối được máy chủ email. Kiểm tra SMTP_HOST, SMTP_PORT và mạng.',
+            });
+        }
+        if (err.code || err.responseCode) {
+            return res.status(503).json({
+                message: 'Không gửi được email. Kiểm tra cấu hình SMTP trong .env.',
+            });
+        }
+        return res.status(500).json({ message: 'Lỗi máy chủ. Thử lại sau.' });
+    }
+});
+
+// POST /api/auth/reset-password — Xác minh mã và đổi mật khẩu
+router.post('/reset-password', async (req, res) => {
+    try {
+        const { email, token, newPassword } = req.body;
+
+        if (!email || !token || !newPassword) {
+            return res.status(400).json({ message: 'Vui lòng nhập đủ email, mã xác nhận và mật khẩu mới' });
+        }
+        if (newPassword.length < 6) {
+            return res.status(400).json({ message: 'Mật khẩu mới phải >= 6 ký tự' });
+        }
+
+        const normalizedEmail = (typeof email === 'string' ? email : String(email)).toLowerCase().trim();
+        const normalizedToken = String(token).trim().replace(/\D/g, '');
+
+        if (normalizedToken.length < 4) {
+            return res.status(400).json({ message: 'Mã xác nhận phải có ít nhất 4 chữ số' });
+        }
+
+        const reset = await PasswordReset.findOne({
+            email: normalizedEmail,
+            token: normalizedToken,
+        });
+
+        if (!reset) {
+            return res.status(400).json({ message: 'Email hoặc mã xác nhận không đúng' });
+        }
+        if (new Date() > reset.expiresAt) {
+            await PasswordReset.deleteOne({ _id: reset._id });
+            return res.status(400).json({ message: 'Mã đã hết hạn. Vui lòng yêu cầu gửi lại mã.' });
+        }
+
+        const user = await User.findOne({ email: normalizedEmail });
+        if (!user) {
+            await PasswordReset.deleteOne({ _id: reset._id });
+            return res.status(400).json({ message: 'Tài khoản không tồn tại' });
+        }
+
+        const salt = await bcrypt.genSalt(10);
+        user.password = await bcrypt.hash(newPassword, salt);
+        await user.save();
+
+        await PasswordReset.deleteOne({ _id: reset._id });
+
+        return res.json({ message: 'Đặt lại mật khẩu thành công. Bạn có thể đăng nhập bằng mật khẩu mới.' });
+    } catch (err) {
+        console.error('Lỗi reset-password:', err);
+        return res.status(500).json({ message: err.message || 'Lỗi máy chủ. Thử lại sau.' });
     }
 });
 

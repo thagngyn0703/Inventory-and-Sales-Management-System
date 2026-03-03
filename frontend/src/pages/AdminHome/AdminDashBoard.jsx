@@ -1,4 +1,5 @@
 import { useNavigate } from "react-router-dom";
+import { useEffect } from "react";
 import Sidebar from "../../components/Sidebar";
 import "./AdminDashBoard.css";
 
@@ -6,10 +7,22 @@ export default function AdminDashboard() {
     const navigate = useNavigate();
     const user = JSON.parse(localStorage.getItem("user"));
 
+    useEffect(() => {
+        if (!localStorage.getItem("token") || !user) {
+            navigate("/login", { replace: true });
+            return;
+        }
+        if (user.role !== "manager" && user.role !== "admin") {
+            navigate("/home", { replace: true });
+        }
+    }, [user, navigate]);
+
     const logout = () => {
         localStorage.clear();
         navigate("/login");
     };
+
+    if (!user || (user.role !== "manager" && user.role !== "admin")) return null;
 
     return (
         <div className="admin-page-with-sidebar">
@@ -21,7 +34,7 @@ export default function AdminDashboard() {
                         Xin chào <b>{user?.email || "Admin"}</b>
                     </p>
                     <p>
-                        Role: <b>{user?.role || "admin"}</b>
+                        Role: <b>{user?.role === "manager" ? "Manager" : user?.role === "admin" ? "Admin" : user?.role}</b>
                     </p>
 
                     <div className="admin-grid">
