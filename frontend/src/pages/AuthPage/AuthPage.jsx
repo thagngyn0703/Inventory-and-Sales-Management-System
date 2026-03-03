@@ -98,6 +98,8 @@ export default function AuthPage() {
                 const role = data.user?.role;
                 if (role === "admin") {
                     navigate("/admin", { replace: true });
+                } else if (role === "manager" || role === "warehouse" || role === "sales") {
+                    navigate("/manager", { replace: true });
                 } else {
                     navigate("/home", { replace: true });
                 }
@@ -130,6 +132,8 @@ export default function AuthPage() {
 
                 if (role === "admin") {
                     navigate("/admin", { replace: true });
+                } else if (role === "manager" || role === "warehouse" || role === "sales") {
+                    navigate("/manager", { replace: true });
                 } else {
                     navigate("/home", { replace: true });
                 }
