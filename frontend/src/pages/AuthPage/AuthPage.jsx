@@ -94,10 +94,13 @@ export default function AuthPage() {
                 }
                 if (data.token) localStorage.setItem("token", data.token);
                 if (data.user) localStorage.setItem("user", JSON.stringify(data.user));
-                alert("Xác minh thành công! Bạn đã có thể đăng nhập.");
-                setMode("login");
-                setPendingVerifyEmail("");
-                setVerificationToken("");
+                alert("Xác minh thành công!");
+                const role = data.user?.role;
+                if (role === "admin") {
+                    navigate("/admin", { replace: true });
+                } else {
+                    navigate("/home", { replace: true });
+                }
                 return;
             }
 
@@ -127,10 +130,8 @@ export default function AuthPage() {
 
                 if (role === "admin") {
                     navigate("/admin", { replace: true });
-                } else if (role === "user") {
-                    navigate("/home", { replace: true });
                 } else {
-                    setError("Role không hợp lệ");
+                    navigate("/home", { replace: true });
                 }
                 console.log("USER LOGIN:", data.user);
                 console.log("ROLE:", data.user?.role, typeof data.user?.role);
@@ -173,7 +174,6 @@ export default function AuthPage() {
         setError("");
     };
 
-    const showLoginRegisterForm = mode === "login" || mode === "register";
     const showVerifyForm = mode === "verify";
 
     return (

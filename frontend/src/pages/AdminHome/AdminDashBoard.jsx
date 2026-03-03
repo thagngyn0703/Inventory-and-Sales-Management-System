@@ -22,7 +22,13 @@ export default function AdminDashboard() {
                 </p>
 
                 <div className="admin-grid">
-                    <div className="admin-box">📦 Quản lý sản phẩm</div>
+                    <button
+                        type="button"
+                        className="admin-box admin-box-btn"
+                        onClick={() => navigate("/admin/products")}
+                    >
+                        📦 Quản lý sản phẩm
+                    </button>
                     <div className="admin-box">👥 Quản lý người dùng</div>
                     <div className="admin-box">📊 Báo cáo</div>
                     <div className="admin-box">⚙️ Cài đặt hệ thống</div>

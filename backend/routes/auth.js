@@ -126,6 +126,7 @@ router.post('/verify-email', async (req, res) => {
                 id: user._id,
                 fullName: user.fullName,
                 email: user.email,
+                role: user.role,
             },
         });
     } catch (err) {

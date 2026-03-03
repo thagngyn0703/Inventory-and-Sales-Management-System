@@ -4,6 +4,7 @@ import "./Home.css";
 export default function Home() {
     const navigate = useNavigate();
     const user = JSON.parse(localStorage.getItem("user"));
+    const canViewProducts = true;
 
     const logout = () => {
         localStorage.removeItem("token");
@@ -21,6 +22,16 @@ export default function Home() {
                 <p>
                     Role: <b>{user?.role || "user"}</b>
                 </p>
+
+                {canViewProducts && (
+                    <button
+                        className="home-btn"
+                        style={{ background: "#111827" }}
+                        onClick={() => navigate("/admin/products")}
+                    >
+                        📦 Product list
+                    </button>
+                )}
 
                 <button className="home-btn" onClick={logout}>
                     Đăng xuất
