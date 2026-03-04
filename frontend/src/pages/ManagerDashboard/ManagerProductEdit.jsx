@@ -1,7 +1,7 @@
-import React, { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useMemo } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import ManagerSidebar from './ManagerSidebar';
-import { createProduct } from '../../services/productsApi';
+import { getProduct, updateProduct } from '../../services/productsApi';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
 
@@ -16,15 +16,38 @@ const defaultForm = {
     status: 'active',
 };
 
-export default function ManagerProductCreate() {
+export default function ManagerProductEdit() {
     const navigate = useNavigate();
+    const { id } = useParams();
     const [form, setForm] = useState(defaultForm);
     const [loading, setLoading] = useState(false);
+    const [loadProduct, setLoadProduct] = useState(true);
     const [error, setError] = useState('');
 
     const saleNum = useMemo(() => Number(form.sale_price) || 0, [form.sale_price]);
     const costNum = useMemo(() => Number(form.cost_price) || 0, [form.cost_price]);
     const expectedProfit = useMemo(() => Math.max(0, saleNum - costNum), [saleNum, costNum]);
+
+    useEffect(() => {
+        if (!id) return;
+        setLoadProduct(true);
+        setError('');
+        getProduct(id)
+            .then((p) => {
+                setForm({
+                    name: p.name || '',
+                    sku: p.sku || '',
+                    barcode: p.barcode || '',
+                    cost_price: p.cost_price != null ? String(p.cost_price) : '',
+                    sale_price: p.sale_price != null ? String(p.sale_price) : '',
+                    stock_qty: p.stock_qty != null ? String(p.stock_qty) : '',
+                    reorder_level: p.reorder_level != null ? String(p.reorder_level) : '',
+                    status: p.status === 'inactive' ? 'inactive' : 'active',
+                });
+            })
+            .catch((e) => setError(e.message || 'Không tải được sản phẩm'))
+            .finally(() => setLoadProduct(false));
+    }, [id]);
 
     const update = (field, value) => {
         setForm((prev) => {
@@ -40,6 +63,7 @@ export default function ManagerProductCreate() {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        if (!id) return;
         if (!form.name.trim()) {
             setError('Vui lòng nhập tên sản phẩm.');
             return;
@@ -51,7 +75,7 @@ export default function ManagerProductCreate() {
         setLoading(true);
         setError('');
         try {
-            await createProduct({
+            await updateProduct(id, {
                 name: form.name.trim(),
                 sku: form.sku.trim(),
                 barcode: form.barcode ? String(form.barcode).trim() : undefined,
@@ -61,13 +85,26 @@ export default function ManagerProductCreate() {
                 reorder_level: Number(form.reorder_level) || 0,
                 status: form.status === 'inactive' ? 'inactive' : 'active',
             });
-            navigate('/manager/products', { state: { success: 'Thêm sản phẩm thành công.' } });
+            navigate('/manager/products', { state: { success: 'Cập nhật sản phẩm thành công.' } });
         } catch (err) {
-            setError(err.message || 'Không thể tạo sản phẩm.');
+            setError(err.message || 'Không thể cập nhật sản phẩm.');
         } finally {
             setLoading(false);
         }
     };
+
+    if (loadProduct) {
+        return (
+            <div className="manager-page-with-sidebar">
+                <ManagerSidebar />
+                <div className="manager-main">
+                    <div className="manager-content">
+                        <p className="manager-products-loading">Đang tải...</p>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="manager-page-with-sidebar">
@@ -89,21 +126,28 @@ export default function ManagerProductCreate() {
                 <div className="manager-content">
                     <div className="manager-products-header">
                         <div>
-                            <h1 className="manager-page-title">Thêm sản phẩm</h1>
-                            <p className="manager-page-subtitle">Tạo sản phẩm mới trong kho. Giá vốn mặc định = 80% giá bán.</p>
+                            <h1 className="manager-page-title">Sửa sản phẩm</h1>
+                            <p className="manager-page-subtitle">Cập nhật thông tin sản phẩm. Giá vốn mặc định = 80% giá bán.</p>
                         </div>
-                        <button
-                            type="button"
-                            className="manager-btn-secondary"
-                            onClick={() => navigate('/manager/products')}
-                        >
-                            <i className="fa-solid fa-arrow-left" /> Quay lại
-                        </button>
+                        <div className="manager-detail-actions">
+                            <button
+                                type="button"
+                                className="manager-btn-secondary"
+                                onClick={() => navigate(`/manager/products/${id}`)}
+                            >
+                                <i className="fa-solid fa-eye" /> Xem chi tiết
+                            </button>
+                            <button
+                                type="button"
+                                className="manager-btn-secondary"
+                                onClick={() => navigate('/manager/products')}
+                            >
+                                <i className="fa-solid fa-arrow-left" /> Danh sách
+                            </button>
+                        </div>
                     </div>
 
-                    {error && (
-                        <div className="manager-products-error">{error}</div>
-                    )}
+                    {error && <div className="manager-products-error">{error}</div>}
 
                     <div className="manager-panel-card manager-product-form-card">
                         <form onSubmit={handleSubmit} className="manager-product-form">
@@ -175,16 +219,16 @@ export default function ManagerProductCreate() {
                             {(saleNum > 0 || costNum > 0) && (
                                 <div className="manager-profit-hint">
                                     Lời dự kiến: <strong>{expectedProfit.toLocaleString('vi-VN')}₫</strong>
-                                    {saleNum > 0 && (
+                                    {saleNum > 0 && costNum > 0 && (
                                         <span className="manager-profit-margin">
-                                            (tỷ lệ lãi: {costNum > 0 ? ((expectedProfit / costNum) * 100).toFixed(1) : '0'}%)
+                                            (tỷ lệ lãi: {((expectedProfit / costNum) * 100).toFixed(1)}%)
                                         </span>
                                     )}
                                 </div>
                             )}
                             <div className="manager-form-row manager-form-row--2">
                                 <div className="manager-form-group">
-                                    <label>Tồn kho ban đầu</label>
+                                    <label>Tồn kho</label>
                                     <input
                                         type="number"
                                         min="0"
@@ -217,7 +261,7 @@ export default function ManagerProductCreate() {
                                     className="manager-btn-primary"
                                     disabled={loading}
                                 >
-                                    {loading ? 'Đang lưu...' : 'Tạo sản phẩm'}
+                                    {loading ? 'Đang lưu...' : 'Lưu thay đổi'}
                                 </button>
                             </div>
                         </form>

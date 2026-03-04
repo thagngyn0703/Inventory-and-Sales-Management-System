@@ -6,6 +6,8 @@ import AdminDashboard from "./pages/AdminHome/AdminDashBoard";
 import ManagerDashboard from "./pages/ManagerDashboard/ManagerDashboard";
 import ManagerProductList from "./pages/ManagerDashboard/ManagerProductList";
 import ManagerProductCreate from "./pages/ManagerDashboard/ManagerProductCreate";
+import ManagerProductDetail from "./pages/ManagerDashboard/ManagerProductDetail";
+import ManagerProductEdit from "./pages/ManagerDashboard/ManagerProductEdit";
 
 function App() {
   return (
@@ -17,6 +19,8 @@ function App() {
       <Route path="/manager" element={<ManagerDashboard />} />
       <Route path="/manager/products" element={<ManagerProductList />} />
       <Route path="/manager/products/new" element={<ManagerProductCreate />} />
+      <Route path="/manager/products/:id/edit" element={<ManagerProductEdit />} />
+      <Route path="/manager/products/:id" element={<ManagerProductDetail />} />
     </Routes>
   );
 }
