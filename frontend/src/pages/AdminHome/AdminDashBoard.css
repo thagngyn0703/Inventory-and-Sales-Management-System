@@ -1,9 +1,9 @@
 .admin-page {
     min-height: 100vh;
-    background: #111827;
+    background: #ffffff;
     display: grid;
     place-items: center;
-    color: #ffffff;
+    color: #111827;
     font-family: system-ui, sans-serif;
 }
 
@@ -25,15 +25,17 @@
 }
 
 .admin-card {
-    background: #1f2937;
+    background: #f9fafb;
     padding: 30px;
     border-radius: 18px;
     width: 100%;
     max-width: 600px;
+    border: 1px solid #e5e7eb;
 }
 
 .admin-card h1 {
     margin-bottom: 10px;
+    color: #111827;
 }
 
 .admin-grid {
@@ -44,11 +46,24 @@
 }
 
 .admin-box {
-    background: #374151;
+    background: #ffffff;
     padding: 20px;
     border-radius: 12px;
     text-align: center;
     font-weight: 600;
+    border: 1px solid #e5e7eb;
+    color: #111827;
+}
+
+.admin-box-btn {
+    width: 100%;
+    border: none;
+    color: inherit;
+    cursor: pointer;
+}
+
+.admin-box-btn:hover {
+    background: #f3f4f6;
 }
 
 .admin-btn {

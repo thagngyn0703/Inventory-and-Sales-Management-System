@@ -9,7 +9,6 @@ export default function Sidebar() {
     const menuItems = [
         { label: '🏠 Dashboard', path: '/admin', roles: ['admin', 'manager'] },
         { label: '🏠 Dashboard', path: '/home', roles: ['user', 'warehouse_staff'] },
-        { label: '🗂 Danh mục', path: '/categories', roles: ['admin', 'manager', 'warehouse_staff'] },
         { label: '📦 Sản phẩm', path: '/products', roles: ['admin', 'manager', 'warehouse_staff'] },
         { label: '👥 Nhà cung cấp', path: '/suppliers', roles: ['admin', 'manager'] },
         { label: '👤 Khách hàng', path: '/customers', roles: ['admin', 'manager', 'user'] },
