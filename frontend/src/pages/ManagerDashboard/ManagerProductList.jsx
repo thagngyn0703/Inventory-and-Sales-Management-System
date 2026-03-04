@@ -142,6 +142,7 @@ export default function ManagerProductList() {
                                                 <th>Giá vốn</th>
                                                 <th>Giá bán</th>
                                                 <th>Tồn kho</th>
+                                                <th>Đơn vị</th>
                                                 <th>Trạng thái</th>
                                                 <th>Thao tác</th>
                                             </tr>
@@ -149,7 +150,7 @@ export default function ManagerProductList() {
                                         <tbody>
                                             {products.length === 0 ? (
                                                 <tr>
-                                                    <td colSpan={8} className="manager-products-empty">
+                                                    <td colSpan={9} className="manager-products-empty">
                                                         {search ? 'Không có sản phẩm nào phù hợp.' : 'Chưa có sản phẩm.'}
                                                     </td>
                                                 </tr>
@@ -170,6 +171,7 @@ export default function ManagerProductList() {
                                                         <td>{formatMoney(p.cost_price)}</td>
                                                         <td>{formatMoney(p.sale_price)}</td>
                                                         <td>{p.stock_qty != null ? p.stock_qty : '0'}</td>
+                                                        <td>{p.base_unit || 'Cái'}</td>
                                                         <td>
                                                             <span className={`manager-products-status manager-products-status--${p.status || 'active'}`}>
                                                                 {p.status === 'inactive' ? 'Ngừng' : 'Đang bán'}

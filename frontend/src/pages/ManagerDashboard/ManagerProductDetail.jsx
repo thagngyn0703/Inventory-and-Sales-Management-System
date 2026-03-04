@@ -149,20 +149,39 @@ export default function ManagerProductDetail() {
                                 <dd>{p.barcode || '—'}</dd>
                             </div>
                             <div className="manager-detail-row">
-                                <dt>Giá vốn</dt>
-                                <dd>{formatMoney(p.cost_price)}</dd>
+                                <dt>Đơn vị tồn kho (gốc)</dt>
+                                <dd>{p.base_unit || 'Cái'}</dd>
                             </div>
                             <div className="manager-detail-row">
-                                <dt>Giá bán</dt>
-                                <dd>{formatMoney(p.sale_price)}</dd>
+                                <dt>Giá vốn / 1 {p.base_unit || 'Cái'}</dt>
+                                <dd>{formatMoney(p.cost_price)}</dd>
                             </div>
+                            {(p.selling_units && p.selling_units.length) > 0 ? (
+                                <div className="manager-detail-row manager-detail-row--full">
+                                    <dt>Đơn vị bán & giá</dt>
+                                    <dd>
+                                        <ul className="manager-selling-units-detail">
+                                            {p.selling_units.map((u, i) => (
+                                                <li key={i}>
+                                                    <strong>{u.name}</strong>: tỉ lệ {u.ratio} = {formatMoney(u.sale_price)}
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </dd>
+                                </div>
+                            ) : (
+                                <div className="manager-detail-row">
+                                    <dt>Giá bán (đơn vị gốc)</dt>
+                                    <dd>{formatMoney(p.sale_price)}</dd>
+                                </div>
+                            )}
                             <div className="manager-detail-row">
                                 <dt>Lời dự kiến</dt>
                                 <dd>{formatMoney(profit)} ({marginPct}%)</dd>
                             </div>
                             <div className="manager-detail-row">
                                 <dt>Tồn kho</dt>
-                                <dd>{p.stock_qty != null ? p.stock_qty : 0}</dd>
+                                <dd>{p.stock_qty != null ? p.stock_qty : 0} {p.base_unit || 'Cái'}</dd>
                             </div>
                             <div className="manager-detail-row">
                                 <dt>Mức tồn tối thiểu</dt>
