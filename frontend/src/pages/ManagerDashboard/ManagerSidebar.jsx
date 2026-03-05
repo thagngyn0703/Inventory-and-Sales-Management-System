@@ -10,6 +10,7 @@ export default function ManagerSidebar() {
         { label: 'Tổng quan', path: '/manager', icon: 'fa-house' },
         { label: 'Đơn hàng', path: '/manager/orders', icon: 'fa-file-lines' },
         { label: 'Sản phẩm', path: '/manager/products', icon: 'fa-cart-shopping' },
+        { label: 'Danh mục', path: '/manager/categories', icon: 'fa-list' },
         { label: 'Khách hàng', path: '/manager/customers', icon: 'fa-users' },
         { label: 'Báo cáo', path: '/manager/reports', icon: 'fa-chart-bar' },
     ];

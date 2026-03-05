@@ -1,0 +1,326 @@
+import React, { useState, useEffect } from 'react';
+import ManagerSidebar from '../ManagerDashboard/ManagerSidebar';
+import './Categories.css';
+import '../ManagerDashboard/ManagerDashboard.css';
+
+const API_BASE = 'http://localhost:8000/api';
+
+const Categories = () => {
+    const [categories, setCategories] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+    const [showCreateModal, setShowCreateModal] = useState(false);
+    const [newName, setNewName] = useState('');
+    const [editingId, setEditingId] = useState(null);
+    const [editingName, setEditingName] = useState('');
+    const [showEditModal, setShowEditModal] = useState(false);
+    const [search, setSearch] = useState('');
+    const [searchInput, setSearchInput] = useState('');
+
+    const token = localStorage.getItem('token');
+
+    useEffect(() => {
+        const fetchCategories = async () => {
+            setLoading(true);
+            setError('');
+            try {
+                const res = await fetch(`${API_BASE}/categories?all=true`, {
+                    headers: { Authorization: 'Bearer ' + token },
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.message || 'Không thể tải danh mục');
+                setCategories(data);
+            } catch (err) {
+                setError(err.message);
+            }
+            setLoading(false);
+        };
+        fetchCategories();
+    }, [token]);
+
+    const refetchCategories = async () => {
+        setLoading(true);
+        setError('');
+        try {
+            const res = await fetch(`${API_BASE}/categories?all=true`, {
+                headers: { Authorization: 'Bearer ' + token },
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.message || 'Không thể tải danh mục');
+            setCategories(data);
+        } catch (err) {
+            setError(err.message);
+        }
+        setLoading(false);
+    };
+
+    const handleCreate = async (ev) => {
+        ev.preventDefault();
+        if (!newName.trim()) return;
+        setLoading(true);
+        setError('');
+        try {
+            const res = await fetch(`${API_BASE}/categories`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: 'Bearer ' + token,
+                },
+                body: JSON.stringify({ name: newName.trim() }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.message || 'Tạo danh mục thất bại');
+            setNewName('');
+            setShowCreateModal(false);
+            refetchCategories();
+        } catch (err) {
+            setError(err.message);
+        }
+        setLoading(false);
+    };
+
+    const startEdit = (cat) => {
+        setEditingId(cat._id);
+        setEditingName(cat.name);
+        setShowEditModal(true);
+    };
+
+    const cancelEdit = () => {
+        setEditingId(null);
+        setEditingName('');
+        setShowEditModal(false);
+    };
+
+    const saveEdit = async () => {
+        if (!editingName.trim()) return;
+        setLoading(true);
+        setError('');
+        try {
+            const res = await fetch(`${API_BASE}/categories/${editingId}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: 'Bearer ' + token,
+                },
+                body: JSON.stringify({ name: editingName.trim() }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.message || 'Cập nhật thất bại');
+            cancelEdit();
+            refetchCategories();
+        } catch (err) {
+            setError(err.message);
+        }
+        setLoading(false);
+    };
+
+    const toggleActive = async (id, current) => {
+        setLoading(true);
+        setError('');
+        try {
+            const res = await fetch(`${API_BASE}/categories/${id}/activate`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: 'Bearer ' + token,
+                },
+                body: JSON.stringify({ is_active: !current }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.message || 'Cập nhật thất bại');
+            refetchCategories();
+        } catch (err) {
+            setError(err.message);
+        }
+        setLoading(false);
+    };
+
+    const handleSearchSubmit = (e) => {
+        e.preventDefault();
+        setSearch(searchInput.trim());
+    };
+
+    // Filter categories based on search term
+    const filteredCategories = categories.filter(cat =>
+        cat.name.toLowerCase().includes(search.toLowerCase())
+    );
+
+    return (
+        <div className="manager-page-with-sidebar">
+            <ManagerSidebar />
+            <div className="manager-main">
+                <header className="manager-topbar">
+                    <form onSubmit={handleSearchSubmit} className="manager-topbar-search-wrap">
+                        <input
+                            type="search"
+                            className="manager-search"
+                            placeholder="Tìm danh mục..."
+                            value={searchInput}
+                            onChange={(e) => setSearchInput(e.target.value)}
+                        />
+                        <button type="submit" className="manager-icon-btn" aria-label="Tìm kiếm">
+                            <i className="fa-solid fa-search" />
+                        </button>
+                    </form>
+                    <div className="manager-topbar-actions">
+                        <button type="button" className="manager-icon-btn" aria-label="Thông báo">
+                            <i className="fa-solid fa-bell" />
+                        </button>
+                        <div className="manager-user-badge">
+                            <i className="fa-solid fa-circle-user" />
+                            <span>Quản lý</span>
+                        </div>
+                    </div>
+                </header>
+
+                <div className="manager-content">
+                    <div className="manager-products-header">
+                        <div>
+                            <h1 className="manager-page-title">Danh mục</h1>
+                            <p className="manager-page-subtitle">Quản lý danh mục sản phẩm</p>
+                        </div>
+                        <button
+                            type="button"
+                            className="manager-btn-primary"
+                            onClick={() => setShowCreateModal(true)}
+                            disabled={loading}
+                        >
+                            <i className="fa-solid fa-plus" /> Thêm danh mục
+                        </button>
+                    </div>
+
+                    {error && <div className="manager-products-error">{error}</div>}
+
+                    {showCreateModal && (
+                        <div className="modal-overlay" onClick={() => setShowCreateModal(false)}>
+                            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+                                <h2>Tạo danh mục mới</h2>
+                                <form onSubmit={handleCreate}>
+                                    <input
+                                        type="text"
+                                        value={newName}
+                                        onChange={(e) => setNewName(e.target.value)}
+                                        placeholder="Nhập tên danh mục"
+                                        autoFocus
+                                    />
+                                    <div className="modal-buttons">
+                                        <button
+                                            type="submit"
+                                            disabled={!newName.trim() || loading}
+                                            className="btn-submit"
+                                        >
+                                            Tạo
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setShowCreateModal(false);
+                                                setNewName('');
+                                            }}
+                                            className="btn-cancel"
+                                        >
+                                            Hủy
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+
+                    {showEditModal && (
+                        <div className="modal-overlay" onClick={cancelEdit}>
+                            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+                                <h2>Chỉnh sửa danh mục</h2>
+                                <form
+                                    onSubmit={(e) => {
+                                        e.preventDefault();
+                                        saveEdit();
+                                    }}
+                                >
+                                    <input
+                                        type="text"
+                                        value={editingName}
+                                        onChange={(e) => setEditingName(e.target.value)}
+                                        placeholder="Nhập tên danh mục"
+                                        autoFocus
+                                    />
+                                    <div className="modal-buttons">
+                                        <button
+                                            type="submit"
+                                            disabled={!editingName.trim() || loading}
+                                            className="btn-submit"
+                                        >
+                                            Lưu
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={cancelEdit}
+                                            className="btn-cancel"
+                                        >
+                                            Hủy
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="manager-panel-card manager-products-card">
+                        {loading ? (
+                            <p className="manager-products-loading">Đang tải...</p>
+                        ) : (
+                            <div className="manager-products-table-wrap">
+                                <table className="manager-products-table">
+                                    <thead>
+                                        <tr>
+                                            <th>TÊN DANH MỤC</th>
+                                            <th>TRẠNG THÁI</th>
+                                            <th>NGÀY TẠO</th>
+                                            <th>THAO TÁC</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {filteredCategories.length === 0 ? (
+                                            <tr>
+                                                <td colSpan={4} className="manager-products-empty">
+                                                    {search ? 'Không có danh mục nào phù hợp.' : 'Chưa có danh mục.'}
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            filteredCategories.map((cat) => (
+                                                <tr key={cat._id}>
+                                                    <td>{cat.name}</td>
+                                                    <td>
+                                                        <button
+                                                            className={`manager-products-status manager-products-status--${cat.is_active ? 'active' : 'inactive'}`}
+                                                            onClick={() => toggleActive(cat._id, cat.is_active)}
+                                                        >
+                                                            {cat.is_active ? 'Hoạt động' : 'Dừng hoạt động'}
+                                                        </button>
+                                                    </td>
+                                                    <td>{new Date(cat.created_at).toLocaleDateString('vi-VN')}</td>
+                                                    <td>
+                                                        <button
+                                                            type="button"
+                                                            className="manager-action-btn"
+                                                            onClick={() => startEdit(cat)}
+                                                            aria-label="Sửa"
+                                                        >
+                                                            ✏️
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+export default Categories;
