@@ -21,6 +21,7 @@ export default function AdminUserList() {
     const [total, setTotal] = useState(0);
     const [loading, setLoading] = useState(false);
     const [toggling, setToggling] = useState(null);
+    const [confirmModal, setConfirmModal] = useState({ show: false, userId: null, currentStatus: '', userName: '' });
     const limit = 10;
 
     const token = localStorage.getItem('token');
@@ -59,7 +60,19 @@ export default function AdminUserList() {
         setPage(1);
     };
 
-    const toggleStatus = async (userId, currentStatus) => {
+    const handleClickToggle = (user) => {
+        setConfirmModal({
+            show: true,
+            userId: user._id,
+            currentStatus: user.status,
+            userName: user.fullName,
+        });
+    };
+
+    const confirmToggleStatus = async () => {
+        const { userId, currentStatus } = confirmModal;
+        setConfirmModal({ show: false, userId: null, currentStatus: '', userName: '' });
+
         setToggling(userId);
         const newStatus = currentStatus === 'inactive' ? 'active' : 'inactive';
         try {
@@ -206,7 +219,7 @@ export default function AdminUserList() {
                                                 <button
                                                     type="button"
                                                     className={`au-toggle-btn ${u.status === 'inactive' ? 'au-toggle-btn--activate' : 'au-toggle-btn--deactivate'}`}
-                                                    onClick={() => toggleStatus(u._id, u.status)}
+                                                    onClick={() => handleClickToggle(u)}
                                                     disabled={toggling === u._id}
                                                 >
                                                     {toggling === u._id
@@ -261,6 +274,26 @@ export default function AdminUserList() {
                     </div>
                 </div>
             </div>
+
+            {/* Custom Modal */}
+            {confirmModal.show && (
+                <div className="au-modal-overlay">
+                    <div className="au-modal-content">
+                        <h3>Xác nhận thao tác</h3>
+                        <p>
+                            Bạn có chắc chắn muốn {confirmModal.currentStatus === 'inactive' ? <strong>kích hoạt</strong> : <strong style={{ color: '#dc2626' }}>vô hiệu hóa</strong>} tài khoản của <strong>{confirmModal.userName}</strong>?
+                        </p>
+                        <div className="au-modal-actions">
+                            <button className="au-modal-btn au-modal-btn--cancel" onClick={() => setConfirmModal({ show: false, userId: null, currentStatus: '', userName: '' })}>
+                                Hủy
+                            </button>
+                            <button className="au-modal-btn au-modal-btn--confirm" onClick={confirmToggleStatus}>
+                                Xác nhận
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

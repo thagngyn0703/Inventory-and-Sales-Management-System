@@ -404,3 +404,75 @@
         display: none;
     }
 }
+
+/* ── Custom Modal Styling ── */
+.au-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+}
+
+.au-modal-content {
+    background: #ffffff;
+    padding: 32px;
+    border-radius: 16px;
+    width: 400px;
+    max-width: 90%;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+    text-align: center;
+}
+
+.au-modal-content h3 {
+    margin-top: 0;
+    margin-bottom: 16px;
+    color: #111827;
+    font-size: 20px;
+}
+
+.au-modal-content p {
+    color: #4b5563;
+    margin-bottom: 24px;
+    line-height: 1.5;
+    font-size: 15px;
+}
+
+.au-modal-actions {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+}
+
+.au-modal-btn {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.2s;
+}
+
+.au-modal-btn--cancel {
+    background: #f1f5f9;
+    color: #475569;
+}
+
+.au-modal-btn--cancel:hover {
+    background: #e2e8f0;
+}
+
+.au-modal-btn--confirm {
+    background: #3b82f6;
+    color: #ffffff;
+}
+
+.au-modal-btn--confirm:hover {
+    background: #2563eb;
+}

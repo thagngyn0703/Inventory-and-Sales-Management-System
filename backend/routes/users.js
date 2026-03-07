@@ -22,8 +22,10 @@ router.get('/', requireAuth, requireRole(['admin']), async (req, res) => {
             const re = new RegExp(escapeRegex(query), 'i');
             filter.$or = [{ fullName: re }, { email: re }];
         }
-        if (status === 'active' || status === 'inactive') {
-            filter.status = status;
+        if (status === 'active') {
+            filter.status = { $ne: 'inactive' };
+        } else if (status === 'inactive') {
+            filter.status = 'inactive';
         }
 
         const total = await User.countDocuments(filter);
