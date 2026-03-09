@@ -188,11 +188,17 @@ export default function AuthPage() {
                 }
                 if (data.token) localStorage.setItem("token", data.token);
                 if (data.user) localStorage.setItem("user", JSON.stringify(data.user));
-                alert("Xác minh thành công! Bạn đã có thể đăng nhập.");
-                setMode("login");
-                setPendingVerifyEmail("");
-                setVerificationToken("");
-                navigate("/login", { replace: true });
+                alert("Xác minh thành công!");
+                const role = data.user?.role;
+                if (role === "admin") {
+                    navigate("/admin", { replace: true });
+                } else if (role === "manager") {
+                    navigate("/manager", { replace: true });
+                } else if (role === "warehouse_staff" || role === "sales_staff") {
+                    navigate("/home", { replace: true });
+                } else {
+                    navigate("/home", { replace: true });
+                }
                 return;
             }
 
@@ -234,8 +240,10 @@ export default function AuthPage() {
 
                 const role = data.user?.role;
 
-                if (role === "manager" || role === "admin") {
+                if (role === "admin") {
                     navigate("/admin", { replace: true });
+                } else if (role === "manager") {
+                    navigate("/manager", { replace: true });
                 } else if (role === "warehouse_staff" || role === "sales_staff") {
                     navigate("/home", { replace: true });
                 } else {
@@ -286,7 +294,6 @@ export default function AuthPage() {
         navigate("/register", { replace: true });
     };
 
-    const showLoginRegisterForm = mode === "login" || mode === "register";
     const showVerifyForm = mode === "verify";
     const showForgotForm = mode === "forgot";
     const showResetForm = mode === "reset";

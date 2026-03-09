@@ -7,7 +7,8 @@ export default function Sidebar() {
     const location = useLocation();
 
     const menuItems = [
-        { label: '🏠 Dashboard', path: '/admin', roles: ['admin', 'manager'] },
+        { label: '🏠 Dashboard', path: '/admin', roles: ['admin'] },
+        { label: '🏠 Tổng quan', path: '/manager', roles: ['manager'] },
         { label: '🏠 Home', path: '/home', roles: ['warehouse_staff', 'sales_staff'] },
         { label: '🗂 Danh mục', path: '/categories', roles: ['admin', 'manager', 'warehouse_staff'] },
         { label: '📦 Sản phẩm', path: '/products', roles: ['admin', 'manager', 'warehouse_staff'] },
@@ -24,7 +25,8 @@ export default function Sidebar() {
 
     // Get dashboard path based on role
     const getDashboardPath = () => {
-        if (['admin', 'manager'].includes(userRole)) return '/admin';
+        if (userRole === 'admin') return '/admin';
+        if (userRole === 'manager') return '/manager';
         return '/home';
     };
 
