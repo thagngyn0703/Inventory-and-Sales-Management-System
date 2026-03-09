@@ -10,6 +10,8 @@ function App() {
     <Routes>
       <Route path="/" element={<Navigate to="/login" />} />
       <Route path="/login" element={<AuthPage />} />
+      <Route path="/register" element={<AuthPage />} />
+      <Route path="/resetpassword" element={<AuthPage />} />
       <Route path="/home" element={<Home />} />
       <Route path="/admin" element={<AdminDashboard />} />
       <Route path="/categories" element={<Categories />} />

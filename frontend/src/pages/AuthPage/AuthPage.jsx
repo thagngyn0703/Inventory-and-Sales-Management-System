@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect } from "react";
 // import "./AuthPage.css";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 
 
 
@@ -15,7 +15,10 @@ const isEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 
 export default function AuthPage() {
     const navigate = useNavigate();
-    const [mode, setMode] = useState("login"); // "login" | "register" | "verify" | "forgot" | "reset"
+    const location = useLocation();
+    const [mode, setMode] = useState(() =>
+        location.pathname === "/register" ? "register" : "login"
+    ); // "login" | "register" | "verify" | "forgot" | "reset"
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
 
@@ -40,6 +43,13 @@ export default function AuthPage() {
     const [resetToken, setResetToken] = useState("");
     const [newPassword, setNewPassword] = useState("");
     const [confirmNewPassword, setConfirmNewPassword] = useState("");
+
+    useEffect(() => {
+        const path = location.pathname;
+        if (path === "/register") setMode("register");
+        else if (path === "/login") setMode("login");
+        else if (path === "/resetpassword" && (mode === "login" || mode === "register")) setMode("forgot");
+    }, [location.pathname]);
 
     useEffect(() => {
         if (mode !== "login") return;
@@ -160,6 +170,7 @@ export default function AuthPage() {
                 setNewPassword("");
                 setConfirmNewPassword("");
                 setLoading(false);
+                navigate("/login", { replace: true });
                 return;
             }
             if (mode === "verify") {
@@ -181,6 +192,7 @@ export default function AuthPage() {
                 setMode("login");
                 setPendingVerifyEmail("");
                 setVerificationToken("");
+                navigate("/login", { replace: true });
                 return;
             }
 
@@ -255,17 +267,23 @@ export default function AuthPage() {
     };
 
     const switchMode = () => {
-        setMode((m) => (m === "login" ? "register" : "login"));
-        resetFields();
-        setPendingVerifyEmail("");
+        if (mode === "login") {
+            resetFields();
+            setPendingVerifyEmail("");
+            navigate("/register", { replace: true });
+        } else {
+            resetFields();
+            setPendingVerifyEmail("");
+            navigate("/login", { replace: true });
+        }
     };
 
     const backToRegister = () => {
-        setMode("register");
         setEmail(pendingVerifyEmail);
         setPendingVerifyEmail("");
         setVerificationToken("");
         setError("");
+        navigate("/register", { replace: true });
     };
 
     const showLoginRegisterForm = mode === "login" || mode === "register";
@@ -309,7 +327,7 @@ export default function AuthPage() {
                         >
                             {loading ? "Đang gửi..." : "Gửi mã qua email"}
                         </button>
-                        <button type="button" onClick={() => { setMode("login"); setError(""); setEmail(forgotEmail || email); setForgotEmail(""); }} style={styles.switchBtn}>
+                        <button type="button" onClick={() => { setMode("login"); setError(""); setEmail(forgotEmail || email); setForgotEmail(""); navigate("/login", { replace: true }); }} style={styles.switchBtn}>
                             Quay lại đăng nhập
                         </button>
                     </form>
@@ -466,7 +484,7 @@ export default function AuthPage() {
                                     </div>
                                     <button
                                         type="button"
-                                        onClick={() => { setMode("forgot"); setForgotEmail(email.trim()); setError(""); }}
+                                        onClick={() => { setMode("forgot"); setForgotEmail(email.trim()); setError(""); navigate("/resetpassword", { replace: true }); }}
                                         style={{ ...styles.switchBtn, marginTop: 0, padding: "4px 0", fontSize: 13 }}
                                     >
                                         Quên mật khẩu?
