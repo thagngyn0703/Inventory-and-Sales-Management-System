@@ -8,6 +8,7 @@ export default function ManagerSidebar() {
 
     const overviewItems = [
         { label: 'Tổng quan', path: '/manager', icon: 'fa-house' },
+        { label: 'Tạo nhân viên', path: '/manager/staff/new', icon: 'fa-user-plus' },
         { label: 'Đơn hàng', path: '/manager/orders', icon: 'fa-file-lines' },
         { label: 'Sản phẩm', path: '/manager/products', icon: 'fa-cart-shopping' },
         { label: 'Khách hàng', path: '/manager/customers', icon: 'fa-users' },

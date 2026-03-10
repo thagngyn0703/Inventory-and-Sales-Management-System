@@ -27,7 +27,7 @@ export default function AuthPage() {
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [confirmPassword, setConfirmPassword] = useState("");
-    const [role, setRole] = useState("warehouse_staff"); // manager | warehouse_staff | sales_staff
+    const [role, setRole] = useState("manager"); // Đăng ký công khai chỉ dành cho Manager
 
     // Sau khi đăng ký thành công, chuyển sang bước nhập mã (giữ email)
     const [pendingVerifyEmail, setPendingVerifyEmail] = useState("");
@@ -268,7 +268,7 @@ export default function AuthPage() {
         setEmail("");
         setPassword("");
         setConfirmPassword("");
-        setRole("warehouse_staff");
+        setRole("manager");
         setShowPw(false);
         setShowConfirmPw(false);
         setVerificationToken("");
@@ -430,15 +430,12 @@ export default function AuthPage() {
                             {mode === "register" && (
                                 <div style={styles.field}>
                                     <label style={styles.label}>Vai trò</label>
-                                    <select
-                                        style={styles.input}
-                                        value={role}
-                                        onChange={(e) => setRole(e.target.value)}
-                                    >
-                                        <option value="manager">Manager</option>
-                                        <option value="warehouse_staff">Warehouse Staff</option>
-                                        <option value="sales_staff">Sales Staff</option>
-                                    </select>
+                                    <input
+                                        style={{ ...styles.input, background: "#f5f5f5", color: "#555", cursor: "default" }}
+                                        value="Manager"
+                                        readOnly
+                                    />
+                                    <small style={styles.hint}>Chỉ Manager được đăng ký tại đây. Nhân viên do Manager tạo trong hệ thống.</small>
                                 </div>
                             )}
 

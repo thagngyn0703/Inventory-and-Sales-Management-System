@@ -6,6 +6,7 @@ const User = require('../models/User');
 const UnauthenticatedUser = require('../models/UnauthenticatedUser');
 const PasswordReset = require('../models/PasswordReset');
 const { sendVerificationEmail, sendPasswordResetEmail } = require('../services/emailService');
+const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -15,6 +16,11 @@ const RESET_TOKEN_EXPIRY_HOURS = 1;
 function generateVerificationToken() {
     return crypto.randomInt(100000, 999999).toString();
 }
+
+// GET /api/auth/check-create-staff — kiểm tra backend có route create-staff
+router.get('/check-create-staff', (req, res) => {
+    res.json({ createStaffSupported: true });
+});
 
 // POST /api/auth/register — Lưu vào UnauthenticatedUser, gửi mã qua email
 router.post('/register', async (req, res) => {
@@ -28,6 +34,12 @@ router.post('/register', async (req, res) => {
         const validRoles = ['manager', 'warehouse_staff', 'sales_staff'];
         if (!role || !validRoles.includes(role)) {
             return res.status(400).json({ message: 'Vui lòng chọn vai trò: Manager, Warehouse Staff hoặc Sales Staff' });
+        }
+        // Chỉ cho phép đăng ký với role Manager. Warehouse/Sales staff do Manager tạo sau khi đăng nhập.
+        if (role !== 'manager') {
+            return res.status(403).json({
+                message: 'Đăng ký chỉ dành cho Manager. Nhân viên kho và nhân viên bán hàng do Manager tạo trong hệ thống.',
+            });
         }
 
         if (password.length < 6) {
@@ -86,6 +98,64 @@ router.post('/register', async (req, res) => {
             });
         }
         res.status(500).json({ message: 'Server error' });
+    }
+});
+
+// POST /api/auth/create-staff — Manager tạo tài khoản Warehouse/Sales staff (không cần xác thực email)
+router.post('/create-staff', requireAuth, requireRole(['manager']), async (req, res) => {
+    try {
+        const { fullName, email, password, role } = req.body;
+
+        if (!fullName || !email || !password) {
+            return res.status(400).json({ message: 'Thiếu dữ liệu bắt buộc' });
+        }
+
+        const staffRoles = ['warehouse_staff', 'sales_staff'];
+        if (!role || !staffRoles.includes(role)) {
+            return res.status(400).json({ message: 'Vai trò phải là warehouse_staff hoặc sales_staff' });
+        }
+
+        if (password.length < 6) {
+            return res.status(400).json({ message: 'Mật khẩu phải >= 6 ký tự' });
+        }
+
+        const normalizedEmail = email.toLowerCase().trim();
+
+        const existingUser = await User.findOne({ email: normalizedEmail });
+        if (existingUser) {
+            return res.status(400).json({ message: 'Email đã tồn tại' });
+        }
+
+        const existingUnauth = await UnauthenticatedUser.findOne({ email: normalizedEmail });
+        if (existingUnauth) {
+            await UnauthenticatedUser.deleteOne({ _id: existingUnauth._id });
+        }
+
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(password, salt);
+
+        const user = await User.create({
+            fullName: fullName.trim(),
+            email: normalizedEmail,
+            password: hashedPassword,
+            role,
+        });
+
+        res.status(201).json({
+            message: 'Tạo tài khoản nhân viên thành công. Nhân viên có thể đăng nhập ngay bằng email và mật khẩu (không cần xác thực email).',
+            user: {
+                id: user._id,
+                fullName: user.fullName,
+                email: user.email,
+                role: user.role,
+            },
+        });
+    } catch (err) {
+        console.error('create-staff error:', err);
+        if (err.code === 11000) {
+            return res.status(400).json({ message: 'Email đã tồn tại' });
+        }
+        res.status(500).json({ message: err.message || 'Server error' });
     }
 });
 
