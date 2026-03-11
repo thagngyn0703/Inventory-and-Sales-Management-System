@@ -1,0 +1,175 @@
+.warehouse-page-with-sidebar {
+  display: flex;
+  min-height: 100vh;
+  background: #f4f6f8;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+}
+
+.warehouse-main {
+  flex: 1;
+  margin-left: 250px;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.warehouse-topbar {
+  background: #ffffff;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 16px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+}
+
+.warehouse-user-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #f9fafb;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.warehouse-content {
+  padding: 24px;
+  flex: 1;
+}
+
+.warehouse-page-title {
+  margin: 0 0 6px 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.warehouse-page-subtitle {
+  margin: 0 0 24px 0;
+  font-size: 14px;
+  color: #6b7280;
+}
+
+.warehouse-card {
+  background: #ffffff;
+  border-radius: 14px;
+  padding: 20px;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.warehouse-table-wrap {
+  overflow-x: auto;
+}
+
+.warehouse-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.warehouse-table th,
+.warehouse-table td {
+  padding: 12px 16px;
+  text-align: left;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.warehouse-table th {
+  font-weight: 600;
+  color: #374151;
+  background: #f9fafb;
+}
+
+.warehouse-table tbody tr:hover {
+  background: #f9fafb;
+}
+
+.warehouse-btn {
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: background 0.2s, color 0.2s;
+}
+
+.warehouse-btn-primary {
+  background: #0d9488;
+  color: #fff;
+}
+
+.warehouse-btn-primary:hover:not(:disabled) {
+  background: #0f766e;
+}
+
+.warehouse-btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.warehouse-btn-secondary {
+  background: #f3f4f6;
+  color: #374151;
+}
+
+.warehouse-btn-secondary:hover {
+  background: #e5e7eb;
+}
+
+.warehouse-alert {
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  font-size: 14px;
+}
+
+.warehouse-alert-error {
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
+
+.warehouse-alert-success {
+  background: #f0fdf4;
+  color: #166534;
+  border: 1px solid #bbf7d0;
+}
+
+@media (max-width: 768px) {
+  .warehouse-main {
+    margin-left: 0;
+  }
+}
+
+.warehouse-status-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.warehouse-status-draft {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.warehouse-status-submitted {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.warehouse-status-completed {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.warehouse-status-cancelled {
+  background: #f3f4f6;
+  color: #6b7280;
+}
