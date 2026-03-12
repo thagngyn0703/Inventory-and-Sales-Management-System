@@ -9,11 +9,11 @@ import ManagerProductCreate from "./pages/ManagerDashboard/ManagerProductCreate"
 import ManagerProductDetail from "./pages/ManagerDashboard/ManagerProductDetail";
 import ManagerProductEdit from "./pages/ManagerDashboard/ManagerProductEdit";
 import RequireRole from "./components/RequireRole";
-import WarehouseDashboard from "./pages/WarehouseDashboard/WarehouseDashboard";
-import WarehouseHome from "./pages/WarehouseDashboard/WarehouseHome";
-import WarehouseStocktakingCreate from "./pages/WarehouseDashboard/WarehouseStocktakingCreate";
-import WarehouseStocktakingList from "./pages/WarehouseDashboard/WarehouseStocktakingList";
-import WarehouseStocktakingDetail from "./pages/WarehouseDashboard/WarehouseStocktakingDetail";
+import WarehouseDashboard from "./pages/WarehouseDashboard/WarehouseDashboard.jsx";
+import WarehouseHome from "./pages/WarehouseDashboard/WarehouseHome.jsx";
+import WarehouseStocktakingCreate from "./pages/WarehouseDashboard/WarehouseStocktakingCreate.jsx";
+import WarehouseStocktakingList from "./pages/WarehouseDashboard/WarehouseStocktakingList.jsx";
+import WarehouseStocktakingDetail from "./pages/WarehouseDashboard/WarehouseStocktakingDetail.jsx";
 
 function App() {
   return (
