@@ -70,3 +70,43 @@ export async function updateStocktake(id, body) {
   if (!res.ok) throw new Error(data.message || 'Không thể cập nhật phiếu kiểm kê');
   return data.stocktake;
 }
+
+/**
+ * Manager/Admin duyệt phiếu kiểm kê (submitted) → tạo điều chỉnh tồn, cập nhật Product.stock_qty
+ * @param {string} id — stocktake id
+ * @param {{ reason?: string }} [body] — lý do điều chỉnh (tùy chọn)
+ */
+export async function approveStocktake(id, body = {}) {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/stocktakes/${id}/approve`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || 'Không thể duyệt phiếu');
+  return data;
+}
+
+/**
+ * Manager/Admin từ chối phiếu kiểm kê (submitted) → chuyển sang Đã hủy, không cập nhật tồn
+ * @param {string} id — stocktake id
+ * @param {{ reason?: string }} [body]
+ */
+export async function rejectStocktake(id, body = {}) {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/stocktakes/${id}/reject`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || 'Không thể từ chối phiếu');
+  return data;
+}

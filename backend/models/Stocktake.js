@@ -50,6 +50,11 @@ const stocktakeSchema = new Schema(
         completed_at: {
             type: Date,
         },
+        reject_reason: {
+            type: String,
+            trim: true,
+            default: '',
+        },
         created_at: {
             type: Date,
             default: Date.now,

@@ -2,6 +2,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const Stocktake = require('../models/Stocktake');
 const Product = require('../models/Product');
+const StockAdjustment = require('../models/StockAdjustment');
 const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
@@ -82,6 +83,111 @@ router.get('/', requireAuth, requireRole(['warehouse', 'manager', 'admin']), asy
       limit: limitNum,
       totalPages: Math.ceil(total / limitNum) || 1,
     });
+  } catch (err) {
+    return res.status(500).json({ message: err.message || 'Server error' });
+  }
+});
+
+// POST /api/stocktakes/:id/approve — Manager/Admin duyệt phiếu kiểm kê (submitted) → tạo điều chỉnh tồn, cập nhật Product.stock_qty
+router.post('/:id/approve', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ message: 'Invalid stocktake id' });
+    }
+    const stocktake = await Stocktake.findById(id).lean();
+    if (!stocktake) return res.status(404).json({ message: 'Stocktake not found' });
+    if (stocktake.status !== 'submitted') {
+      return res.status(400).json({ message: 'Chỉ được duyệt phiếu ở trạng thái Đã gửi' });
+    }
+
+    const reasonText = req.body?.reason != null ? String(req.body.reason).trim() : '';
+    const adjustmentReason = reasonText || 'Duyệt từ phiếu kiểm kê';
+
+    const items = stocktake.items || [];
+    const adjustmentItems = [];
+    for (const it of items) {
+      const variance = it.variance != null ? Number(it.variance) : (it.actual_qty != null && it.system_qty != null ? Number(it.actual_qty) - Number(it.system_qty) : null);
+      if (variance == null || variance === 0) continue;
+      adjustmentItems.push({
+        product_id: it.product_id,
+        adjusted_qty: variance,
+      });
+    }
+
+    const adjustment = await StockAdjustment.create({
+      warehouse_id: stocktake.warehouse_id || undefined,
+      stocktake_id: id,
+      created_by: req.user.id,
+      approved_by: req.user.id,
+      status: 'approved',
+      reason: adjustmentReason,
+      items: adjustmentItems,
+      approved_at: new Date(),
+    });
+
+    for (const it of adjustmentItems) {
+      await Product.findByIdAndUpdate(it.product_id, { $inc: { stock_qty: it.adjusted_qty }, updated_at: new Date() });
+    }
+
+    await Stocktake.findByIdAndUpdate(id, { status: 'completed', completed_at: new Date(), updated_at: new Date() });
+
+    const populated = await StockAdjustment.findById(adjustment._id)
+      .populate('stocktake_id', 'snapshot_at created_at')
+      .populate('approved_by', 'email')
+      .populate('items.product_id', 'name sku base_unit')
+      .lean();
+
+    return res.json({ adjustment: populated, message: 'Đã duyệt và cập nhật tồn kho' });
+  } catch (err) {
+    return res.status(500).json({ message: err.message || 'Server error' });
+  }
+});
+
+// POST /api/stocktakes/:id/reject — Manager/Admin từ chối phiếu kiểm kê (submitted) → chuyển sang cancelled, tạo bản ghi điều chỉnh (rejected)
+router.post('/:id/reject', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ message: 'Invalid stocktake id' });
+    }
+    const stocktake = await Stocktake.findById(id).lean();
+    if (!stocktake) return res.status(404).json({ message: 'Stocktake not found' });
+    if (stocktake.status !== 'submitted') {
+      return res.status(400).json({ message: 'Chỉ được từ chối phiếu ở trạng thái Đã gửi' });
+    }
+    const { reason } = req.body || {};
+    const rejectReason = reason != null ? String(reason).trim() : '';
+
+    const items = stocktake.items || [];
+    const adjustmentItems = [];
+    for (const it of items) {
+      const variance = it.variance != null ? Number(it.variance) : (it.actual_qty != null && it.system_qty != null ? Number(it.actual_qty) - Number(it.system_qty) : null);
+      if (variance == null || variance === 0) continue;
+      adjustmentItems.push({
+        product_id: it.product_id,
+        adjusted_qty: variance,
+      });
+    }
+
+    await StockAdjustment.create({
+      warehouse_id: stocktake.warehouse_id || undefined,
+      stocktake_id: id,
+      created_by: req.user.id,
+      approved_by: req.user.id,
+      status: 'rejected',
+      reason: rejectReason || 'Từ chối phiếu kiểm kê',
+      items: adjustmentItems,
+      approved_at: new Date(),
+    });
+
+    await Stocktake.findByIdAndUpdate(id, {
+      status: 'cancelled',
+      reject_reason: rejectReason,
+      updated_at: new Date(),
+    });
+
+    return res.json({ message: 'Đã từ chối phiếu kiểm kê' });
   } catch (err) {
     return res.status(500).json({ message: err.message || 'Server error' });
   }

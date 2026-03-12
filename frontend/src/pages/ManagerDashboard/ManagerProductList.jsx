@@ -5,7 +5,7 @@ import { getProducts, setProductStatus } from '../../services/productsApi';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
 
-const LIMIT = 20;
+const LIMIT = 10;
 
 export default function ManagerProductList() {
     const navigate = useNavigate();
@@ -170,7 +170,7 @@ export default function ManagerProductList() {
                                                         <td>{p.barcode || '—'}</td>
                                                         <td>{formatMoney(p.cost_price)}</td>
                                                         <td>{formatMoney(p.sale_price)}</td>
-                                                        <td>{p.stock_qty != null ? p.stock_qty : '0'}</td>
+                                                        <td>{Number(p.stock_qty ?? 0).toLocaleString('vi-VN')}</td>
                                                         <td>{p.base_unit || 'Cái'}</td>
                                                         <td>
                                                             <span className={`manager-products-status manager-products-status--${p.status || 'active'}`}>

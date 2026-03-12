@@ -7,6 +7,7 @@ const authRoutes = require('./routes/auth');
 const categoryRoutes = require('./routes/categories');
 const productRoutes = require('./routes/products');
 const stocktakeRoutes = require('./routes/stocktakes');
+const stockAdjustmentRoutes = require('./routes/stockAdjustments');
 const { hasSmtpConfig } = require('./services/emailService');
 
 const app = express();
@@ -34,6 +35,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/stocktakes', stocktakeRoutes);
+app.use('/api/stock-adjustments', stockAdjustmentRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
