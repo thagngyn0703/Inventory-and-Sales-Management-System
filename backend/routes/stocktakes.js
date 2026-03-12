@@ -106,4 +106,69 @@ router.get('/:id', requireAuth, requireRole(['warehouse', 'manager', 'admin']), 
   }
 });
 
+// PATCH /api/stocktakes/:id — Update items (actual_qty, reason) and/or submit. Only when status is draft.
+// Body: { items?: [{ product_id, actual_qty?, reason? }], status?: 'submitted' }
+router.patch('/:id', requireAuth, requireRole(['warehouse', 'manager', 'admin']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ message: 'Invalid stocktake id' });
+    }
+    const doc = await Stocktake.findById(id);
+    if (!doc) return res.status(404).json({ message: 'Stocktake not found' });
+    if (doc.status !== 'draft') {
+      return res.status(400).json({ message: 'Chỉ được sửa phiếu ở trạng thái Nháp' });
+    }
+
+    const { items: bodyItems, status: newStatus } = req.body || {};
+    if (Array.isArray(bodyItems) && bodyItems.length > 0) {
+      const productIdToUpdate = new Map(
+        bodyItems.map((row) => {
+          const pid = row.product_id;
+          const actual = row.actual_qty;
+          const numActual = actual !== undefined && actual !== null && actual !== '' ? Number(actual) : null;
+          return [
+            String(pid),
+            {
+              actual_qty: numActual,
+              reason: row.reason !== undefined ? String(row.reason || '').trim() : undefined,
+            }
+          ];
+        })
+      );
+      doc.items = doc.items.map((item) => {
+        const key = String(item.product_id);
+        const upd = productIdToUpdate.get(key);
+        if (!upd) return item;
+        const systemQty = item.system_qty ?? 0;
+        const actualQty = upd.actual_qty;
+        const variance = actualQty !== null ? actualQty - systemQty : null;
+        return {
+          ...item.toObject ? item.toObject() : item,
+          actual_qty: actualQty,
+          variance,
+          reason: upd.reason !== undefined ? upd.reason : (item.reason || ''),
+        };
+      });
+      doc.markModified('items');
+    }
+
+    if (newStatus === 'submitted') {
+      doc.status = 'submitted';
+    }
+    doc.updated_at = new Date();
+    await doc.save();
+
+    const populated = await Stocktake.findById(doc._id)
+      .populate('items.product_id', 'name sku base_unit stock_qty')
+      .populate('created_by', 'email')
+      .populate('warehouse_id', 'name')
+      .lean();
+
+    return res.json({ stocktake: populated });
+  } catch (err) {
+    return res.status(500).json({ message: err.message || 'Server error' });
+  }
+});
+
 module.exports = router;

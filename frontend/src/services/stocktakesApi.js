@@ -50,3 +50,23 @@ export async function getStocktake(id) {
   if (!res.ok) throw new Error(data.message || 'Không thể tải phiếu kiểm kê');
   return data.stocktake;
 }
+
+/**
+ * Update stocktake items (actual_qty, reason) and/or submit. Only for draft.
+ * @param {string} id
+ * @param {{ items?: Array<{ product_id: string, actual_qty?: number | null, reason?: string }>, status?: 'submitted' }} body
+ */
+export async function updateStocktake(id, body) {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/stocktakes/${id}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || 'Không thể cập nhật phiếu kiểm kê');
+  return data.stocktake;
+}
