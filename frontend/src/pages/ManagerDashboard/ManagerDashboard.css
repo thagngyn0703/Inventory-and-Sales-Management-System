@@ -388,18 +388,40 @@
 /* ----- Chi tiết điều chỉnh tồn ----- */
 .adjustment-detail-content {
     max-width: 960px;
+    padding-top: 8px;
     padding-bottom: 32px;
 }
 
-.adjustment-detail-header {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    margin-bottom: 24px;
+.adjustment-detail-title {
+    margin: 0 0 16px 0;
+    font-size: 22px;
 }
 
-.adjustment-detail-header .manager-page-title {
+/* Lý do nằm trong box Thông tin phiếu */
+.adjustment-detail-reason-inline {
+    margin-top: 18px;
+    padding-top: 16px;
+    border-top: 1px solid #e5e7eb;
+}
+
+.adjustment-detail-reason-inline .adjustment-detail-info-label {
+    display: block;
+    margin-bottom: 6px;
+}
+
+.adjustment-detail-reason-inline .adjustment-detail-reason-text {
     margin: 0;
+}
+
+.adjustment-detail-reason-inline .adjustment-detail-reason-hint {
+    margin: 8px 0 0 0;
+}
+
+/* Nút quay lại đặt ở cuối trang */
+.adjustment-detail-footer {
+    margin-top: 28px;
+    padding-top: 20px;
+    border-top: 1px solid #e5e7eb;
 }
 
 .adjustment-detail-box {

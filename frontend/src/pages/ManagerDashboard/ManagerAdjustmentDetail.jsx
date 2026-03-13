@@ -90,12 +90,7 @@ export default function ManagerAdjustmentDetail() {
           </div>
         </header>
         <div className="manager-content adjustment-detail-content">
-          <div className="adjustment-detail-header">
-            <button type="button" className="warehouse-btn warehouse-btn-secondary" onClick={() => navigate('/manager/adjustments')}>
-              ← Quay lại
-            </button>
-            <h1 className="manager-page-title">Chi tiết điều chỉnh tồn</h1>
-          </div>
+          <h1 className="manager-page-title adjustment-detail-title">Chi tiết điều chỉnh tồn</h1>
 
           <div className="adjustment-detail-box adjustment-detail-info">
             <h3 className="adjustment-detail-box-title">Thông tin phiếu</h3>
@@ -115,16 +110,15 @@ export default function ManagerAdjustmentDetail() {
                 </span>
               </div>
             </div>
-          </div>
-
-          <div className="adjustment-detail-box adjustment-detail-reason">
-            <h3 className="adjustment-detail-box-title">Lý do điều chỉnh</h3>
-            <p className="adjustment-detail-reason-text">
-              {adjustment.reason && adjustment.reason.trim() ? adjustment.reason : '— Không có —'}
-            </p>
-            {adjustment.status === 'approved' && (!adjustment.reason || adjustment.reason.trim() === 'Duyệt từ phiếu kiểm kê') && (
-              <p className="adjustment-detail-reason-hint">Lý do từng dòng xem ở bảng bên dưới.</p>
-            )}
+            <div className="adjustment-detail-reason-inline">
+              <span className="adjustment-detail-info-label">Lý do điều chỉnh</span>
+              <p className="adjustment-detail-reason-text">
+                {adjustment.reason && adjustment.reason.trim() ? adjustment.reason : '— Không có —'}
+              </p>
+              {adjustment.status === 'approved' && (!adjustment.reason || adjustment.reason.trim() === 'Duyệt từ phiếu kiểm kê') && (
+                <p className="adjustment-detail-reason-hint">Lý do từng dòng xem ở bảng bên dưới.</p>
+              )}
+            </div>
           </div>
 
           <div className="adjustment-detail-box adjustment-detail-table-box">
@@ -167,6 +161,12 @@ export default function ManagerAdjustmentDetail() {
             {items.length === 0 && (
               <p className="adjustment-detail-empty">Không có dòng nào.</p>
             )}
+          </div>
+
+          <div className="adjustment-detail-footer">
+            <button type="button" className="warehouse-btn warehouse-btn-secondary" onClick={() => navigate('/manager/adjustments')}>
+              ← Quay lại
+            </button>
           </div>
         </div>
       </div>
