@@ -84,6 +84,13 @@ router.post('/', requireAuth, requireRole(['sales', 'warehouse', 'manager', 'adm
             .populate('items.product_id', 'name sku stock_qty')
             .lean();
 
+        const productIds = (populated.items || [])
+            .map((item) => normalizeId(item.product_id))
+            .filter(Boolean);
+        const products = await Product.find({ _id: { $in: productIds } }).lean();
+        const productsById = new Map(products.map((p) => [String(p._id), p]));
+        populated.items = buildStockAvailability(populated.items, productsById);
+
         return res.status(201).json({ invoice: populated });
     } catch (err) {
         console.error(err);
@@ -169,8 +176,8 @@ router.get('/:id', requireAuth, requireRole(['sales', 'warehouse', 'manager', 'a
     }
 });
 
-// PATCH /api/invoices/:id — update draft (only when status is draft)
-router.patch('/:id', requireAuth, requireRole(['sales', 'warehouse', 'manager', 'admin']), async (req, res) => {
+// PATCH /api/invoices/:id — update draft (warehouse, manager, admin)
+router.patch('/:id', requireAuth, requireRole(['warehouse', 'manager', 'admin']), async (req, res) => {
     try {
         const { id } = req.params;
         if (!mongoose.isValidObjectId(id)) {
@@ -178,12 +185,16 @@ router.patch('/:id', requireAuth, requireRole(['sales', 'warehouse', 'manager', 
         }
         const invoice = await SalesInvoice.findById(id);
         if (!invoice) return res.status(404).json({ message: 'Invoice not found' });
-        if (invoice.status !== 'draft') {
-            return res.status(400).json({ message: 'Chỉ có thể chỉnh sửa hóa đơn ở trạng thái draft' });
+        if (invoice.status !== 'draft' && !['manager', 'admin'].includes(req.user.role)) {
+            return res.status(400).json({ message: 'Chỉ có thể chỉnh sửa hóa đơn ở trạng thái draft (trừ cấp quản lý)' });
         }
 
-        const { customer_id, items, status: requestedStatus } = req.body || {};
+        const { customer_id, items, status: requestedStatus, payment_method } = req.body || {};
         if (customer_id) invoice.customer_id = customer_id;
+        if (payment_method && ['cash', 'bank_transfer', 'credit', 'card'].includes(payment_method)) {
+            invoice.set('payment_method', payment_method);
+            invoice.markModified('payment_method');
+        }
 
         if (Array.isArray(items) && items.length > 0) {
             const { totalAmount, items: normalizedItems } = calculateInvoiceTotals(items);
@@ -195,8 +206,15 @@ router.patch('/:id', requireAuth, requireRole(['sales', 'warehouse', 'manager', 
             invoice.total_amount = totalAmount;
         }
 
-        if (requestedStatus === 'submitted') {
-            invoice.status = 'submitted';
+        if (requestedStatus) {
+            if (['manager', 'admin'].includes(req.user.role)) {
+                const validStatuses = ['draft', 'submitted', 'confirmed', 'paid', 'cancelled'];
+                if (validStatuses.includes(requestedStatus)) {
+                    invoice.status = requestedStatus;
+                }
+            } else if (requestedStatus === 'submitted') {
+                invoice.status = 'submitted';
+            }
         }
 
         invoice.updated_at = new Date();
@@ -208,7 +226,9 @@ router.patch('/:id', requireAuth, requireRole(['sales', 'warehouse', 'manager', 
             .populate('items.product_id', 'name sku stock_qty')
             .lean();
 
-        const productIds = (populated.items || []).map((item) => String(item.product_id));
+        const productIds = (populated.items || [])
+            .map((item) => normalizeId(item.product_id))
+            .filter(Boolean);
         const products = await Product.find({ _id: { $in: productIds } }).lean();
         const productsById = new Map(products.map((p) => [String(p._id), p]));
         populated.items = buildStockAvailability(populated.items, productsById);
@@ -321,8 +341,8 @@ router.post('/:id/reject', requireAuth, requireRole(['manager', 'admin']), async
     }
 });
 
-// POST /api/invoices/:id/cancel — allow creator to cancel before approval
-router.post('/:id/cancel', requireAuth, requireRole(['sales', 'warehouse', 'manager', 'admin']), async (req, res) => {
+// POST /api/invoices/:id/cancel — allow warehouse staff or manager to cancel before approval
+router.post('/:id/cancel', requireAuth, requireRole(['warehouse', 'manager', 'admin']), async (req, res) => {
     try {
         const { id } = req.params;
         if (!mongoose.isValidObjectId(id)) {

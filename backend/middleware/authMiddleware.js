@@ -22,12 +22,19 @@ const requireAdmin = (req, res, next) => {
     next();
 };
 
+// new middleware for categories only: manager or warehouse_staff
+const requireManagerOrWarehouse = (req, res, next) => {
+    if (!req.user || !['manager', 'warehouse_staff'].includes(req.user.role)) {
+        return res.status(403).json({ message: 'Access denied. Manager or Warehouse Staff only.' });
+    }
+    next();
+};
+
 const requireManagerOrAdminOrWarehouse = (req, res, next) => {
-    // Check if user is authenticated and has one of the allowed roles
     if (!req.user || !['admin', 'manager', 'warehouse_staff'].includes(req.user.role)) {
         return res.status(403).json({ message: 'Access denied. Manager, Admin, or Warehouse Staff only.' });
     }
     next();
 };
 
-module.exports = { verifyToken, requireAdmin, requireManagerOrAdminOrWarehouse };
+module.exports = { verifyToken, requireAdmin, requireManagerOrWarehouse, requireManagerOrAdminOrWarehouse };

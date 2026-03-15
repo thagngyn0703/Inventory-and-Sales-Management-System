@@ -6,6 +6,9 @@ import AdminDashboard from "./pages/AdminHome/AdminDashBoard";
 import ManagerDashboard from "./pages/ManagerDashboard/ManagerDashboard";
 import ManagerProductList from "./pages/ManagerDashboard/ManagerProductList";
 import ManagerProductCreate from "./pages/ManagerDashboard/ManagerProductCreate";
+// new imports for categories and auth guards
+import Categories from "./pages/Categories/Categories";
+import RequireAuth from "./components/RequireAuth";
 import ManagerProductDetail from "./pages/ManagerDashboard/ManagerProductDetail";
 import ManagerProductEdit from "./pages/ManagerDashboard/ManagerProductEdit";
 import ManagerInvoicesList from "./pages/ManagerDashboard/ManagerInvoicesList";
@@ -16,6 +19,8 @@ import WarehouseHome from "./pages/WarehouseDashboard/WarehouseHome.jsx";
 import WarehouseStocktakingCreate from "./pages/WarehouseDashboard/WarehouseStocktakingCreate.jsx";
 import WarehouseStocktakingList from "./pages/WarehouseDashboard/WarehouseStocktakingList.jsx";
 import WarehouseStocktakingDetail from "./pages/WarehouseDashboard/WarehouseStocktakingDetail.jsx";
+import WarehouseInvoicesList from "./pages/WarehouseDashboard/WarehouseInvoicesList.jsx";
+import WarehouseInvoiceDetail from "./pages/WarehouseDashboard/WarehouseInvoiceDetail.jsx";
 
 function App() {
   return (
@@ -26,6 +31,16 @@ function App() {
       <Route path="/admin" element={<AdminDashboard />} />
       <Route path="/manager" element={<ManagerDashboard />} />
       <Route path="/manager/products" element={<ManagerProductList />} />
+      <Route
+        path="/manager/categories"
+        element={
+          <RequireAuth>
+            <RequireRole allowedRoles={["manager", "warehouse_staff"]}>
+              <Categories />
+            </RequireRole>
+          </RequireAuth>
+        }
+      />
       <Route path="/manager/products/new" element={<ManagerProductCreate />} />
       <Route path="/manager/products/:id/edit" element={<ManagerProductEdit />} />
       <Route path="/manager/products/:id" element={<ManagerProductDetail />} />
@@ -35,7 +50,7 @@ function App() {
       <Route
         path="/warehouse"
         element={
-          <RequireRole allowedRoles={['warehouse', 'manager', 'admin']}>
+          <RequireRole allowedRoles={['warehouse', 'sales', 'manager', 'admin']}>
             <WarehouseDashboard />
           </RequireRole>
         }
@@ -44,6 +59,9 @@ function App() {
         <Route path="stocktakes" element={<WarehouseStocktakingList />} />
         <Route path="stocktakes/new" element={<WarehouseStocktakingCreate />} />
         <Route path="stocktakes/:id" element={<WarehouseStocktakingDetail />} />
+        <Route path="invoices" element={<WarehouseInvoicesList />} />
+        <Route path="invoices/new" element={<WarehouseInvoiceDetail />} />
+        <Route path="invoices/:id" element={<WarehouseInvoiceDetail />} />
       </Route>
     </Routes>
   );

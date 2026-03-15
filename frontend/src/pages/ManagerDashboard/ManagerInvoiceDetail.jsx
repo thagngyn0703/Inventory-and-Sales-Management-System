@@ -32,6 +32,7 @@ export default function ManagerInvoiceDetail() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState('cash');
 
   const user = getCurrentUser();
   const role = user?.role || '';
@@ -53,6 +54,7 @@ export default function ManagerInvoiceDetail() {
     try {
       const data = await getInvoice(id);
       setInvoice(data);
+      setPaymentMethod(data.payment_method || 'cash');
       setItems(
         (data.items || []).map((item) => ({
           product_id: item.product_id?._id ?? item.product_id,
@@ -104,23 +106,33 @@ export default function ManagerInvoiceDetail() {
     setItems((prev) => prev.filter((_, i) => i !== idx));
   };
 
-  const payload = () => ({
-    items: items
-      .filter((it) => it.product_id)
-      .map((it) => {
-        const productId =
-          typeof it.product_id === 'object' && it.product_id !== null
-            ? it.product_id._id || it.product_id.id || null
-            : it.product_id;
-        return {
-          product_id: productId,
-          quantity: Number(it.quantity) || 0,
-          unit_price: Number(it.unit_price) || 0,
-          discount: Number(it.discount) || 0,
-        };
-      })
-      .filter((it) => it.product_id),
-  });
+  const payload = () => {
+    let currentStatus = invoice?.status;
+    if (isManager && !isNew) {
+      // If a dropdown or something changed invoice.status locally
+      currentStatus = invoice.status;
+    }
+
+    return {
+      status: currentStatus,
+      payment_method: paymentMethod,
+      items: items
+        .filter((it) => it.product_id)
+        .map((it) => {
+          const productId =
+            typeof it.product_id === 'object' && it.product_id !== null
+              ? it.product_id._id || it.product_id.id || null
+              : it.product_id;
+          return {
+            product_id: productId,
+            quantity: Number(it.quantity) || 0,
+            unit_price: Number(it.unit_price) || 0,
+            discount: Number(it.discount) || 0,
+          };
+        })
+        .filter((it) => it.product_id),
+    };
+  };
 
   const handleSaveDraft = async () => {
     setSaving(true);
@@ -143,6 +155,7 @@ export default function ManagerInvoiceDetail() {
       } else {
         const updated = await updateInvoice(id, payloadData);
         setInvoice(updated);
+        setPaymentMethod(updated.payment_method || 'cash');
         setSuccessMessage('Đã lưu hóa đơn');
       }
     } catch (e) {
@@ -176,8 +189,54 @@ export default function ManagerInvoiceDetail() {
       await approveInvoice(invoice._id);
       setSuccessMessage('Đã duyệt hóa đơn và cập nhật tồn kho');
       loadInvoice();
+      
+      // Navigate to the list or reload
+      // navigate('/manager/invoices');
     } catch (e) {
       setError(e.message || 'Không thể duyệt hóa đơn');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDirectApprove = async () => {
+    setSaving(true);
+    setError('');
+    setSuccessMessage('');
+
+    const payloadData = payload();
+    if (!payloadData.items || payloadData.items.length === 0) {
+      setError('Vui lòng thêm ít nhất một dòng sản phẩm để lưu.');
+      setSaving(false);
+      return;
+    }
+
+    try {
+      let currentInvoice = invoice;
+      // 1. Save or Update Draft first
+      if (isNew) {
+        currentInvoice = await createInvoice(payloadData);
+        setInvoice(currentInvoice);
+      } else {
+        currentInvoice = await updateInvoice(id, payloadData);
+        setInvoice(currentInvoice);
+        setPaymentMethod(currentInvoice.payment_method || 'cash');
+      }
+      
+      // 2. Submit it
+      await submitInvoice(currentInvoice._id);
+      
+      // 3. Approve it immediately
+      await approveInvoice(currentInvoice._id);
+      
+      setSuccessMessage('Đã tạo và duyệt hóa đơn thành công!');
+      if (isNew) {
+        navigate(`/manager/invoices/${currentInvoice._id}`);
+      } else {
+        loadInvoice();
+      }
+    } catch (e) {
+      setError(e.message || 'Lỗi trong quá trình xử lý hóa đơn');
     } finally {
       setSaving(false);
     }
@@ -214,8 +273,9 @@ export default function ManagerInvoiceDetail() {
   };
 
   const currentStatus = invoice?.status || 'draft';
-  const canEdit = isNew || (!!invoice?._id && currentStatus === 'draft');
-  const canSubmit = !!invoice?._id && currentStatus === 'draft';
+  const canEdit = isNew || ((!!invoice?._id) && (currentStatus === 'draft' || isManager));
+  const canDirectApprove = isNew || (!!invoice?._id && currentStatus === 'draft');
+  const canSubmit = !!invoice?._id && currentStatus === 'draft' && !isManager; 
   const canCancel = !!invoice?._id && ['draft', 'submitted'].includes(currentStatus);
   const canApprove = !!invoice?._id && isManager && currentStatus === 'submitted';
   const canReject = !!invoice?._id && isManager && currentStatus === 'submitted';
@@ -260,16 +320,6 @@ export default function ManagerInvoiceDetail() {
         </header>
 
         <div className="manager-content">
-          <div className="manager-products-header">
-            <div>
-              <h1 className="manager-page-title">{isNew ? 'Tạo hóa đơn mới' : 'Chi tiết hóa đơn'}</h1>
-              <p className="manager-page-subtitle">
-                {isNew
-                  ? 'Tạo phiếu xuất hàng, lưu nháp và gửi duyệt cho quản lý.'
-                  : `Trạng thái: ${STATUS_LABEL[currentStatus] ?? currentStatus}`}
-              </p>
-            </div>
-          </div>
 
           {successMessage && <div className="manager-products-success">{successMessage}</div>}
           {error && <div className="manager-products-error">{error}</div>}
@@ -283,8 +333,19 @@ export default function ManagerInvoiceDetail() {
                   onClick={handleSaveDraft}
                   disabled={saving || !canEdit}
                 >
-                  Lưu nháp
+                  Lưu thay đổi
                 </button>
+                {canDirectApprove && isManager && (
+                  <button
+                    type="button"
+                    className="manager-btn-primary"
+                    style={{ backgroundColor: '#10b981', borderColor: '#10b981' }}
+                    onClick={handleDirectApprove}
+                    disabled={saving}
+                  >
+                    Duyệt ngay
+                  </button>
+                )}
                 {canSubmit && (
                   <button
                     type="button"
@@ -328,13 +389,34 @@ export default function ManagerInvoiceDetail() {
               </div>
 
               <div style={{ marginBottom: 24 }}>
-                <p style={{ margin: 0 }}>Mã hóa đơn: {invoice?._id || '—'}</p>
-                <p style={{ margin: 0 }}>
-                  Ngày tạo: {invoice?.invoice_at ? new Date(invoice.invoice_at).toLocaleString('vi-VN') : '—'}
-                </p>
-                <p style={{ margin: 0 }}>
-                  Người tạo: {invoice?.created_by?.email ?? '—'}
-                </p>
+                {!isNew && (
+                  <>
+                    <p style={{ margin: 0 }}>Mã hóa đơn: {invoice?._id || '—'}</p>
+                    <p style={{ margin: 0 }}>
+                      Ngày tạo: {invoice?.invoice_at ? new Date(invoice.invoice_at).toLocaleString('vi-VN') : '—'}
+                    </p>
+                    <p style={{ margin: 0 }}>
+                      Người tạo: {invoice?.created_by?.email ?? '—'}
+                    </p>
+                  </>
+                )}
+                <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontWeight: 600 }}>Phương thức thanh toán:</span>
+                  {canEdit ? (
+                    <select
+                      value={paymentMethod}
+                      onChange={(e) => setPaymentMethod(e.target.value)}
+                      style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #e5e7eb' }}
+                    >
+                      <option value="cash">Tiền mặt</option>
+                      <option value="bank_transfer">Chuyển khoản</option>
+                      <option value="credit">Công nợ</option>
+                      <option value="card">Thẻ</option>
+                    </select>
+                  ) : (
+                    <span>{{ cash: 'Tiền mặt', bank_transfer: 'Chuyển khoản', credit: 'Công nợ', card: 'Thẻ' }[paymentMethod] || paymentMethod}</span>
+                  )}
+                </div>
               </div>
 
               <div>
@@ -384,7 +466,14 @@ export default function ManagerInvoiceDetail() {
                                   }}
                                 >
                                   <option value="">-- Chọn sản phẩm --</option>
-                                  {products.map((p) => (
+                                  {products
+                                    .filter((p) => {
+                                      // Allow the currently selected product for this line
+                                      if (p._id === item.product_id) return true;
+                                      // Hide products already used in other lines
+                                      return !items.some((it, i) => i !== idx && it.product_id === p._id);
+                                    })
+                                    .map((p) => (
                                     <option key={p._id} value={p._id}>
                                       {p.name} — {p.sku}
                                     </option>

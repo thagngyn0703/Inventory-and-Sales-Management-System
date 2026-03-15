@@ -1,0 +1,131 @@
+/* Modal Styles - override for Categories */
+.modal-overlay {
+  display: flex;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.7);
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: #ffffff;
+  padding: 30px;
+  border-radius: 15px;
+  width: 90%;
+  max-width: 400px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+}
+
+.modal-content h2 {
+  margin-top: 0;
+  margin-bottom: 20px;
+  color: #111827;
+  font-size: 18px;
+}
+
+.modal-content form {
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-content input {
+  padding: 12px;
+  margin-bottom: 20px;
+  border-radius: 6px;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  color: #111827;
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.modal-content input:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.modal-buttons {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.btn-submit,
+.btn-cancel {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.3s ease;
+  flex: 1;
+  font-size: 14px;
+}
+
+.btn-submit {
+  background: #16a34a;
+  color: #fff;
+}
+
+.btn-submit:hover:not(:disabled) {
+  background: #15803d;
+}
+
+.btn-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-cancel {
+  background: #6b7280;
+  color: #fff;
+}
+
+.btn-cancel:hover {
+  background: #4b5563;
+}
+
+/* Status button styling for categories */
+.manager-products-status--active {
+  background-color: #dcfce7;
+  color: #166534;
+  border: none;
+  cursor: pointer;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.manager-products-status--active:hover {
+  background-color: #bbf7d0;
+}
+
+.manager-products-status--inactive {
+  background-color: #fee2e2;
+  color: #991b1b;
+  border: none;
+  cursor: pointer;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.manager-products-status--inactive:hover {
+  background-color: #fecaca;
+}
+
+/* Action button */
+.manager-action-btn {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 0;
+  margin: 0;
+}
