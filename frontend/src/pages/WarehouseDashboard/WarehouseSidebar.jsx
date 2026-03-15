@@ -10,6 +10,8 @@ export default function WarehouseSidebar() {
     { label: 'Tổng quan', path: '/warehouse', icon: 'fa-house' },
     { label: 'Tạo phiếu kiểm kê', path: '/warehouse/stocktakes/new', icon: 'fa-clipboard-list' },
     { label: 'Danh sách phiếu kiểm kê', path: '/warehouse/stocktakes', icon: 'fa-list' },
+    { label: 'Nhập hàng', path: '/warehouse/receipts/new', icon: 'fa-truck-ramp-box' },
+    { label: 'Danh sách phiếu nhập', path: '/warehouse/receipts', icon: 'fa-boxes-packing' },
   ];
 
   const isActive = (path) => location.pathname === path;

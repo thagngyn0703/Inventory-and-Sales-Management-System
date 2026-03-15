@@ -20,8 +20,8 @@ function normalizeProduct(p) {
   return { ...p, selling_units: units, sale_price: baseUnit ? baseUnit.sale_price : (p.sale_price || 0) };
 }
 
-// POST /api/products  (manager, admin)
-router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
+// POST /api/products  (manager, admin, warehouse)
+router.post('/', requireAuth, requireRole(['manager', 'admin', 'warehouse']), async (req, res) => {
   try {
     const {
       category_id,

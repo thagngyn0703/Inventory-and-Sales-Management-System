@@ -5,7 +5,7 @@ const goodsReceiptSchema = new Schema(
         po_id: {
             type: Schema.Types.ObjectId,
             ref: 'PurchaseOrder',
-            required: true,
+            required: false,
         },
         supplier_id: {
             type: Schema.Types.ObjectId,
@@ -23,8 +23,12 @@ const goodsReceiptSchema = new Schema(
         },
         status: {
             type: String,
-            enum: ['pending', 'approved', 'rejected'],
-            default: 'pending',
+            enum: ['draft', 'pending', 'approved', 'rejected'],
+            default: 'draft',
+        },
+        reason: {
+            type: String,
+            trim: true,
         },
         received_at: {
             type: Date,
@@ -45,6 +49,14 @@ const goodsReceiptSchema = new Schema(
                 unit_cost: {
                     type: Number,
                     required: true,
+                },
+                unit_name: {
+                    type: String,
+                    default: 'Cái',
+                },
+                ratio: {
+                    type: Number,
+                    default: 1,
                 },
             },
         ],
