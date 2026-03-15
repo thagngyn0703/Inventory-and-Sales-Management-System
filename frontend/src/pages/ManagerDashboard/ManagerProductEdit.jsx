@@ -1,7 +1,7 @@
-import React, { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useMemo } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import ManagerSidebar from './ManagerSidebar';
-import { createProduct } from '../../services/productsApi';
+import { getProduct, updateProduct } from '../../services/productsApi';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
 
@@ -21,16 +21,47 @@ const defaultForm = {
     status: 'active',
 };
 
-export default function ManagerProductCreate() {
+export default function ManagerProductEdit() {
     const navigate = useNavigate();
+    const { id } = useParams();
     const [form, setForm] = useState(defaultForm);
     const [loading, setLoading] = useState(false);
+    const [loadProduct, setLoadProduct] = useState(true);
     const [error, setError] = useState('');
 
     const baseUnitEntry = useMemo(() => form.selling_units.find((u) => Number(u.ratio) === 1) || form.selling_units[0], [form.selling_units]);
     const saleNum = useMemo(() => Number(baseUnitEntry?.sale_price) || 0, [baseUnitEntry]);
     const costNum = useMemo(() => Number(form.cost_price) || 0, [form.cost_price]);
     const expectedProfit = useMemo(() => Math.max(0, saleNum - costNum), [saleNum, costNum]);
+
+    useEffect(() => {
+        if (!id) return;
+        setLoadProduct(true);
+        setError('');
+        getProduct(id)
+            .then((p) => {
+                const units = (p.selling_units && p.selling_units.length > 0)
+                    ? p.selling_units.map((u) => ({
+                        name: u.name || '',
+                        ratio: u.ratio != null ? u.ratio : 1,
+                        sale_price: u.sale_price != null ? String(u.sale_price) : '',
+                    }))
+                    : [{ name: p.base_unit || 'Cái', ratio: 1, sale_price: p.sale_price != null ? String(p.sale_price) : '' }];
+                setForm({
+                    name: p.name || '',
+                    sku: p.sku || '',
+                    barcode: p.barcode || '',
+                    cost_price: p.cost_price != null ? String(p.cost_price) : '',
+                    stock_qty: p.stock_qty != null ? String(p.stock_qty) : '',
+                    reorder_level: p.reorder_level != null ? String(p.reorder_level) : '',
+                    base_unit: p.base_unit || 'Cái',
+                    selling_units: units,
+                    status: p.status === 'inactive' ? 'inactive' : 'active',
+                });
+            })
+            .catch((e) => setError(e.message || 'Không tải được sản phẩm'))
+            .finally(() => setLoadProduct(false));
+    }, [id]);
 
     const update = (field, value) => {
         setForm((prev) => {
@@ -66,15 +97,14 @@ export default function ManagerProductCreate() {
         setForm((prev) => {
             const next = prev.selling_units.filter((_, i) => i !== index);
             const hasBase = next.some((u) => Number(u.ratio) === 1);
-            if (!hasBase && next.length > 0) {
-                next[0].ratio = 1;
-            }
+            if (!hasBase && next.length > 0) next[0].ratio = 1;
             return { ...prev, selling_units: next.length ? next : [defaultSellingUnit()] };
         });
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        if (!id) return;
         if (!form.name.trim()) {
             setError('Vui lòng nhập tên sản phẩm.');
             return;
@@ -95,14 +125,12 @@ export default function ManagerProductCreate() {
             return;
         }
         const hasBase = units.some((u) => u.ratio === 1);
-        if (!hasBase) {
-            units.unshift({ name: form.base_unit || 'Cái', ratio: 1, sale_price: units[0]?.sale_price ?? 0 });
-        }
+        if (!hasBase) units.unshift({ name: form.base_unit || 'Cái', ratio: 1, sale_price: units[0]?.sale_price ?? 0 });
 
         setLoading(true);
         setError('');
         try {
-            await createProduct({
+            await updateProduct(id, {
                 name: form.name.trim(),
                 sku: form.sku.trim(),
                 barcode: form.barcode ? String(form.barcode).trim() : undefined,
@@ -113,13 +141,26 @@ export default function ManagerProductCreate() {
                 selling_units: units,
                 status: form.status === 'inactive' ? 'inactive' : 'active',
             });
-            navigate('/manager/products', { state: { success: 'Thêm sản phẩm thành công.' } });
+            navigate('/manager/products', { state: { success: 'Cập nhật sản phẩm thành công.' } });
         } catch (err) {
-            setError(err.message || 'Không thể tạo sản phẩm.');
+            setError(err.message || 'Không thể cập nhật sản phẩm.');
         } finally {
             setLoading(false);
         }
     };
+
+    if (loadProduct) {
+        return (
+            <div className="manager-page-with-sidebar">
+                <ManagerSidebar />
+                <div className="manager-main">
+                    <div className="manager-content">
+                        <p className="manager-products-loading">Đang tải...</p>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="manager-page-with-sidebar">
@@ -141,16 +182,17 @@ export default function ManagerProductCreate() {
                 <div className="manager-content">
                     <div className="manager-products-header">
                         <div>
-                            <h1 className="manager-page-title">Thêm sản phẩm</h1>
-                            <p className="manager-page-subtitle">Tồn kho theo đơn vị gốc. Nhiều đơn vị bán với giá khác nhau (vd: Lon 10k, Thùng 200k).</p>
+                            <h1 className="manager-page-title">Sửa sản phẩm</h1>
+                            <p className="manager-page-subtitle">Đơn vị tồn kho (gốc) và nhiều đơn vị bán với giá khác nhau.</p>
                         </div>
-                        <button
-                            type="button"
-                            className="manager-btn-secondary"
-                            onClick={() => navigate('/manager/products')}
-                        >
-                            <i className="fa-solid fa-arrow-left" /> Quay lại
-                        </button>
+                        <div className="manager-detail-actions">
+                            <button type="button" className="manager-btn-secondary" onClick={() => navigate(`/manager/products/${id}`)}>
+                                <i className="fa-solid fa-eye" /> Xem chi tiết
+                            </button>
+                            <button type="button" className="manager-btn-secondary" onClick={() => navigate('/manager/products')}>
+                                <i className="fa-solid fa-arrow-left" /> Danh sách
+                            </button>
+                        </div>
                     </div>
 
                     {error && <div className="manager-products-error">{error}</div>}
@@ -160,39 +202,21 @@ export default function ManagerProductCreate() {
                             <div className="manager-form-row manager-form-row--2">
                                 <div className="manager-form-group">
                                     <label>Tên sản phẩm <span className="required">*</span></label>
-                                    <input
-                                        type="text"
-                                        value={form.name}
-                                        onChange={(e) => update('name', e.target.value)}
-                                        placeholder="Nhập tên sản phẩm"
-                                    />
+                                    <input type="text" value={form.name} onChange={(e) => update('name', e.target.value)} placeholder="Nhập tên sản phẩm" />
                                 </div>
                                 <div className="manager-form-group">
                                     <label>SKU <span className="required">*</span></label>
-                                    <input
-                                        type="text"
-                                        value={form.sku}
-                                        onChange={(e) => update('sku', e.target.value)}
-                                        placeholder="Mã SKU"
-                                    />
+                                    <input type="text" value={form.sku} onChange={(e) => update('sku', e.target.value)} placeholder="Mã SKU" />
                                 </div>
                             </div>
                             <div className="manager-form-row manager-form-row--2">
                                 <div className="manager-form-group">
                                     <label>Barcode</label>
-                                    <input
-                                        type="text"
-                                        value={form.barcode}
-                                        onChange={(e) => update('barcode', e.target.value)}
-                                        placeholder="Mã vạch (tùy chọn)"
-                                    />
+                                    <input type="text" value={form.barcode} onChange={(e) => update('barcode', e.target.value)} placeholder="Mã vạch (tùy chọn)" />
                                 </div>
                                 <div className="manager-form-group">
                                     <label>Trạng thái</label>
-                                    <select
-                                        value={form.status}
-                                        onChange={(e) => update('status', e.target.value)}
-                                    >
+                                    <select value={form.status} onChange={(e) => update('status', e.target.value)}>
                                         <option value="active">Đang bán</option>
                                         <option value="inactive">Ngừng bán</option>
                                     </select>
@@ -201,11 +225,7 @@ export default function ManagerProductCreate() {
                             <div className="manager-form-row manager-form-row--2">
                                 <div className="manager-form-group">
                                     <label>Đơn vị tồn kho (gốc)</label>
-                                    <select
-                                        value={form.base_unit}
-                                        onChange={(e) => update('base_unit', e.target.value)}
-                                        title="Tồn kho và quy đổi tính theo đơn vị này (vd: Lon)."
-                                    >
+                                    <select value={form.base_unit} onChange={(e) => update('base_unit', e.target.value)}>
                                         {PRODUCT_BASE_UNITS.map((u) => (
                                             <option key={u} value={u}>{u}</option>
                                         ))}
@@ -213,14 +233,7 @@ export default function ManagerProductCreate() {
                                 </div>
                                 <div className="manager-form-group">
                                     <label>Giá vốn (₫) / 1 đơn vị gốc</label>
-                                    <input
-                                        type="number"
-                                        min="0"
-                                        step="1000"
-                                        value={form.cost_price}
-                                        onChange={(e) => setForm((prev) => ({ ...prev, cost_price: e.target.value }))}
-                                        placeholder="0"
-                                    />
+                                    <input type="number" min="0" step="1000" value={form.cost_price} onChange={(e) => setForm((prev) => ({ ...prev, cost_price: e.target.value }))} placeholder="0" />
                                 </div>
                             </div>
 
@@ -231,9 +244,6 @@ export default function ManagerProductCreate() {
                                         <i className="fa-solid fa-plus" /> Thêm đơn vị bán
                                     </button>
                                 </div>
-                                <p className="manager-form-hint-inline" style={{ marginTop: 0 }}>
-                                    Tỉ lệ = số đơn vị gốc (vd: 1 Thùng = 24 Lon → tỉ lệ 24). Phải có ít nhất 1 đơn vị với tỉ lệ 1.
-                                </p>
                                 <div className="manager-selling-units-table-wrap">
                                     <table className="manager-selling-units-table">
                                         <thead>
@@ -248,44 +258,16 @@ export default function ManagerProductCreate() {
                                             {form.selling_units.map((u, i) => (
                                                 <tr key={i}>
                                                     <td>
-                                                        <input
-                                                            type="text"
-                                                            value={u.name}
-                                                            onChange={(e) => updateSellingUnit(i, 'name', e.target.value)}
-                                                            placeholder="vd: Lon"
-                                                            className="manager-selling-unit-input"
-                                                        />
+                                                        <input type="text" value={u.name} onChange={(e) => updateSellingUnit(i, 'name', e.target.value)} placeholder="vd: Lon" className="manager-selling-unit-input" />
                                                     </td>
                                                     <td>
-                                                        <input
-                                                            type="number"
-                                                            min="1"
-                                                                step="1"
-                                                            value={u.ratio}
-                                                            onChange={(e) => updateSellingUnit(i, 'ratio', e.target.value)}
-                                                            placeholder="1"
-                                                            className="manager-selling-unit-input manager-selling-unit-ratio"
-                                                        />
+                                                        <input type="number" min="1" step="1" value={u.ratio} onChange={(e) => updateSellingUnit(i, 'ratio', e.target.value)} placeholder="1" className="manager-selling-unit-input manager-selling-unit-ratio" />
                                                     </td>
                                                     <td>
-                                                        <input
-                                                            type="number"
-                                                            min="0"
-                                                            step="1000"
-                                                            value={u.sale_price}
-                                                            onChange={(e) => updateSellingUnit(i, 'sale_price', e.target.value)}
-                                                            placeholder="0"
-                                                            className="manager-selling-unit-input"
-                                                        />
+                                                        <input type="number" min="0" step="1000" value={u.sale_price} onChange={(e) => updateSellingUnit(i, 'sale_price', e.target.value)} placeholder="0" className="manager-selling-unit-input" />
                                                     </td>
                                                     <td>
-                                                        <button
-                                                            type="button"
-                                                            className="manager-btn-icon"
-                                                            title="Xóa"
-                                                            onClick={() => removeSellingUnit(i)}
-                                                            disabled={form.selling_units.length <= 1}
-                                                        >
+                                                        <button type="button" className="manager-btn-icon" title="Xóa" onClick={() => removeSellingUnit(i)} disabled={form.selling_units.length <= 1}>
                                                             <i className="fa-solid fa-trash" />
                                                         </button>
                                                     </td>
@@ -299,43 +281,23 @@ export default function ManagerProductCreate() {
                             {(saleNum > 0 || costNum > 0) && (
                                 <div className="manager-profit-hint">
                                     Lời dự kiến (theo đơn vị gốc): <strong>{expectedProfit.toLocaleString('vi-VN')}₫</strong>
-                                    {costNum > 0 && (
-                                        <span className="manager-profit-margin">
-                                            (tỷ lệ lãi: {((expectedProfit / costNum) * 100).toFixed(1)}%)
-                                        </span>
-                                    )}
+                                    {costNum > 0 && <span className="manager-profit-margin">(tỷ lệ lãi: {((expectedProfit / costNum) * 100).toFixed(1)}%)</span>}
                                 </div>
                             )}
 
                             <div className="manager-form-row manager-form-row--2">
                                 <div className="manager-form-group">
-                                    <label>Tồn kho ban đầu (theo đơn vị gốc)</label>
-                                    <input
-                                        type="number"
-                                        min="0"
-                                        value={form.stock_qty}
-                                        onChange={(e) => update('stock_qty', e.target.value)}
-                                        placeholder="vd: 24 Lon hoặc 1 Thùng = nhập 24"
-                                    />
+                                    <label>Tồn kho (theo đơn vị gốc)</label>
+                                    <input type="number" min="0" value={form.stock_qty} onChange={(e) => update('stock_qty', e.target.value)} placeholder="0" />
                                 </div>
                                 <div className="manager-form-group">
                                     <label>Mức tồn tối thiểu</label>
-                                    <input
-                                        type="number"
-                                        min="0"
-                                        value={form.reorder_level}
-                                        onChange={(e) => update('reorder_level', e.target.value)}
-                                        placeholder="0"
-                                    />
+                                    <input type="number" min="0" value={form.reorder_level} onChange={(e) => update('reorder_level', e.target.value)} placeholder="0" />
                                 </div>
                             </div>
                             <div className="manager-form-actions">
-                                <button type="button" className="manager-btn-secondary" onClick={() => navigate('/manager/products')}>
-                                    Hủy
-                                </button>
-                                <button type="submit" className="manager-btn-primary" disabled={loading}>
-                                    {loading ? 'Đang lưu...' : 'Tạo sản phẩm'}
-                                </button>
+                                <button type="button" className="manager-btn-secondary" onClick={() => navigate('/manager/products')}>Hủy</button>
+                                <button type="submit" className="manager-btn-primary" disabled={loading}>{loading ? 'Đang lưu...' : 'Lưu thay đổi'}</button>
                             </div>
                         </form>
                     </div>

@@ -11,17 +11,21 @@ export default function ManagerSidebar() {
         { label: 'Đơn hàng', path: '/manager/orders', icon: 'fa-file-lines' },
         { label: 'Sản phẩm', path: '/manager/products', icon: 'fa-cart-shopping' },
         { label: 'Danh mục', path: '/manager/categories', icon: 'fa-list' },
+        { label: 'Hóa đơn', path: '/manager/invoices', icon: 'fa-receipt' },
         { label: 'Khách hàng', path: '/manager/customers', icon: 'fa-users' },
         { label: 'Báo cáo', path: '/manager/reports', icon: 'fa-chart-bar' },
     ];
 
     const manageItems = [
-        { label: 'Kho hàng', path: '/manager/warehouse', icon: 'fa-warehouse' },
-        { label: 'Hóa đơn', path: '/manager/invoices', icon: 'fa-receipt' },
+        { label: 'Kho hàng', path: '/warehouse', icon: 'fa-warehouse' },
         { label: 'Cài đặt', path: '/manager/settings', icon: 'fa-gear' },
     ];
 
     const isActive = (path) => location.pathname === path || (path === '/manager' && location.pathname === '/manager');
+    const isItemActive = (item) => {
+        if (item.path === '/warehouse') return location.pathname === '/warehouse' || location.pathname.startsWith('/warehouse/');
+        return isActive(item.path);
+    };
 
     return (
         <div className="manager-sidebar">
@@ -50,7 +54,7 @@ export default function ManagerSidebar() {
                     {manageItems.map((item) => (
                         <button
                             key={item.path}
-                            className={`manager-sidebar-item ${isActive(item.path) ? 'active' : ''}`}
+                            className={`manager-sidebar-item ${isItemActive(item) ? 'active' : ''}`}
                             onClick={() => navigate(item.path)}
                         >
                             <i className={`fa-solid ${item.icon} manager-item-icon`} />

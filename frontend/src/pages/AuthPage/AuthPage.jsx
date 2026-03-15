@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 // import "./AuthPage.css";
 import { useNavigate } from "react-router-dom";
+import { normalizeRole } from "../../utils/auth";
 
 
 
@@ -95,11 +96,13 @@ export default function AuthPage() {
                 if (data.token) localStorage.setItem("token", data.token);
                 if (data.user) localStorage.setItem("user", JSON.stringify(data.user));
                 alert("Xác minh thành công!");
-                const role = data.user?.role;
+                const role = normalizeRole(data.user?.role);
                 if (role === "admin") {
                     navigate("/admin", { replace: true });
-                } else if (role === "manager" || role === "warehouse" || role === "sales") {
+                } else if (role === "manager" || role === "sales") {
                     navigate("/manager", { replace: true });
+                } else if (role === "warehouse") {
+                    navigate("/warehouse", { replace: true });
                 } else {
                     navigate("/home", { replace: true });
                 }
@@ -128,12 +131,13 @@ export default function AuthPage() {
                 if (data.token) localStorage.setItem("token", data.token);
                 if (data.user) localStorage.setItem("user", JSON.stringify(data.user));
 
-                const role = data.user?.role;
-
+                const role = normalizeRole(data.user?.role);
                 if (role === "admin") {
                     navigate("/admin", { replace: true });
-                } else if (role === "manager" || role === "warehouse" || role === "sales") {
+                } else if (role === "manager" || role === "sales") {
                     navigate("/manager", { replace: true });
+                } else if (role === "warehouse") {
+                    navigate("/warehouse", { replace: true });
                 } else {
                     navigate("/home", { replace: true });
                 }
