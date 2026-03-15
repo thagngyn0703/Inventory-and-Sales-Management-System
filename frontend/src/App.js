@@ -9,6 +9,15 @@ import ManagerProductList from "./pages/ManagerDashboard/ManagerProductList";
 import ManagerProductCreate from "./pages/ManagerDashboard/ManagerProductCreate";
 import ManagerProductDetail from "./pages/ManagerDashboard/ManagerProductDetail";
 import ManagerProductEdit from "./pages/ManagerDashboard/ManagerProductEdit";
+import RequireRole from "./components/RequireRole";
+import ManagerStocktakePending from "./pages/ManagerDashboard/ManagerStocktakePending.jsx";
+import ManagerAdjustmentList from "./pages/ManagerDashboard/ManagerAdjustmentList.jsx";
+import ManagerAdjustmentDetail from "./pages/ManagerDashboard/ManagerAdjustmentDetail.jsx";
+import WarehouseDashboard from "./pages/WarehouseDashboard/WarehouseDashboard.jsx";
+import WarehouseHome from "./pages/WarehouseDashboard/WarehouseHome.jsx";
+import WarehouseStocktakingCreate from "./pages/WarehouseDashboard/WarehouseStocktakingCreate.jsx";
+import WarehouseStocktakingList from "./pages/WarehouseDashboard/WarehouseStocktakingList.jsx";
+import WarehouseStocktakingDetail from "./pages/WarehouseDashboard/WarehouseStocktakingDetail.jsx";
 
 function App() {
   return (
@@ -23,6 +32,22 @@ function App() {
       <Route path="/manager/products/new" element={<ManagerProductCreate />} />
       <Route path="/manager/products/:id/edit" element={<ManagerProductEdit />} />
       <Route path="/manager/products/:id" element={<ManagerProductDetail />} />
+      <Route path="/manager/stocktakes" element={<ManagerStocktakePending />} />
+      <Route path="/manager/adjustments" element={<ManagerAdjustmentList />} />
+      <Route path="/manager/adjustments/:id" element={<ManagerAdjustmentDetail />} />
+      <Route
+        path="/warehouse"
+        element={
+          <RequireRole allowedRoles={['warehouse', 'manager', 'admin']}>
+            <WarehouseDashboard />
+          </RequireRole>
+        }
+      >
+        <Route index element={<WarehouseHome />} />
+        <Route path="stocktakes" element={<WarehouseStocktakingList />} />
+        <Route path="stocktakes/new" element={<WarehouseStocktakingCreate />} />
+        <Route path="stocktakes/:id" element={<WarehouseStocktakingDetail />} />
+      </Route>
     </Routes>
   );
 }

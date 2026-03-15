@@ -1,0 +1,63 @@
+const express = require('express');
+const mongoose = require('mongoose');
+const StockAdjustment = require('../models/StockAdjustment');
+const { requireAuth, requireRole } = require('../middleware/auth');
+
+const router = express.Router();
+
+// GET /api/stock-adjustments?page=1&limit=20&status= — List adjustments. Manager, Admin.
+router.get('/', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
+  try {
+    const { page = '1', limit = '20', status } = req.query;
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
+    const filter = {};
+    if (status && ['pending', 'approved', 'rejected'].includes(status)) {
+      filter.status = status;
+    }
+
+    const total = await StockAdjustment.countDocuments(filter);
+    const skip = (pageNum - 1) * limitNum;
+    const list = await StockAdjustment.find(filter)
+      .sort({ created_at: -1 })
+      .skip(skip)
+      .limit(limitNum)
+      .populate('stocktake_id', 'snapshot_at status created_at')
+      .populate('approved_by', 'email')
+      .populate('created_by', 'email')
+      .lean();
+
+    return res.json({
+      adjustments: list,
+      total,
+      page: pageNum,
+      limit: limitNum,
+      totalPages: Math.ceil(total / limitNum) || 1,
+    });
+  } catch (err) {
+    return res.status(500).json({ message: err.message || 'Server error' });
+  }
+});
+
+// GET /api/stock-adjustments/:id — Get one adjustment with items.
+router.get('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ message: 'Invalid adjustment id' });
+    }
+    const adjustment = await StockAdjustment.findById(id)
+      .populate('stocktake_id')
+      .populate('approved_by', 'email')
+      .populate('created_by', 'email')
+      .populate('items.product_id', 'name sku base_unit')
+      .populate('warehouse_id', 'name')
+      .lean();
+    if (!adjustment) return res.status(404).json({ message: 'Adjustment not found' });
+    return res.json({ adjustment });
+  } catch (err) {
+    return res.status(500).json({ message: err.message || 'Server error' });
+  }
+});
+
+module.exports = router;

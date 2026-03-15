@@ -29,9 +29,18 @@ async function requireAuth(req, res, next) {
 }
 
 function requireRole(allowedRoles) {
-  const allowed = (allowedRoles || []).map((r) => String(r).toLowerCase());
+  const baseAllowed = (allowedRoles || []).map((r) => String(r).toLowerCase());
+  const allowed = [...baseAllowed];
+  if (baseAllowed.includes('warehouse')) allowed.push('warehouse_staff');
+  if (baseAllowed.includes('sales')) allowed.push('sales_staff');
+  const normalizeRole = (role) => {
+    const r = String(role || '').toLowerCase();
+    if (r === 'warehouse_staff' || r === 'warehouse staff') return 'warehouse';
+    if (r === 'sales_staff' || r === 'sales staff') return 'sales';
+    return r;
+  };
   return (req, res, next) => {
-    const role = String(req.user?.role || '').toLowerCase();
+    const role = normalizeRole(req.user?.role) || String(req.user?.role || '').toLowerCase();
     if (allowed.includes(role)) return next();
     return res.status(403).json({ message: 'Forbidden' });
   };
