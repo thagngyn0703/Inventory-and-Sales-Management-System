@@ -149,6 +149,10 @@ router.post('/login', async (req, res) => {
             return res.status(400).json({ message: 'Email hoặc mật khẩu không đúng' });
         }
 
+        if (user.status === 'inactive') {
+            return res.status(403).json({ message: 'Tài khoản đã bị vô hiệu hoá. Vui lòng liên hệ quản trị viên.' });
+        }
+
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) {
             return res.status(400).json({ message: 'Email hoặc mật khẩu không đúng' });
