@@ -8,6 +8,8 @@ import ManagerProductList from "./pages/ManagerDashboard/ManagerProductList";
 import ManagerProductCreate from "./pages/ManagerDashboard/ManagerProductCreate";
 import ManagerProductDetail from "./pages/ManagerDashboard/ManagerProductDetail";
 import ManagerProductEdit from "./pages/ManagerDashboard/ManagerProductEdit";
+import ManagerInvoicesList from "./pages/ManagerDashboard/ManagerInvoicesList";
+import ManagerInvoiceDetail from "./pages/ManagerDashboard/ManagerInvoiceDetail";
 import RequireRole from "./components/RequireRole";
 import WarehouseDashboard from "./pages/WarehouseDashboard/WarehouseDashboard.jsx";
 import WarehouseHome from "./pages/WarehouseDashboard/WarehouseHome.jsx";
@@ -27,6 +29,9 @@ function App() {
       <Route path="/manager/products/new" element={<ManagerProductCreate />} />
       <Route path="/manager/products/:id/edit" element={<ManagerProductEdit />} />
       <Route path="/manager/products/:id" element={<ManagerProductDetail />} />
+      <Route path="/manager/invoices" element={<ManagerInvoicesList />} />
+      <Route path="/manager/invoices/new" element={<ManagerInvoiceDetail />} />
+      <Route path="/manager/invoices/:id" element={<ManagerInvoiceDetail />} />
       <Route
         path="/warehouse"
         element={

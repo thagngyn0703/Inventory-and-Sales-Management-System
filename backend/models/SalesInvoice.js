@@ -5,7 +5,7 @@ const salesInvoiceSchema = new Schema(
         customer_id: {
             type: Schema.Types.ObjectId,
             ref: 'Customer',
-            required: true,
+            required: false,
         },
         created_by: {
             type: Schema.Types.ObjectId,
@@ -14,7 +14,7 @@ const salesInvoiceSchema = new Schema(
         },
         status: {
             type: String,
-            enum: ['draft', 'confirmed', 'paid', 'cancelled'],
+            enum: ['draft', 'submitted', 'confirmed', 'paid', 'cancelled'],
             default: 'draft',
         },
         invoice_at: {
