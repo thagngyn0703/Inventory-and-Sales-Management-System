@@ -3,22 +3,54 @@ import ManagerSidebar from '../ManagerDashboard/ManagerSidebar';
 import './Categories.css';
 import '../ManagerDashboard/ManagerDashboard.css';
 
+/**
+ * CATEGORIES COMPONENT - Quản lý danh mục sản phẩm
+ * Chức năng: CRUD operations cho categories, search, filter
+ */
+
+// API base URL - Cấu hình endpoint backend
 const API_BASE = 'http://localhost:8000/api';
 
 const Categories = () => {
+    // ========== STATE MANAGEMENT ==========
+    // Danh sách categories từ API
     const [categories, setCategories] = useState([]);
+
+    // Loading state - hiển thị spinner khi đang fetch
     const [loading, setLoading] = useState(false);
+
+    // Error state - hiển thị lỗi khi API fail
     const [error, setError] = useState('');
+
+    // ========== CREATE MODAL STATE ==========
+    // Modal tạo category mới
     const [showCreateModal, setShowCreateModal] = useState(false);
+    // Input value cho category name mới
     const [newName, setNewName] = useState('');
-    const [editingId, setEditingId] = useState(null);
-    const [editingName, setEditingName] = useState('');
+
+    // ========== EDIT MODAL STATE ==========
+    // Modal chỉnh sửa category
     const [showEditModal, setShowEditModal] = useState(false);
+    // ID của category đang edit
+    const [editingId, setEditingId] = useState(null);
+    // Name của category đang edit
+    const [editingName, setEditingName] = useState('');
+
+    // ========== SEARCH STATE ==========
+    // Search term đã được apply (filtered)
     const [search, setSearch] = useState('');
+    // Search input hiện tại (real-time)
     const [searchInput, setSearchInput] = useState('');
 
+    // ========== AUTHENTICATION ==========
+    // Token từ localStorage để authenticate API calls
     const token = localStorage.getItem('token');
 
+    // ========== LIFECYCLE - FETCH DATA ==========
+    /**
+     * useEffect - Fetch categories khi component mount
+     * Dependency: [token] - refetch khi token thay đổi
+     */
     useEffect(() => {
         const fetchCategories = async () => {
             setLoading(true);
@@ -38,6 +70,11 @@ const Categories = () => {
         fetchCategories();
     }, [token]);
 
+    // ========== UTILITY FUNCTIONS ==========
+    /**
+     * refetchCategories - Re-fetch categories sau khi CRUD operations
+     * Được gọi sau create, edit, delete để update UI
+     */
     const refetchCategories = async () => {
         setLoading(true);
         setError('');
@@ -54,9 +91,15 @@ const Categories = () => {
         setLoading(false);
     };
 
+    // ========== CRUD HANDLERS ==========
+    /**
+     * handleCreate - Xử lý tạo category mới
+     * POST /api/categories với name và token
+     */
     const handleCreate = async (ev) => {
         ev.preventDefault();
-        if (!newName.trim()) return;
+        if (!newName.trim()) return; // Validation: không tạo empty name
+
         setLoading(true);
         setError('');
         try {
@@ -70,29 +113,44 @@ const Categories = () => {
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.message || 'Tạo danh mục thất bại');
+
+            // Reset form và đóng modal
             setNewName('');
             setShowCreateModal(false);
-            refetchCategories();
+            refetchCategories(); // Update UI
         } catch (err) {
             setError(err.message);
         }
         setLoading(false);
     };
 
+    // ========== EDIT HANDLERS ==========
+    /**
+     * startEdit - Mở modal edit với data của category được chọn
+     * @param {Object} cat - Category object từ list
+     */
     const startEdit = (cat) => {
         setEditingId(cat._id);
         setEditingName(cat.name);
         setShowEditModal(true);
     };
 
+    /**
+     * cancelEdit - Hủy edit và reset edit state
+     */
     const cancelEdit = () => {
         setEditingId(null);
         setEditingName('');
         setShowEditModal(false);
     };
 
+    /**
+     * saveEdit - Lưu thay đổi category
+     * PUT /api/categories/:id với name mới
+     */
     const saveEdit = async () => {
-        if (!editingName.trim()) return;
+        if (!editingName.trim()) return; // Validation
+
         setLoading(true);
         setError('');
         try {
@@ -106,14 +164,20 @@ const Categories = () => {
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.message || 'Cập nhật thất bại');
-            cancelEdit();
-            refetchCategories();
+
+            cancelEdit(); // Reset edit state
+            refetchCategories(); // Update UI
         } catch (err) {
             setError(err.message);
         }
         setLoading(false);
     };
 
+    // ========== TOGGLE STATUS HANDLER ==========
+    /**
+     * toggleActive - Bật/tắt trạng thái active của category
+     * PATCH /api/categories/:id/activate với is_active toggle
+     */
     const toggleActive = async (id, current) => {
         setLoading(true);
         setError('');
@@ -124,23 +188,32 @@ const Categories = () => {
                     'Content-Type': 'application/json',
                     Authorization: 'Bearer ' + token,
                 },
-                body: JSON.stringify({ is_active: !current }),
+                body: JSON.stringify({ is_active: !current }), // Toggle value
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.message || 'Cập nhật thất bại');
-            refetchCategories();
+            refetchCategories(); // Update UI
         } catch (err) {
             setError(err.message);
         }
         setLoading(false);
     };
 
+    // ========== SEARCH HANDLER ==========
+    /**
+     * handleSearchSubmit - Xử lý submit search form
+     * Set search term để filter categories
+     */
     const handleSearchSubmit = (e) => {
         e.preventDefault();
         setSearch(searchInput.trim());
     };
 
-    // Filter categories based on search term
+    // ========== COMPUTED VALUES ==========
+    /**
+     * filteredCategories - Filter categories dựa trên search term
+     * Case-insensitive search
+     */
     const filteredCategories = categories.filter(cat =>
         cat.name.toLowerCase().includes(search.toLowerCase())
     );
@@ -192,8 +265,8 @@ const Categories = () => {
                     {error && <div className="manager-products-error">{error}</div>}
 
                     {showCreateModal && (
-                        <div className="modal-overlay" onClick={() => setShowCreateModal(false)}>
-                            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+                        <div className="modal-overlay" data-testid="create-modal-overlay" onClick={() => setShowCreateModal(false)}>
+                            <div className="modal-content" data-testid="create-modal-content" onClick={(e) => e.stopPropagation()}>
                                 <h2>Tạo danh mục mới</h2>
                                 <form onSubmit={handleCreate}>
                                     <input
@@ -228,8 +301,8 @@ const Categories = () => {
                     )}
 
                     {showEditModal && (
-                        <div className="modal-overlay" onClick={cancelEdit}>
-                            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+                        <div className="modal-overlay" data-testid="edit-modal-overlay" onClick={cancelEdit}>
+                            <div className="modal-content" data-testid="edit-modal-content" onClick={(e) => e.stopPropagation()}>
                                 <h2>Chỉnh sửa danh mục</h2>
                                 <form
                                     onSubmit={(e) => {
