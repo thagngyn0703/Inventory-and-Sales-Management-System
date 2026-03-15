@@ -10,13 +10,13 @@ export default function ManagerSidebar() {
         { label: 'Tổng quan', path: '/manager', icon: 'fa-house' },
         { label: 'Đơn hàng', path: '/manager/orders', icon: 'fa-file-lines' },
         { label: 'Sản phẩm', path: '/manager/products', icon: 'fa-cart-shopping' },
+        { label: 'Hóa đơn', path: '/manager/invoices', icon: 'fa-receipt' },
         { label: 'Khách hàng', path: '/manager/customers', icon: 'fa-users' },
         { label: 'Báo cáo', path: '/manager/reports', icon: 'fa-chart-bar' },
     ];
 
     const manageItems = [
         { label: 'Kho hàng', path: '/warehouse', icon: 'fa-warehouse' },
-        { label: 'Hóa đơn', path: '/manager/invoices', icon: 'fa-receipt' },
         { label: 'Cài đặt', path: '/manager/settings', icon: 'fa-gear' },
     ];
 
