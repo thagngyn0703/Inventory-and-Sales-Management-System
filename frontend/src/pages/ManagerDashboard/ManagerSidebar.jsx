@@ -10,23 +10,20 @@ export default function ManagerSidebar() {
         { label: 'Tổng quan', path: '/manager', icon: 'fa-house' },
         { label: 'Đơn hàng', path: '/manager/orders', icon: 'fa-file-lines' },
         { label: 'Sản phẩm', path: '/manager/products', icon: 'fa-cart-shopping' },
+        { label: 'Danh mục', path: '/manager/categories', icon: 'fa-list' },
+        { label: 'Hóa đơn', path: '/manager/invoices', icon: 'fa-receipt' },
         { label: 'Khách hàng', path: '/manager/customers', icon: 'fa-users' },
         { label: 'Báo cáo', path: '/manager/reports', icon: 'fa-chart-bar' },
     ];
 
     const manageItems = [
         { label: 'Kho hàng', path: '/warehouse', icon: 'fa-warehouse' },
-        { label: 'Kiểm kê chờ duyệt', path: '/manager/stocktakes', icon: 'fa-clipboard-check' },
-        { label: 'Lịch sử điều chỉnh', path: '/manager/adjustments', icon: 'fa-history' },
-        { label: 'Hóa đơn', path: '/manager/invoices', icon: 'fa-receipt' },
         { label: 'Cài đặt', path: '/manager/settings', icon: 'fa-gear' },
     ];
 
     const isActive = (path) => location.pathname === path || (path === '/manager' && location.pathname === '/manager');
     const isItemActive = (item) => {
         if (item.path === '/warehouse') return location.pathname === '/warehouse' || location.pathname.startsWith('/warehouse/');
-        if (item.path === '/manager/stocktakes') return location.pathname === '/manager/stocktakes';
-        if (item.path === '/manager/adjustments') return location.pathname === '/manager/adjustments' || location.pathname.startsWith('/manager/adjustments/');
         return isActive(item.path);
     };
 
