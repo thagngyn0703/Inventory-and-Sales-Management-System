@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import ManagerSidebar from './ManagerSidebar';
 import { getProduct, updateProduct } from '../../services/productsApi';
+import { getSuppliers } from '../../services/suppliersApi';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
 
@@ -13,6 +14,7 @@ const defaultForm = {
     name: '',
     sku: '',
     barcode: '',
+    supplier_id: '',
     cost_price: '',
     stock_qty: '',
     reorder_level: '',
@@ -25,9 +27,18 @@ export default function ManagerProductEdit() {
     const navigate = useNavigate();
     const { id } = useParams();
     const [form, setForm] = useState(defaultForm);
+    const [suppliers, setSuppliers] = useState([]);
     const [loading, setLoading] = useState(false);
     const [loadProduct, setLoadProduct] = useState(true);
     const [error, setError] = useState('');
+
+    useEffect(() => {
+        let cancelled = false;
+        getSuppliers()
+            .then((list) => { if (!cancelled) setSuppliers(list || []); })
+            .catch(() => { if (!cancelled) setSuppliers([]); });
+        return () => { cancelled = true; };
+    }, []);
 
     const baseUnitEntry = useMemo(() => form.selling_units.find((u) => Number(u.ratio) === 1) || form.selling_units[0], [form.selling_units]);
     const saleNum = useMemo(() => Number(baseUnitEntry?.sale_price) || 0, [baseUnitEntry]);
@@ -47,10 +58,14 @@ export default function ManagerProductEdit() {
                         sale_price: u.sale_price != null ? String(u.sale_price) : '',
                     }))
                     : [{ name: p.base_unit || 'Cái', ratio: 1, sale_price: p.sale_price != null ? String(p.sale_price) : '' }];
+                const supplierId = p.supplier_id
+                    ? (typeof p.supplier_id === 'object' ? p.supplier_id._id : p.supplier_id)
+                    : '';
                 setForm({
                     name: p.name || '',
                     sku: p.sku || '',
                     barcode: p.barcode || '',
+                    supplier_id: supplierId || '',
                     cost_price: p.cost_price != null ? String(p.cost_price) : '',
                     stock_qty: p.stock_qty != null ? String(p.stock_qty) : '',
                     reorder_level: p.reorder_level != null ? String(p.reorder_level) : '',
@@ -134,6 +149,7 @@ export default function ManagerProductEdit() {
                 name: form.name.trim(),
                 sku: form.sku.trim(),
                 barcode: form.barcode ? String(form.barcode).trim() : undefined,
+                supplier_id: form.supplier_id && form.supplier_id.trim() ? form.supplier_id.trim() : undefined,
                 cost_price: costNum,
                 stock_qty: Number(form.stock_qty) || 0,
                 reorder_level: Number(form.reorder_level) || 0,
@@ -221,6 +237,21 @@ export default function ManagerProductEdit() {
                                         <option value="inactive">Ngừng bán</option>
                                     </select>
                                 </div>
+                            </div>
+                            <div className="manager-form-row manager-form-row--2">
+                                <div className="manager-form-group">
+                                    <label>Nhà cung cấp</label>
+                                    <select value={form.supplier_id} onChange={(e) => update('supplier_id', e.target.value)}>
+                                        <option value="">— Không chọn —</option>
+                                        {suppliers.map((s) => (
+                                            <option key={s._id} value={s._id}>
+                                                {s.name}
+                                                {s.phone ? ` — ${s.phone}` : ''}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div className="manager-form-group" />
                             </div>
                             <div className="manager-form-row manager-form-row--2">
                                 <div className="manager-form-group">

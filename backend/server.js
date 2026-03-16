@@ -8,6 +8,7 @@ const categoryRoutes = require('./routes/categories');
 const productRoutes = require('./routes/products');
 const stocktakeRoutes = require('./routes/stocktakes');
 const stockAdjustmentRoutes = require('./routes/stockAdjustments');
+const supplierRoutes = require('./routes/suppliers');
 const invoiceRoutes = require('./routes/invoices');
 const { hasSmtpConfig } = require('./services/emailService');
 
@@ -37,6 +38,7 @@ app.use('/api/categories', categoryRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/stocktakes', stocktakeRoutes);
 app.use('/api/stock-adjustments', stockAdjustmentRoutes);
+app.use('/api/suppliers', supplierRoutes);
 app.use('/api/invoices', invoiceRoutes);
 
 // Health check

@@ -7,6 +7,11 @@ const productSchema = new Schema(
             ref: 'Category',
             required: false,
         },
+        supplier_id: {
+            type: Schema.Types.ObjectId,
+            ref: 'Supplier',
+            required: false,
+        },
         name: {
             type: String,
             required: true,

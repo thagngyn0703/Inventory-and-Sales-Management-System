@@ -25,6 +25,7 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
   try {
     const {
       category_id,
+      supplier_id,
       name,
       sku,
       barcode,
@@ -63,6 +64,7 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
 
     const doc = await Product.create({
       category_id: category_id && mongoose.isValidObjectId(category_id) ? category_id : undefined,
+      supplier_id: supplier_id && mongoose.isValidObjectId(supplier_id) ? supplier_id : undefined,
       name: String(name).trim(),
       sku: String(sku).trim(),
       barcode: barcode ? String(barcode).trim() : undefined,
@@ -128,7 +130,9 @@ router.get('/:id', requireAuth, requireRole(['manager', 'warehouse', 'sales', 'a
     if (!mongoose.isValidObjectId(id)) {
       return res.status(400).json({ message: 'Invalid product id' });
     }
-    const product = await Product.findById(id).lean();
+    const product = await Product.findById(id)
+      .populate('supplier_id', 'name phone email')
+      .lean();
     if (!product) return res.status(404).json({ message: 'Product not found' });
     return res.json({ product: normalizeProduct(product) });
   } catch (err) {
@@ -145,6 +149,7 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
     }
     const {
       category_id,
+      supplier_id,
       name,
       sku,
       barcode,
@@ -170,6 +175,9 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
     if (status !== undefined) product.status = status === 'inactive' ? 'inactive' : 'active';
     if (category_id !== undefined) {
       product.category_id = category_id && mongoose.isValidObjectId(category_id) ? category_id : null;
+    }
+    if (supplier_id !== undefined) {
+      product.supplier_id = supplier_id && mongoose.isValidObjectId(supplier_id) ? supplier_id : null;
     }
 
     if (Array.isArray(bodyUnits) && bodyUnits.length > 0) {

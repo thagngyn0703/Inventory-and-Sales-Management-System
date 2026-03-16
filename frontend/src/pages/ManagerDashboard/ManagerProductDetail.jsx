@@ -149,6 +149,16 @@ export default function ManagerProductDetail() {
                                 <dd>{p.barcode || '—'}</dd>
                             </div>
                             <div className="manager-detail-row">
+                                <dt>Nhà cung cấp</dt>
+                                <dd>
+                                    {p.supplier_id
+                                        ? (typeof p.supplier_id === 'object' && p.supplier_id?.name
+                                            ? p.supplier_id.name + (p.supplier_id.phone ? ` — ${p.supplier_id.phone}` : '')
+                                            : '—')
+                                        : '—'}
+                                </dd>
+                            </div>
+                            <div className="manager-detail-row">
                                 <dt>Đơn vị tồn kho (gốc)</dt>
                                 <dd>{p.base_unit || 'Cái'}</dd>
                             </div>

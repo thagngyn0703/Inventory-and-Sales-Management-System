@@ -1,7 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ManagerSidebar from './ManagerSidebar';
 import { createProduct } from '../../services/productsApi';
+import { getSuppliers } from '../../services/suppliersApi';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
 
@@ -13,6 +14,7 @@ const defaultForm = {
     name: '',
     sku: '',
     barcode: '',
+    supplier_id: '',
     cost_price: '',
     stock_qty: '',
     reorder_level: '',
@@ -24,8 +26,17 @@ const defaultForm = {
 export default function ManagerProductCreate() {
     const navigate = useNavigate();
     const [form, setForm] = useState(defaultForm);
+    const [suppliers, setSuppliers] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+
+    useEffect(() => {
+        let cancelled = false;
+        getSuppliers()
+            .then((list) => { if (!cancelled) setSuppliers(list || []); })
+            .catch(() => { if (!cancelled) setSuppliers([]); });
+        return () => { cancelled = true; };
+    }, []);
 
     const baseUnitEntry = useMemo(() => form.selling_units.find((u) => Number(u.ratio) === 1) || form.selling_units[0], [form.selling_units]);
     const saleNum = useMemo(() => Number(baseUnitEntry?.sale_price) || 0, [baseUnitEntry]);
@@ -106,6 +117,7 @@ export default function ManagerProductCreate() {
                 name: form.name.trim(),
                 sku: form.sku.trim(),
                 barcode: form.barcode ? String(form.barcode).trim() : undefined,
+                supplier_id: form.supplier_id && form.supplier_id.trim() ? form.supplier_id.trim() : undefined,
                 cost_price: costNum,
                 stock_qty: Number(form.stock_qty) || 0,
                 reorder_level: Number(form.reorder_level) || 0,
@@ -197,6 +209,24 @@ export default function ManagerProductCreate() {
                                         <option value="inactive">Ngừng bán</option>
                                     </select>
                                 </div>
+                            </div>
+                            <div className="manager-form-row manager-form-row--2">
+                                <div className="manager-form-group">
+                                    <label>Nhà cung cấp</label>
+                                    <select
+                                        value={form.supplier_id}
+                                        onChange={(e) => update('supplier_id', e.target.value)}
+                                    >
+                                        <option value="">— Không chọn —</option>
+                                        {suppliers.map((s) => (
+                                            <option key={s._id} value={s._id}>
+                                                {s.name}
+                                                {s.phone ? ` — ${s.phone}` : ''}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div className="manager-form-group" />
                             </div>
                             <div className="manager-form-row manager-form-row--2">
                                 <div className="manager-form-group">
