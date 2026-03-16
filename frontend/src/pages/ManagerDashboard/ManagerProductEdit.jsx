@@ -195,17 +195,17 @@ export default function ManagerProductEdit() {
                     </div>
                 </header>
 
-                <div className="manager-content">
+                <div className="manager-content manager-product-detail-page manager-product-form-page">
                     <div className="manager-products-header">
                         <div>
                             <h1 className="manager-page-title">Sửa sản phẩm</h1>
                             <p className="manager-page-subtitle">Đơn vị tồn kho (gốc) và nhiều đơn vị bán với giá khác nhau.</p>
                         </div>
                         <div className="manager-detail-actions">
-                            <button type="button" className="manager-btn-secondary" onClick={() => navigate(`/manager/products/${id}`)}>
+                            <button type="button" className="manager-btn-outline" onClick={() => navigate(`/manager/products/${id}`)}>
                                 <i className="fa-solid fa-eye" /> Xem chi tiết
                             </button>
-                            <button type="button" className="manager-btn-secondary" onClick={() => navigate('/manager/products')}>
+                            <button type="button" className="manager-btn-outline" onClick={() => navigate('/manager/products')}>
                                 <i className="fa-solid fa-arrow-left" /> Danh sách
                             </button>
                         </div>
@@ -213,65 +213,117 @@ export default function ManagerProductEdit() {
 
                     {error && <div className="manager-products-error">{error}</div>}
 
-                    <div className="manager-panel-card manager-product-form-card">
-                        <form onSubmit={handleSubmit} className="manager-product-form">
-                            <div className="manager-form-row manager-form-row--2">
-                                <div className="manager-form-group">
-                                    <label>Tên sản phẩm <span className="required">*</span></label>
-                                    <input type="text" value={form.name} onChange={(e) => update('name', e.target.value)} placeholder="Nhập tên sản phẩm" />
+                    <form onSubmit={handleSubmit}>
+                        <div className="manager-detail-card">
+                            <div className="manager-detail-sections-row">
+                                <div className="manager-detail-section">
+                                    <h3 className="manager-detail-section-title">Thông tin cơ bản</h3>
+                                    <div className="manager-detail-table-wrap">
+                                        <table className="manager-detail-table manager-detail-table--form">
+                                            <tbody>
+                                                <tr>
+                                                    <td className="manager-detail-label">Tên sản phẩm <span className="required">*</span></td>
+                                                    <td className="manager-detail-value">
+                                                        <input type="text" value={form.name} onChange={(e) => update('name', e.target.value)} placeholder="Nhập tên sản phẩm" />
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td className="manager-detail-label">SKU <span className="required">*</span></td>
+                                                    <td className="manager-detail-value">
+                                                        <input type="text" value={form.sku} onChange={(e) => update('sku', e.target.value)} placeholder="Mã SKU" />
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td className="manager-detail-label">Barcode</td>
+                                                    <td className="manager-detail-value">
+                                                        <input type="text" value={form.barcode} onChange={(e) => update('barcode', e.target.value)} placeholder="Mã vạch (tùy chọn)" />
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td className="manager-detail-label">Nhà cung cấp</td>
+                                                    <td className="manager-detail-value">
+                                                        <select value={form.supplier_id} onChange={(e) => update('supplier_id', e.target.value)}>
+                                                            <option value="">— Không chọn —</option>
+                                                            {suppliers.map((s) => (
+                                                                <option key={s._id} value={s._id}>
+                                                                    {s.name}
+                                                                    {s.phone ? ` — ${s.phone}` : ''}
+                                                                </option>
+                                                            ))}
+                                                        </select>
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td className="manager-detail-label">Trạng thái</td>
+                                                    <td className="manager-detail-value">
+                                                        <select value={form.status} onChange={(e) => update('status', e.target.value)}>
+                                                            <option value="active">Đang bán</option>
+                                                            <option value="inactive">Ngừng bán</option>
+                                                        </select>
+                                                    </td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
                                 </div>
-                                <div className="manager-form-group">
-                                    <label>SKU <span className="required">*</span></label>
-                                    <input type="text" value={form.sku} onChange={(e) => update('sku', e.target.value)} placeholder="Mã SKU" />
-                                </div>
-                            </div>
-                            <div className="manager-form-row manager-form-row--2">
-                                <div className="manager-form-group">
-                                    <label>Barcode</label>
-                                    <input type="text" value={form.barcode} onChange={(e) => update('barcode', e.target.value)} placeholder="Mã vạch (tùy chọn)" />
-                                </div>
-                                <div className="manager-form-group">
-                                    <label>Trạng thái</label>
-                                    <select value={form.status} onChange={(e) => update('status', e.target.value)}>
-                                        <option value="active">Đang bán</option>
-                                        <option value="inactive">Ngừng bán</option>
-                                    </select>
-                                </div>
-                            </div>
-                            <div className="manager-form-row manager-form-row--2">
-                                <div className="manager-form-group">
-                                    <label>Nhà cung cấp</label>
-                                    <select value={form.supplier_id} onChange={(e) => update('supplier_id', e.target.value)}>
-                                        <option value="">— Không chọn —</option>
-                                        {suppliers.map((s) => (
-                                            <option key={s._id} value={s._id}>
-                                                {s.name}
-                                                {s.phone ? ` — ${s.phone}` : ''}
-                                            </option>
-                                        ))}
-                                    </select>
-                                </div>
-                                <div className="manager-form-group" />
-                            </div>
-                            <div className="manager-form-row manager-form-row--2">
-                                <div className="manager-form-group">
-                                    <label>Đơn vị tồn kho (gốc)</label>
-                                    <select value={form.base_unit} onChange={(e) => update('base_unit', e.target.value)}>
-                                        {PRODUCT_BASE_UNITS.map((u) => (
-                                            <option key={u} value={u}>{u}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                                <div className="manager-form-group">
-                                    <label>Giá vốn (₫) / 1 đơn vị gốc</label>
-                                    <input type="number" min="0" step="1000" value={form.cost_price} onChange={(e) => setForm((prev) => ({ ...prev, cost_price: e.target.value }))} placeholder="0" />
+
+                                <div className="manager-detail-form-col">
+                                    <div className="manager-detail-section">
+                                        <h3 className="manager-detail-section-title">Giá & đơn vị</h3>
+                                        <div className="manager-detail-table-wrap">
+                                            <table className="manager-detail-table manager-detail-table--form">
+                                                <tbody>
+                                                    <tr>
+                                                        <td className="manager-detail-label">Đơn vị tồn kho (gốc)</td>
+                                                        <td className="manager-detail-value">
+                                                            <select value={form.base_unit} onChange={(e) => update('base_unit', e.target.value)}>
+                                                                {PRODUCT_BASE_UNITS.map((u) => (
+                                                                    <option key={u} value={u}>{u}</option>
+                                                                ))}
+                                                            </select>
+                                                        </td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td className="manager-detail-label">Giá vốn (₫) / 1 đơn vị gốc</td>
+                                                        <td className="manager-detail-value">
+                                                            <input type="number" min="0" step="1000" value={form.cost_price} onChange={(e) => setForm((prev) => ({ ...prev, cost_price: e.target.value }))} placeholder="0" />
+                                                        </td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                    <div className="manager-detail-section">
+                                        <h3 className="manager-detail-section-title">Tồn kho</h3>
+                                        <div className="manager-detail-table-wrap">
+                                            <table className="manager-detail-table manager-detail-table--form">
+                                                <tbody>
+                                                    <tr>
+                                                        <td className="manager-detail-label">Tồn kho (theo đơn vị gốc)</td>
+                                                        <td className="manager-detail-value">
+                                                            <input type="number" min="0" value={form.stock_qty} onChange={(e) => update('stock_qty', e.target.value)} placeholder="0" />
+                                                        </td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td className="manager-detail-label">Mức tồn tối thiểu</td>
+                                                        <td className="manager-detail-value">
+                                                            <input type="number" min="0" value={form.reorder_level} onChange={(e) => update('reorder_level', e.target.value)} placeholder="0" />
+                                                        </td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
 
-                            <div className="manager-selling-units-section">
-                                <div className="manager-form-row manager-form-row--2" style={{ alignItems: 'center' }}>
-                                    <label className="manager-form-group-label">Đơn vị bán & giá</label>
-                                    <button type="button" className="manager-btn-secondary manager-btn-small" onClick={addSellingUnit}>
+                            <div className="manager-detail-section">
+                                <h3 className="manager-detail-section-title">Đơn vị bán & giá</h3>
+                                <p className="manager-form-hint-inline">
+                                    Tỉ lệ = số đơn vị gốc (vd: 1 Thùng = 24 Lon → tỉ lệ 24). Phải có ít nhất 1 đơn vị với tỉ lệ 1.
+                                </p>
+                                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+                                    <button type="button" className="manager-btn-outline manager-btn-small" onClick={addSellingUnit}>
                                         <i className="fa-solid fa-plus" /> Thêm đơn vị bán
                                     </button>
                                 </div>
@@ -307,31 +359,20 @@ export default function ManagerProductEdit() {
                                         </tbody>
                                     </table>
                                 </div>
+                                {(saleNum > 0 || costNum > 0) && (
+                                    <div className="manager-profit-hint">
+                                        Lời dự kiến (theo đơn vị gốc): <strong>{expectedProfit.toLocaleString('vi-VN')}₫</strong>
+                                        {costNum > 0 && <span className="manager-profit-margin">(tỷ lệ lãi: {((expectedProfit / costNum) * 100).toFixed(1)}%)</span>}
+                                    </div>
+                                )}
                             </div>
 
-                            {(saleNum > 0 || costNum > 0) && (
-                                <div className="manager-profit-hint">
-                                    Lời dự kiến (theo đơn vị gốc): <strong>{expectedProfit.toLocaleString('vi-VN')}₫</strong>
-                                    {costNum > 0 && <span className="manager-profit-margin">(tỷ lệ lãi: {((expectedProfit / costNum) * 100).toFixed(1)}%)</span>}
-                                </div>
-                            )}
-
-                            <div className="manager-form-row manager-form-row--2">
-                                <div className="manager-form-group">
-                                    <label>Tồn kho (theo đơn vị gốc)</label>
-                                    <input type="number" min="0" value={form.stock_qty} onChange={(e) => update('stock_qty', e.target.value)} placeholder="0" />
-                                </div>
-                                <div className="manager-form-group">
-                                    <label>Mức tồn tối thiểu</label>
-                                    <input type="number" min="0" value={form.reorder_level} onChange={(e) => update('reorder_level', e.target.value)} placeholder="0" />
-                                </div>
-                            </div>
-                            <div className="manager-form-actions">
-                                <button type="button" className="manager-btn-secondary" onClick={() => navigate('/manager/products')}>Hủy</button>
+                            <div className="manager-detail-form-actions">
+                                <button type="button" className="manager-btn-outline" onClick={() => navigate('/manager/products')}>Hủy</button>
                                 <button type="submit" className="manager-btn-primary" disabled={loading}>{loading ? 'Đang lưu...' : 'Lưu thay đổi'}</button>
                             </div>
-                        </form>
-                    </div>
+                        </div>
+                    </form>
                 </div>
             </div>
         </div>
