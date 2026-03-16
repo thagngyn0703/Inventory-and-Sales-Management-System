@@ -18,12 +18,16 @@ export default function ManagerSidebar() {
 
     const manageItems = [
         { label: 'Kho hàng', path: '/warehouse', icon: 'fa-warehouse' },
+        { label: 'Kiểm kê chờ duyệt', path: '/manager/stocktakes/pending', icon: 'fa-clipboard-check' },
+        { label: 'Lịch sử điều chỉnh', path: '/manager/adjustments', icon: 'fa-clock-rotate-left' },
         { label: 'Cài đặt', path: '/manager/settings', icon: 'fa-gear' },
     ];
 
     const isActive = (path) => location.pathname === path || (path === '/manager' && location.pathname === '/manager');
     const isItemActive = (item) => {
         if (item.path === '/warehouse') return location.pathname === '/warehouse' || location.pathname.startsWith('/warehouse/');
+        if (item.path === '/manager/adjustments') return location.pathname === '/manager/adjustments' || location.pathname.startsWith('/manager/adjustments/');
+        if (item.path === '/manager/stocktakes/pending') return location.pathname === '/manager/stocktakes/pending' || location.pathname.startsWith('/manager/stocktakes/');
         return isActive(item.path);
     };
 

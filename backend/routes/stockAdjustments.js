@@ -5,6 +5,10 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
+router.get('/health', (req, res) => {
+  res.json({ ok: true, service: 'stock-adjustments' });
+});
+
 // GET /api/stock-adjustments?page=1&limit=20&status= — List adjustments. Manager, Admin.
 router.get('/', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
   try {

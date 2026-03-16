@@ -240,6 +240,17 @@
     text-decoration: underline;
 }
 
+.manager-dashboard-links {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.manager-dashboard-links .manager-panel-link {
+    white-space: nowrap;
+}
+
 .manager-chart-placeholder {
     min-height: 200px;
     display: flex;
