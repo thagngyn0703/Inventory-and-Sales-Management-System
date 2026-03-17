@@ -9,6 +9,9 @@ import ManagerProductCreate from "./pages/ManagerDashboard/ManagerProductCreate"
 import ManagerProductDetail from "./pages/ManagerDashboard/ManagerProductDetail";
 import ManagerProductEdit from "./pages/ManagerDashboard/ManagerProductEdit";
 import ManagerCreateStaff from "./pages/ManagerDashboard/ManagerCreateStaff";
+import ManagerSupplierList from "./pages/ManagerDashboard/ManagerSupplierList";
+import ManagerSupplierCreate from "./pages/ManagerDashboard/ManagerSupplierCreate";
+import ManagerSupplierEdit from "./pages/ManagerDashboard/ManagerSupplierEdit";
 
 function App() {
   return (
@@ -25,6 +28,9 @@ function App() {
       <Route path="/manager/products/:id/edit" element={<ManagerProductEdit />} />
       <Route path="/manager/products/:id" element={<ManagerProductDetail />} />
       <Route path="/manager/staff/new" element={<ManagerCreateStaff />} />
+      <Route path="/manager/suppliers" element={<ManagerSupplierList />} />
+      <Route path="/manager/suppliers/new" element={<ManagerSupplierCreate />} />
+      <Route path="/manager/suppliers/:id/edit" element={<ManagerSupplierEdit />} />
     </Routes>
   );
 }

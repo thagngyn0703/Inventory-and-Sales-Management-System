@@ -11,6 +11,7 @@ export default function ManagerSidebar() {
         { label: 'Tạo nhân viên', path: '/manager/staff/new', icon: 'fa-user-plus' },
         { label: 'Đơn hàng', path: '/manager/orders', icon: 'fa-file-lines' },
         { label: 'Sản phẩm', path: '/manager/products', icon: 'fa-cart-shopping' },
+        { label: 'Nhà cung cấp', path: '/manager/suppliers', icon: 'fa-truck' },
         { label: 'Khách hàng', path: '/manager/customers', icon: 'fa-users' },
         { label: 'Báo cáo', path: '/manager/reports', icon: 'fa-chart-bar' },
     ];
@@ -21,7 +22,11 @@ export default function ManagerSidebar() {
         { label: 'Cài đặt', path: '/manager/settings', icon: 'fa-gear' },
     ];
 
-    const isActive = (path) => location.pathname === path || (path === '/manager' && location.pathname === '/manager');
+    const isActive = (path) => {
+        if (path === '/manager' && location.pathname === '/manager') return true;
+        if (path === '/manager/suppliers' && location.pathname.startsWith('/manager/suppliers')) return true;
+        return location.pathname === path;
+    };
 
     return (
         <div className="manager-sidebar">

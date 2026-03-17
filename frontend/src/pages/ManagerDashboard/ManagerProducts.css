@@ -18,6 +18,137 @@
     margin-bottom: 20px;
 }
 
+.manager-supplier-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+}
+
+.manager-supplier-search-form {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.manager-supplier-search-input {
+    width: 220px;
+    padding: 10px 14px;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    font-size: 14px;
+}
+
+.manager-supplier-search-input:focus {
+    outline: none;
+    border-color: #3b82f6;
+}
+
+.manager-supplier-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.manager-supplier-search-form {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.manager-supplier-search-input {
+    width: 220px;
+    padding: 10px 14px;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    font-size: 14px;
+}
+
+.manager-supplier-search-input:focus {
+    outline: none;
+    border-color: #3b82f6;
+}
+
+.manager-supplier-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+}
+
+.manager-supplier-search-form {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.manager-supplier-search-input {
+    width: 220px;
+    padding: 10px 14px;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    font-size: 14px;
+}
+
+.manager-supplier-search-input:focus {
+    outline: none;
+    border-color: #3b82f6;
+}
+
+.manager-supplier-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.manager-supplier-search-form {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.manager-supplier-search-input {
+    width: 220px;
+    padding: 10px 14px;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    font-size: 14px;
+}
+
+.manager-supplier-search-input:focus {
+    outline: none;
+    border-color: #3b82f6;
+}
+
+/* Supplier list: search + button on same row */
+.manager-supplier-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.manager-supplier-search-form {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.manager-supplier-search-input {
+    padding: 10px 14px;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    font-size: 14px;
+    min-width: 220px;
+}
+
+.manager-supplier-search-input:focus {
+    outline: none;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
 .manager-btn-primary,
 .manager-btn-secondary {
     display: inline-flex;
