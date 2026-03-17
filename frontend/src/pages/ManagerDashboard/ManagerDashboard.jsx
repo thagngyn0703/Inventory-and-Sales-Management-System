@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import ManagerSidebar from './ManagerSidebar';
 import './ManagerDashboard.css';
 
@@ -125,8 +126,12 @@ export default function ManagerDashboard() {
                         </div>
                         <div className="manager-panel-card">
                             <div className="manager-panel-header manager-panel-header--space">
-                                <h2 className="manager-panel-title">Sản phẩm sắp hết hàng</h2>
-                                <a href="/manager/warehouse" className="manager-panel-link">Xem kho hàng →</a>
+                                <h2 className="manager-panel-title">Kho & kiểm kê</h2>
+                                <div className="manager-dashboard-links">
+                                    <Link to="/warehouse" className="manager-panel-link">Kho hàng →</Link>
+                                    <Link to="/manager/stocktakes/pending" className="manager-panel-link">Kiểm kê chờ duyệt →</Link>
+                                    <Link to="/manager/adjustments" className="manager-panel-link">Lịch sử điều chỉnh →</Link>
+                                </div>
                             </div>
                             <div className="manager-list-placeholder">
                                 <p className="manager-placeholder-text">Chưa có dữ liệu</p>

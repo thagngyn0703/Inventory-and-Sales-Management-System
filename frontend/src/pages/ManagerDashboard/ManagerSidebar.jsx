@@ -8,24 +8,27 @@ export default function ManagerSidebar() {
 
     const overviewItems = [
         { label: 'Tổng quan', path: '/manager', icon: 'fa-house' },
-        { label: 'Tạo nhân viên', path: '/manager/staff/new', icon: 'fa-user-plus' },
         { label: 'Đơn hàng', path: '/manager/orders', icon: 'fa-file-lines' },
         { label: 'Sản phẩm', path: '/manager/products', icon: 'fa-cart-shopping' },
-        { label: 'Nhà cung cấp', path: '/manager/suppliers', icon: 'fa-truck' },
+        { label: 'Danh mục', path: '/manager/categories', icon: 'fa-list' },
+        { label: 'Hóa đơn', path: '/manager/invoices', icon: 'fa-receipt' },
         { label: 'Khách hàng', path: '/manager/customers', icon: 'fa-users' },
         { label: 'Báo cáo', path: '/manager/reports', icon: 'fa-chart-bar' },
     ];
 
     const manageItems = [
-        { label: 'Kho hàng', path: '/manager/warehouse', icon: 'fa-warehouse' },
-        { label: 'Hóa đơn', path: '/manager/invoices', icon: 'fa-receipt' },
+        { label: 'Kho hàng', path: '/warehouse', icon: 'fa-warehouse' },
+        { label: 'Kiểm kê chờ duyệt', path: '/manager/stocktakes/pending', icon: 'fa-clipboard-check' },
+        { label: 'Lịch sử điều chỉnh', path: '/manager/adjustments', icon: 'fa-clock-rotate-left' },
         { label: 'Cài đặt', path: '/manager/settings', icon: 'fa-gear' },
     ];
 
-    const isActive = (path) => {
-        if (path === '/manager' && location.pathname === '/manager') return true;
-        if (path === '/manager/suppliers' && location.pathname.startsWith('/manager/suppliers')) return true;
-        return location.pathname === path;
+    const isActive = (path) => location.pathname === path || (path === '/manager' && location.pathname === '/manager');
+    const isItemActive = (item) => {
+        if (item.path === '/warehouse') return location.pathname === '/warehouse' || location.pathname.startsWith('/warehouse/');
+        if (item.path === '/manager/adjustments') return location.pathname === '/manager/adjustments' || location.pathname.startsWith('/manager/adjustments/');
+        if (item.path === '/manager/stocktakes/pending') return location.pathname === '/manager/stocktakes/pending' || location.pathname.startsWith('/manager/stocktakes/');
+        return isActive(item.path);
     };
 
     return (
@@ -55,7 +58,7 @@ export default function ManagerSidebar() {
                     {manageItems.map((item) => (
                         <button
                             key={item.path}
-                            className={`manager-sidebar-item ${isActive(item.path) ? 'active' : ''}`}
+                            className={`manager-sidebar-item ${isItemActive(item) ? 'active' : ''}`}
                             onClick={() => navigate(item.path)}
                         >
                             <i className={`fa-solid ${item.icon} manager-item-icon`} />

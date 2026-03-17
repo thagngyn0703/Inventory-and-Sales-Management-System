@@ -5,7 +5,7 @@ const stockAdjustmentSchema = new Schema(
         warehouse_id: {
             type: Schema.Types.ObjectId,
             ref: 'Warehouse',
-            required: true,
+            required: false,
         },
         stocktake_id: {
             type: Schema.Types.ObjectId,

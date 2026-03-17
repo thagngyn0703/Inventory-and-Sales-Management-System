@@ -5,7 +5,7 @@ const stocktakeSchema = new Schema(
         warehouse_id: {
             type: Schema.Types.ObjectId,
             ref: 'Warehouse',
-            required: true,
+            required: false,
         },
         created_by: {
             type: Schema.Types.ObjectId,
@@ -14,8 +14,8 @@ const stocktakeSchema = new Schema(
         },
         status: {
             type: String,
-            enum: ['in_progress', 'completed', 'cancelled'],
-            default: 'in_progress',
+            enum: ['draft', 'submitted', 'completed', 'cancelled'],
+            default: 'draft',
         },
         snapshot_at: {
             type: Date,
@@ -34,17 +34,32 @@ const stocktakeSchema = new Schema(
                 },
                 actual_qty: {
                     type: Number,
-                    required: true,
+                    default: null,
                 },
                 variance: {
                     type: Number,
+                    default: null,
+                },
+                reason: {
+                    type: String,
+                    trim: true,
+                    default: '',
                 },
             },
         ],
         completed_at: {
             type: Date,
         },
+        reject_reason: {
+            type: String,
+            trim: true,
+            default: '',
+        },
         created_at: {
+            type: Date,
+            default: Date.now,
+        },
+        updated_at: {
             type: Date,
             default: Date.now,
         },

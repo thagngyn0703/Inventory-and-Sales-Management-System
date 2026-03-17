@@ -7,6 +7,11 @@ const productSchema = new Schema(
             ref: 'Category',
             required: false,
         },
+        supplier_id: {
+            type: Schema.Types.ObjectId,
+            ref: 'Supplier',
+            required: false,
+        },
         name: {
             type: String,
             required: true,
@@ -38,6 +43,19 @@ const productSchema = new Schema(
             type: Number,
             default: 0,
         },
+        
+        
+        base_unit: {
+            type: String,
+            trim: true,
+            default: 'Cái',
+        },
+        
+        selling_units: [{
+            name: { type: String, trim: true, required: true },
+            ratio: { type: Number, required: true, min: 0.001 },
+            sale_price: { type: Number, required: true, min: 0 },
+        }],
         status: {
             type: String,
             enum: ['active', 'inactive'],

@@ -7,28 +7,20 @@ export default function Sidebar() {
     const location = useLocation();
 
     const menuItems = [
-        { label: '🏠 Dashboard', path: '/admin', roles: ['admin'] },
-        { label: '🏠 Tổng quan', path: '/manager', roles: ['manager'] },
-        { label: '🏠 Home', path: '/home', roles: ['warehouse_staff', 'sales_staff'] },
-        { label: '🗂 Danh mục', path: '/categories', roles: ['admin', 'manager', 'warehouse_staff'] },
-        { label: '📦 Sản phẩm', path: '/products', roles: ['admin', 'manager', 'warehouse_staff'] },
+        { label: '🏠 Dashboard', path: '/admin', roles: ['admin', 'manager'] },
+        { label: '🏠 Dashboard', path: '/home', roles: ['user', 'warehouse_staff'] },
+        { label: '📦 Sản phẩm', path: '/manager/products', roles: [ 'manager', 'warehouse_staff'] },
+        { label: '� Danh mục', path: '/manager/categories', roles: [ 'manager', 'warehouse_staff'] },
         { label: '👥 Nhà cung cấp', path: '/suppliers', roles: ['admin', 'manager'] },
-        { label: '👤 Khách hàng', path: '/customers', roles: ['admin', 'manager', 'sales_staff'] },
-        { label: '📋 Đơn hàng', path: '/orders', roles: ['admin', 'manager', 'sales_staff'] },
+        { label: '👤 Khách hàng', path: '/customers', roles: ['admin', 'manager', 'user'] },
+        { label: '📋 Đơn hàng', path: '/orders', roles: ['admin', 'manager', 'user'] },
     ];
 
     const user = JSON.parse(localStorage.getItem('user'));
-    const userRole = user?.role || '';
+    const userRole = user?.role || 'user';
 
     // Filter menu items based on user role
     const visibleItems = menuItems.filter(item => item.roles.includes(userRole));
-
-    // Get dashboard path based on role
-    const getDashboardPath = () => {
-        if (userRole === 'admin') return '/admin';
-        if (userRole === 'manager') return '/manager';
-        return '/home';
-    };
 
     const handleNavigation = (path) => {
         navigate(path);
