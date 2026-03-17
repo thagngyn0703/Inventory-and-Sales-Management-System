@@ -24,6 +24,7 @@ import WarehouseInvoiceDetail from "./pages/WarehouseDashboard/WarehouseInvoiceD
 import ManagerStocktakePending from "./pages/ManagerDashboard/ManagerStocktakePending";
 import ManagerAdjustmentList from "./pages/ManagerDashboard/ManagerAdjustmentList";
 import ManagerAdjustmentDetail from "./pages/ManagerDashboard/ManagerAdjustmentDetail";
+import ManagerIncomingTransactionsBySupplier from "./pages/ManagerDashboard/ManagerIncomingTransactionsBySupplier";
 
 function App() {
   return (
@@ -53,6 +54,7 @@ function App() {
       <Route path="/manager/stocktakes/pending" element={<ManagerStocktakePending />} />
       <Route path="/manager/adjustments" element={<ManagerAdjustmentList />} />
       <Route path="/manager/adjustments/:id" element={<ManagerAdjustmentDetail />} />
+      <Route path="/manager/incoming-transactions" element={<ManagerIncomingTransactionsBySupplier />} />
       <Route
         path="/warehouse"
         element={

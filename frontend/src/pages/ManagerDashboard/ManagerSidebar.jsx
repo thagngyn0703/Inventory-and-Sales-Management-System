@@ -12,6 +12,7 @@ export default function ManagerSidebar() {
         { label: 'Sản phẩm', path: '/manager/products', icon: 'fa-cart-shopping' },
         { label: 'Danh mục', path: '/manager/categories', icon: 'fa-list' },
         { label: 'Hóa đơn', path: '/manager/invoices', icon: 'fa-receipt' },
+        { label: 'Giao dịch đến (NCC)', path: '/manager/incoming-transactions', icon: 'fa-truck-ramp-box' },
         { label: 'Khách hàng', path: '/manager/customers', icon: 'fa-users' },
         { label: 'Báo cáo', path: '/manager/reports', icon: 'fa-chart-bar' },
     ];
@@ -27,6 +28,7 @@ export default function ManagerSidebar() {
     const isItemActive = (item) => {
         if (item.path === '/warehouse') return location.pathname === '/warehouse' || location.pathname.startsWith('/warehouse/');
         if (item.path === '/manager/adjustments') return location.pathname === '/manager/adjustments' || location.pathname.startsWith('/manager/adjustments/');
+        if (item.path === '/manager/incoming-transactions') return location.pathname === '/manager/incoming-transactions';
         if (item.path === '/manager/stocktakes/pending') return location.pathname === '/manager/stocktakes/pending' || location.pathname.startsWith('/manager/stocktakes/');
         return isActive(item.path);
     };

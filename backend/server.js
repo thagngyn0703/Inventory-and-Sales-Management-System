@@ -10,6 +10,9 @@ const stocktakeRoutes = require('./routes/stocktakes');
 const stockAdjustmentRoutes = require('./routes/stockAdjustments');
 const supplierRoutes = require('./routes/suppliers');
 const invoiceRoutes = require('./routes/invoices');
+const purchaseOrderRoutes = require('./routes/purchaseOrders');
+const goodsReceiptRoutes = require('./routes/goodsReceipts');
+const analyticsRoutes = require('./routes/analytics');
 const { hasSmtpConfig } = require('./services/emailService');
 
 const app = express();
@@ -40,6 +43,9 @@ app.use('/api/stocktakes', stocktakeRoutes);
 app.use('/api/stock-adjustments', stockAdjustmentRoutes);
 app.use('/api/suppliers', supplierRoutes);
 app.use('/api/invoices', invoiceRoutes);
+app.use('/api/purchase-orders', purchaseOrderRoutes);
+app.use('/api/goods-receipts', goodsReceiptRoutes);
+app.use('/api/analytics', analyticsRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
