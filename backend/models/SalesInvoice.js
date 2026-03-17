@@ -7,6 +7,11 @@ const salesInvoiceSchema = new Schema(
             ref: 'Customer',
             required: false,
         },
+        recipient_name: {
+            type: String,
+            trim: true,
+        },
+
         created_by: {
             type: Schema.Types.ObjectId,
             ref: 'User',

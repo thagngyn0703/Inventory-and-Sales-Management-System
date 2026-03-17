@@ -117,6 +117,7 @@ export default function ManagerInvoicesList() {
                       <th>ID</th>
                       <th>Ngày</th>
                       <th>Người tạo</th>
+                      <th>Người nhận</th>
                       <th>Trạng thái</th>
                       <th>Thanh toán</th>
                       <th>Tổng</th>
@@ -136,6 +137,7 @@ export default function ManagerInvoicesList() {
                           <td>{inv._id}</td>
                           <td>{new Date(inv.invoice_at).toLocaleString('vi-VN')}</td>
                           <td>{inv.created_by?.email ?? '—'}</td>
+                          <td>{inv.recipient_name || '—'}</td>
                           <td>
                             <select
                               value={inv.status}

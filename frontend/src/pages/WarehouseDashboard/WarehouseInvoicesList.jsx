@@ -127,8 +127,9 @@ export default function WarehouseInvoicesList() {
               <table className="warehouse-table">
                 <thead>
                   <tr>
-                    <th>Ngày tạo</th>
+                     <th>Ngày tạo</th>
                     <th>Người tạo</th>
+                    <th>Người nhận</th>
                     <th>Trạng thái</th>
                     <th>Thanh toán</th>
                     <th style={{ textAlign: 'right' }}>Tổng tiền</th>
@@ -140,6 +141,7 @@ export default function WarehouseInvoicesList() {
                     <tr key={inv._id}>
                       <td>{formatDate(inv.invoice_at)}</td>
                       <td>{inv.created_by?.email ?? '—'}</td>
+                      <td>{inv.recipient_name || '—'}</td>
                       <td>
                         <span className={`warehouse-status-badge warehouse-status-${inv.status}`}>
                           {STATUS_LABEL[inv.status] ?? inv.status}
