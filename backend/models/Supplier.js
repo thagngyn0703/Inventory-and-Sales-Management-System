@@ -1,7 +1,22 @@
 const { Schema, model } = require('mongoose');
 
+const supplierContactSchema = new Schema(
+    {
+        name: { type: String, trim: true },
+        phone: { type: String, trim: true },
+        email: { type: String, trim: true, lowercase: true },
+        position: { type: String, trim: true },
+        note: { type: String, trim: true },
+    },
+    { _id: false }
+);
+
 const supplierSchema = new Schema(
     {
+        code: {
+            type: String,
+            trim: true,
+        },
         name: {
             type: String,
             required: true,
@@ -17,6 +32,18 @@ const supplierSchema = new Schema(
             lowercase: true,
         },
         address: {
+            type: String,
+            trim: true,
+        },
+        tax_code: {
+            type: String,
+            trim: true,
+        },
+        contacts: {
+            type: [supplierContactSchema],
+            default: [],
+        },
+        note: {
             type: String,
             trim: true,
         },
@@ -42,5 +69,8 @@ const supplierSchema = new Schema(
         timestamps: false,
     }
 );
+
+supplierSchema.index({ name: 1 });
+supplierSchema.index({ code: 1 });
 
 module.exports = model('Supplier', supplierSchema);
