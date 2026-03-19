@@ -24,6 +24,12 @@ const userSchema = new Schema(
             enum: ['admin', 'manager', 'warehouse_staff', 'sales_staff'],
             required: true,
         },
+        storeId: {
+            type: Schema.Types.ObjectId,
+            ref: 'Store',
+            default: null,
+            index: true,
+        },
     },
     { timestamps: true }
 );

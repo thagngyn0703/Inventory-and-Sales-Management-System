@@ -9,6 +9,11 @@ function escapeRegex(s) {
   return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function normalizeStr(v) {
+  const s = v != null ? String(v).trim() : '';
+  return s || '';
+}
+
 function normalizeContacts(contacts) {
   if (!Array.isArray(contacts)) return [];
   return contacts
@@ -20,6 +25,31 @@ function normalizeContacts(contacts) {
       note: c?.note != null ? String(c.note).trim() : '',
     }))
     .filter((c) => c.name || c.phone || c.email || c.position || c.note);
+}
+
+async function findSupplierDuplicate({ excludeId, code, tax_code, name }) {
+  const or = [];
+
+  const codeNorm = normalizeStr(code);
+  if (codeNorm) or.push({ code: codeNorm });
+
+  const taxNorm = normalizeStr(tax_code);
+  if (taxNorm) or.push({ tax_code: taxNorm });
+
+  const nameNorm = normalizeStr(name);
+  if (nameNorm) {
+    // exact match but case-insensitive
+    or.push({ name: new RegExp(`^${escapeRegex(nameNorm)}$`, 'i') });
+  }
+
+  if (!or.length) return null;
+
+  const filter = { $or: or };
+  if (excludeId && mongoose.isValidObjectId(excludeId)) {
+    filter._id = { $ne: excludeId };
+  }
+
+  return Supplier.findOne(filter).select('_id code name tax_code').lean();
 }
 
 // POST /api/suppliers  (manager, admin)
@@ -40,6 +70,14 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
 
     if (!name || !String(name).trim()) {
       return res.status(400).json({ message: 'name is required' });
+    }
+
+    const duplicate = await findSupplierDuplicate({ code, tax_code, name });
+    if (duplicate) {
+      return res.status(409).json({
+        message: 'Supplier already exists',
+        duplicate,
+      });
     }
 
     const doc = await Supplier.create({
@@ -159,6 +197,23 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
       status,
       payable_account,
     } = req.body || {};
+
+    const nextCode = code !== undefined ? normalizeStr(code) : normalizeStr(supplier.code);
+    const nextTax = tax_code !== undefined ? normalizeStr(tax_code) : normalizeStr(supplier.tax_code);
+    const nextName = name !== undefined ? normalizeStr(name) : normalizeStr(supplier.name);
+
+    const duplicate = await findSupplierDuplicate({
+      excludeId: id,
+      code: nextCode,
+      tax_code: nextTax,
+      name: nextName,
+    });
+    if (duplicate) {
+      return res.status(409).json({
+        message: 'Supplier already exists',
+        duplicate,
+      });
+    }
 
     if (code !== undefined) supplier.code = code && String(code).trim() ? String(code).trim() : undefined;
     if (name !== undefined) supplier.name = String(name).trim();

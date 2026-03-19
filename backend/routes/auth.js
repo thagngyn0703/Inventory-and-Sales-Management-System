@@ -2,7 +2,9 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
+const mongoose = require('mongoose');
 const User = require('../models/User');
+const Store = require('../models/Store');
 const UnauthenticatedUser = require('../models/UnauthenticatedUser');
 const PasswordReset = require('../models/PasswordReset');
 const { sendVerificationEmail, sendPasswordResetEmail } = require('../services/emailService');
@@ -105,6 +107,16 @@ router.post('/register', async (req, res) => {
 router.post('/create-staff', requireAuth, requireRole(['manager']), async (req, res) => {
     try {
         const { fullName, email, password, role } = req.body;
+        const manager = await User.findById(req.user.id).lean();
+        if (!manager) {
+            return res.status(401).json({ message: 'Unauthorized' });
+        }
+        if (!manager.storeId) {
+            return res.status(403).json({
+                message: 'Manager chưa có cửa hàng. Vui lòng đăng ký cửa hàng trước khi tạo tài khoản nhân viên.',
+                code: 'STORE_REQUIRED',
+            });
+        }
 
         if (!fullName || !email || !password) {
             return res.status(400).json({ message: 'Thiếu dữ liệu bắt buộc' });
@@ -139,6 +151,7 @@ router.post('/create-staff', requireAuth, requireRole(['manager']), async (req, 
             email: normalizedEmail,
             password: hashedPassword,
             role,
+            storeId: manager.storeId,
         });
 
         res.status(201).json({
@@ -148,6 +161,7 @@ router.post('/create-staff', requireAuth, requireRole(['manager']), async (req, 
                 fullName: user.fullName,
                 email: user.email,
                 role: user.role,
+                storeId: user.storeId,
             },
         });
     } catch (err) {
@@ -156,6 +170,183 @@ router.post('/create-staff', requireAuth, requireRole(['manager']), async (req, 
             return res.status(400).json({ message: 'Email đã tồn tại' });
         }
         res.status(500).json({ message: err.message || 'Server error' });
+    }
+});
+
+// GET /api/auth/staff/my-store — Manager lấy danh sách nhân viên thuộc cửa hàng của mình
+router.get('/staff/my-store', requireAuth, requireRole(['manager']), async (req, res) => {
+    try {
+        const manager = await User.findById(req.user.id).lean();
+        if (!manager) {
+            return res.status(401).json({ message: 'Unauthorized' });
+        }
+        if (!manager.storeId) {
+            return res.status(403).json({
+                message: 'Manager chưa có cửa hàng.',
+                code: 'STORE_REQUIRED',
+            });
+        }
+
+        const staff = await User.find({
+            storeId: manager.storeId,
+            role: { $in: ['warehouse_staff', 'sales_staff'] },
+        })
+            .select('_id fullName email role storeId createdAt')
+            .sort({ createdAt: -1 })
+            .lean();
+
+        return res.json({ staff });
+    } catch (err) {
+        console.error('list staff error:', err);
+        return res.status(500).json({ message: 'Server error' });
+    }
+});
+
+// PATCH /api/auth/staff/:id/role — Manager đổi role nhân viên trong cửa hàng của mình
+router.patch('/staff/:id/role', requireAuth, requireRole(['manager']), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { role } = req.body || {};
+
+        if (!mongoose.isValidObjectId(id)) {
+            return res.status(400).json({ message: 'ID nhân viên không hợp lệ' });
+        }
+        const allowedRoles = ['warehouse_staff', 'sales_staff'];
+        if (!allowedRoles.includes(role)) {
+            return res.status(400).json({ message: 'Vai trò phải là warehouse_staff hoặc sales_staff' });
+        }
+
+        const manager = await User.findById(req.user.id).lean();
+        if (!manager) {
+            return res.status(401).json({ message: 'Unauthorized' });
+        }
+        if (!manager.storeId) {
+            return res.status(403).json({
+                message: 'Manager chưa có cửa hàng.',
+                code: 'STORE_REQUIRED',
+            });
+        }
+
+        const staff = await User.findOne({
+            _id: id,
+            storeId: manager.storeId,
+            role: { $in: allowedRoles },
+        });
+        if (!staff) {
+            return res.status(404).json({ message: 'Không tìm thấy nhân viên trong cửa hàng của bạn' });
+        }
+
+        staff.role = role;
+        await staff.save();
+
+        return res.json({
+            message: 'Cập nhật vai trò thành công',
+            user: {
+                id: staff._id,
+                fullName: staff.fullName,
+                email: staff.email,
+                role: staff.role,
+                storeId: staff.storeId,
+            },
+        });
+    } catch (err) {
+        console.error('update staff role error:', err);
+        return res.status(500).json({ message: 'Server error' });
+    }
+});
+
+// PATCH /api/auth/staff/:id/remove-from-store — Manager gỡ nhân viên khỏi cửa hàng (không xóa tài khoản)
+router.patch('/staff/:id/remove-from-store', requireAuth, requireRole(['manager']), async (req, res) => {
+    try {
+        const { id } = req.params;
+        if (!mongoose.isValidObjectId(id)) {
+            return res.status(400).json({ message: 'ID nhân viên không hợp lệ' });
+        }
+
+        const manager = await User.findById(req.user.id).lean();
+        if (!manager) {
+            return res.status(401).json({ message: 'Unauthorized' });
+        }
+        if (!manager.storeId) {
+            return res.status(403).json({
+                message: 'Manager chưa có cửa hàng.',
+                code: 'STORE_REQUIRED',
+            });
+        }
+
+        const staff = await User.findOne({
+            _id: id,
+            storeId: manager.storeId,
+            role: { $in: ['warehouse_staff', 'sales_staff'] },
+        });
+        if (!staff) {
+            return res.status(404).json({ message: 'Không tìm thấy nhân viên trong cửa hàng của bạn' });
+        }
+
+        staff.storeId = null;
+        await staff.save();
+
+        return res.json({
+            message: 'Đã gỡ nhân viên khỏi cửa hàng',
+            user: {
+                id: staff._id,
+                fullName: staff.fullName,
+                email: staff.email,
+                role: staff.role,
+                storeId: staff.storeId,
+            },
+        });
+    } catch (err) {
+        console.error('remove staff from store error:', err);
+        return res.status(500).json({ message: 'Server error' });
+    }
+});
+
+// POST /api/auth/register-store — Manager tạo cửa hàng của mình
+router.post('/register-store', requireAuth, requireRole(['manager'], { allowManagerWithoutStore: true }), async (req, res) => {
+    try {
+        const { name, address, phone } = req.body;
+        if (!name || !name.trim()) {
+            return res.status(400).json({ message: 'Vui lòng nhập tên cửa hàng' });
+        }
+
+        const manager = await User.findById(req.user.id);
+        if (!manager) {
+            return res.status(401).json({ message: 'Unauthorized' });
+        }
+        if (manager.storeId) {
+            return res.status(400).json({ message: 'Tài khoản đã có cửa hàng.' });
+        }
+
+        const store = await Store.create({
+            name: name.trim(),
+            address: (address || '').trim(),
+            phone: (phone || '').trim(),
+            managerId: manager._id,
+        });
+
+        manager.storeId = store._id;
+        await manager.save();
+
+        return res.status(201).json({
+            message: 'Đăng ký cửa hàng thành công',
+            store: {
+                id: store._id,
+                name: store.name,
+                address: store.address,
+                phone: store.phone,
+            },
+            user: {
+                id: manager._id,
+                fullName: manager.fullName,
+                email: manager.email,
+                role: manager.role,
+                storeId: manager.storeId,
+            },
+        });
+    } catch (err) {
+        console.error('register-store error:', err);
+        return res.status(500).json({ message: err.message || 'Server error' });
     }
 });
 
@@ -194,7 +385,7 @@ router.post('/verify-email', async (req, res) => {
         await UnauthenticatedUser.deleteOne({ _id: unauth._id });
 
         const jwtToken = jwt.sign(
-            { id: user._id, email: user.email, role: user.role },
+            { id: user._id, email: user.email, role: user.role, storeId: user.storeId || null },
             process.env.JWT_SECRET,
             { expiresIn: '7d' }
         );
@@ -206,6 +397,7 @@ router.post('/verify-email', async (req, res) => {
                 fullName: user.fullName,
                 email: user.email,
                 role: user.role,
+                storeId: user.storeId,
             },
         });
     } catch (err) {
@@ -340,7 +532,7 @@ router.post('/login', async (req, res) => {
         }
 
         const token = jwt.sign(
-            { id: user._id, email: user.email, role: user.role },
+            { id: user._id, email: user.email, role: user.role, storeId: user.storeId || null },
             process.env.JWT_SECRET,
             { expiresIn: '7d' }
         );
@@ -352,6 +544,7 @@ router.post('/login', async (req, res) => {
                 fullName: user.fullName,
                 email: user.email,
                 role: user.role,
+                storeId: user.storeId,
             },
         });
     } catch (err) {

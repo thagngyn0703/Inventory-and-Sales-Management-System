@@ -13,6 +13,8 @@ export default function ManagerSidebar() {
         { label: 'Danh mục', path: '/manager/categories', icon: 'fa-list' },
         { label: 'Hóa đơn', path: '/manager/invoices', icon: 'fa-receipt' },
         { label: 'Giao dịch đến (NCC)', path: '/manager/incoming-transactions', icon: 'fa-truck-ramp-box' },
+        { label: 'Nhà cung cấp', path: '/manager/suppliers', icon: 'fa-handshake' },
+        { label: 'Thêm nhà cung cấp', path: '/manager/suppliers/new', icon: 'fa-plus' },
         { label: 'Khách hàng', path: '/manager/customers', icon: 'fa-users' },
         { label: 'Báo cáo', path: '/manager/reports', icon: 'fa-chart-bar' },
     ];
@@ -21,6 +23,8 @@ export default function ManagerSidebar() {
         { label: 'Kho hàng', path: '/warehouse', icon: 'fa-warehouse' },
         { label: 'Kiểm kê chờ duyệt', path: '/manager/stocktakes/pending', icon: 'fa-clipboard-check' },
         { label: 'Lịch sử điều chỉnh', path: '/manager/adjustments', icon: 'fa-clock-rotate-left' },
+        { label: 'Tạo tài khoản nhân viên', path: '/manager/staff/new', icon: 'fa-user-plus' },
+        { label: 'Quản lý nhân viên', path: '/manager/staff/manage', icon: 'fa-users-gear' },
         { label: 'Cài đặt', path: '/manager/settings', icon: 'fa-gear' },
     ];
 
@@ -29,6 +33,9 @@ export default function ManagerSidebar() {
         if (item.path === '/warehouse') return location.pathname === '/warehouse' || location.pathname.startsWith('/warehouse/');
         if (item.path === '/manager/adjustments') return location.pathname === '/manager/adjustments' || location.pathname.startsWith('/manager/adjustments/');
         if (item.path === '/manager/incoming-transactions') return location.pathname === '/manager/incoming-transactions';
+        if (item.path === '/manager/suppliers') return location.pathname === '/manager/suppliers' || location.pathname.startsWith('/manager/suppliers/');
+        if (item.path === '/manager/suppliers/new') return location.pathname === '/manager/suppliers/new';
+        if (item.path === '/manager/staff/new') return location.pathname === '/manager/staff/new' || location.pathname.startsWith('/manager/staff/');
         if (item.path === '/manager/stocktakes/pending') return location.pathname === '/manager/stocktakes/pending' || location.pathname.startsWith('/manager/stocktakes/');
         return isActive(item.path);
     };

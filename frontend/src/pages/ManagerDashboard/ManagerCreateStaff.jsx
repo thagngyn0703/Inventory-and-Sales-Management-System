@@ -41,6 +41,10 @@ export default function ManagerCreateStaff() {
             navigate('/manager', { replace: true });
             return;
         }
+        if (user && !user.storeId) {
+            navigate('/manager/store/register', { replace: true });
+            return;
+        }
         setReady(true);
     }, [navigate]);
 
@@ -110,6 +114,12 @@ export default function ManagerCreateStaff() {
                     return;
                 }
                 if (res.status === 403) {
+                    if (data.code === 'STORE_REQUIRED') {
+                        setError('Bạn cần đăng ký cửa hàng trước khi tạo tài khoản nhân viên.');
+                        setTimeout(() => navigate('/manager/store/register', { replace: true }), 1200);
+                        setLoading(false);
+                        return;
+                    }
                     setError('Chỉ Manager mới có quyền tạo tài khoản nhân viên.');
                     setLoading(false);
                     return;

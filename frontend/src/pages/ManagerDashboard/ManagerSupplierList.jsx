@@ -25,7 +25,8 @@ export default function ManagerSupplierList() {
         setLoading(true);
         setError('');
         try {
-            const data = await getSuppliers(page, LIMIT, search);
+            // Luôn hiển thị cả nhà cung cấp đã "ngừng" để có thể bật hoạt động lại
+            const data = await getSuppliers(page, LIMIT, search, 'all');
             setSuppliers(data.suppliers || []);
             setTotal(data.total ?? 0);
             setTotalPages(data.totalPages ?? 1);

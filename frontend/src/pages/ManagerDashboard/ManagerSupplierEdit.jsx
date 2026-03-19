@@ -6,10 +6,13 @@ import './ManagerDashboard.css';
 import './ManagerProducts.css';
 
 const defaultForm = {
+    code: '',
     name: '',
     phone: '',
     email: '',
     address: '',
+    tax_code: '',
+    note: '',
     status: 'active',
     payable_account: '',
 };
@@ -29,10 +32,13 @@ export default function ManagerSupplierEdit() {
         getSupplier(id)
             .then((s) => {
                 setForm({
+                    code: s.code || '',
                     name: s.name || '',
                     phone: s.phone || '',
                     email: s.email || '',
                     address: s.address || '',
+                    tax_code: s.tax_code || '',
+                    note: s.note || '',
                     status: s.status === 'inactive' ? 'inactive' : 'active',
                     payable_account: s.payable_account != null ? String(s.payable_account) : '',
                 });
@@ -57,10 +63,13 @@ export default function ManagerSupplierEdit() {
         setError('');
         try {
             await updateSupplier(id, {
+                code: form.code ? String(form.code).trim() : undefined,
                 name: form.name.trim(),
                 phone: form.phone ? String(form.phone).trim() : undefined,
                 email: form.email ? String(form.email).trim() : undefined,
                 address: form.address ? String(form.address).trim() : undefined,
+                tax_code: form.tax_code ? String(form.tax_code).trim() : undefined,
+                note: form.note ? String(form.note).trim() : undefined,
                 status: form.status === 'inactive' ? 'inactive' : 'active',
                 payable_account: Number(form.payable_account) || 0,
             });
@@ -125,6 +134,15 @@ export default function ManagerSupplierEdit() {
                         <form onSubmit={handleSubmit} className="manager-product-form">
                             <div className="manager-form-row manager-form-row--2">
                                 <div className="manager-form-group">
+                                    <label>Mã nhà cung cấp</label>
+                                    <input
+                                        type="text"
+                                        value={form.code}
+                                        onChange={(e) => update('code', e.target.value)}
+                                        placeholder="VD: NCC001"
+                                    />
+                                </div>
+                                <div className="manager-form-group">
                                     <label>Tên nhà cung cấp <span className="required">*</span></label>
                                     <input
                                         type="text"
@@ -133,6 +151,8 @@ export default function ManagerSupplierEdit() {
                                         placeholder="Nhập tên nhà cung cấp"
                                     />
                                 </div>
+                            </div>
+                            <div className="manager-form-row manager-form-row--2">
                                 <div className="manager-form-group">
                                     <label>Điện thoại</label>
                                     <input
@@ -142,8 +162,6 @@ export default function ManagerSupplierEdit() {
                                         placeholder="Số điện thoại"
                                     />
                                 </div>
-                            </div>
-                            <div className="manager-form-row manager-form-row--2">
                                 <div className="manager-form-group">
                                     <label>Email</label>
                                     <input
@@ -151,6 +169,17 @@ export default function ManagerSupplierEdit() {
                                         value={form.email}
                                         onChange={(e) => update('email', e.target.value)}
                                         placeholder="email@example.com"
+                                    />
+                                </div>
+                            </div>
+                            <div className="manager-form-row manager-form-row--2">
+                                <div className="manager-form-group">
+                                    <label>Mã số thuế</label>
+                                    <input
+                                        type="text"
+                                        value={form.tax_code}
+                                        onChange={(e) => update('tax_code', e.target.value)}
+                                        placeholder="Mã số thuế"
                                     />
                                 </div>
                                 <div className="manager-form-group">
@@ -185,6 +214,15 @@ export default function ManagerSupplierEdit() {
                                         value={form.payable_account}
                                         onChange={(e) => update('payable_account', e.target.value)}
                                         placeholder="0"
+                                    />
+                                </div>
+                                <div className="manager-form-group">
+                                    <label>Ghi chú</label>
+                                    <input
+                                        type="text"
+                                        value={form.note}
+                                        onChange={(e) => update('note', e.target.value)}
+                                        placeholder="Ghi chú (tùy chọn)"
                                     />
                                 </div>
                             </div>

@@ -1,6 +1,6 @@
 .manager-sidebar {
     width: 250px;
-    min-height: 100vh;
+    height: 100vh;
     background: #ffffff;
     color: #111827;
     display: flex;
@@ -43,8 +43,10 @@
 
 .manager-sidebar-nav {
     flex: 1;
+    min-height: 0;
     padding: 16px 0;
     overflow-y: auto;
+    overscroll-behavior: contain;
 }
 
 .manager-nav-section {
