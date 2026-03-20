@@ -5,6 +5,15 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
+function getRoleStoreFilter(req) {
+  const role = String(req.user?.role || '').toLowerCase();
+  const storeId = req.user?.storeId ? String(req.user.storeId) : null;
+  const isStoreScopedRole = ['manager', 'warehouse_staff', 'sales_staff'].includes(role);
+  if (!isStoreScopedRole) return {};
+  if (!storeId) return null;
+  return { storeId };
+}
+
 router.get('/health', (req, res) => {
   res.json({ ok: true, service: 'stock-adjustments' });
 });
@@ -15,7 +24,13 @@ router.get('/', requireAuth, requireRole(['manager', 'admin']), async (req, res)
     const { page = '1', limit = '20', status } = req.query;
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
-    const filter = {};
+    const filter = getRoleStoreFilter(req);
+    if (filter == null) {
+      return res.status(403).json({
+        message: 'Tài khoản chưa được gán cửa hàng.',
+        code: 'STORE_REQUIRED',
+      });
+    }
     if (status && ['pending', 'approved', 'rejected'].includes(status)) {
       filter.status = status;
     }
@@ -50,7 +65,14 @@ router.get('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
     if (!mongoose.isValidObjectId(id)) {
       return res.status(400).json({ message: 'Invalid adjustment id' });
     }
-    const adjustment = await StockAdjustment.findById(id)
+    const storeFilter = getRoleStoreFilter(req);
+    if (storeFilter == null) {
+      return res.status(403).json({
+        message: 'Tài khoản chưa được gán cửa hàng.',
+        code: 'STORE_REQUIRED',
+      });
+    }
+    const adjustment = await StockAdjustment.findOne({ _id: id, ...storeFilter })
       .populate('stocktake_id')
       .populate('approved_by', 'email')
       .populate('created_by', 'email')

@@ -12,6 +12,12 @@ const productSchema = new Schema(
             ref: 'Supplier',
             required: false,
         },
+        storeId: {
+            type: Schema.Types.ObjectId,
+            ref: 'Store',
+            required: false,
+            index: true,
+        },
         name: {
             type: String,
             required: true,

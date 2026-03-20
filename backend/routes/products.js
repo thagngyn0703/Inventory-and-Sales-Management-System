@@ -20,6 +20,15 @@ function normalizeProduct(p) {
   return { ...p, selling_units: units, sale_price: baseUnit ? baseUnit.sale_price : (p.sale_price || 0) };
 }
 
+function getRoleStoreFilter(req) {
+  const role = String(req.user?.role || '').toLowerCase();
+  const storeId = req.user?.storeId ? String(req.user.storeId) : null;
+  const isStoreScopedRole = ['manager', 'warehouse_staff', 'sales_staff'].includes(role);
+  if (!isStoreScopedRole) return {};
+  if (!storeId) return null;
+  return { storeId };
+}
+
 // POST /api/products  (manager, admin)
 router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
   try {
@@ -37,6 +46,8 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
       selling_units: bodyUnits,
       status,
     } = req.body || {};
+    const role = String(req.user?.role || '').toLowerCase();
+    const requesterStoreId = req.user?.storeId ? String(req.user.storeId) : null;
 
     if (!name || !String(name).trim()) {
       return res.status(400).json({ message: 'name is required' });
@@ -61,10 +72,20 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
 
     const baseUnit = selling_units.find((u) => u.ratio === 1);
     const baseUnitPrice = baseUnit ? baseUnit.sale_price : (Number(sale_price) || 0);
+    const resolvedStoreId = role === 'admin'
+      ? (req.body?.storeId && mongoose.isValidObjectId(req.body.storeId) ? req.body.storeId : undefined)
+      : requesterStoreId;
+    if (role !== 'admin' && !resolvedStoreId) {
+      return res.status(403).json({
+        message: 'Manager chưa có cửa hàng. Vui lòng đăng ký cửa hàng trước khi tạo sản phẩm.',
+        code: 'STORE_REQUIRED',
+      });
+    }
 
     const doc = await Product.create({
       category_id: category_id && mongoose.isValidObjectId(category_id) ? category_id : undefined,
       supplier_id: supplier_id && mongoose.isValidObjectId(supplier_id) ? supplier_id : undefined,
+      storeId: resolvedStoreId,
       name: String(name).trim(),
       sku: String(sku).trim(),
       barcode: barcode ? String(barcode).trim() : undefined,
@@ -95,7 +116,13 @@ router.get('/', requireAuth, requireRole(['manager', 'warehouse', 'sales', 'admi
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
 
-    const filter = {};
+    const filter = getRoleStoreFilter(req);
+    if (filter == null) {
+      return res.status(403).json({
+        message: 'Tài khoản chưa được gán cửa hàng.',
+        code: 'STORE_REQUIRED',
+      });
+    }
     if (query) {
       const re = new RegExp(escapeRegex(query), 'i');
       filter.$or = [{ name: re }, { sku: re }, { barcode: re }];
@@ -130,7 +157,14 @@ router.get('/:id', requireAuth, requireRole(['manager', 'warehouse', 'sales', 'a
     if (!mongoose.isValidObjectId(id)) {
       return res.status(400).json({ message: 'Invalid product id' });
     }
-    const product = await Product.findById(id)
+    const storeFilter = getRoleStoreFilter(req);
+    if (storeFilter == null) {
+      return res.status(403).json({
+        message: 'Tài khoản chưa được gán cửa hàng.',
+        code: 'STORE_REQUIRED',
+      });
+    }
+    const product = await Product.findOne({ _id: id, ...storeFilter })
       .populate('supplier_id', 'name phone email')
       .lean();
     if (!product) return res.status(404).json({ message: 'Product not found' });
@@ -162,7 +196,14 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
       status,
     } = req.body || {};
 
-    const product = await Product.findById(id);
+    const storeFilter = getRoleStoreFilter(req);
+    if (storeFilter == null) {
+      return res.status(403).json({
+        message: 'Tài khoản chưa được gán cửa hàng.',
+        code: 'STORE_REQUIRED',
+      });
+    }
+    const product = await Product.findOne({ _id: id, ...storeFilter });
     if (!product) return res.status(404).json({ message: 'Product not found' });
 
     if (name !== undefined) product.name = String(name).trim();
@@ -218,8 +259,15 @@ router.patch('/:id/status', requireAuth, requireRole(['manager', 'admin']), asyn
     const { status } = req.body || {};
     const newStatus = status === 'inactive' ? 'inactive' : 'active';
 
-    const product = await Product.findByIdAndUpdate(
-      id,
+    const storeFilter = getRoleStoreFilter(req);
+    if (storeFilter == null) {
+      return res.status(403).json({
+        message: 'Tài khoản chưa được gán cửa hàng.',
+        code: 'STORE_REQUIRED',
+      });
+    }
+    const product = await Product.findOneAndUpdate(
+      { _id: id, ...storeFilter },
       { status: newStatus, updated_at: new Date() },
       { new: true }
     ).lean();

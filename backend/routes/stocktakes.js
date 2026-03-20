@@ -7,6 +7,15 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
+function getRoleStoreFilter(req) {
+  const role = String(req.user?.role || '').toLowerCase();
+  const storeId = req.user?.storeId ? String(req.user.storeId) : null;
+  const isStoreScopedRole = ['manager', 'warehouse_staff', 'sales_staff'].includes(role);
+  if (!isStoreScopedRole) return {};
+  if (!storeId) return null;
+  return { storeId };
+}
+
 // POST /api/stocktakes — Create stocktaking record (draft). Warehouse, Manager, Admin.
 // Body: { warehouse_id?: ObjectId, product_ids: [ObjectId] }
 // Snapshot current system_qty for each product; actual_qty/variance filled later.
@@ -22,7 +31,18 @@ router.post('/', requireAuth, requireRole(['warehouse', 'manager', 'admin']), as
       return res.status(400).json({ message: 'No valid product ids provided' });
     }
 
-    const products = await Product.find({ _id: { $in: validIds } }).lean();
+    const role = String(req.user?.role || '').toLowerCase();
+    const requesterStoreId = req.user?.storeId ? String(req.user.storeId) : null;
+    if (['manager', 'warehouse_staff', 'sales_staff'].includes(role) && !requesterStoreId) {
+      return res.status(403).json({
+        message: 'Tài khoản chưa được gán cửa hàng.',
+        code: 'STORE_REQUIRED',
+      });
+    }
+
+    const productFilter = { _id: { $in: validIds } };
+    if (requesterStoreId) productFilter.storeId = requesterStoreId;
+    const products = await Product.find(productFilter).lean();
     const productMap = new Map(products.map((p) => [String(p._id), p]));
     const items = validIds.map((id) => {
       const p = productMap.get(String(id));
@@ -38,6 +58,7 @@ router.post('/', requireAuth, requireRole(['warehouse', 'manager', 'admin']), as
 
     const doc = await Stocktake.create({
       warehouse_id: warehouse_id && mongoose.isValidObjectId(warehouse_id) ? warehouse_id : undefined,
+      storeId: requesterStoreId || undefined,
       created_by: req.user.id,
       status: 'draft',
       snapshot_at: new Date(),
@@ -61,7 +82,13 @@ router.get('/', requireAuth, requireRole(['warehouse', 'manager', 'admin']), asy
     const { page = '1', limit = '20', status } = req.query;
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
-    const filter = {};
+    const filter = getRoleStoreFilter(req);
+    if (filter == null) {
+      return res.status(403).json({
+        message: 'Tài khoản chưa được gán cửa hàng.',
+        code: 'STORE_REQUIRED',
+      });
+    }
     if (status && ['draft', 'submitted', 'completed', 'cancelled'].includes(status)) {
       filter.status = status;
     }
@@ -95,7 +122,14 @@ router.post('/:id/approve', requireAuth, requireRole(['manager', 'admin']), asyn
     if (!mongoose.isValidObjectId(id)) {
       return res.status(400).json({ message: 'Invalid stocktake id' });
     }
-    const stocktake = await Stocktake.findById(id).lean();
+    const storeFilter = getRoleStoreFilter(req);
+    if (storeFilter == null) {
+      return res.status(403).json({
+        message: 'Tài khoản chưa được gán cửa hàng.',
+        code: 'STORE_REQUIRED',
+      });
+    }
+    const stocktake = await Stocktake.findOne({ _id: id, ...storeFilter }).lean();
     if (!stocktake) return res.status(404).json({ message: 'Stocktake not found' });
     if (stocktake.status !== 'submitted') {
       return res.status(400).json({ message: 'Chỉ được duyệt phiếu ở trạng thái Đã gửi' });
@@ -117,6 +151,7 @@ router.post('/:id/approve', requireAuth, requireRole(['manager', 'admin']), asyn
 
     const adjustment = await StockAdjustment.create({
       warehouse_id: stocktake.warehouse_id || undefined,
+      storeId: stocktake.storeId || undefined,
       stocktake_id: id,
       created_by: req.user.id,
       approved_by: req.user.id,
@@ -151,7 +186,14 @@ router.post('/:id/reject', requireAuth, requireRole(['manager', 'admin']), async
     if (!mongoose.isValidObjectId(id)) {
       return res.status(400).json({ message: 'Invalid stocktake id' });
     }
-    const stocktake = await Stocktake.findById(id).lean();
+    const storeFilter = getRoleStoreFilter(req);
+    if (storeFilter == null) {
+      return res.status(403).json({
+        message: 'Tài khoản chưa được gán cửa hàng.',
+        code: 'STORE_REQUIRED',
+      });
+    }
+    const stocktake = await Stocktake.findOne({ _id: id, ...storeFilter }).lean();
     if (!stocktake) return res.status(404).json({ message: 'Stocktake not found' });
     if (stocktake.status !== 'submitted') {
       return res.status(400).json({ message: 'Chỉ được từ chối phiếu ở trạng thái Đã gửi' });
@@ -172,6 +214,7 @@ router.post('/:id/reject', requireAuth, requireRole(['manager', 'admin']), async
 
     await StockAdjustment.create({
       warehouse_id: stocktake.warehouse_id || undefined,
+      storeId: stocktake.storeId || undefined,
       stocktake_id: id,
       created_by: req.user.id,
       approved_by: req.user.id,
@@ -200,7 +243,14 @@ router.get('/:id', requireAuth, requireRole(['warehouse', 'manager', 'admin']), 
     if (!mongoose.isValidObjectId(id)) {
       return res.status(400).json({ message: 'Invalid stocktake id' });
     }
-    const stocktake = await Stocktake.findById(id)
+    const storeFilter = getRoleStoreFilter(req);
+    if (storeFilter == null) {
+      return res.status(403).json({
+        message: 'Tài khoản chưa được gán cửa hàng.',
+        code: 'STORE_REQUIRED',
+      });
+    }
+    const stocktake = await Stocktake.findOne({ _id: id, ...storeFilter })
       .populate('items.product_id', 'name sku base_unit stock_qty')
       .populate('created_by', 'email')
       .populate('warehouse_id', 'name')
@@ -220,7 +270,14 @@ router.patch('/:id', requireAuth, requireRole(['warehouse', 'manager', 'admin'])
     if (!mongoose.isValidObjectId(id)) {
       return res.status(400).json({ message: 'Invalid stocktake id' });
     }
-    const doc = await Stocktake.findById(id);
+    const storeFilter = getRoleStoreFilter(req);
+    if (storeFilter == null) {
+      return res.status(403).json({
+        message: 'Tài khoản chưa được gán cửa hàng.',
+        code: 'STORE_REQUIRED',
+      });
+    }
+    const doc = await Stocktake.findOne({ _id: id, ...storeFilter });
     if (!doc) return res.status(404).json({ message: 'Stocktake not found' });
     if (doc.status !== 'draft') {
       return res.status(400).json({ message: 'Chỉ được sửa phiếu ở trạng thái Nháp' });

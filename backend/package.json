@@ -4,7 +4,10 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "jest --runInBand --forceExit"
+    "test": "jest --runInBand --forceExit",
+    "migrate:products-store": "node scripts/assign-products-store-by-manager.js",
+    "migrate:stocktakes-store": "node scripts/assign-stocktakes-store-by-creator.js",
+    "migrate:adjustments-store": "node scripts/assign-adjustments-store-by-stocktake.js"
   },
   "keywords": [],
   "author": "",
