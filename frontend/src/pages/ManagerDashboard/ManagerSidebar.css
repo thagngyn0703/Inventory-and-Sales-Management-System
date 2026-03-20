@@ -41,6 +41,14 @@
     color: #374151;
 }
 
+.manager-sidebar-store {
+    margin: 6px 0 0 0;
+    font-size: 12px;
+    color: #6b7280;
+    line-height: 1.35;
+    word-break: break-word;
+}
+
 .manager-sidebar-nav {
     flex: 1;
     min-height: 0;

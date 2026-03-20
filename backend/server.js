@@ -12,6 +12,7 @@ const supplierRoutes = require('./routes/suppliers');
 const invoiceRoutes = require('./routes/invoices');
 const purchaseOrderRoutes = require('./routes/purchaseOrders');
 const goodsReceiptRoutes = require('./routes/goodsReceipts');
+const notificationRoutes = require('./routes/notifications');
 const analyticsRoutes = require('./routes/analytics');
 const { hasSmtpConfig } = require('./services/emailService');
 
@@ -45,6 +46,7 @@ app.use('/api/suppliers', supplierRoutes);
 app.use('/api/invoices', invoiceRoutes);
 app.use('/api/purchase-orders', purchaseOrderRoutes);
 app.use('/api/goods-receipts', goodsReceiptRoutes);
+app.use('/api/notifications', notificationRoutes);
 app.use('/api/analytics', analyticsRoutes);
 
 // Health check

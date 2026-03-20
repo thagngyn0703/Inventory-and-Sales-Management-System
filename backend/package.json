@@ -6,8 +6,10 @@
     "start": "node server.js",
     "test": "jest --runInBand --forceExit",
     "migrate:products-store": "node scripts/assign-products-store-by-manager.js",
+    "migrate:products-sku-index": "node scripts/migrate-product-sku-index-per-store.js",
     "migrate:stocktakes-store": "node scripts/assign-stocktakes-store-by-creator.js",
-    "migrate:adjustments-store": "node scripts/assign-adjustments-store-by-stocktake.js"
+    "migrate:adjustments-store": "node scripts/assign-adjustments-store-by-stocktake.js",
+    "migrate:suppliers-store": "node scripts/assign-suppliers-store-by-manager.js"
   },
   "keywords": [],
   "author": "",

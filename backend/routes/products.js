@@ -9,6 +9,12 @@ function escapeRegex(s) {
   return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function parseOptionalDate(value) {
+  if (!value) return undefined;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? undefined : d;
+}
+
 
 function normalizeProduct(p) {
   if (!p) return p;
@@ -18,6 +24,14 @@ function normalizeProduct(p) {
     : [{ name: base, ratio: 1, sale_price: p.sale_price != null ? p.sale_price : 0 }];
   const baseUnit = units.find((u) => u.ratio === 1) || units[0];
   return { ...p, selling_units: units, sale_price: baseUnit ? baseUnit.sale_price : (p.sale_price || 0) };
+}
+
+async function findSkuDuplicate({ sku, storeId, excludeId }) {
+  const filter = { sku: String(sku || '').trim() };
+  if (storeId) filter.storeId = storeId;
+  else filter.storeId = null;
+  if (excludeId && mongoose.isValidObjectId(excludeId)) filter._id = { $ne: excludeId };
+  return Product.findOne(filter).select('_id sku storeId').lean();
 }
 
 function getRoleStoreFilter(req) {
@@ -42,6 +56,7 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
       sale_price,
       stock_qty,
       reorder_level,
+      expiry_date,
       base_unit,
       selling_units: bodyUnits,
       status,
@@ -82,6 +97,11 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
       });
     }
 
+    const duplicate = await findSkuDuplicate({ sku, storeId: resolvedStoreId });
+    if (duplicate) {
+      return res.status(409).json({ message: 'SKU đã tồn tại trong cửa hàng này' });
+    }
+
     const doc = await Product.create({
       category_id: category_id && mongoose.isValidObjectId(category_id) ? category_id : undefined,
       supplier_id: supplier_id && mongoose.isValidObjectId(supplier_id) ? supplier_id : undefined,
@@ -93,6 +113,7 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
       sale_price: baseUnitPrice,
       stock_qty: Number(stock_qty || 0),
       reorder_level: Number(reorder_level || 0),
+      expiry_date: parseOptionalDate(expiry_date),
       base_unit: base,
       selling_units,
       status: status === 'inactive' ? 'inactive' : 'active',
@@ -191,6 +212,7 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
       sale_price,
       stock_qty,
       reorder_level,
+      expiry_date,
       base_unit,
       selling_units: bodyUnits,
       status,
@@ -212,6 +234,7 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
     if (cost_price !== undefined) product.cost_price = Number(cost_price) || 0;
     if (stock_qty !== undefined) product.stock_qty = Number(stock_qty) || 0;
     if (reorder_level !== undefined) product.reorder_level = Number(reorder_level) || 0;
+    if (expiry_date !== undefined) product.expiry_date = expiry_date ? parseOptionalDate(expiry_date) : null;
     if (base_unit !== undefined) product.base_unit = base_unit ? String(base_unit).trim() : 'Cái';
     if (status !== undefined) product.status = status === 'inactive' ? 'inactive' : 'active';
     if (category_id !== undefined) {
@@ -219,6 +242,12 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
     }
     if (supplier_id !== undefined) {
       product.supplier_id = supplier_id && mongoose.isValidObjectId(supplier_id) ? supplier_id : null;
+    }
+    if (sku !== undefined) {
+      const duplicate = await findSkuDuplicate({ sku, storeId: product.storeId, excludeId: id });
+      if (duplicate) {
+        return res.status(409).json({ message: 'SKU đã tồn tại trong cửa hàng này' });
+      }
     }
 
     if (Array.isArray(bodyUnits) && bodyUnits.length > 0) {

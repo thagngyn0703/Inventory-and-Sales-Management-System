@@ -5,6 +5,13 @@ import './WarehouseSidebar.css';
 export default function WarehouseSidebar() {
   const navigate = useNavigate();
   const location = useLocation();
+  let currentUser = null;
+  try {
+    currentUser = JSON.parse(localStorage.getItem('user') || 'null');
+  } catch {
+    currentUser = null;
+  }
+  const storeTitle = currentUser?.storeName || (currentUser?.storeId ? `Store: ${String(currentUser.storeId).slice(-6)}` : 'Chưa có cửa hàng');
 
   const navItems = [
     { label: 'Tổng quan', path: '/warehouse', icon: 'fa-house' },
@@ -23,6 +30,7 @@ export default function WarehouseSidebar() {
           <span className="warehouse-logo-icon">K</span>
         </div>
         <p className="warehouse-sidebar-title">Kho hàng</p>
+        <p className="warehouse-sidebar-store">{storeTitle}</p>
       </div>
 
       <nav className="warehouse-sidebar-nav">

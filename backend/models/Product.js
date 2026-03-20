@@ -26,7 +26,6 @@ const productSchema = new Schema(
         sku: {
             type: String,
             required: true,
-            unique: true,
             trim: true,
         },
         barcode: {
@@ -48,6 +47,9 @@ const productSchema = new Schema(
         reorder_level: {
             type: Number,
             default: 0,
+        },
+        expiry_date: {
+            type: Date,
         },
         
         
@@ -80,5 +82,7 @@ const productSchema = new Schema(
         timestamps: false,
     }
 );
+
+productSchema.index({ storeId: 1, sku: 1 }, { unique: true });
 
 module.exports = model('Product', productSchema);

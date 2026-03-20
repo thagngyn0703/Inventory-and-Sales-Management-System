@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ManagerSidebar from './ManagerSidebar';
-import { createProduct } from '../../services/productsApi';
+import ManagerNotificationBell from '../../components/ManagerNotificationBell';
+import { createProduct, getProducts } from '../../services/productsApi';
 import { getSuppliers } from '../../services/suppliersApi';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
@@ -10,7 +11,7 @@ const PRODUCT_BASE_UNITS = ['Cái', 'Chai', 'Lon', 'Thùng', 'Hộp', 'Kg', 'Gó
 
 const defaultSellingUnit = () => ({ name: 'Cái', ratio: 1, sale_price: '' });
 
-const defaultForm = {
+const createDefaultForm = () => ({
     name: '',
     sku: '',
     barcode: '',
@@ -18,15 +19,18 @@ const defaultForm = {
     cost_price: '',
     stock_qty: '',
     reorder_level: '',
+    expiry_date: '',
     base_unit: 'Cái',
     selling_units: [defaultSellingUnit()],
     status: 'active',
-};
+});
 
 export default function ManagerProductCreate() {
     const navigate = useNavigate();
-    const [form, setForm] = useState(defaultForm);
+    const [form, setForm] = useState(createDefaultForm());
     const [suppliers, setSuppliers] = useState([]);
+    const [existingProducts, setExistingProducts] = useState([]);
+    const [selectedExistingId, setSelectedExistingId] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
 
@@ -35,6 +39,14 @@ export default function ManagerProductCreate() {
         getSuppliers()
             .then((list) => { if (!cancelled) setSuppliers(list || []); })
             .catch(() => { if (!cancelled) setSuppliers([]); });
+        return () => { cancelled = true; };
+    }, []);
+
+    useEffect(() => {
+        let cancelled = false;
+        getProducts(1, 200)
+            .then((data) => { if (!cancelled) setExistingProducts(data.products || []); })
+            .catch(() => { if (!cancelled) setExistingProducts([]); });
         return () => { cancelled = true; };
     }, []);
 
@@ -121,6 +133,7 @@ export default function ManagerProductCreate() {
                 cost_price: costNum,
                 stock_qty: Number(form.stock_qty) || 0,
                 reorder_level: Number(form.reorder_level) || 0,
+                expiry_date: form.expiry_date || undefined,
                 base_unit: form.base_unit || 'Cái',
                 selling_units: units,
                 status: form.status === 'inactive' ? 'inactive' : 'active',
@@ -133,6 +146,35 @@ export default function ManagerProductCreate() {
         }
     };
 
+    const fillFromExisting = (productId) => {
+        setSelectedExistingId(productId);
+        const p = existingProducts.find((x) => x._id === productId);
+        if (!p) {
+            setForm(createDefaultForm());
+            setError('');
+            return;
+        }
+        setForm((prev) => ({
+            ...prev,
+            name: p.name || prev.name,
+            sku: p.sku || prev.sku,
+            barcode: p.barcode || '',
+            supplier_id: typeof p.supplier_id === 'object' ? (p.supplier_id?._id || '') : (p.supplier_id || ''),
+            cost_price: p.cost_price != null ? String(p.cost_price) : prev.cost_price,
+            expiry_date: p.expiry_date ? new Date(p.expiry_date).toISOString().slice(0, 10) : '',
+            base_unit: p.base_unit || prev.base_unit,
+            selling_units: Array.isArray(p.selling_units) && p.selling_units.length > 0
+                ? p.selling_units.map((u) => ({
+                    name: u.name || p.base_unit || 'Cái',
+                    ratio: u.ratio != null ? u.ratio : 1,
+                    sale_price: u.sale_price != null ? String(u.sale_price) : '',
+                }))
+                : prev.selling_units,
+            status: p.status === 'inactive' ? 'inactive' : 'active',
+        }));
+        setError('');
+    };
+
     return (
         <div className="manager-page-with-sidebar">
             <ManagerSidebar />
@@ -140,9 +182,7 @@ export default function ManagerProductCreate() {
                 <header className="manager-topbar">
                     <div className="manager-topbar-search-wrap" />
                     <div className="manager-topbar-actions">
-                        <button type="button" className="manager-icon-btn" aria-label="Thông báo">
-                            <i className="fa-solid fa-bell" />
-                        </button>
+                        <ManagerNotificationBell />
                         <div className="manager-user-badge">
                             <i className="fa-solid fa-circle-user" />
                             <span>Quản lý</span>
@@ -166,6 +206,25 @@ export default function ManagerProductCreate() {
                     </div>
 
                     {error && <div className="manager-products-error">{error}</div>}
+
+                    <div className="manager-panel-card" style={{ marginBottom: 16 }}>
+                        <div className="manager-form-row manager-form-row--2" style={{ alignItems: 'end' }}>
+                            <div className="manager-form-group">
+                                <label>Chọn nhanh sản phẩm đã có sẵn (để điền form)</label>
+                                <select value={selectedExistingId} onChange={(e) => fillFromExisting(e.target.value)}>
+                                    <option value="">— Không chọn —</option>
+                                    {existingProducts.map((p) => (
+                                        <option key={p._id} value={p._id}>
+                                            {p.name} — {p.sku}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className="manager-form-hint-inline">
+                                Có thể chọn sản phẩm cũ để copy nhanh thông tin, sau đó chỉnh sửa lại trước khi lưu.
+                            </div>
+                        </div>
+                    </div>
 
                     <form onSubmit={handleSubmit}>
                         <div className="manager-detail-card">
@@ -304,6 +363,16 @@ export default function ManagerProductCreate() {
                                                                 value={form.reorder_level}
                                                                 onChange={(e) => update('reorder_level', e.target.value)}
                                                                 placeholder="0"
+                                                            />
+                                                        </td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td className="manager-detail-label">Hạn sử dụng</td>
+                                                        <td className="manager-detail-value">
+                                                            <input
+                                                                type="date"
+                                                                value={form.expiry_date}
+                                                                onChange={(e) => update('expiry_date', e.target.value)}
                                                             />
                                                         </td>
                                                     </tr>

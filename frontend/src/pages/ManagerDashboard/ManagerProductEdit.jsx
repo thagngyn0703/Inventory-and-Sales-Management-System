@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import ManagerSidebar from './ManagerSidebar';
+import ManagerNotificationBell from '../../components/ManagerNotificationBell';
 import { getProduct, updateProduct } from '../../services/productsApi';
 import { getSuppliers } from '../../services/suppliersApi';
 import './ManagerDashboard.css';
@@ -18,6 +19,7 @@ const defaultForm = {
     cost_price: '',
     stock_qty: '',
     reorder_level: '',
+    expiry_date: '',
     base_unit: 'Cái',
     selling_units: [defaultSellingUnit()],
     status: 'active',
@@ -69,6 +71,7 @@ export default function ManagerProductEdit() {
                     cost_price: p.cost_price != null ? String(p.cost_price) : '',
                     stock_qty: p.stock_qty != null ? String(p.stock_qty) : '',
                     reorder_level: p.reorder_level != null ? String(p.reorder_level) : '',
+                    expiry_date: p.expiry_date ? new Date(p.expiry_date).toISOString().slice(0, 10) : '',
                     base_unit: p.base_unit || 'Cái',
                     selling_units: units,
                     status: p.status === 'inactive' ? 'inactive' : 'active',
@@ -153,6 +156,7 @@ export default function ManagerProductEdit() {
                 cost_price: costNum,
                 stock_qty: Number(form.stock_qty) || 0,
                 reorder_level: Number(form.reorder_level) || 0,
+                expiry_date: form.expiry_date || undefined,
                 base_unit: form.base_unit || 'Cái',
                 selling_units: units,
                 status: form.status === 'inactive' ? 'inactive' : 'active',
@@ -185,9 +189,7 @@ export default function ManagerProductEdit() {
                 <header className="manager-topbar">
                     <div className="manager-topbar-search-wrap" />
                     <div className="manager-topbar-actions">
-                        <button type="button" className="manager-icon-btn" aria-label="Thông báo">
-                            <i className="fa-solid fa-bell" />
-                        </button>
+                        <ManagerNotificationBell />
                         <div className="manager-user-badge">
                             <i className="fa-solid fa-circle-user" />
                             <span>Quản lý</span>
@@ -308,6 +310,16 @@ export default function ManagerProductEdit() {
                                                         <td className="manager-detail-label">Mức tồn tối thiểu</td>
                                                         <td className="manager-detail-value">
                                                             <input type="number" min="0" value={form.reorder_level} onChange={(e) => update('reorder_level', e.target.value)} placeholder="0" />
+                                                        </td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td className="manager-detail-label">Hạn sử dụng</td>
+                                                        <td className="manager-detail-value">
+                                                            <input
+                                                                type="date"
+                                                                value={form.expiry_date}
+                                                                onChange={(e) => update('expiry_date', e.target.value)}
+                                                            />
                                                         </td>
                                                     </tr>
                                                 </tbody>

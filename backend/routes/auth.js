@@ -384,6 +384,8 @@ router.post('/verify-email', async (req, res) => {
         // Xóa khỏi collection UnauthenticatedUser ngay sau khi xác thực thành công
         await UnauthenticatedUser.deleteOne({ _id: unauth._id });
 
+        const store = user.storeId ? await Store.findById(user.storeId).select('name').lean() : null;
+
         const jwtToken = jwt.sign(
             { id: user._id, email: user.email, role: user.role, storeId: user.storeId || null },
             process.env.JWT_SECRET,
@@ -398,6 +400,7 @@ router.post('/verify-email', async (req, res) => {
                 email: user.email,
                 role: user.role,
                 storeId: user.storeId,
+                storeName: store?.name || null,
             },
         });
     } catch (err) {
@@ -531,6 +534,8 @@ router.post('/login', async (req, res) => {
             return res.status(400).json({ message: 'Email hoặc mật khẩu không đúng' });
         }
 
+        const store = user.storeId ? await Store.findById(user.storeId).select('name').lean() : null;
+
         const token = jwt.sign(
             { id: user._id, email: user.email, role: user.role, storeId: user.storeId || null },
             process.env.JWT_SECRET,
@@ -545,6 +550,7 @@ router.post('/login', async (req, res) => {
                 email: user.email,
                 role: user.role,
                 storeId: user.storeId,
+                storeName: store?.name || null,
             },
         });
     } catch (err) {

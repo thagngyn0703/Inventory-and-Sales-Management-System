@@ -5,6 +5,13 @@ import './ManagerSidebar.css';
 export default function ManagerSidebar() {
     const navigate = useNavigate();
     const location = useLocation();
+    let currentUser = null;
+    try {
+        currentUser = JSON.parse(localStorage.getItem('user') || 'null');
+    } catch {
+        currentUser = null;
+    }
+    const storeTitle = currentUser?.storeName || (currentUser?.storeId ? `Store: ${String(currentUser.storeId).slice(-6)}` : 'Chưa có cửa hàng');
 
     const overviewItems = [
         { label: 'Tổng quan', path: '/manager', icon: 'fa-house' },
@@ -17,6 +24,7 @@ export default function ManagerSidebar() {
         { label: 'Thêm nhà cung cấp', path: '/manager/suppliers/new', icon: 'fa-plus' },
         { label: 'Khách hàng', path: '/manager/customers', icon: 'fa-users' },
         { label: 'Báo cáo', path: '/manager/reports', icon: 'fa-chart-bar' },
+        { label: 'Thông báo', path: '/manager/notifications', icon: 'fa-bell' },
     ];
 
     const manageItems = [
@@ -37,6 +45,7 @@ export default function ManagerSidebar() {
         if (item.path === '/manager/suppliers/new') return location.pathname === '/manager/suppliers/new';
         if (item.path === '/manager/staff/new') return location.pathname === '/manager/staff/new' || location.pathname.startsWith('/manager/staff/');
         if (item.path === '/manager/stocktakes/pending') return location.pathname === '/manager/stocktakes/pending' || location.pathname.startsWith('/manager/stocktakes/');
+        if (item.path === '/manager/notifications') return location.pathname === '/manager/notifications' || location.pathname.startsWith('/manager/notifications/');
         return isActive(item.path);
     };
 
@@ -47,6 +56,7 @@ export default function ManagerSidebar() {
                     <span className="manager-logo-icon">M</span>
                 </div>
                 <p className="manager-sidebar-title">Quản lý bán hàng</p>
+                <p className="manager-sidebar-store">{storeTitle}</p>
             </div>
 
             <nav className="manager-sidebar-nav">

@@ -60,6 +60,7 @@ export default function ManagerStoreRegister() {
         ...currentUser,
         ...(data.user || {}),
         storeId: data.user?.storeId || data.store?.id || currentUser.storeId || null,
+        storeName: data.store?.name || data.user?.storeName || currentUser.storeName || "",
       };
       localStorage.setItem("user", JSON.stringify(nextUser));
       navigate("/manager", { replace: true });

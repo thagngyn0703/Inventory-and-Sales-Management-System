@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import ManagerSidebar from './ManagerSidebar';
+import ManagerNotificationBell from '../../components/ManagerNotificationBell';
 import { getProduct, setProductStatus } from '../../services/productsApi';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
@@ -85,9 +86,7 @@ export default function ManagerProductDetail() {
                 <header className="manager-topbar">
                     <div className="manager-topbar-search-wrap" />
                     <div className="manager-topbar-actions">
-                        <button type="button" className="manager-icon-btn" aria-label="Thông báo">
-                            <i className="fa-solid fa-bell" />
-                        </button>
+                        <ManagerNotificationBell />
                         <div className="manager-user-badge">
                             <i className="fa-solid fa-circle-user" />
                             <span>Quản lý</span>
@@ -168,6 +167,12 @@ export default function ManagerProductDetail() {
                                                 <span className={`manager-detail-badge manager-detail-badge--${p.status || 'active'}`}>
                                                     {p.status === 'inactive' ? 'Ngừng bán' : 'Đang bán'}
                                                 </span>
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td className="manager-detail-label">Hạn sử dụng</td>
+                                            <td className="manager-detail-value">
+                                                {p.expiry_date ? new Date(p.expiry_date).toLocaleDateString('vi-VN') : '—'}
                                             </td>
                                         </tr>
                                     </tbody>
