@@ -27,7 +27,15 @@ function normalizeContacts(contacts) {
     .filter((c) => c.name || c.phone || c.email || c.position || c.note);
 }
 
-async function findSupplierDuplicate({ excludeId, code, tax_code, name }) {
+function getSupplierScopeFilter(req) {
+  const role = String(req.user?.role || '').toLowerCase();
+  if (role === 'manager') {
+    return { storeId: req.user?.storeId || null };
+  }
+  return {};
+}
+
+async function findSupplierDuplicate({ scopeFilter = {}, excludeId, code, tax_code, name }) {
   const or = [];
 
   const codeNorm = normalizeStr(code);
@@ -44,7 +52,7 @@ async function findSupplierDuplicate({ excludeId, code, tax_code, name }) {
 
   if (!or.length) return null;
 
-  const filter = { $or: or };
+  const filter = { ...scopeFilter, $or: or };
   if (excludeId && mongoose.isValidObjectId(excludeId)) {
     filter._id = { $ne: excludeId };
   }
@@ -55,6 +63,7 @@ async function findSupplierDuplicate({ excludeId, code, tax_code, name }) {
 // POST /api/suppliers  (manager, admin)
 router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
   try {
+    const scopeFilter = getSupplierScopeFilter(req);
     const {
       code,
       name,
@@ -72,7 +81,7 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
       return res.status(400).json({ message: 'name is required' });
     }
 
-    const duplicate = await findSupplierDuplicate({ code, tax_code, name });
+    const duplicate = await findSupplierDuplicate({ scopeFilter, code, tax_code, name });
     if (duplicate) {
       return res.status(409).json({
         message: 'Supplier already exists',
@@ -91,6 +100,7 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
       note: note != null && String(note).trim() ? String(note).trim() : undefined,
       status: status === 'inactive' ? 'inactive' : 'active',
       payable_account: payable_account != null ? Number(payable_account) || 0 : undefined,
+      storeId: req.user?.role === 'manager' ? (req.user?.storeId || null) : undefined,
       created_at: new Date(),
       updated_at: new Date(),
     });
@@ -113,7 +123,7 @@ router.get('/', requireAuth, requireRole(['manager', 'admin']), async (req, res)
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
 
-    const filter = {};
+    const filter = getSupplierScopeFilter(req);
     const statusNorm = String(status || '').toLowerCase();
     if (statusNorm === 'active' || statusNorm === 'inactive') {
       filter.status = statusNorm;
@@ -166,7 +176,8 @@ router.get('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
     if (!mongoose.isValidObjectId(id)) {
       return res.status(400).json({ message: 'Invalid supplier id' });
     }
-    const supplier = await Supplier.findById(id).lean();
+    const scopeFilter = getSupplierScopeFilter(req);
+    const supplier = await Supplier.findOne({ _id: id, ...scopeFilter }).lean();
     if (!supplier) return res.status(404).json({ message: 'Supplier not found' });
     return res.json({ supplier });
   } catch (err) {
@@ -182,7 +193,8 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
       return res.status(400).json({ message: 'Invalid supplier id' });
     }
 
-    const supplier = await Supplier.findById(id);
+    const scopeFilter = getSupplierScopeFilter(req);
+    const supplier = await Supplier.findOne({ _id: id, ...scopeFilter });
     if (!supplier) return res.status(404).json({ message: 'Supplier not found' });
 
     const {
@@ -203,6 +215,7 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
     const nextName = name !== undefined ? normalizeStr(name) : normalizeStr(supplier.name);
 
     const duplicate = await findSupplierDuplicate({
+      scopeFilter,
       excludeId: id,
       code: nextCode,
       tax_code: nextTax,
@@ -246,11 +259,12 @@ router.patch('/:id/status', requireAuth, requireRole(['manager', 'admin']), asyn
     if (!mongoose.isValidObjectId(id)) {
       return res.status(400).json({ message: 'Invalid supplier id' });
     }
+    const scopeFilter = getSupplierScopeFilter(req);
     const { status } = req.body || {};
     const newStatus = status === 'inactive' ? 'inactive' : 'active';
 
-    const supplier = await Supplier.findByIdAndUpdate(
-      id,
+    const supplier = await Supplier.findOneAndUpdate(
+      { _id: id, ...scopeFilter },
       { status: newStatus, updated_at: new Date() },
       { new: true }
     ).lean();
