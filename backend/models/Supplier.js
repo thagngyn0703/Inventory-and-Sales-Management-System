@@ -56,6 +56,12 @@ const supplierSchema = new Schema(
             type: Number,
             default: 0,
         },
+        storeId: {
+            type: Schema.Types.ObjectId,
+            ref: 'Store',
+            default: null,
+            index: true,
+        },
         created_at: {
             type: Date,
             default: Date.now,
@@ -72,5 +78,6 @@ const supplierSchema = new Schema(
 
 supplierSchema.index({ name: 1 });
 supplierSchema.index({ code: 1 });
+supplierSchema.index({ storeId: 1, name: 1 });
 
 module.exports = model('Supplier', supplierSchema);
