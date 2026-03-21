@@ -1,16 +1,32 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import StoreLockedNotice from '../../components/StoreLockedNotice';
 import './ManagerSidebar.css';
 
 export default function ManagerSidebar() {
     const navigate = useNavigate();
     const location = useLocation();
-    let currentUser = null;
-    try {
-        currentUser = JSON.parse(localStorage.getItem('user') || 'null');
-    } catch {
-        currentUser = null;
-    }
+    const [currentUser, setCurrentUser] = useState(() => {
+        try {
+            return JSON.parse(localStorage.getItem('user') || 'null');
+        } catch {
+            return null;
+        }
+    });
+    useEffect(() => {
+        const token = localStorage.getItem('token') || '';
+        if (!token) return;
+        fetch('http://localhost:8000/api/auth/me', {
+            headers: { Authorization: `Bearer ${token}` },
+        })
+            .then((res) => res.json().catch(() => ({})))
+            .then((data) => {
+                if (!data?.user) return;
+                setCurrentUser(data.user);
+                localStorage.setItem('user', JSON.stringify(data.user));
+            })
+            .catch(() => {});
+    }, []);
     const storeTitle = currentUser?.storeName || (currentUser?.storeId ? `Store: ${String(currentUser.storeId).slice(-6)}` : 'Chưa có cửa hàng');
 
     const overviewItems = [
@@ -50,8 +66,10 @@ export default function ManagerSidebar() {
     };
 
     return (
-        <div className="manager-sidebar">
-            <div className="manager-sidebar-header">
+        <>
+            <StoreLockedNotice visible={currentUser?.storeStatus === 'inactive'} />
+            <div className="manager-sidebar">
+                <div className="manager-sidebar-header">
                 <div className="manager-sidebar-logo">
                     <span className="manager-logo-icon">M</span>
                 </div>
@@ -98,6 +116,7 @@ export default function ManagerSidebar() {
                     Đăng xuất
                 </button>
             </div>
-        </div>
+            </div>
+        </>
     );
 }

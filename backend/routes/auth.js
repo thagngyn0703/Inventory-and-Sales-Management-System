@@ -335,6 +335,7 @@ router.post('/register-store', requireAuth, requireRole(['manager'], { allowMana
                 name: store.name,
                 address: store.address,
                 phone: store.phone,
+                status: store.status,
             },
             user: {
                 id: manager._id,
@@ -342,6 +343,8 @@ router.post('/register-store', requireAuth, requireRole(['manager'], { allowMana
                 email: manager.email,
                 role: manager.role,
                 storeId: manager.storeId,
+                storeName: store.name,
+                storeStatus: store.status,
             },
         });
     } catch (err) {
@@ -384,7 +387,7 @@ router.post('/verify-email', async (req, res) => {
         // Xóa khỏi collection UnauthenticatedUser ngay sau khi xác thực thành công
         await UnauthenticatedUser.deleteOne({ _id: unauth._id });
 
-        const store = user.storeId ? await Store.findById(user.storeId).select('name').lean() : null;
+        const store = user.storeId ? await Store.findById(user.storeId).select('name status').lean() : null;
 
         const jwtToken = jwt.sign(
             { id: user._id, email: user.email, role: user.role, storeId: user.storeId || null },
@@ -401,6 +404,7 @@ router.post('/verify-email', async (req, res) => {
                 role: user.role,
                 storeId: user.storeId,
                 storeName: store?.name || null,
+                storeStatus: store?.status || null,
             },
         });
     } catch (err) {
@@ -534,7 +538,7 @@ router.post('/login', async (req, res) => {
             return res.status(400).json({ message: 'Email hoặc mật khẩu không đúng' });
         }
 
-        const store = user.storeId ? await Store.findById(user.storeId).select('name').lean() : null;
+        const store = user.storeId ? await Store.findById(user.storeId).select('name status').lean() : null;
 
         const token = jwt.sign(
             { id: user._id, email: user.email, role: user.role, storeId: user.storeId || null },
@@ -551,11 +555,33 @@ router.post('/login', async (req, res) => {
                 role: user.role,
                 storeId: user.storeId,
                 storeName: store?.name || null,
+                storeStatus: store?.status || null,
             },
         });
     } catch (err) {
         console.error(err);
         res.status(500).json({ message: 'Server error' });
+    }
+});
+
+router.get('/me', requireAuth, async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id).lean();
+        if (!user) return res.status(401).json({ message: 'Unauthorized' });
+        const store = user.storeId ? await Store.findById(user.storeId).select('name status').lean() : null;
+        return res.json({
+            user: {
+                id: user._id,
+                fullName: user.fullName,
+                email: user.email,
+                role: user.role,
+                storeId: user.storeId || null,
+                storeName: store?.name || null,
+                storeStatus: store?.status || null,
+            },
+        });
+    } catch (err) {
+        return res.status(500).json({ message: 'Server error' });
     }
 });
 

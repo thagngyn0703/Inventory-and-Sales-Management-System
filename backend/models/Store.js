@@ -24,6 +24,12 @@ const storeSchema = new Schema(
             unique: true,
             index: true,
         },
+        status: {
+            type: String,
+            enum: ['active', 'inactive'],
+            default: 'active',
+            index: true,
+        },
     },
     { timestamps: true }
 );
