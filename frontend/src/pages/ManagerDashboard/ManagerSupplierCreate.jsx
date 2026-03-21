@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ManagerSidebar from './ManagerSidebar';
+import ManagerNotificationBell from '../../components/ManagerNotificationBell';
 import { createSupplier } from '../../services/suppliersApi';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
@@ -63,9 +64,7 @@ export default function ManagerSupplierCreate() {
                 <header className="manager-topbar">
                     <div className="manager-topbar-search-wrap" />
                     <div className="manager-topbar-actions">
-                        <button type="button" className="manager-icon-btn" aria-label="Thông báo">
-                            <i className="fa-solid fa-bell" />
-                        </button>
+                        <ManagerNotificationBell />
                         <div className="manager-user-badge">
                             <i className="fa-solid fa-circle-user" />
                             <span>Quản lý</span>
