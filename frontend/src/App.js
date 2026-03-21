@@ -25,6 +25,7 @@ import WarehouseStocktakingDetail from "./pages/WarehouseDashboard/WarehouseStoc
 import WarehouseInvoicesList from "./pages/WarehouseDashboard/WarehouseInvoicesList.jsx";
 import WarehouseInvoiceDetail from "./pages/WarehouseDashboard/WarehouseInvoiceDetail.jsx";
 import ManagerStocktakePending from "./pages/ManagerDashboard/ManagerStocktakePending";
+import ManagerStocktakeDetail from "./pages/ManagerDashboard/ManagerStocktakeDetail";
 import ManagerAdjustmentList from "./pages/ManagerDashboard/ManagerAdjustmentList";
 import ManagerAdjustmentDetail from "./pages/ManagerDashboard/ManagerAdjustmentDetail";
 import ManagerIncomingTransactionsBySupplier from "./pages/ManagerDashboard/ManagerIncomingTransactionsBySupplier";
@@ -110,6 +111,7 @@ function App() {
       <Route path="/manager/invoices/new" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerInvoiceDetail /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/invoices/:id" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerInvoiceDetail /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/stocktakes/pending" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerStocktakePending /></RequireManagerStore></RequireRole></RequireAuth>} />
+      <Route path="/manager/stocktakes/:id" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerStocktakeDetail /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/adjustments" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerAdjustmentList /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/adjustments/:id" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerAdjustmentDetail /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/incoming-transactions" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerIncomingTransactionsBySupplier /></RequireManagerStore></RequireRole></RequireAuth>} />

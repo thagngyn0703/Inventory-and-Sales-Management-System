@@ -215,7 +215,7 @@ export default function ManagerStocktakePending() {
                               type="button"
                               className="warehouse-btn warehouse-btn-secondary"
                               style={{ padding: '6px 12px', fontSize: 13 }}
-                              onClick={() => navigate(`/warehouse/stocktakes/${st._id}`)}
+                              onClick={() => navigate(`/manager/stocktakes/${st._id}`)}
                             >
                               Xem chi tiết
                             </button>

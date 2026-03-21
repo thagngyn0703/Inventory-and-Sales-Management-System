@@ -44,7 +44,6 @@ export default function ManagerSidebar() {
     ];
 
     const manageItems = [
-        { label: 'Kho hàng', path: '/warehouse', icon: 'fa-warehouse' },
         { label: 'Kiểm kê chờ duyệt', path: '/manager/stocktakes/pending', icon: 'fa-clipboard-check' },
         { label: 'Lịch sử điều chỉnh', path: '/manager/adjustments', icon: 'fa-clock-rotate-left' },
         { label: 'Tạo tài khoản nhân viên', path: '/manager/staff/new', icon: 'fa-user-plus' },
@@ -54,7 +53,6 @@ export default function ManagerSidebar() {
 
     const isActive = (path) => location.pathname === path || (path === '/manager' && location.pathname === '/manager');
     const isItemActive = (item) => {
-        if (item.path === '/warehouse') return location.pathname === '/warehouse' || location.pathname.startsWith('/warehouse/');
         if (item.path === '/manager/adjustments') return location.pathname === '/manager/adjustments' || location.pathname.startsWith('/manager/adjustments/');
         if (item.path === '/manager/incoming-transactions') return location.pathname === '/manager/incoming-transactions';
         if (item.path === '/manager/suppliers') return location.pathname === '/manager/suppliers' || location.pathname.startsWith('/manager/suppliers/');
