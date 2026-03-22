@@ -11,6 +11,7 @@ const stockAdjustmentRoutes = require('./routes/stockAdjustments');
 const usersRoutes = require('./routes/users');
 const goodsReceiptRoutes = require('./routes/goodsReceipts');
 const supplierRoutes = require('./routes/suppliers');
+const productRequestRoutes = require('./routes/productRequests');
 const { hasSmtpConfig } = require('./services/emailService');
 
 const app = express();
@@ -42,6 +43,7 @@ app.use('/api/stock-adjustments', stockAdjustmentRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/goods-receipts', goodsReceiptRoutes);
 app.use('/api/suppliers', supplierRoutes);
+app.use('/api/product-requests', productRequestRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

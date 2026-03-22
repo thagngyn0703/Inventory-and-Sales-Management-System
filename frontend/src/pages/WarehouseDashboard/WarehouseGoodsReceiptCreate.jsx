@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { getProducts } from '../../services/productsApi';
 import { getSuppliers } from '../../services/suppliersApi';
 import { createGoodsReceipt } from '../../services/goodsReceiptsApi';
+import WarehouseProductCreateModal from './WarehouseProductCreateModal';
 
 export default function WarehouseGoodsReceiptCreate() {
   const navigate = useNavigate();
@@ -18,6 +19,9 @@ export default function WarehouseGoodsReceiptCreate() {
   
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
+
+  const [showProductModal, setShowProductModal] = useState(false);
 
   // Fetch suppliers on mount
   useEffect(() => {
@@ -132,6 +136,12 @@ export default function WarehouseGoodsReceiptCreate() {
           {error}
         </div>
       )}
+      
+      {successMsg && (
+        <div className="warehouse-alert warehouse-alert-success" role="alert">
+          {successMsg}
+        </div>
+      )}
 
       <div className="warehouse-card" style={{ marginBottom: 20 }}>
         <h2 style={{ fontSize: 18, marginBottom: 16 }}>Thông tin chung</h2>
@@ -168,7 +178,7 @@ export default function WarehouseGoodsReceiptCreate() {
             <button
               type="button"
               className="warehouse-btn warehouse-btn-secondary"
-              onClick={() => window.open('/warehouse/products/new', '_blank')}
+              onClick={() => setShowProductModal(true)}
             >
               + Đăng ký thông tin sản phẩm mới
             </button>
@@ -309,6 +319,17 @@ export default function WarehouseGoodsReceiptCreate() {
           </button>
         </div>
       </div>
+
+      {showProductModal && (
+        <WarehouseProductCreateModal
+          onClose={() => setShowProductModal(false)}
+          onSuccess={(newRequest) => {
+            setShowProductModal(false);
+            setSuccessMsg('Đã gửi yêu cầu tạo sản phẩm thành công. Vui lòng đợi quản lý phê duyệt.');
+            setTimeout(() => setSuccessMsg(''), 5000);
+          }}
+        />
+      )}
     </>
   );
 }

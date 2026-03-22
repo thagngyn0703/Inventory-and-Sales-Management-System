@@ -431,3 +431,49 @@
         flex-direction: column;
     }
 }
+
+.manager-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0,0,0,0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+}
+
+.manager-modal-content {
+    background: #fff;
+    border-radius: 12px;
+    width: 100%;
+    max-width: 400px;
+    padding: 24px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+}
+
+.manager-modal-header {
+    margin-bottom: 16px;
+}
+
+.manager-modal-header h2 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: #111827;
+}
+
+.manager-modal-body {
+    margin-bottom: 24px;
+    font-size: 14px;
+    color: #4b5563;
+    line-height: 1.5;
+}
+
+.manager-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+}

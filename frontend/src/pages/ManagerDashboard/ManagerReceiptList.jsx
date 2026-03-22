@@ -9,7 +9,9 @@ export default function ManagerReceiptList() {
     const [receipts, setReceipts] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
-    const [filterStatus, setFilterStatus] = useState(''); // Default to 'All' so items don't disappear after approval
+    const [filterStatus, setFilterStatus] = useState(''); 
+    const [searchTerm, setSearchTerm] = useState('');
+    const [sortByPrice, setSortByPrice] = useState(null); // 'asc' or 'desc'
 
     const fetchReceipts = useCallback(async () => {
         setLoading(true);
@@ -57,6 +59,31 @@ export default function ManagerReceiptList() {
         return new Date(dateString).toLocaleString('vi-VN');
     };
 
+    const handleSortPrice = () => {
+        if (sortByPrice === null) setSortByPrice('asc');
+        else if (sortByPrice === 'asc') setSortByPrice('desc');
+        else setSortByPrice(null);
+    };
+
+    const filteredAndSortedReceipts = React.useMemo(() => {
+        let result = receipts.filter(r => {
+            if (!searchTerm) return true;
+            const term = searchTerm.toLowerCase();
+            const code = r._id.substring(r._id.length - 6).toLowerCase();
+            const supplier = (r.supplier_id?.name || '').toLowerCase();
+            const creator = (r.received_by?.fullName || '').toLowerCase();
+            return code.includes(term) || supplier.includes(term) || creator.includes(term);
+        });
+
+        result.sort((a, b) => {
+            if (sortByPrice === 'asc') return Number(a.total_amount) - Number(b.total_amount);
+            if (sortByPrice === 'desc') return Number(b.total_amount) - Number(a.total_amount);
+            return new Date(b.created_at) - new Date(a.created_at);
+        });
+
+        return result;
+    }, [receipts, searchTerm, sortByPrice]);
+
     return (
         <div className="manager-page-with-sidebar">
             <ManagerSidebar />
@@ -81,8 +108,21 @@ export default function ManagerReceiptList() {
             )}
 
             <div style={{ backgroundColor: 'white', padding: 16, borderRadius: 8, boxShadow: '0 1px 3px rgba(0,0,0,0.1)', marginBottom: 20 }}>
-                <div style={{ display: 'flex', gap: 16 }}>
-                    <div style={{ flex: 1, maxWidth: 250 }}>
+                <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+                    <div style={{ flex: 1, maxWidth: 300 }}>
+                        <label style={{ display: 'block', fontSize: 13, color: '#6b7280', marginBottom: 4 }}>Tìm kiếm</label>
+                        <div style={{ position: 'relative' }}>
+                            <i className="fa-solid fa-search" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }}></i>
+                            <input
+                                type="text"
+                                placeholder="Mã phiếu, NCC, Người tạo..."
+                                style={{ width: '100%', padding: '8px 12px 8px 36px', border: '1px solid #d1d5db', borderRadius: 6, boxSizing: 'border-box' }}
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                            />
+                        </div>
+                    </div>
+                    <div style={{ flex: 1, maxWidth: 200 }}>
                         <label style={{ display: 'block', fontSize: 13, color: '#6b7280', marginBottom: 4 }}>Trạng thái</label>
                         <select
                             style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 6 }}
@@ -95,15 +135,42 @@ export default function ManagerReceiptList() {
                             <option value="rejected">Từ chối</option>
                         </select>
                     </div>
+                    <div style={{ flex: 1, maxWidth: 200 }}>
+                        <label style={{ display: 'block', fontSize: 13, color: '#6b7280', marginBottom: 4 }}>Sắp xếp giá trị</label>
+                        <button
+                            type="button"
+                            onClick={handleSortPrice}
+                            style={{
+                                width: '100%',
+                                height: 38,
+                                padding: '0 12px',
+                                border: '1px solid #d1d5db',
+                                borderRadius: 6,
+                                backgroundColor: 'white',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                color: '#111827',
+                                fontSize: 14
+                            }}
+                            title="Nhấn để đổi chiều sắp xếp"
+                        >
+                            <span>
+                                {sortByPrice === 'asc' ? 'Từ thấp đến cao' : sortByPrice === 'desc' ? 'Từ cao xuống thấp' : 'Mặc định (Mới nhất)'}
+                            </span>
+                            <i className={`fa-solid ${sortByPrice === 'asc' ? 'fa-arrow-up-1-9' : sortByPrice === 'desc' ? 'fa-arrow-down-9-1' : 'fa-sort'}`} style={{ color: '#6b7280' }}></i>
+                        </button>
+                    </div>
                 </div>
             </div>
 
             <div style={{ backgroundColor: 'white', borderRadius: 8, overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
                 {loading ? (
                     <div style={{ padding: 32, textAlign: 'center', color: '#6b7280' }}>Đang tải dữ liệu...</div>
-                ) : receipts.length === 0 ? (
+                ) : filteredAndSortedReceipts.length === 0 ? (
                     <div style={{ padding: 48, textAlign: 'center', color: '#6b7280' }}>
-                        Không có phiếu nhập kho nào cần duyệt.
+                        Không có phiếu nhập kho nào phù hợp.
                     </div>
                 ) : (
                     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -119,7 +186,7 @@ export default function ManagerReceiptList() {
                             </tr>
                         </thead>
                         <tbody>
-                            {receipts.map(receipt => (
+                            {filteredAndSortedReceipts.map(receipt => (
                                 <tr key={receipt._id} style={{ borderBottom: '1px solid #f3f4f6' }}>
                                     <td style={{ padding: '16px', fontSize: 14 }}>
                                         <span 

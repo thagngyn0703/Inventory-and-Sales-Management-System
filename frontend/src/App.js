@@ -9,6 +9,7 @@ import ManagerProductList from "./pages/ManagerDashboard/ManagerProductList.jsx"
 import ManagerProductDetail from "./pages/ManagerDashboard/ManagerProductDetail.jsx";
 import ManagerProductCreate from "./pages/ManagerDashboard/ManagerProductCreate.jsx";
 import ManagerProductEdit from "./pages/ManagerDashboard/ManagerProductEdit.jsx";
+import ManagerProductRequests from "./pages/ManagerDashboard/ManagerProductRequests.jsx";
 import RequireRole from "./components/RequireRole";
 import ManagerStocktakePending from "./pages/ManagerDashboard/ManagerStocktakePending.jsx";
 import ManagerAdjustmentList from "./pages/ManagerDashboard/ManagerAdjustmentList.jsx";
@@ -35,6 +36,7 @@ function App() {
       <Route path="/manager" element={<ManagerDashboard />} />
       <Route path="/manager/products" element={<ManagerProductList />} />
       <Route path="/manager/products/new" element={<ManagerProductCreate />} />
+      <Route path="/manager/product-requests" element={<ManagerProductRequests />} />
       <Route path="/manager/products/:id/edit" element={<ManagerProductEdit />} />
       <Route path="/manager/products/:id" element={<ManagerProductDetail />} />
       <Route path="/manager/stocktakes" element={<ManagerStocktakePending />} />

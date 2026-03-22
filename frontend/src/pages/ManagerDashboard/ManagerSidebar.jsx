@@ -16,6 +16,7 @@ export default function ManagerSidebar() {
 
     const manageItems = [
         { label: 'Kho hàng', path: '/warehouse', icon: 'fa-warehouse' },
+        { label: 'Yêu cầu SP mới', path: '/manager/product-requests', icon: 'fa-box-open' },
         { label: 'Nhập kho chờ duyệt', path: '/manager/receipts', icon: 'fa-truck-loading' },
         { label: 'Kiểm kê chờ duyệt', path: '/manager/stocktakes', icon: 'fa-clipboard-check' },
         { label: 'Lịch sử điều chỉnh', path: '/manager/adjustments', icon: 'fa-history' },
