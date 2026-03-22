@@ -99,8 +99,10 @@ export default function AuthPage() {
                 const role = normalizeRole(data.user?.role);
                 if (role === "admin") {
                     navigate("/admin", { replace: true });
-                } else if (role === "manager" || role === "sales") {
+                } else if (role === "manager") {
                     navigate("/manager", { replace: true });
+                } else if (role === "sales" || role === "sales_staff") {
+                    navigate("/sales/invoices/new", { replace: true });
                 } else if (role === "warehouse") {
                     navigate("/warehouse", { replace: true });
                 } else {
@@ -134,8 +136,10 @@ export default function AuthPage() {
                 const role = normalizeRole(data.user?.role);
                 if (role === "admin") {
                     navigate("/admin", { replace: true });
-                } else if (role === "manager" || role === "sales") {
+                } else if (role === "manager") {
                     navigate("/manager", { replace: true });
+                } else if (role === "sales" || role === "sales_staff") {
+                    navigate("/sales/invoices/new", { replace: true });
                 } else if (role === "warehouse") {
                     navigate("/warehouse", { replace: true });
                 } else {

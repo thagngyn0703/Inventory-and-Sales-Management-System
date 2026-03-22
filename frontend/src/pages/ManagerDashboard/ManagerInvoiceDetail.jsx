@@ -1,18 +1,15 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import ManagerSidebar from './ManagerSidebar';
-import { getInvoice, createInvoice, updateInvoice, submitInvoice, approveInvoice, rejectInvoice, cancelInvoice } from '../../services/invoicesApi';
+import { getInvoice, createInvoice, updateInvoice, cancelInvoice } from '../../services/invoicesApi';
 import { getProducts } from '../../services/productsApi';
 import { getCurrentUser } from '../../utils/auth';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
 
 const STATUS_LABEL = {
-  draft: 'Nháp',
-  submitted: 'Đã gửi',
-  confirmed: 'Đã duyệt',
-  paid: 'Đã thanh toán',
-  cancelled: 'Đã hủy',
+  confirmed: 'Đã thanh toán',
+  cancelled: 'Trả hàng',
 };
 
 function formatMoney(n) {
@@ -168,97 +165,6 @@ export default function ManagerInvoiceDetail() {
     }
   };
 
-  const handleSubmit = async () => {
-    if (!invoice?.status) return;
-    setSaving(true);
-    setError('');
-    setSuccessMessage('');
-    try {
-      await submitInvoice(invoice._id);
-      setSuccessMessage('Đã gửi hóa đơn để duyệt');
-      loadInvoice();
-    } catch (e) {
-      setError(e.message || 'Không thể gửi hóa đơn');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleApprove = async () => {
-    setSaving(true);
-    setError('');
-    setSuccessMessage('');
-    try {
-      await approveInvoice(invoice._id);
-      setSuccessMessage('Đã duyệt hóa đơn và cập nhật tồn kho');
-      loadInvoice();
-      
-      // Navigate to the list or reload
-      // navigate('/manager/invoices');
-    } catch (e) {
-      setError(e.message || 'Không thể duyệt hóa đơn');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleDirectApprove = async () => {
-    setSaving(true);
-    setError('');
-    setSuccessMessage('');
-
-    const payloadData = payload();
-    if (!payloadData.items || payloadData.items.length === 0) {
-      setError('Vui lòng thêm ít nhất một dòng sản phẩm để lưu.');
-      setSaving(false);
-      return;
-    }
-
-    try {
-      let currentInvoice = invoice;
-      // 1. Save or Update Draft first
-      if (isNew) {
-        currentInvoice = await createInvoice(payloadData);
-        setInvoice(currentInvoice);
-      } else {
-        currentInvoice = await updateInvoice(id, payloadData);
-        setInvoice(currentInvoice);
-        setPaymentMethod(currentInvoice.payment_method || 'cash');
-      }
-      
-      // 2. Submit it
-      await submitInvoice(currentInvoice._id);
-      
-      // 3. Approve it immediately
-      await approveInvoice(currentInvoice._id);
-      
-      setSuccessMessage('Đã tạo và duyệt hóa đơn thành công!');
-      if (isNew) {
-        navigate(`/manager/invoices/${currentInvoice._id}`);
-      } else {
-        loadInvoice();
-      }
-    } catch (e) {
-      setError(e.message || 'Lỗi trong quá trình xử lý hóa đơn');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleReject = async () => {
-    setSaving(true);
-    setError('');
-    setSuccessMessage('');
-    try {
-      await rejectInvoice(invoice._id);
-      setSuccessMessage('Đã từ chối hóa đơn');
-      loadInvoice();
-    } catch (e) {
-      setError(e.message || 'Không thể từ chối hóa đơn');
-    } finally {
-      setSaving(false);
-    }
-  };
 
   const handleCancel = async () => {
     setSaving(true);
@@ -275,13 +181,9 @@ export default function ManagerInvoiceDetail() {
     }
   };
 
-  const currentStatus = invoice?.status || 'draft';
-  const canEdit = isNew || ((!!invoice?._id) && (currentStatus === 'draft' || isManager));
-  const canDirectApprove = isNew || (!!invoice?._id && currentStatus === 'draft');
-  const canSubmit = !!invoice?._id && currentStatus === 'draft' && !isManager; 
-  const canCancel = !!invoice?._id && ['draft', 'submitted'].includes(currentStatus);
-  const canApprove = !!invoice?._id && isManager && currentStatus === 'submitted';
-  const canReject = !!invoice?._id && isManager && currentStatus === 'submitted';
+  const currentStatus = invoice?.status || 'confirmed';
+  const canEdit = isNew || ((!!invoice?._id) && (currentStatus === 'confirmed' || isManager));
+  const canCancel = !!invoice?._id && currentStatus === 'confirmed' && role === 'admin';
 
   if (loading) {
     return (
@@ -338,47 +240,6 @@ export default function ManagerInvoiceDetail() {
                 >
                   Lưu thay đổi
                 </button>
-                {canDirectApprove && isManager && (
-                  <button
-                    type="button"
-                    className="manager-btn-primary"
-                    style={{ backgroundColor: '#10b981', borderColor: '#10b981' }}
-                    onClick={handleDirectApprove}
-                    disabled={saving}
-                  >
-                    Duyệt ngay
-                  </button>
-                )}
-                {canSubmit && (
-                  <button
-                    type="button"
-                    className="manager-btn-secondary"
-                    onClick={handleSubmit}
-                    disabled={saving}
-                  >
-                    Gửi duyệt
-                  </button>
-                )}
-                {canApprove && (
-                  <button
-                    type="button"
-                    className="manager-btn-primary"
-                    onClick={handleApprove}
-                    disabled={saving}
-                  >
-                    Duyệt
-                  </button>
-                )}
-                {canReject && (
-                  <button
-                    type="button"
-                    className="manager-btn-secondary"
-                    onClick={handleReject}
-                    disabled={saving}
-                  >
-                    Từ chối
-                  </button>
-                )}
                 {canCancel && (
                   <button
                     type="button"

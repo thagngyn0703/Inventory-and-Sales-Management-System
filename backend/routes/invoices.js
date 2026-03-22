@@ -2,6 +2,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const SalesInvoice = require('../models/SalesInvoice');
 const Product = require('../models/Product');
+const User = require('../models/User');
 const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
@@ -83,42 +84,38 @@ async function adjustInventory(items, direction = -1) {
 }
 
 async function syncInventory(invoice, nextStatus, nextItems = null) {
-    const oldStatus = invoice.status;
-    const saleStatuses = ['confirmed', 'paid'];
-    const nonSaleStatuses = ['draft', 'submitted', 'cancelled'];
+    const isNew = invoice.isNew || !invoice._id;
+    const oldStatus = isNew ? 'new' : invoice.status;
+    const saleStatuses = ['confirmed'];
 
     const isOldSale = saleStatuses.includes(oldStatus);
     const isNextSale = saleStatuses.includes(nextStatus);
-    const isNextNonSale = nonSaleStatuses.includes(nextStatus);
 
     console.log(`[syncInventory ${invoice._id}] Transition: ${oldStatus} -> ${nextStatus}`);
 
-    // If manager is updating items in a sale-state invoice
     const itemsChanged = nextItems && JSON.stringify(nextItems) !== JSON.stringify(invoice.items);
 
     if (!isOldSale && isNextSale) {
-        // Transitional Deduct: Non-Sale -> Sale
+        // Transitional Deduct
         console.log(`[syncInventory] Deducting next items`);
         const itemsToDeduct = nextItems || invoice.items;
         const problems = await checkStockAvailability(itemsToDeduct);
         if (problems.length > 0) throw { status: 400, message: 'Không đủ tồn kho', problems };
         await adjustInventory(itemsToDeduct, -1);
     } 
-    else if (isOldSale && isNextNonSale) {
-        // Transitional Restore: Sale -> Non-Sale
+    else if (isOldSale && !isNextSale) {
+        // Transitional Restore
         console.log(`[syncInventory] Restoring old items`);
         await adjustInventory(invoice.items, 1);
     } 
     else if (isOldSale && isNextSale && itemsChanged) {
-        // Item Update within Sale State: Restore Old, Deduct New
-        console.log(`[syncInventory] Updating items in sale state. Restoring old and deducting new.`);
+        // Item Update within Sale State
+        console.log(`[syncInventory] Updating items in sale state.`);
         const problems = await checkStockAvailability(nextItems);
         if (problems.length > 0) throw { status: 400, message: 'Không đủ tồn kho để cập nhật sản phẩm', problems };
         
-        await adjustInventory(invoice.items, 1); // Restore old
-        await adjustInventory(nextItems, -1); // Deduct new
-    } else {
-        console.log(`[syncInventory] No inventory adjustment needed`);
+        await adjustInventory(invoice.items, 1);
+        await adjustInventory(nextItems, -1);
     }
 }
 
@@ -136,7 +133,7 @@ function buildStockAvailability(items, productsById) {
 }
 
 
-// POST /api/invoices — create a draft outbound invoice
+// POST /api/invoices — create a confirmed outbound invoice
 router.post('/', requireAuth, requireRole(['sales', 'warehouse', 'manager', 'admin']), async (req, res) => {
     try {
         const { customer_id, items: reqItems, payment_method, recipient_name } = req.body || {};
@@ -150,9 +147,7 @@ router.post('/', requireAuth, requireRole(['sales', 'warehouse', 'manager', 'adm
             return res.status(400).json({ message: 'Mỗi dòng phải có sản phẩm hợp lệ' });
         }
 
-        const status = (['confirmed', 'paid'].includes(req.body.status) && ['manager', 'admin'].includes(req.user.role)) 
-            ? req.body.status 
-            : 'draft';
+        const status = (req.body.status === 'cancelled') ? 'cancelled' : 'confirmed';
 
         const invoice = new SalesInvoice({
             customer_id,
@@ -164,7 +159,7 @@ router.post('/', requireAuth, requireRole(['sales', 'warehouse', 'manager', 'adm
             total_amount: totalAmount,
         });
 
-        // Use syncInventory to handle deduction if created as confirmed/paid
+        // Use syncInventory to handle deduction if created as confirmed
         try {
             await syncInventory(invoice, status, normalizedItems);
             await invoice.save();
@@ -196,12 +191,44 @@ router.post('/', requireAuth, requireRole(['sales', 'warehouse', 'manager', 'adm
 // GET /api/invoices?page=&limit=&status=
 router.get('/', requireAuth, requireRole(['sales', 'warehouse', 'manager', 'admin']), async (req, res) => {
     try {
-        const { page = '1', limit = '20', status } = req.query;
+        const { page = '1', limit = '20', status, dateFrom, dateTo, searchKey } = req.query;
         const pageNum = Math.max(1, parseInt(page, 10) || 1);
         const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
         const filter = {};
-        if (status && ['draft', 'submitted', 'confirmed', 'paid', 'cancelled'].includes(status)) {
+        if (status && ['confirmed', 'cancelled'].includes(status)) {
             filter.status = status;
+        }
+
+        // Apply Date Filters
+        if (dateFrom || dateTo) {
+            filter.invoice_at = {};
+            if (dateFrom) {
+                const df = new Date(dateFrom);
+                df.setHours(0, 0, 0, 0);
+                if (!isNaN(df)) filter.invoice_at.$gte = df;
+            }
+            if (dateTo) {
+                const dt = new Date(dateTo);
+                dt.setHours(23, 59, 59, 999);
+                if (!isNaN(dt)) filter.invoice_at.$lte = dt;
+            }
+            if (Object.keys(filter.invoice_at).length === 0) delete filter.invoice_at;
+        }
+
+        // Apply Search Filter (customer name OR staff name)
+        if (searchKey && searchKey.trim() !== '') {
+            const regex = { $regex: searchKey.trim(), $options: 'i' };
+            const matchingUsers = await User.find({ fullName: regex }, '_id').lean();
+            const matchingUserIds = matchingUsers.map(u => u._id);
+
+            if (matchingUserIds.length > 0) {
+                filter.$or = [
+                    { recipient_name: regex },
+                    { created_by: { $in: matchingUserIds } }
+                ];
+            } else {
+                filter.recipient_name = regex;
+            }
         }
 
         const total = await SalesInvoice.countDocuments(filter);
@@ -271,7 +298,7 @@ router.get('/:id', requireAuth, requireRole(['sales', 'warehouse', 'manager', 'a
     }
 });
 
-// PATCH /api/invoices/:id — update draft (warehouse, manager, admin)
+// PATCH /api/invoices/:id — update invoice (warehouse, manager)
 router.patch('/:id', requireAuth, requireRole(['warehouse', 'manager', 'admin']), async (req, res) => {
     try {
         const { id } = req.params;
@@ -302,19 +329,15 @@ router.patch('/:id', requireAuth, requireRole(['warehouse', 'manager', 'admin'])
 
         let nextStatus = oldStatus;
         if (requestedStatus) {
-            if (['manager', 'admin'].includes(req.user.role)) {
-                const validStatuses = ['draft', 'submitted', 'confirmed', 'paid', 'cancelled'];
-                if (validStatuses.includes(requestedStatus)) {
-                    nextStatus = requestedStatus;
-                }
-            } else if (requestedStatus === 'submitted') {
-                nextStatus = 'submitted';
+            const validStatuses = ['confirmed', 'cancelled'];
+            if (validStatuses.includes(requestedStatus)) {
+                nextStatus = requestedStatus;
             }
         }
 
         try {
             await syncInventory(invoice, nextStatus, nextItems);
-            
+
             if (nextItems) {
                 invoice.items = nextItems;
                 const { totalAmount } = calculateInvoiceTotals(nextItems);
@@ -349,61 +372,53 @@ router.patch('/:id', requireAuth, requireRole(['warehouse', 'manager', 'admin'])
     }
 });
 
-// POST /api/invoices/:id/approve — manager/admin approves (deducts stock)
-router.post('/:id/approve', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
+// GET /api/invoices/stats/daily-sales — 7-day sales stats for dashboard
+router.get('/stats/daily-sales', requireAuth, requireRole(['sales', 'warehouse', 'manager', 'admin']), async (req, res) => {
     try {
-        const { id } = req.params;
-        if (!mongoose.isValidObjectId(id)) {
-            return res.status(400).json({ message: 'Invalid invoice id' });
+        const days = 7;
+        const result = [];
+        const now = new Date();
+        
+        for (let i = days - 1; i >= 0; i--) {
+            const date = new Date(now);
+            date.setDate(date.getDate() - i);
+            const start = new Date(date.setHours(0, 0, 0, 0));
+            const end = new Date(date.setHours(23, 59, 59, 999));
+
+            const dailyTotal = await SalesInvoice.aggregate([
+                {
+                    $match: {
+                        status: 'confirmed',
+                        invoice_at: { $gte: start, $lte: end }
+                    }
+                },
+                {
+                    $group: {
+                        _id: null,
+                        total: { $sum: '$total_amount' }
+                    }
+                }
+            ]);
+
+            result.push({
+                date: start.toISOString().split('T')[0],
+                total: dailyTotal.length > 0 ? dailyTotal[0].total : 0
+            });
         }
-        const invoice = await SalesInvoice.findById(id);
-        if (!invoice) return res.status(404).json({ message: 'Invoice not found' });
-        if (invoice.status !== 'submitted') {
-            return res.status(400).json({ message: 'Chỉ có thể phê duyệt hóa đơn đang ở trạng thái submitted' });
-        }
 
-        try {
-            await syncInventory(invoice, 'confirmed');
-            invoice.status = 'confirmed';
-            invoice.updated_at = new Date();
-            await invoice.save();
-        } catch (err) {
-            if (err.status) return res.status(err.status).json({ message: err.message, problems: err.problems });
-            throw err;
-        }
-
-        const populated = await SalesInvoice.findById(invoice._id)
-            .populate('customer_id', 'fullName email')
-            .populate('created_by', 'fullName email')
-            .populate('items.product_id', 'name sku stock_qty')
-            .lean();
-
-        const productIds2 = (populated.items || [])
-            .map((item) => normalizeId(item.product_id))
-            .filter(Boolean);
-        const products2 = await Product.find({ _id: { $in: productIds2 } }).lean();
-        const productsById2 = new Map(products2.map((p) => [String(p._id), p]));
-        populated.items = buildStockAvailability(populated.items, productsById2);
-
-        return res.json({ invoice: populated });
+        return res.json({ stats: result });
     } catch (err) {
         console.error(err);
-        return res.status(500).json({ message: err.message || 'Server error' });
+        return res.status(500).json({ message: 'Server error' });
     }
 });
 
-// POST /api/invoices/:id/reject — manager/admin rejects (cancels)
-router.post('/:id/reject', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
+// POST /api/invoices/:id/cancel — Simplify cancel
+router.post('/:id/cancel', requireAuth, requireRole(['sales', 'warehouse', 'manager', 'admin']), async (req, res) => {
     try {
         const { id } = req.params;
-        if (!mongoose.isValidObjectId(id)) {
-            return res.status(400).json({ message: 'Invalid invoice id' });
-        }
         const invoice = await SalesInvoice.findById(id);
         if (!invoice) return res.status(404).json({ message: 'Invoice not found' });
-        if (invoice.status !== 'submitted') {
-            return res.status(400).json({ message: 'Chỉ có thể từ chối hóa đơn đang ở trạng thái submitted' });
-        }
         
         try {
             await syncInventory(invoice, 'cancelled');
@@ -412,46 +427,12 @@ router.post('/:id/reject', requireAuth, requireRole(['manager', 'admin']), async
             await invoice.save();
             return res.json({ invoice });
         } catch (err) {
-            if (err.status) return res.status(err.status).json({ message: err.message, problems: err.problems });
+            if (err.status) return res.status(err.status).json({ message: err.message });
             throw err;
         }
     } catch (err) {
         console.error(err);
-        return res.status(500).json({ message: err.message || 'Server error' });
-    }
-});
-
-// POST /api/invoices/:id/cancel — allow warehouse staff or manager to cancel before approval
-router.post('/:id/cancel', requireAuth, requireRole(['warehouse', 'manager', 'admin']), async (req, res) => {
-    try {
-        const { id } = req.params;
-        if (!mongoose.isValidObjectId(id)) {
-            return res.status(400).json({ message: 'Invalid invoice id' });
-        }
-        const invoice = await SalesInvoice.findById(id);
-        if (!invoice) return res.status(404).json({ message: 'Invoice not found' });
-        if (!['draft', 'submitted'].includes(invoice.status)) {
-            return res.status(400).json({ message: 'Chỉ có thể hủy hóa đơn khi ở trạng thái draft hoặc submitted' });
-        }
-        // Only creator or manager/admin can cancel
-        const allowCancel = invoice.created_by.toString() === req.user.id || ['manager', 'admin'].includes(req.user.role);
-        if (!allowCancel) {
-            return res.status(403).json({ message: 'Không có quyền hủy hóa đơn' });
-        }
-
-        try {
-            await syncInventory(invoice, 'cancelled');
-            invoice.status = 'cancelled';
-            invoice.updated_at = new Date();
-            await invoice.save();
-            return res.json({ invoice });
-        } catch (err) {
-            if (err.status) return res.status(err.status).json({ message: err.message, problems: err.problems });
-            throw err;
-        }
-    } catch (err) {
-        console.error(err);
-        return res.status(500).json({ message: err.message || 'Server error' });
+        return res.status(500).json({ message: 'Server error' });
     }
 });
 

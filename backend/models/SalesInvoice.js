@@ -10,6 +10,7 @@ const salesInvoiceSchema = new Schema(
         recipient_name: {
             type: String,
             trim: true,
+            required: [true, 'Tên khách hàng là bắt buộc'],
         },
 
         created_by: {
@@ -19,8 +20,8 @@ const salesInvoiceSchema = new Schema(
         },
         status: {
             type: String,
-            enum: ['draft', 'submitted', 'confirmed', 'paid', 'cancelled'],
-            default: 'draft',
+            enum: ['confirmed', 'cancelled'],
+            default: 'confirmed',
         },
         invoice_at: {
             type: Date,

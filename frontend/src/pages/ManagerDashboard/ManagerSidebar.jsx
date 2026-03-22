@@ -17,7 +17,7 @@ export default function ManagerSidebar() {
     ];
 
     const manageItems = [
-        { label: 'Kho hàng', path: '/warehouse', icon: 'fa-warehouse' },
+        { label: 'Bán hàng & Kho', path: '/warehouse', icon: 'fa-warehouse' },
         { label: 'Cài đặt', path: '/manager/settings', icon: 'fa-gear' },
     ];
 

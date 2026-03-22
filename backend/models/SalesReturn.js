@@ -10,7 +10,7 @@ const salesReturnSchema = new Schema(
         customer_id: {
             type: Schema.Types.ObjectId,
             ref: 'Customer',
-            required: true,
+            required: false,
         },
         created_by: {
             type: Schema.Types.ObjectId,
@@ -20,7 +20,11 @@ const salesReturnSchema = new Schema(
         warehouse_id: {
             type: Schema.Types.ObjectId,
             ref: 'Warehouse',
-            required: true,
+            required: false,
+        },
+        supplier_id: {
+            type: Schema.Types.ObjectId,
+            ref: 'Supplier',
         },
         status: {
             type: String,

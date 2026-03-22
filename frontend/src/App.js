@@ -13,14 +13,18 @@ import ManagerProductDetail from "./pages/ManagerDashboard/ManagerProductDetail"
 import ManagerProductEdit from "./pages/ManagerDashboard/ManagerProductEdit";
 import ManagerInvoicesList from "./pages/ManagerDashboard/ManagerInvoicesList";
 import ManagerInvoiceDetail from "./pages/ManagerDashboard/ManagerInvoiceDetail";
+import ManagerInvoiceView from "./pages/ManagerDashboard/ManagerInvoiceView";
 import RequireRole from "./components/RequireRole";
 import WarehouseDashboard from "./pages/WarehouseDashboard/WarehouseDashboard.jsx";
 import WarehouseHome from "./pages/WarehouseDashboard/WarehouseHome.jsx";
 import WarehouseStocktakingCreate from "./pages/WarehouseDashboard/WarehouseStocktakingCreate.jsx";
 import WarehouseStocktakingList from "./pages/WarehouseDashboard/WarehouseStocktakingList.jsx";
 import WarehouseStocktakingDetail from "./pages/WarehouseDashboard/WarehouseStocktakingDetail.jsx";
-import WarehouseInvoicesList from "./pages/WarehouseDashboard/WarehouseInvoicesList.jsx";
-import WarehouseInvoiceDetail from "./pages/WarehouseDashboard/WarehouseInvoiceDetail.jsx";
+import SalesInvoicesList from "./pages/SaleDashboard/SalesInvoicesList.jsx";
+import SalesInvoiceDetail from "./pages/SaleDashboard/SalesInvoiceDetail.jsx";
+import SalesInvoiceView from "./pages/SaleDashboard/SalesInvoiceView.jsx";
+import SalesDashboard from "./pages/SaleDashboard/SalesDashboard";
+// SalesHome removed as per user request
 
 function App() {
   return (
@@ -46,22 +50,39 @@ function App() {
       <Route path="/manager/products/:id" element={<ManagerProductDetail />} />
       <Route path="/manager/invoices" element={<ManagerInvoicesList />} />
       <Route path="/manager/invoices/new" element={<ManagerInvoiceDetail />} />
-      <Route path="/manager/invoices/:id" element={<ManagerInvoiceDetail />} />
+      <Route path="/manager/invoices/:id" element={<ManagerInvoiceView />} />
+      <Route path="/manager/invoices/:id/edit" element={<ManagerInvoiceDetail />} />
       <Route
         path="/warehouse"
         element={
-          <RequireRole allowedRoles={['warehouse', 'sales', 'manager', 'admin']}>
-            <WarehouseDashboard />
-          </RequireRole>
+          <RequireAuth>
+            <RequireRole allowedRoles={['warehouse', 'warehouse_staff', 'admin', 'manager']}>
+              <WarehouseDashboard />
+            </RequireRole>
+          </RequireAuth>
         }
       >
         <Route index element={<WarehouseHome />} />
         <Route path="stocktakes" element={<WarehouseStocktakingList />} />
-        <Route path="stocktakes/new" element={<WarehouseStocktakingCreate />} />
+        <Route path="stocktakes/new" element={<WarehouseStocktakingDetail />} />
         <Route path="stocktakes/:id" element={<WarehouseStocktakingDetail />} />
-        <Route path="invoices" element={<WarehouseInvoicesList />} />
-        <Route path="invoices/new" element={<WarehouseInvoiceDetail />} />
-        <Route path="invoices/:id" element={<WarehouseInvoiceDetail />} />
+      </Route>
+
+      <Route
+        path="/sales"
+        element={
+          <RequireAuth>
+            <RequireRole allowedRoles={['sales', 'sales_staff', 'admin', 'manager']}>
+              <SalesDashboard />
+            </RequireRole>
+          </RequireAuth>
+        }
+      >
+        <Route index element={<Navigate to="invoices/new" replace />} />
+        <Route path="invoices" element={<SalesInvoicesList />} />
+        <Route path="invoices/new" element={<SalesInvoiceDetail />} />
+        <Route path="returns" element={<SalesInvoicesList />} />
+        <Route path=":id" element={<SalesInvoiceView />} />
       </Route>
     </Routes>
   );

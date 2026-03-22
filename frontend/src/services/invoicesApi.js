@@ -16,12 +16,15 @@ function parseResponse(res, defaultMessage) {
     });
 }
 
-export async function getInvoices({ page = 1, limit = 20, status } = {}) {
+export async function getInvoices({ page = 1, limit = 20, status, dateFrom, dateTo, searchKey } = {}) {
   const token = getToken();
   const url = new URL(`${API_BASE}/invoices`);
   url.searchParams.set('page', String(page));
   url.searchParams.set('limit', String(limit));
   if (status) url.searchParams.set('status', status);
+  if (dateFrom) url.searchParams.set('dateFrom', dateFrom);
+  if (dateTo) url.searchParams.set('dateTo', dateTo);
+  if (searchKey) url.searchParams.set('searchKey', searchKey);
   const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${token}` } });
   const data = await parseResponse(res, 'Không thể tải danh sách hóa đơn');
   return data;
@@ -64,29 +67,6 @@ export async function updateInvoice(id, body) {
   return data.invoice;
 }
 
-export async function submitInvoice(id) {
-  return updateInvoice(id, { status: 'submitted' });
-}
-
-export async function approveInvoice(id) {
-  const token = getToken();
-  const res = await fetch(`${API_BASE}/invoices/${id}/approve`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  const data = await parseResponse(res, 'Không thể phê duyệt hóa đơn');
-  return data.invoice;
-}
-
-export async function rejectInvoice(id) {
-  const token = getToken();
-  const res = await fetch(`${API_BASE}/invoices/${id}/reject`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  const data = await parseResponse(res, 'Không thể từ chối hóa đơn');
-  return data.invoice;
-}
 
 export async function cancelInvoice(id) {
   const token = getToken();
@@ -96,4 +76,13 @@ export async function cancelInvoice(id) {
   });
   const data = await parseResponse(res, 'Không thể hủy hóa đơn');
   return data.invoice;
+}
+
+export async function getDailySalesStats() {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/invoices/stats/daily-sales`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = await parseResponse(res, 'Không thể tải thống kê doanh thu');
+  return data.stats;
 }
