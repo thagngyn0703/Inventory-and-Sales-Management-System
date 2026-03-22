@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import ManagerSidebar from './ManagerSidebar';
 import ManagerNotificationBell from '../../components/ManagerNotificationBell';
 import { getProduct, updateProduct } from '../../services/productsApi';
+import { minExpiryDateString, isExpiryDateNotInPast } from '../../utils/dateInput';
 import { getSuppliers } from '../../services/suppliersApi';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
@@ -63,6 +64,10 @@ export default function ManagerProductEdit() {
                 const supplierId = p.supplier_id
                     ? (typeof p.supplier_id === 'object' ? p.supplier_id._id : p.supplier_id)
                     : '';
+                const expStr = p.expiry_date
+                    ? new Date(p.expiry_date).toISOString().slice(0, 10)
+                    : '';
+                const minD = minExpiryDateString();
                 setForm({
                     name: p.name || '',
                     sku: p.sku || '',
@@ -71,7 +76,7 @@ export default function ManagerProductEdit() {
                     cost_price: p.cost_price != null ? String(p.cost_price) : '',
                     stock_qty: p.stock_qty != null ? String(p.stock_qty) : '',
                     reorder_level: p.reorder_level != null ? String(p.reorder_level) : '',
-                    expiry_date: p.expiry_date ? new Date(p.expiry_date).toISOString().slice(0, 10) : '',
+                    expiry_date: expStr && expStr >= minD ? expStr : '',
                     base_unit: p.base_unit || 'Cái',
                     selling_units: units,
                     status: p.status === 'inactive' ? 'inactive' : 'active',
@@ -145,6 +150,11 @@ export default function ManagerProductEdit() {
         const hasBase = units.some((u) => u.ratio === 1);
         if (!hasBase) units.unshift({ name: form.base_unit || 'Cái', ratio: 1, sale_price: units[0]?.sale_price ?? 0 });
 
+        if (form.expiry_date && !isExpiryDateNotInPast(form.expiry_date)) {
+            setError('Ngày hết hạn phải từ hôm nay trở đi (không chọn ngày quá khứ).');
+            return;
+        }
+
         setLoading(true);
         setError('');
         try {
@@ -156,7 +166,7 @@ export default function ManagerProductEdit() {
                 cost_price: costNum,
                 stock_qty: Number(form.stock_qty) || 0,
                 reorder_level: Number(form.reorder_level) || 0,
-                expiry_date: form.expiry_date || undefined,
+                expiry_date: form.expiry_date ? form.expiry_date : null,
                 base_unit: form.base_unit || 'Cái',
                 selling_units: units,
                 status: form.status === 'inactive' ? 'inactive' : 'active',
@@ -317,9 +327,13 @@ export default function ManagerProductEdit() {
                                                         <td className="manager-detail-value">
                                                             <input
                                                                 type="date"
+                                                                min={minExpiryDateString()}
                                                                 value={form.expiry_date}
                                                                 onChange={(e) => update('expiry_date', e.target.value)}
                                                             />
+                                                            <p className="manager-form-hint-inline" style={{ marginTop: 6 }}>
+                                                                Chỉ chọn ngày từ hôm nay trở đi. Nếu sản phẩm trước đây có hạn quá khứ, hãy nhập lại hạn mới hoặc để trống.
+                                                            </p>
                                                         </td>
                                                     </tr>
                                                 </tbody>

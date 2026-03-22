@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import ManagerSidebar from './ManagerSidebar';
 import ManagerNotificationBell from '../../components/ManagerNotificationBell';
 import { createProduct, getProducts } from '../../services/productsApi';
+import { minExpiryDateString, isExpiryDateNotInPast } from '../../utils/dateInput';
 import { getSuppliers } from '../../services/suppliersApi';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
@@ -122,6 +123,11 @@ export default function ManagerProductCreate() {
             units.unshift({ name: form.base_unit || 'Cái', ratio: 1, sale_price: units[0]?.sale_price ?? 0 });
         }
 
+        if (form.expiry_date && !isExpiryDateNotInPast(form.expiry_date)) {
+            setError('Ngày hết hạn phải từ hôm nay trở đi (không chọn ngày quá khứ).');
+            return;
+        }
+
         setLoading(true);
         setError('');
         try {
@@ -161,7 +167,11 @@ export default function ManagerProductCreate() {
             barcode: p.barcode || '',
             supplier_id: typeof p.supplier_id === 'object' ? (p.supplier_id?._id || '') : (p.supplier_id || ''),
             cost_price: p.cost_price != null ? String(p.cost_price) : prev.cost_price,
-            expiry_date: p.expiry_date ? new Date(p.expiry_date).toISOString().slice(0, 10) : '',
+            expiry_date: (() => {
+                if (!p.expiry_date) return '';
+                const s = new Date(p.expiry_date).toISOString().slice(0, 10);
+                return s < minExpiryDateString() ? '' : s;
+            })(),
             base_unit: p.base_unit || prev.base_unit,
             selling_units: Array.isArray(p.selling_units) && p.selling_units.length > 0
                 ? p.selling_units.map((u) => ({
@@ -371,9 +381,13 @@ export default function ManagerProductCreate() {
                                                         <td className="manager-detail-value">
                                                             <input
                                                                 type="date"
+                                                                min={minExpiryDateString()}
                                                                 value={form.expiry_date}
                                                                 onChange={(e) => update('expiry_date', e.target.value)}
                                                             />
+                                                            <p className="manager-form-hint-inline" style={{ marginTop: 6 }}>
+                                                                Chỉ chọn ngày từ hôm nay trở đi (hàng đã hết hạn cần xử lý riêng, không nhập ngày quá khứ).
+                                                            </p>
                                                         </td>
                                                     </tr>
                                                 </tbody>

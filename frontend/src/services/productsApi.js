@@ -87,3 +87,58 @@ export async function setProductStatus(id, status) {
     if (!res.ok) throw new Error(data.message || 'Không thể đổi trạng thái');
     return data.product;
 }
+
+/** Download Excel template for product import */
+export async function downloadProductImportTemplate() {
+    const token = getToken();
+    const res = await fetch(`${API_BASE}/products/import/template`, {
+        headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message || 'Không thể tải file mẫu');
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'mau-import-san-pham.xlsx';
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+/**
+ * @param {File} file
+ * @returns {Promise<{ rows: Array, totalRows: number, validCount: number, invalidCount: number }>}
+ */
+export async function previewProductImport(file) {
+    const token = getToken();
+    const form = new FormData();
+    form.append('file', file);
+    const res = await fetch(`${API_BASE}/products/import/preview`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.message || 'Không thể đọc file Excel');
+    return data;
+}
+
+/**
+ * @param {Array<{ row: number, name: string, cost_price: number, sale_price: number, sku?: string, stock_qty: number, base_unit: string }>} rows
+ */
+export async function commitProductImport(rows) {
+    const token = getToken();
+    const res = await fetch(`${API_BASE}/products/import/commit`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ rows }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.message || 'Import thất bại');
+    return data;
+}

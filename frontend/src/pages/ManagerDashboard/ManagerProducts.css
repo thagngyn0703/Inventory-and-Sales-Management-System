@@ -776,6 +776,148 @@
     max-width: 80px;
 }
 
+/* Product import modal */
+.manager-import-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.45);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+}
+
+.manager-import-modal {
+    background: #fff;
+    border-radius: 12px;
+    max-width: 920px;
+    width: 100%;
+    max-height: 90vh;
+    overflow: auto;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.15);
+    padding: 24px;
+}
+
+.manager-import-modal h2 {
+    margin: 0 0 8px;
+    font-size: 1.25rem;
+    color: #111827;
+}
+
+.manager-import-hint {
+    font-size: 14px;
+    color: #6b7280;
+    margin: 0 0 16px;
+    line-height: 1.5;
+}
+
+.manager-import-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.manager-import-actions input[type="file"] {
+    font-size: 14px;
+}
+
+.manager-import-stats {
+    font-size: 14px;
+    margin-bottom: 12px;
+    color: #374151;
+}
+
+.manager-import-stats strong {
+    color: #059669;
+}
+
+.manager-import-stats .err {
+    color: #dc2626;
+}
+
+.manager-import-table-wrap {
+    overflow-x: auto;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    max-height: 320px;
+    overflow-y: auto;
+}
+
+.manager-import-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.manager-import-table th,
+.manager-import-table td {
+    padding: 8px 10px;
+    text-align: left;
+    border-bottom: 1px solid #f3f4f6;
+}
+
+.manager-import-table th {
+    background: #f9fafb;
+    font-weight: 600;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.manager-import-table tr.invalid-row td {
+    background: #fef2f2;
+}
+
+.manager-import-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.manager-import-badge--ok {
+    background: #d1fae5;
+    color: #065f46;
+}
+
+.manager-import-badge--bad {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.manager-import-err-cell {
+    color: #991b1b;
+    font-size: 12px;
+    max-width: 220px;
+}
+
+.manager-import-footer {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: flex-end;
+    margin-top: 8px;
+}
+
+.manager-btn-outline {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    color: #374151;
+    padding: 10px 16px;
+    border-radius: 10px;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.manager-btn-outline:hover {
+    background: #f9fafb;
+}
+
 @media (max-width: 768px) {
     .manager-form-row--2 {
         grid-template-columns: 1fr;

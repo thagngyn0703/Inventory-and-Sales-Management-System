@@ -84,5 +84,7 @@ const productSchema = new Schema(
 );
 
 productSchema.index({ storeId: 1, sku: 1 }, { unique: true });
+// Một barcode chỉ thuộc một sản phẩm trong cùng cửa hàng (bỏ qua doc không có barcode)
+productSchema.index({ storeId: 1, barcode: 1 }, { unique: true, sparse: true });
 
 module.exports = model('Product', productSchema);
