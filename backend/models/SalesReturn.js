@@ -2,6 +2,12 @@ const { Schema, model } = require('mongoose');
 
 const salesReturnSchema = new Schema(
     {
+        store_id: {
+            type: Schema.Types.ObjectId,
+            ref: 'Store',
+            required: false,
+            index: true,
+        },
         invoice_id: {
             type: Schema.Types.ObjectId,
             ref: 'SalesInvoice',

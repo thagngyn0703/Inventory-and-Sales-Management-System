@@ -150,6 +150,7 @@ router.post('/', requireAuth, requireRole(['sales', 'warehouse', 'manager', 'adm
         const status = (req.body.status === 'cancelled') ? 'cancelled' : 'confirmed';
 
         const invoice = new SalesInvoice({
+            store_id: req.user.storeId || null,
             customer_id,
             recipient_name,
             created_by: req.user.id,
@@ -195,6 +196,11 @@ router.get('/', requireAuth, requireRole(['sales', 'warehouse', 'manager', 'admi
         const pageNum = Math.max(1, parseInt(page, 10) || 1);
         const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
         const filter = {};
+        // Scope by store (admin sees all)
+        const userRole = String(req.user?.role || '').toLowerCase();
+        if (req.user.storeId && userRole !== 'admin') {
+            filter.store_id = req.user.storeId;
+        }
         if (status && ['confirmed', 'cancelled'].includes(status)) {
             filter.status = status;
         }
@@ -283,6 +289,11 @@ router.get('/:id', requireAuth, requireRole(['sales', 'warehouse', 'manager', 'a
             .populate('items.product_id', 'name sku stock_qty')
             .lean();
         if (!invoice) return res.status(404).json({ message: 'Invoice not found' });
+        // Store ownership check
+        const userRole2 = String(req.user?.role || '').toLowerCase();
+        if (userRole2 !== 'admin' && req.user.storeId && String(invoice.store_id) !== String(req.user.storeId)) {
+            return res.status(403).json({ message: 'Không có quyền xem hóa đơn này' });
+        }
 
         const productIds = (invoice.items || [])
             .map((item) => normalizeId(item.product_id))
@@ -306,6 +317,12 @@ router.patch('/:id', requireAuth, requireRole(['warehouse', 'manager', 'admin'])
             return res.status(400).json({ message: 'Invalid invoice id' });
         }
         const invoice = await SalesInvoice.findById(id);
+        if (!invoice) return res.status(404).json({ message: 'Invoice not found' });
+        // Store ownership check
+        const patchRole = String(req.user?.role || '').toLowerCase();
+        if (patchRole !== 'admin' && req.user.storeId && String(invoice.store_id) !== String(req.user.storeId)) {
+            return res.status(403).json({ message: 'Không có quyền chỉnh sửa hóa đơn này' });
+        }
         const oldStatus = invoice.status;
         const { customer_id, items: reqItems, status: requestedStatus, payment_method, recipient_name } = req.body || {};
 
@@ -419,6 +436,11 @@ router.post('/:id/cancel', requireAuth, requireRole(['sales', 'warehouse', 'mana
         const { id } = req.params;
         const invoice = await SalesInvoice.findById(id);
         if (!invoice) return res.status(404).json({ message: 'Invoice not found' });
+        // Store ownership check
+        const cancelRole = String(req.user?.role || '').toLowerCase();
+        if (cancelRole !== 'admin' && req.user.storeId && String(invoice.store_id) !== String(req.user.storeId)) {
+            return res.status(403).json({ message: 'Không có quyền hủy hóa đơn này' });
+        }
         
         try {
             await syncInventory(invoice, 'cancelled');

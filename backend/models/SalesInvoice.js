@@ -2,15 +2,21 @@ const { Schema, model } = require('mongoose');
 
 const salesInvoiceSchema = new Schema(
     {
+        store_id: {
+            type: Schema.Types.ObjectId,
+            ref: 'Store',
+            required: false,
+            index: true,
+        },
         customer_id: {
             type: Schema.Types.ObjectId,
             ref: 'Customer',
-            required: false,
+            required: false
         },
         recipient_name: {
             type: String,
-            trim: true,
-            required: [true, 'Tên khách hàng là bắt buộc'],
+            trim: false,
+            default: "Khách lẻ"
         },
 
         created_by: {
