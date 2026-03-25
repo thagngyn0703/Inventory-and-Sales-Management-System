@@ -142,6 +142,12 @@ export default function WarehouseStocktakingDetail() {
         </span>
       </p>
 
+      {stocktake?.status === 'cancelled' && stocktake?.reject_reason && (
+        <div className="warehouse-alert warehouse-alert-error" style={{ marginBottom: 16 }}>
+          <strong>Lý do từ chối:</strong> {stocktake.reject_reason}
+        </div>
+      )}
+
       {isDraft && (
         <p style={{ marginBottom: 16, fontSize: 14, color: '#6b7280' }}>
           Nhập <strong>số lượng thực tế</strong> đã kiểm đếm và <strong>lý do chênh lệch</strong> (nếu có), sau đó bấm Lưu hoặc Gửi duyệt.

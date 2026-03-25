@@ -46,6 +46,9 @@ const goodsReceiptSchema = new Schema(
                     type: Number,
                     required: true,
                 },
+                expiry_date: {
+                    type: Date,
+                },
             },
         ],
         total_amount: {

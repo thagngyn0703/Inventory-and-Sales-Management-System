@@ -1,8 +1,41 @@
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import ManagerSidebar from './ManagerSidebar';
+import ManagerNotificationBell from '../../components/ManagerNotificationBell';
+import { getIncomingFrequencyBySupplier } from '../../services/analyticsApi';
 import './ManagerDashboard.css';
+import './ManagerProducts.css';
+
+const MONTH_NAMES = ['Tháng 1', 'Tháng 2', 'Tháng 3', 'Tháng 4', 'Tháng 5', 'Tháng 6', 'Tháng 7', 'Tháng 8', 'Tháng 9', 'Tháng 10', 'Tháng 11', 'Tháng 12'];
 
 export default function ManagerDashboard() {
+    const now = new Date();
+    const [incomingYear, setIncomingYear] = useState(now.getFullYear());
+    const [incomingMonth, setIncomingMonth] = useState(now.getMonth() + 1);
+    const [incomingFreq, setIncomingFreq] = useState({ data: [] });
+    const [incomingLoading, setIncomingLoading] = useState(false);
+    const [incomingError, setIncomingError] = useState('');
+
+    const fetchIncomingFrequency = useCallback(async () => {
+        setIncomingLoading(true);
+        setIncomingError('');
+        try {
+            const resp = await getIncomingFrequencyBySupplier({ year: incomingYear, month: incomingMonth });
+            setIncomingFreq(resp);
+        } catch (e) {
+            setIncomingError(e.message || 'Không tải được dữ liệu');
+            setIncomingFreq({ data: [] });
+        } finally {
+            setIncomingLoading(false);
+        }
+    }, [incomingYear, incomingMonth]);
+
+    useEffect(() => {
+        fetchIncomingFrequency();
+    }, [fetchIncomingFrequency]);
+
+    const maxTotal = Math.max(1, ...incomingFreq.data.map((d) => d.total_count));
+
     return (
         <div className="manager-page-with-sidebar">
             <ManagerSidebar />
@@ -14,9 +47,7 @@ export default function ManagerDashboard() {
                         placeholder="Tìm kiếm đơn hàng, khách hàng, sản phẩm..."
                     />
                     <div className="manager-topbar-actions">
-                        <button type="button" className="manager-icon-btn" aria-label="Thông báo">
-                            <i className="fa-solid fa-bell" />
-                        </button>
+                        <ManagerNotificationBell />
                         <div className="manager-user-badge">
                             <i className="fa-solid fa-circle-user" />
                             <span>Quản lý</span>
@@ -113,6 +144,80 @@ export default function ManagerDashboard() {
                         </div>
                     </div>
 
+                    <div className="manager-cards-row manager-cards-row--1">
+                        <div className="manager-panel-card">
+                            <div className="manager-panel-header">
+                                <div>
+                                    <h2 className="manager-panel-title">Phân tích tần suất nhập hàng theo nhà cung cấp</h2>
+                                    <p className="manager-panel-subtitle">Số đơn mua hàng và phiếu nhập kho trong 1 tháng</p>
+                                </div>
+                                <div className="manager-incoming-freq-controls">
+                                    <select
+                                        className="manager-select"
+                                        value={incomingMonth}
+                                        onChange={(e) => setIncomingMonth(Number(e.target.value))}
+                                    >
+                                        {MONTH_NAMES.map((label, i) => (
+                                            <option key={i} value={i + 1}>{label}</option>
+                                        ))}
+                                    </select>
+                                    <select
+                                        className="manager-select"
+                                        value={incomingYear}
+                                        onChange={(e) => setIncomingYear(Number(e.target.value))}
+                                    >
+                                        {[incomingYear - 2, incomingYear - 1, incomingYear, incomingYear + 1].map((y) => (
+                                            <option key={y} value={y}>{y}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </div>
+                            {incomingError && (
+                                <p className="manager-products-error" style={{ marginBottom: 12 }}>{incomingError}</p>
+                            )}
+                            {incomingLoading ? (
+                                <p className="manager-products-loading">Đang tải...</p>
+                            ) : incomingFreq.data.length === 0 ? (
+                                <div className="manager-list-placeholder">
+                                    <p className="manager-placeholder-text">Không có giao dịch nhập hàng trong tháng này</p>
+                                </div>
+                            ) : (
+                                <div className="manager-incoming-freq-table-wrap">
+                                    <table className="manager-products-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Nhà cung cấp</th>
+                                                <th>Đơn mua hàng</th>
+                                                <th>Phiếu nhập kho</th>
+                                                <th>Tổng</th>
+                                                <th>Tần suất</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {incomingFreq.data.map((row) => (
+                                                <tr key={row.supplier_id}>
+                                                    <td><strong>{row.supplier_name}</strong></td>
+                                                    <td>{row.purchase_order_count}</td>
+                                                    <td>{row.goods_receipt_count}</td>
+                                                    <td>{row.total_count}</td>
+                                                    <td>
+                                                        <div className="manager-freq-bar-wrap">
+                                                            <div
+                                                                className="manager-freq-bar"
+                                                                style={{ width: `${(row.total_count / maxTotal) * 100}%` }}
+                                                            />
+                                                            <span className="manager-freq-bar-label">{row.total_count} lần</span>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
                     <div className="manager-cards-row manager-cards-row--2">
                         <div className="manager-panel-card">
                             <div className="manager-panel-header manager-panel-header--space">
@@ -125,8 +230,12 @@ export default function ManagerDashboard() {
                         </div>
                         <div className="manager-panel-card">
                             <div className="manager-panel-header manager-panel-header--space">
-                                <h2 className="manager-panel-title">Sản phẩm sắp hết hàng</h2>
-                                <a href="/manager/warehouse" className="manager-panel-link">Xem kho hàng →</a>
+                                <h2 className="manager-panel-title">Kho & kiểm kê</h2>
+                                <div className="manager-dashboard-links">
+                                    <Link to="/warehouse" className="manager-panel-link">Kho hàng →</Link>
+                                    <Link to="/manager/stocktakes/pending" className="manager-panel-link">Kiểm kê chờ duyệt →</Link>
+                                    <Link to="/manager/adjustments" className="manager-panel-link">Lịch sử điều chỉnh →</Link>
+                                </div>
                             </div>
                             <div className="manager-list-placeholder">
                                 <p className="manager-placeholder-text">Chưa có dữ liệu</p>

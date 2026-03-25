@@ -1,10 +1,33 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import StoreLockedNotice from '../../components/StoreLockedNotice';
 import './WarehouseSidebar.css';
 
 export default function WarehouseSidebar() {
   const navigate = useNavigate();
   const location = useLocation();
+  const [currentUser, setCurrentUser] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('user') || 'null');
+    } catch {
+      return null;
+    }
+  });
+  useEffect(() => {
+    const token = localStorage.getItem('token') || '';
+    if (!token) return;
+    fetch('http://localhost:8000/api/auth/me', {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((res) => res.json().catch(() => ({})))
+      .then((data) => {
+        if (!data?.user) return;
+        setCurrentUser(data.user);
+        localStorage.setItem('user', JSON.stringify(data.user));
+      })
+      .catch(() => {});
+  }, []);
+  const storeTitle = currentUser?.storeName || (currentUser?.storeId ? `Store: ${String(currentUser.storeId).slice(-6)}` : 'Chưa có cửa hàng');
 
   const navItems = [
     { label: 'Tổng quan', path: '/warehouse', icon: 'fa-house' },
@@ -14,12 +37,15 @@ export default function WarehouseSidebar() {
   const isActive = (path) => location.pathname === path;
 
   return (
-    <div className="warehouse-sidebar">
-      <div className="warehouse-sidebar-header">
+    <>
+      <StoreLockedNotice visible={currentUser?.storeStatus === 'inactive'} />
+      <div className="warehouse-sidebar">
+        <div className="warehouse-sidebar-header">
         <div className="warehouse-sidebar-logo">
           <span className="warehouse-logo-icon">K</span>
         </div>
-        <p className="warehouse-sidebar-title">Bán hàng & Kho</p>
+        <p className="warehouse-sidebar-title">Kho hàng</p>
+        <p className="warehouse-sidebar-store">{storeTitle}</p>
       </div>
 
       <nav className="warehouse-sidebar-nav">
@@ -46,6 +72,7 @@ export default function WarehouseSidebar() {
           Đăng xuất
         </button>
       </div>
-    </div>
+      </div>
+    </>
   );
 }

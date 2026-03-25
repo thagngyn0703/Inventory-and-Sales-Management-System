@@ -16,6 +16,18 @@ function parseResponse(res, defaultMessage) {
     });
 }
 
+export async function getReturns(params = {}) {
+  const token = getToken();
+  const query = new URLSearchParams();
+  if (params.page) query.set('page', params.page);
+  if (params.limit) query.set('limit', params.limit);
+  if (params.status) query.set('status', params.status);
+  const res = await fetch(`${API_BASE}/returns?${query.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return parseResponse(res, 'Không thể tải danh sách trả hàng');
+}
+
 export async function createReturn(body) {
   const token = getToken();
   const res = await fetch(`${API_BASE}/returns`, {

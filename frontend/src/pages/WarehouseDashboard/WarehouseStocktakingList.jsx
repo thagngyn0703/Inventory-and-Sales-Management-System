@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { getStocktakes } from '../../services/stocktakesApi';
 
-const LIMIT = 20;
+const LIMIT = 10;
 
 const STATUS_LABEL = {
   draft: 'Nháp',

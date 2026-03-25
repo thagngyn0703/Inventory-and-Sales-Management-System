@@ -7,7 +7,9 @@ export default function Sidebar() {
     const location = useLocation();
 
     const menuItems = [
-        { label: '🏠 Dashboard', path: '/admin', roles: ['admin', 'manager'] },
+        { label: '🏠 Dashboard', path: '/admin', roles: ['admin'] },
+        { label: '🏬 Quản lý cửa hàng', path: '/admin/stores', roles: ['admin'] },
+        { label: '🔐 Role & Permission', path: '/admin/rbac', roles: ['admin'] },
         { label: '🏠 Dashboard', path: '/home', roles: ['user', 'warehouse_staff'] },
         { label: '📦 Sản phẩm', path: '/manager/products', roles: [ 'manager', 'warehouse_staff'] },
         { label: '� Danh mục', path: '/manager/categories', roles: [ 'manager', 'warehouse_staff'] },

@@ -13,6 +13,7 @@ export default function SalesSidebar() {
   const navItems = [
     { to: '/sales/invoices/new', icon: 'fa-plus-circle', label: 'Tạo hóa đơn', end: true },
     { to: '/sales/invoices', icon: 'fa-file-invoice-dollar', label: 'Lịch sử bán lẻ' },
+    { to: '/sales/returns/new', icon: 'fa-rotate-left', label: 'Trả hàng', end: true },
     { to: '/sales/returns', icon: 'fa-arrow-rotate-left', label: 'Hàng trả lại' },
     { to: '/sales/customers', icon: 'fa-user-group', label: 'Khách hàng' },
   ];

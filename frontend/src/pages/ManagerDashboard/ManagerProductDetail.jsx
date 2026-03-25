@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import ManagerSidebar from './ManagerSidebar';
+import ManagerNotificationBell from '../../components/ManagerNotificationBell';
 import { getProduct, setProductStatus } from '../../services/productsApi';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
@@ -85,9 +86,7 @@ export default function ManagerProductDetail() {
                 <header className="manager-topbar">
                     <div className="manager-topbar-search-wrap" />
                     <div className="manager-topbar-actions">
-                        <button type="button" className="manager-icon-btn" aria-label="Thông báo">
-                            <i className="fa-solid fa-bell" />
-                        </button>
+                        <ManagerNotificationBell />
                         <div className="manager-user-badge">
                             <i className="fa-solid fa-circle-user" />
                             <span>Quản lý</span>
@@ -95,7 +94,7 @@ export default function ManagerProductDetail() {
                     </div>
                 </header>
 
-                <div className="manager-content">
+                <div className="manager-content manager-product-detail-page">
                     <div className="manager-products-header">
                         <div>
                             <h1 className="manager-page-title">Chi tiết sản phẩm</h1>
@@ -104,14 +103,14 @@ export default function ManagerProductDetail() {
                         <div className="manager-detail-actions">
                             <button
                                 type="button"
-                                className="manager-btn-secondary"
+                                className="manager-btn-outline"
                                 onClick={() => navigate('/manager/products')}
                             >
                                 <i className="fa-solid fa-arrow-left" /> Danh sách
                             </button>
                             <button
                                 type="button"
-                                className="manager-btn-secondary"
+                                className="manager-btn-outline"
                                 onClick={() => navigate(`/manager/products/${id}/edit`)}
                             >
                                 <i className="fa-solid fa-pen" /> Sửa
@@ -134,68 +133,126 @@ export default function ManagerProductDetail() {
                     {successMessage && <div className="manager-products-success">{successMessage}</div>}
                     {error && <div className="manager-products-error">{error}</div>}
 
-                    <div className="manager-panel-card manager-product-detail-card">
-                        <dl className="manager-detail-list">
-                            <div className="manager-detail-row">
-                                <dt>SKU</dt>
-                                <dd>{p.sku || '—'}</dd>
+                    <div className="manager-detail-card">
+                        <div className="manager-detail-section">
+                            <h3 className="manager-detail-section-title">Thông tin cơ bản</h3>
+                            <div className="manager-detail-table-wrap">
+                                <table className="manager-detail-table">
+                                    <tbody>
+                                        <tr>
+                                            <td className="manager-detail-label">SKU</td>
+                                            <td className="manager-detail-value">{p.sku || '—'}</td>
+                                        </tr>
+                                        <tr>
+                                            <td className="manager-detail-label">Tên sản phẩm</td>
+                                            <td className="manager-detail-value">{p.name || '—'}</td>
+                                        </tr>
+                                        <tr>
+                                            <td className="manager-detail-label">Barcode</td>
+                                            <td className="manager-detail-value">{p.barcode || '—'}</td>
+                                        </tr>
+                                        <tr>
+                                            <td className="manager-detail-label">Nhà cung cấp</td>
+                                            <td className="manager-detail-value">
+                                                {p.supplier_id
+                                                    ? (typeof p.supplier_id === 'object' && p.supplier_id?.name
+                                                        ? p.supplier_id.name + (p.supplier_id.phone ? ` — ${p.supplier_id.phone}` : '')
+                                                        : '—')
+                                                    : '—'}
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td className="manager-detail-label">Trạng thái</td>
+                                            <td className="manager-detail-value">
+                                                <span className={`manager-detail-badge manager-detail-badge--${p.status || 'active'}`}>
+                                                    {p.status === 'inactive' ? 'Ngừng bán' : 'Đang bán'}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td className="manager-detail-label">Hạn sử dụng</td>
+                                            <td className="manager-detail-value">
+                                                {p.expiry_date ? new Date(p.expiry_date).toLocaleDateString('vi-VN') : '—'}
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
                             </div>
-                            <div className="manager-detail-row">
-                                <dt>Tên sản phẩm</dt>
-                                <dd>{p.name || '—'}</dd>
+                        </div>
+
+                        <div className="manager-detail-section">
+                            <h3 className="manager-detail-section-title">Giá & đơn vị</h3>
+                            <div className="manager-detail-table-wrap">
+                                <table className="manager-detail-table">
+                                    <tbody>
+                                        <tr>
+                                            <td className="manager-detail-label">Đơn vị tồn kho (gốc)</td>
+                                            <td className="manager-detail-value">{p.base_unit || 'Cái'}</td>
+                                        </tr>
+                                        <tr>
+                                            <td className="manager-detail-label">Giá vốn / 1 {p.base_unit || 'Cái'}</td>
+                                            <td className="manager-detail-value">{formatMoney(p.cost_price)}</td>
+                                        </tr>
+                                        {(p.selling_units && p.selling_units.length) > 0 ? (
+                                            <tr>
+                                                <td className="manager-detail-label">Đơn vị bán & giá</td>
+                                                <td className="manager-detail-value">
+                                                    <table className="manager-detail-inner-table">
+                                                        <thead>
+                                                            <tr>
+                                                                <th>Đơn vị</th>
+                                                                <th>Tỉ lệ</th>
+                                                                <th>Giá bán</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {p.selling_units.map((u, i) => (
+                                                                <tr key={i}>
+                                                                    <td>{u.name}</td>
+                                                                    <td>{u.ratio}</td>
+                                                                    <td>{formatMoney(u.sale_price)}</td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            <tr>
+                                                <td className="manager-detail-label">Giá bán (đơn vị gốc)</td>
+                                                <td className="manager-detail-value">{formatMoney(p.sale_price)}</td>
+                                            </tr>
+                                        )}
+                                        <tr>
+                                            <td className="manager-detail-label">Lời dự kiến</td>
+                                            <td className="manager-detail-value manager-detail-value--highlight">
+                                                {formatMoney(profit)} ({marginPct}%)
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
                             </div>
-                            <div className="manager-detail-row">
-                                <dt>Barcode</dt>
-                                <dd>{p.barcode || '—'}</dd>
+                        </div>
+
+                        <div className="manager-detail-section">
+                            <h3 className="manager-detail-section-title">Tồn kho</h3>
+                            <div className="manager-detail-table-wrap">
+                                <table className="manager-detail-table">
+                                    <tbody>
+                                        <tr>
+                                            <td className="manager-detail-label">Tồn hiện tại</td>
+                                            <td className="manager-detail-value">
+                                                {p.stock_qty != null ? p.stock_qty : 0} {p.base_unit || 'Cái'}
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td className="manager-detail-label">Mức tồn tối thiểu</td>
+                                            <td className="manager-detail-value">{p.reorder_level != null ? p.reorder_level : 0}</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
                             </div>
-                            <div className="manager-detail-row">
-                                <dt>Đơn vị tồn kho (gốc)</dt>
-                                <dd>{p.base_unit || 'Cái'}</dd>
-                            </div>
-                            <div className="manager-detail-row">
-                                <dt>Giá vốn / 1 {p.base_unit || 'Cái'}</dt>
-                                <dd>{formatMoney(p.cost_price)}</dd>
-                            </div>
-                            {(p.selling_units && p.selling_units.length) > 0 ? (
-                                <div className="manager-detail-row manager-detail-row--full">
-                                    <dt>Đơn vị bán & giá</dt>
-                                    <dd>
-                                        <ul className="manager-selling-units-detail">
-                                            {p.selling_units.map((u, i) => (
-                                                <li key={i}>
-                                                    <strong>{u.name}</strong>: tỉ lệ {u.ratio} = {formatMoney(u.sale_price)}
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    </dd>
-                                </div>
-                            ) : (
-                                <div className="manager-detail-row">
-                                    <dt>Giá bán (đơn vị gốc)</dt>
-                                    <dd>{formatMoney(p.sale_price)}</dd>
-                                </div>
-                            )}
-                            <div className="manager-detail-row">
-                                <dt>Lời dự kiến</dt>
-                                <dd>{formatMoney(profit)} ({marginPct}%)</dd>
-                            </div>
-                            <div className="manager-detail-row">
-                                <dt>Tồn kho</dt>
-                                <dd>{p.stock_qty != null ? p.stock_qty : 0} {p.base_unit || 'Cái'}</dd>
-                            </div>
-                            <div className="manager-detail-row">
-                                <dt>Mức tồn tối thiểu</dt>
-                                <dd>{p.reorder_level != null ? p.reorder_level : 0}</dd>
-                            </div>
-                            <div className="manager-detail-row">
-                                <dt>Trạng thái</dt>
-                                <dd>
-                                    <span className={`manager-products-status manager-products-status--${p.status || 'active'}`}>
-                                        {p.status === 'inactive' ? 'Ngừng bán' : 'Đang bán'}
-                                    </span>
-                                </dd>
-                            </div>
-                        </dl>
+                        </div>
                     </div>
                 </div>
             </div>
