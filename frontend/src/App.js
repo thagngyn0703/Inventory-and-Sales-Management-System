@@ -16,14 +16,19 @@ import ManagerProductDetail from "./pages/ManagerDashboard/ManagerProductDetail"
 import ManagerProductEdit from "./pages/ManagerDashboard/ManagerProductEdit";
 import ManagerInvoicesList from "./pages/ManagerDashboard/ManagerInvoicesList";
 import ManagerInvoiceDetail from "./pages/ManagerDashboard/ManagerInvoiceDetail";
+import ManagerInvoiceView from "./pages/ManagerDashboard/ManagerInvoiceView";
 import RequireRole from "./components/RequireRole";
 import WarehouseDashboard from "./pages/WarehouseDashboard/WarehouseDashboard.jsx";
 import WarehouseHome from "./pages/WarehouseDashboard/WarehouseHome.jsx";
 import WarehouseStocktakingCreate from "./pages/WarehouseDashboard/WarehouseStocktakingCreate.jsx";
 import WarehouseStocktakingList from "./pages/WarehouseDashboard/WarehouseStocktakingList.jsx";
 import WarehouseStocktakingDetail from "./pages/WarehouseDashboard/WarehouseStocktakingDetail.jsx";
-import WarehouseInvoicesList from "./pages/WarehouseDashboard/WarehouseInvoicesList.jsx";
-import WarehouseInvoiceDetail from "./pages/WarehouseDashboard/WarehouseInvoiceDetail.jsx";
+import SalesInvoicesList from "./pages/SaleDashboard/SalesInvoicesList.jsx";
+import SalesInvoiceDetail from "./pages/SaleDashboard/SalesInvoiceDetail.jsx";
+import SalesInvoiceView from "./pages/SaleDashboard/SalesInvoiceView.jsx";
+import SalesReturnPage from "./pages/SaleDashboard/SalesReturnPage.jsx";
+import SalesDashboard from "./pages/SaleDashboard/SalesDashboard";
+// SalesHome removed as per user request
 import ManagerStocktakePending from "./pages/ManagerDashboard/ManagerStocktakePending";
 import ManagerStocktakeDetail from "./pages/ManagerDashboard/ManagerStocktakeDetail";
 import ManagerAdjustmentList from "./pages/ManagerDashboard/ManagerAdjustmentList";
@@ -125,7 +130,7 @@ function App() {
         path="/warehouse"
         element={
           <RequireAuth>
-            <RequireRole allowedRoles={['warehouse', 'sales', 'manager', 'admin']}>
+            <RequireRole allowedRoles={['warehouse', 'manager', 'admin']}>
               <RequireStaffStore>
                 <WarehouseDashboard />
               </RequireStaffStore>
@@ -135,11 +140,26 @@ function App() {
       >
         <Route index element={<WarehouseHome />} />
         <Route path="stocktakes" element={<WarehouseStocktakingList />} />
-        <Route path="stocktakes/new" element={<WarehouseStocktakingCreate />} />
+        <Route path="stocktakes/new" element={<WarehouseStocktakingDetail />} />
         <Route path="stocktakes/:id" element={<WarehouseStocktakingDetail />} />
-        <Route path="invoices" element={<WarehouseInvoicesList />} />
-        <Route path="invoices/new" element={<WarehouseInvoiceDetail />} />
-        <Route path="invoices/:id" element={<WarehouseInvoiceDetail />} />
+      </Route>
+
+      <Route
+        path="/sales"
+        element={
+          <RequireAuth>
+            <RequireRole allowedRoles={['sales', 'sales_staff', 'admin', 'manager']}>
+              <SalesDashboard />
+            </RequireRole>
+          </RequireAuth>
+        }
+      >
+        <Route index element={<Navigate to="invoices/new" replace />} />
+        <Route path="invoices" element={<SalesInvoicesList />} />
+        <Route path="invoices/new" element={<SalesInvoiceDetail />} />
+        <Route path="returns" element={<SalesInvoicesList />} />
+        <Route path="returns/new" element={<SalesReturnPage />} />
+        <Route path=":id" element={<SalesInvoiceView />} />
       </Route>
     </Routes>
   );

@@ -2,11 +2,23 @@ const { Schema, model } = require('mongoose');
 
 const salesInvoiceSchema = new Schema(
     {
+        store_id: {
+            type: Schema.Types.ObjectId,
+            ref: 'Store',
+            required: false,
+            index: true,
+        },
         customer_id: {
             type: Schema.Types.ObjectId,
             ref: 'Customer',
-            required: false,
+            required: false
         },
+        recipient_name: {
+            type: String,
+            trim: false,
+            default: "Khách lẻ"
+        },
+
         created_by: {
             type: Schema.Types.ObjectId,
             ref: 'User',
@@ -14,8 +26,8 @@ const salesInvoiceSchema = new Schema(
         },
         status: {
             type: String,
-            enum: ['draft', 'submitted', 'confirmed', 'paid', 'cancelled'],
-            default: 'draft',
+            enum: ['confirmed', 'cancelled'],
+            default: 'confirmed',
         },
         invoice_at: {
             type: Date,

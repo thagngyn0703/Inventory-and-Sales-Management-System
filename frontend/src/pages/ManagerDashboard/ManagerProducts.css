@@ -927,3 +927,111 @@
         flex-direction: column;
     }
 }
+
+/* Invoice List Filter Bar */
+.manager-invoice-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.manager-filter-bar {
+    display: flex;
+    align-items: flex-end;
+    gap: 12px;
+    flex-wrap: wrap;
+    background: #ffffff;
+    padding: 16px 20px;
+    border-radius: 14px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    border: 1px solid #e5e7eb;
+    margin-bottom: 16px;
+}
+
+.manager-filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.manager-filter-group--flex {
+    flex: 1;
+    min-width: 220px;
+}
+
+.manager-filter-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.manager-filter-input,
+.manager-filter-select {
+    height: 40px;
+    padding: 0 12px;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    font-size: 14px;
+    background: #f9fafb;
+    color: #111827;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    min-width: 0;
+}
+
+.manager-filter-input {
+    width: 100%;
+}
+
+.manager-filter-input--date {
+    width: 160px;
+}
+
+.manager-filter-select {
+    width: 160px;
+    cursor: pointer;
+}
+
+.manager-filter-input:focus,
+.manager-filter-select:focus {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59,130,246,0.12);
+    background: #fff;
+}
+
+.manager-btn-danger-outline {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid #fecaca;
+    background: #fff5f5;
+    color: #dc2626;
+    transition: all 0.2s;
+    align-self: flex-end;
+}
+
+.manager-btn-danger-outline:hover {
+    background: #fee2e2;
+    border-color: #f87171;
+}
+
+@media (max-width: 768px) {
+    .manager-invoice-header {
+        flex-direction: column;
+    }
+    .manager-filter-input--date,
+    .manager-filter-select {
+        width: 100%;
+    }
+}
+

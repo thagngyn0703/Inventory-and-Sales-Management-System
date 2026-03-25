@@ -58,7 +58,7 @@ const productSchema = new Schema(
             trim: true,
             default: 'Cái',
         },
-        
+
         selling_units: [{
             name: { type: String, trim: true, required: true },
             ratio: { type: Number, required: true, min: 0.001 },

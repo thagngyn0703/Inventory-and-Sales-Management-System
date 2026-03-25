@@ -21,7 +21,7 @@ const userSchema = new Schema(
         },
         role: {
             type: String,
-            enum: ['admin', 'manager', 'warehouse_staff', 'sales_staff'],
+            enum: ['admin', 'manager', 'warehouse_staff', 'sales_staff', 'customer'],
             required: true,
         },
         storeId: {

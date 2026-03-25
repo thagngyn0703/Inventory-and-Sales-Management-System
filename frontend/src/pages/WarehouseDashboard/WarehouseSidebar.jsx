@@ -31,10 +31,7 @@ export default function WarehouseSidebar() {
 
   const navItems = [
     { label: 'Tổng quan', path: '/warehouse', icon: 'fa-house' },
-    { label: 'Tạo phiếu kiểm kê', path: '/warehouse/stocktakes/new', icon: 'fa-clipboard-list' },
-    { label: 'Danh sách phiếu kiểm kê', path: '/warehouse/stocktakes', icon: 'fa-list' },
-    { label: 'Phiếu xuất / Hóa đơn', path: '/warehouse/invoices', icon: 'fa-file-invoice' },
-    { label: 'Tạo phiếu xuất', path: '/warehouse/invoices/new', icon: 'fa-plus' },
+    { label: 'Kiểm kê kho', path: '/warehouse/stocktakes', icon: 'fa-clipboard-list' },
   ];
 
   const isActive = (path) => location.pathname === path;

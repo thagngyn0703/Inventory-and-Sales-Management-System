@@ -15,7 +15,7 @@ export default function Sidebar() {
         { label: '� Danh mục', path: '/manager/categories', roles: [ 'manager', 'warehouse_staff'] },
         { label: '👥 Nhà cung cấp', path: '/suppliers', roles: ['admin', 'manager'] },
         { label: '👤 Khách hàng', path: '/customers', roles: ['admin', 'manager', 'user'] },
-        { label: '📋 Đơn hàng', path: '/orders', roles: ['admin', 'manager', 'user'] },
+        { label: '📋 Hóa đơn / Đơn hàng', path: '/manager/invoices', roles: ['admin', 'manager'] },
     ];
 
     const user = JSON.parse(localStorage.getItem('user'));
