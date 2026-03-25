@@ -7,12 +7,15 @@ export default function Sidebar() {
     const location = useLocation();
 
     const menuItems = [
-        { label: '🏠 Dashboard', path: '/admin', roles: ['admin', 'manager'] },
+        { label: '🏠 Dashboard', path: '/admin', roles: ['admin'] },
+        { label: '🏬 Quản lý cửa hàng', path: '/admin/stores', roles: ['admin'] },
+        { label: '🔐 Role & Permission', path: '/admin/rbac', roles: ['admin'] },
         { label: '🏠 Dashboard', path: '/home', roles: ['user', 'warehouse_staff'] },
-        { label: '📦 Sản phẩm', path: '/products', roles: ['admin', 'manager', 'warehouse_staff'] },
+        { label: '📦 Sản phẩm', path: '/manager/products', roles: [ 'manager', 'warehouse_staff'] },
+        { label: '� Danh mục', path: '/manager/categories', roles: [ 'manager', 'warehouse_staff'] },
         { label: '👥 Nhà cung cấp', path: '/suppliers', roles: ['admin', 'manager'] },
         { label: '👤 Khách hàng', path: '/customers', roles: ['admin', 'manager', 'user'] },
-        { label: '📋 Đơn hàng', path: '/orders', roles: ['admin', 'manager', 'user'] },
+        { label: '📋 Hóa đơn / Đơn hàng', path: '/manager/invoices', roles: ['admin', 'manager'] },
     ];
 
     const user = JSON.parse(localStorage.getItem('user'));
@@ -20,12 +23,6 @@ export default function Sidebar() {
 
     // Filter menu items based on user role
     const visibleItems = menuItems.filter(item => item.roles.includes(userRole));
-
-    // Get dashboard path based on role
-    const getDashboardPath = () => {
-        if (['admin', 'manager'].includes(userRole)) return '/admin';
-        return '/home';
-    };
 
     const handleNavigation = (path) => {
         navigate(path);

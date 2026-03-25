@@ -1,0 +1,605 @@
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
+import { getInvoice, createInvoice, updateInvoice } from '../../services/invoicesApi';
+import { getProducts } from '../../services/productsApi';
+import { getCurrentUser } from '../../utils/auth';
+import './SalesPOS.css';
+
+function formatMoney(n) {
+  if (n == null || isNaN(n)) return '0';
+  return Number(n).toLocaleString('vi-VN') + '₫';
+}
+
+const generateTabId = () => Date.now() + Math.random().toString(36).substring(2, 9);
+
+const createDefaultTab = (index = 1) => ({
+  tabId: generateTabId(),
+  name: `Hóa đơn ${index}`,
+  items: [],
+  paymentMethod: 'cash',
+  recipientName: '',
+  customerPaid: '',
+  saving: false,
+  error: '',
+  successMessage: '',
+  invoiceId: null // If loaded from existing
+});
+
+export default function SalesInvoiceDetail() {
+  const { id = '' } = useParams();
+  const navigate = useNavigate();
+  const isNew = id === 'new' || !id || id === 'undefined' || id === 'null';
+  
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  
+  // Tab Management State
+  const [tabs, setTabs] = useState([createDefaultTab(1)]);
+  const [activeTabId, setActiveTabId] = useState(tabs[0].tabId);
+  const [tabCounter, setTabCounter] = useState(2); // to name new tabs Hóa đơn 2, 3...
+  
+  const [showQRModal, setShowQRModal] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+
+  const activeTab = tabs.find(t => t.tabId === activeTabId) || tabs[0];
+  const activeTabIndex = tabs.findIndex(t => t.tabId === activeTabId);
+
+  const updateActiveTab = (updates) => {
+    setTabs(prev => prev.map(t => t.tabId === activeTabId ? { ...t, ...updates } : t));
+  };
+
+  const loadProducts = useCallback(async () => {
+    try {
+      const { products: data = [] } = await getProducts(1, 1000);
+      setProducts(data);
+    } catch (e) { console.error(e); }
+  }, []);
+
+  const loadInvoice = useCallback(async () => {
+    if (!id || isNew) return;
+    setLoading(true);
+    try {
+      const data = await getInvoice(id);
+      const loadedTab = {
+        tabId: generateTabId(),
+        name: `Hóa đơn: ${data._id.slice(-6)}`,
+        items: (data.items || []).map((item) => ({
+          product_id: item.product_id?._id ?? item.product_id,
+          name: item.product_id?.name ?? '',
+          sku: item.product_id?.sku ?? '',
+          quantity: item.quantity || 0,
+          unit_price: item.unit_price || 0,
+          discount: item.discount || 0,
+          line_total: item.line_total || 0,
+          stock_qty: item.product_id?.stock_qty,
+        })),
+        paymentMethod: data.payment_method || 'cash',
+        recipientName: data.recipient_name || '',
+        customerPaid: data.total_amount || '',
+        saving: false, error: '', successMessage: '',
+        invoiceId: data._id
+      };
+      setTabs([loadedTab]);
+      setActiveTabId(loadedTab.tabId);
+    } catch (e) {
+      console.error(e);
+      updateActiveTab({ error: e.message || 'Không thể tải hóa đơn' });
+    } finally {
+      setLoading(false);
+    }
+  }, [id, isNew]);
+
+  useEffect(() => { loadProducts(); }, [loadProducts]);
+  useEffect(() => { loadInvoice(); }, [loadInvoice]);
+
+  const filteredProducts = useMemo(() => {
+    const term = searchTerm.toLowerCase().trim();
+    if (!term) return products.slice(0, 50);
+    return products.filter(p => 
+      p.name.toLowerCase().includes(term) || 
+      p.sku.toLowerCase().includes(term) ||
+      (p.barcode && p.barcode.includes(term))
+    ).slice(0, 50);
+  }, [products, searchTerm]);
+
+  // Tab Actions
+  const handleAddTab = () => {
+    const newTab = createDefaultTab(tabCounter);
+    setTabs(prev => [...prev, newTab]);
+    setActiveTabId(newTab.tabId);
+    setTabCounter(c => c + 1);
+  };
+
+  const handleCloseTab = (tabIdToClose, e) => {
+    e.stopPropagation();
+    if (tabs.length === 1) {
+       // if it's the last tab, just reset it
+       const newTab = createDefaultTab(1);
+       setTabs([newTab]);
+       setActiveTabId(newTab.tabId);
+       setTabCounter(2);
+       if (!isNew) navigate('/sales/invoices/new'); // escape edit mode if closing the only tab
+       return;
+    }
+    const newTabs = tabs.filter(t => t.tabId !== tabIdToClose);
+    if (activeTabId === tabIdToClose) {
+       // find index of closed tab
+       const idx = tabs.findIndex(t => t.tabId === tabIdToClose);
+       // activate previous tab or first
+       const nextActive = newTabs[idx - 1] || newTabs[0];
+       setActiveTabId(nextActive.tabId);
+    }
+    setTabs(newTabs);
+  };
+
+  // Cart Actions (affecting active tab)
+  const handleAddProduct = (product) => {
+    const existingIdx = activeTab.items.findIndex(it => it.product_id === product._id);
+    let newItems = [...activeTab.items];
+    
+    if (existingIdx >= 0) {
+      const it = newItems[existingIdx];
+      const newQty = it.quantity + 1;
+      newItems[existingIdx] = { 
+        ...it, 
+        quantity: newQty, 
+        line_total: newQty * it.unit_price - it.discount 
+      };
+    } else {
+      newItems.push({
+        product_id: product._id,
+        name: product.name,
+        sku: product.sku,
+        quantity: 1,
+        unit_price: product.sale_price || 0,
+        discount: 0,
+        line_total: product.sale_price || 0,
+        stock_qty: product.stock_qty
+      });
+    }
+    updateActiveTab({ items: newItems });
+  };
+
+  const updateLine = (idx, changes) => {
+    const newItems = [...activeTab.items];
+    newItems[idx] = { ...newItems[idx], ...changes };
+    const qty = Number(newItems[idx].quantity) || 0;
+    const price = Number(newItems[idx].unit_price) || 0;
+    const discount = Number(newItems[idx].discount) || 0;
+    newItems[idx].line_total = Math.max(0, qty * price - discount);
+    updateActiveTab({ items: newItems });
+  };
+
+  const removeLine = (idx) => {
+    const newItems = activeTab.items.filter((_, i) => i !== idx);
+    updateActiveTab({ items: newItems });
+  };
+
+  const totalAmount = useMemo(() => activeTab.items.reduce((s, it) => s + (it.line_total || 0), 0), [activeTab.items]);
+  
+  // Calculate change
+  const customerPaidNum = Number(activeTab.customerPaid) || 0;
+  const changeAmount = Math.max(0, customerPaidNum - totalAmount);
+  // Missing amount if they haven't paid enough yet
+  const missingAmount = Math.max(0, totalAmount - customerPaidNum);
+  
+  // Validation
+  const isPaymentSufficient = activeTab.paymentMethod === 'bank_transfer' || customerPaidNum >= totalAmount;
+  const canSubmit = !activeTab.saving && activeTab.items.length > 0 && 
+    (activeTab.paymentMethod === 'debt' || isPaymentSufficient);
+
+  const handlePrintInvoice = (invoice, tab) => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      alert('Vui lòng cho phép popup để in hóa đơn.');
+      return;
+    }
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>In Hóa Đơn - ${invoice._id}</title>
+          <style>
+            body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 20px; font-size: 14px; color: #000; }
+            h2 { text-align: center; margin-bottom: 5px; font-size: 20px; }
+            .header-info { text-align: center; margin-bottom: 20px; font-size: 13px; color: #555; }
+            .invoice-details { margin-bottom: 20px; line-height: 1.5; }
+            table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+            th, td { border-bottom: 1px dashed #ccc; padding: 8px 4px; text-align: left; }
+            th { border-bottom: 2px solid #000; }
+            .text-right { text-align: right; }
+            .total-row { font-weight: bold; font-size: 16px; margin-top: 10px; }
+            .footer { text-align: center; margin-top: 30px; font-style: italic; color: #555; }
+            @media print {
+              @page { margin: 0; }
+              body { margin: 1cm; }
+            }
+          </style>
+        </head>
+        <body>
+          <h2>CỬA HÀNG VẬT TƯ</h2>
+          <div class="header-info">
+            HÓA ĐƠN BÁN HÀNG<br/>
+            Mã Đơn: ${invoice._id}<br/>
+            Ngày: ${new Date().toLocaleString('vi-VN')}
+          </div>
+          
+          <div class="invoice-details">
+            <strong>Khách hàng:</strong> ${tab.recipientName || 'Khách lẻ'}<br/>
+            <strong>Thanh toán:</strong> ${tab.paymentMethod === 'cash' ? 'Tiền mặt' : tab.paymentMethod === 'bank_transfer' ? 'Chuyển khoản' : tab.paymentMethod}
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                <th>Tên hàng</th>
+                <th class="text-right">SL</th>
+                <th class="text-right">Đơn giá</th>
+                <th class="text-right">Thành tiền</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${tab.items.map(item => `
+                <tr>
+                  <td>${item.name || 'Sản phẩm'}</td>
+                  <td class="text-right">${item.quantity}</td>
+                  <td class="text-right">${Number(item.unit_price || 0).toLocaleString('vi-VN')}₫</td>
+                  <td class="text-right">${Number(item.line_total || 0).toLocaleString('vi-VN')}₫</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+
+          <div class="text-right total-row">
+            Tổng cộng: ${Number(invoice.total_amount || 0).toLocaleString('vi-VN')}₫
+          </div>
+
+          <div class="footer">
+            Cảm ơn quý khách và hẹn gặp lại!
+          </div>
+          
+          <script>
+            window.onload = function() { 
+              setTimeout(function() {
+                window.print(); 
+                window.close();
+              }, 500);
+            }
+          </script>
+        </body>
+      </html>
+    `;
+    printWindow.document.open();
+    printWindow.document.write(html);
+    printWindow.document.close();
+  };
+
+  const processCheckout = async () => {
+    updateActiveTab({ saving: true, error: '', successMessage: '' });
+    try {
+      const payload = {
+        payment_method: activeTab.paymentMethod, // 'cash' or 'transfer' or 'mixed'
+        recipient_name: activeTab.recipientName,
+        items: activeTab.items.map(it => ({
+          product_id: it.product_id,
+          quantity: it.quantity,
+          unit_price: it.unit_price,
+          discount: it.discount
+        }))
+      };
+
+      if (!activeTab.invoiceId) {
+        // Create new
+        const created = await createInvoice({ ...payload, status: 'confirmed' });
+        
+        handlePrintInvoice(created, activeTab);
+        
+        // Show Toast instead of alert
+        setToastMessage('Thanh toán thành công! ' + (changeAmount > 0 ? `Tiền thừa trả khách: ${formatMoney(changeAmount)}` : ''));
+        setTimeout(() => setToastMessage(''), 3000);
+        
+        if (tabs.length === 1) {
+            const newTab = createDefaultTab(tabCounter);
+            setTabs([newTab]);
+            setActiveTabId(newTab.tabId);
+            setTabCounter(c => c + 1);
+        } else {
+            const newTabs = tabs.filter(t => t.tabId !== activeTabId);
+            setTabs(newTabs);
+            setActiveTabId(newTabs[0].tabId);
+        }
+        
+        // Refresh product stock after successful sale
+        loadProducts();
+        
+      } else {
+        // Update existing
+        await updateInvoice(activeTab.invoiceId, payload);
+        updateActiveTab({ successMessage: 'Đã lưu thay đổi.', saving: false });
+        setToastMessage('Đã lưu thay đổi hóa đơn.');
+        setTimeout(() => setToastMessage(''), 3000);
+      }
+    } catch (e) {
+      updateActiveTab({ error: e.message || 'Lỗi khi lưu hóa đơn', saving: false });
+    }
+  };
+
+  const handleSubmit = () => {
+    if (activeTab.saving) return;
+    
+    // Check if empty
+    if (activeTab.items.length === 0) {
+      updateActiveTab({ error: 'Chưa có hàng hóa trong đơn.' });
+      return;
+    }
+
+    if (!activeTab.recipientName || activeTab.recipientName.trim() === '') {
+      updateActiveTab({ error: 'Tên khách hàng là bắt buộc.' });
+      return;
+    }
+
+    if (!canSubmit) return;
+
+    processCheckout();
+  };
+
+  if (loading) return <div className="pos-loading">Đang tải...</div>;
+
+  return (
+    <div className="pos-container">
+      {/* Left Sidebar: Product List */}
+      <div className="pos-left-sidebar">
+        <div className="pos-search-wrapper">
+          <input 
+            type="text" 
+            placeholder="Tìm hàng hóa" 
+            className="pos-search-input"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </div>
+        <div className="pos-product-list">
+          {filteredProducts.length === 0 ? (
+            <div style={{ padding: '20px', textAlign: 'center', color: '#64748b', fontSize: '14px' }}>
+              Không tìm thấy sản phẩm
+            </div>
+          ) : (
+            filteredProducts.map(p => {
+              const isAdded = activeTab.items.some(it => it.product_id === p._id);
+              return (
+              <div 
+                key={p._id} 
+                className="pos-product-item" 
+                onClick={() => !isAdded && handleAddProduct(p)}
+                style={{ opacity: isAdded ? 0.5 : 1, cursor: isAdded ? 'not-allowed' : 'pointer' }}
+              >
+                <div className="pos-product-img">
+                  <i className="fa-solid fa-box" />
+                </div>
+                <div className="pos-product-info">
+                  <div className="pos-product-name">{p.name}</div>
+                  <div className="pos-product-sku">{p.sku}</div>
+                  <div className="pos-product-stock">
+                    Tồn: {p.stock_qty || 0}
+                  </div>
+                </div>
+                <div style={{ color: '#0081ff', fontWeight: 700, fontSize: 13 }}>
+                  {Number(p.sale_price).toLocaleString('vi-VN')}
+                </div>
+              </div>
+            )})
+          )}
+        </div>
+      </div>
+
+      {/* Center Area: Active Order with Tabs */}
+      <div className="pos-center-area">
+        <div className="pos-tabs">
+          {tabs.map(tab => (
+            <div 
+               key={tab.tabId} 
+               className={`pos-tab ${tab.tabId === activeTabId ? 'active' : ''}`}
+               onClick={() => setActiveTabId(tab.tabId)}
+            >
+              {tab.name} 
+              <i 
+                className="fa-solid fa-xmark" 
+                style={{ fontSize: 12, marginLeft: 8, cursor: 'pointer', padding: 2 }} 
+                onClick={(e) => handleCloseTab(tab.tabId, e)}
+              />
+            </div>
+          ))}
+          <div className="pos-tab" style={{ background: 'transparent', cursor: 'pointer', padding: '0 12px' }} onClick={handleAddTab}>
+             <i className="fa-solid fa-plus" />
+          </div>
+        </div>
+        
+        <div className="pos-cart-container">
+          {activeTab.error && <div className="warehouse-alert warehouse-alert-error">{activeTab.error}</div>}
+          {activeTab.successMessage && <div className="warehouse-alert warehouse-alert-success">{activeTab.successMessage}</div>}
+          
+          <table className="pos-cart-table">
+            <thead>
+              <tr>
+                <th style={{ width: 40 }}>#</th>
+                <th style={{ width: 80 }}>Mã hàng</th>
+                <th>Tên hàng</th>
+                <th style={{ width: 100 }}>Số lượng</th>
+                <th style={{ width: 120 }}>Đơn giá</th>
+                <th style={{ width: 120 }}>Thành tiền</th>
+                <th style={{ width: 40 }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {activeTab.items.map((item, idx) => (
+                <tr key={idx}>
+                  <td>{idx + 1}</td>
+                  <td>{item.sku}</td>
+                  <td>{item.name}</td>
+                  <td>
+                    <input 
+                      type="number" 
+                      className="pos-qty-input" 
+                      value={item.quantity}
+                      onChange={(e) => updateLine(idx, { quantity: Number(e.target.value) || 1 })}
+                    />
+                  </td>
+                  <td>{Number(item.unit_price).toLocaleString('vi-VN')}</td>
+                  <td style={{ fontWeight: 600 }}>{formatMoney(item.line_total)}</td>
+                  <td>
+                    <i 
+                      className="fa-solid fa-trash-can" 
+                      style={{ color: '#ef4444', cursor: 'pointer' }}
+                      onClick={() => removeLine(idx)}
+                    />
+                  </td>
+                </tr>
+              ))}
+              {activeTab.items.length === 0 && (
+                <tr>
+                  <td colSpan="7" style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>
+                    Chưa có hàng hóa nào trong đơn
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        <div className="pos-bottom-bar">
+             <div style={{ flex: 1, display: 'flex', gap: 20 }}>
+                  <div className="pos-mode-btn" onClick={() => navigate('/sales/invoices')}><i className="fa-solid fa-clock" /> Lịch sử Hóa đơn</div>
+             </div>
+             <div style={{ color: '#64748b', fontSize: 13, fontWeight: 600 }}>
+                Tổng số dòng: {activeTab.items.length}
+             </div>
+        </div>
+      </div>
+
+      {/* Right Sidebar: Summary */}
+      <div className="pos-right-sidebar">
+        <div className="pos-customer-section">
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
+            <span style={{ fontWeight: 700, color: '#1e293b' }}>Khách hàng</span>
+            <i className="fa-solid fa-user-pen" style={{ color: '#0081ff', cursor: 'pointer' }} />
+          </div>
+          <div className="pos-customer-search">
+             <input 
+                type="text" 
+                placeholder="Khách hàng"
+                className="pos-search-input"
+                value={activeTab.recipientName}
+                onChange={(e) => updateActiveTab({ recipientName: e.target.value })}
+             />
+             <button className="warehouse-btn warehouse-btn-secondary" style={{ padding: '0 12px' }}>+</button>
+          </div>
+        </div>
+
+        <div className="pos-summary-section">
+          <div className="pos-summary-row">
+            <span>Tổng tiền hàng</span>
+            <span>{formatMoney(totalAmount)}</span>
+          </div>
+          <div className="pos-summary-row" style={{ marginBottom: 10 }}>
+            <span>Giảm giá</span>
+            <input 
+               type="text" 
+               placeholder="0" 
+               style={{ width: 80, textAlign: 'right', border: 'none', borderBottom: '1px solid #cbd5e1', outline: 'none', fontWeight: 600, color: '#f59e0b' }}
+            />
+          </div>
+          <div className="pos-total-row">
+            <span>Khách cần trả</span>
+            <span style={{ color: '#0081ff', fontSize: 20 }}>{formatMoney(totalAmount)}</span>
+          </div>
+          
+          {/* Detailed Payment Inputs */}
+          <div style={{ marginTop: 20, background: '#f8fafc', padding: 12, borderRadius: 8, border: '1px solid #e2e8f0' }}>
+
+              {/* Mixed payment toggles or summary */}
+              <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+                  <button 
+                     style={{ flex: 1, padding: '8px', borderRadius: 6, border: activeTab.paymentMethod === 'cash' ? '1px solid #0081ff' : '1px solid #cbd5e1', background: activeTab.paymentMethod === 'cash' ? '#eff6ff' : 'white', cursor: 'pointer', fontWeight: 600, color: activeTab.paymentMethod === 'cash' ? '#0081ff' : '#64748b' }}
+                     onClick={() => updateActiveTab({ paymentMethod: 'cash' })}
+                  >
+                     <i className="fa-solid fa-money-bill" style={{ marginRight: 6 }}/> Tiền mặt
+                  </button>
+                  <button 
+                     style={{ flex: 1, padding: '8px', borderRadius: 6, border: activeTab.paymentMethod === 'bank_transfer' ? '1px solid #0081ff' : '1px solid #cbd5e1', background: activeTab.paymentMethod === 'bank_transfer' ? '#eff6ff' : 'white', cursor: 'pointer', fontWeight: 600, color: activeTab.paymentMethod === 'bank_transfer' ? '#0081ff' : '#64748b' }}
+                     onClick={() => updateActiveTab({ paymentMethod: 'bank_transfer' })}
+                  >
+                     <i className="fa-solid fa-building-columns" style={{ marginRight: 6 }}/> Chuyển khoản
+                  </button>
+              </div>
+
+              {activeTab.paymentMethod === 'cash' && (
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                     <span style={{ fontSize: 14, fontWeight: 600, color: '#334155' }}>Khách thanh toán</span>
+                     <input 
+                       type="number"
+                       value={activeTab.customerPaid}
+                       onChange={(e) => updateActiveTab({ customerPaid: e.target.value })}
+                       placeholder="0"
+                       className="pos-search-input"
+                       style={{ width: 120, height: 32, textAlign: 'right', fontWeight: 600 }}
+                     />
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, marginTop: 12 }}>
+                     {missingAmount > 0 && String(activeTab.customerPaid).length > 0 ? (
+                        <>
+                           <span style={{ color: '#ef4444' }}>Còn thiếu</span>
+                           <span style={{ fontWeight: 600, color: '#ef4444' }}>{formatMoney(missingAmount)}</span>
+                        </>
+                     ) : (
+                        <>
+                           <span style={{ color: '#64748b' }}>Tiền thừa trả khách</span>
+                           <span style={{ fontWeight: 600 }}>{formatMoney(changeAmount)}</span>
+                        </>
+                     )}
+                  </div>
+                </>
+              )}
+
+              {activeTab.paymentMethod === 'bank_transfer' && totalAmount > 0 && (
+                <div style={{ marginTop: 12, textAlign: 'center', background: 'white', padding: 16, borderRadius: 8, border: '1px solid #0081ff' }}>
+                  <p style={{ margin: '0 0 10px', fontSize: 13, color: '#0081ff', fontWeight: 600 }}>Khách quét mã để thanh toán</p>
+                  <img 
+                    src={`https://img.vietqr.io/image/vcb-1122334455-compact2.png?amount=${totalAmount}&addInfo=Thanh toan don hang`} 
+                    alt="QR Code" 
+                    style={{ width: 160, height: 160, mixBlendMode: 'multiply' }} 
+                  />
+                </div>
+              )}
+          </div>
+          
+          <div style={{ marginTop: 24 }}>
+            <button 
+              className="pos-pay-button" 
+              onClick={handleSubmit}
+              disabled={!canSubmit}
+              style={{ opacity: canSubmit ? 1 : 0.7 }}
+            >
+              {activeTab.saving ? 'ĐANG XỬ LÝ...' : 'THANH TOÁN'}
+            </button>
+          </div>
+        </div>
+
+      </div>
+      
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div style={{
+          position: 'fixed', bottom: 40, right: 40, background: '#10b981', color: 'white', padding: '16px 24px', 
+          borderRadius: 8, boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', zIndex: 9999, fontWeight: 600,
+          display: 'flex', alignItems: 'center', gap: 12, animation: 'slideUp 0.3s ease-out'
+        }}>
+          <i className="fa-solid fa-circle-check" style={{ fontSize: 20 }} />
+          {toastMessage}
+        </div>
+      )}
+
+
+    </div>
+  );
+}

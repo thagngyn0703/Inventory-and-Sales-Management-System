@@ -1,0 +1,278 @@
+:root {
+  --sales-primary: #0d9488; /* Teal like warehouse */
+  --sales-primary-hover: #0f766e;
+  --sales-bg: #f4f6f8;
+  --sales-sidebar-bg: #ffffff;
+  --sales-text-main: #111827;
+  --sales-text-muted: #6b7280;
+  --sales-border: #e5e7eb;
+  --sales-card-bg: #ffffff;
+  --sales-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  --sales-sidebar-width: 250px;
+  --sales-header-height: 64px;
+}
+
+.sales-layout {
+  display: flex;
+  min-height: 100vh;
+  background-color: var(--sales-bg);
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+}
+
+/* Sidebar Styling - Matching Warehouse */
+.sales-sidebar {
+  width: var(--sales-sidebar-width);
+  background-color: var(--sales-sidebar-bg);
+  color: var(--sales-text-main);
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  height: 100vh;
+  z-index: 100;
+  border-right: 1px solid var(--sales-border);
+  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.04);
+}
+
+.sales-sidebar-brand {
+  padding: 24px 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--sales-border);
+}
+
+.brand-icon {
+  width: 40px;
+  height: 40px;
+  background: linear-gradient(135deg, var(--sales-primary), var(--sales-primary-hover));
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 20px;
+  color: white;
+}
+
+.brand-text {
+  font-weight: 600;
+  font-size: 14px;
+  color: #374151;
+  text-transform: none;
+}
+
+.sales-nav {
+  flex: 1;
+  padding: 16px 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.sales-nav-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+  color: #374151;
+  text-decoration: none;
+  font-size: 14px;
+  transition: all 0.2s;
+  border-left: 3px solid transparent;
+}
+
+.sales-nav-link i {
+  width: 18px;
+  text-align: center;
+  font-size: 14px;
+  opacity: 0.9;
+}
+
+.sales-nav-link:hover {
+  background: #f0fdfa;
+  color: #0f766e;
+}
+
+.sales-nav-link.active {
+  background: #ccfbf1;
+  color: #0f766e;
+  font-weight: 600;
+  border-left-color: var(--sales-primary);
+}
+
+.sales-sidebar-footer {
+  padding: 16px 20px;
+  border-top: 1px solid var(--sales-border);
+}
+
+.sales-logout-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  background: #f9fafb;
+  border: 1px solid var(--sales-border);
+  color: #374151;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+
+.sales-logout-btn:hover {
+  background: #fee2e2;
+  color: #b91c1c;
+  border-color: #fecaca;
+}
+
+/* Main Content Area */
+.sales-main {
+  flex: 1;
+  margin-left: var(--sales-sidebar-width);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.sales-header {
+  height: var(--sales-header-height);
+  background: white;
+  border-bottom: 1px solid var(--sales-border);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 24px;
+  position: sticky;
+  top: 0;
+  z-index: 90;
+}
+
+/* Add a user badge similar to warehouse */
+.sales-user-badge {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: #f9fafb;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #374151;
+}
+
+.sales-content {
+  padding: 24px;
+  flex: 1;
+}
+
+/* Common Sales Cards - Harmonized */
+.sales-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 24px;
+  margin-bottom: 24px;
+}
+
+.sales-stat-card {
+  background: white;
+  padding: 20px;
+  border-radius: 14px;
+  box-shadow: var(--sales-shadow);
+  border: 1px solid var(--sales-border);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.stat-icon-wrapper {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+}
+
+.stat-details h4 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--sales-text-muted);
+}
+
+.stat-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--sales-text-main);
+  margin-top: 2px;
+}
+
+/* Overriding Warehouse components for Sales Dashboard - Keep consistent */
+.sales-layout .warehouse-page-title {
+  color: #111827;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.sales-layout .warehouse-page-subtitle {
+  color: #6b7280;
+  font-size: 14px;
+}
+
+.sales-layout .warehouse-card {
+  border-radius: 14px;
+  border: 1px solid var(--sales-border);
+  box-shadow: var(--sales-shadow);
+  background: white;
+  padding: 20px;
+}
+
+.sales-layout .warehouse-btn-primary {
+  background: var(--sales-primary);
+  border-radius: 8px;
+}
+
+.sales-layout .warehouse-btn-primary:hover {
+  background: var(--sales-primary-hover);
+}
+
+.sales-layout .product-items-container {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+}
+
+.total-value {
+    color: #0d9488 !important;
+}
+
+.product-totals-card {
+    background: #fff !important;
+    border: 1px solid #e5e7eb;
+    color: #111827 !important;
+}
+
+.total-label {
+    color: #6b7280;
+}
+
+/* Status Badges */
+.warehouse-status-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.warehouse-status-confirmed {
+  background: #ecfdf5;
+  color: #059669;
+}
+
+.warehouse-status-cancelled {
+  background: #fff7ed;
+  color: #ea580c;
+}

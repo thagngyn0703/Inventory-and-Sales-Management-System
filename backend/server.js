@@ -7,7 +7,16 @@ const authRoutes = require('./routes/auth');
 const categoryRoutes = require('./routes/categories');
 const productRoutes = require('./routes/products');
 const stocktakeRoutes = require('./routes/stocktakes');
+const stockAdjustmentRoutes = require('./routes/stockAdjustments');
+const supplierRoutes = require('./routes/suppliers');
 const invoiceRoutes = require('./routes/invoices');
+const returnRoutes = require('./routes/returns');
+const purchaseOrderRoutes = require('./routes/purchaseOrders');
+const goodsReceiptRoutes = require('./routes/goodsReceipts');
+const notificationRoutes = require('./routes/notifications');
+const analyticsRoutes = require('./routes/analytics');
+const adminStoreRoutes = require('./routes/adminStores');
+const rbacRoutes = require('./routes/rbac');
 const { hasSmtpConfig } = require('./services/emailService');
 
 const app = express();
@@ -35,7 +44,16 @@ app.use('/api/auth', authRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/stocktakes', stocktakeRoutes);
+app.use('/api/stock-adjustments', stockAdjustmentRoutes);
+app.use('/api/suppliers', supplierRoutes);
 app.use('/api/invoices', invoiceRoutes);
+app.use('/api/returns', returnRoutes);
+app.use('/api/purchase-orders', purchaseOrderRoutes);
+app.use('/api/goods-receipts', goodsReceiptRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/analytics', analyticsRoutes);
+app.use('/api/admin/stores', adminStoreRoutes);
+app.use('/api/admin/rbac', rbacRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

@@ -7,6 +7,12 @@ const stocktakeSchema = new Schema(
             ref: 'Warehouse',
             required: false,
         },
+        storeId: {
+            type: Schema.Types.ObjectId,
+            ref: 'Store',
+            required: false,
+            index: true,
+        },
         created_by: {
             type: Schema.Types.ObjectId,
             ref: 'User',
@@ -49,6 +55,11 @@ const stocktakeSchema = new Schema(
         ],
         completed_at: {
             type: Date,
+        },
+        reject_reason: {
+            type: String,
+            trim: true,
+            default: '',
         },
         created_at: {
             type: Date,

@@ -7,6 +7,12 @@ const notificationSchema = new Schema(
             ref: 'User',
             required: true,
         },
+        storeId: {
+            type: Schema.Types.ObjectId,
+            ref: 'Store',
+            default: null,
+            index: true,
+        },
         type: {
             type: String,
             required: true,
@@ -29,6 +35,10 @@ const notificationSchema = new Schema(
         related_id: {
             type: Schema.Types.ObjectId,
         },
+        unique_key: {
+            type: String,
+            trim: true,
+        },
         created_at: {
             type: Date,
             default: Date.now,
@@ -38,5 +48,8 @@ const notificationSchema = new Schema(
         timestamps: false,
     }
 );
+
+notificationSchema.index({ user_id: 1, storeId: 1, is_read: 1, created_at: -1 });
+notificationSchema.index({ unique_key: 1 }, { unique: true, sparse: true });
 
 module.exports = model('Notification', notificationSchema);

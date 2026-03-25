@@ -24,3 +24,8 @@ export function hasAnyRole(user, allowedRoles) {
   return allowedRoles.map(normalizeRole).includes(role);
 }
 
+export function logout() {
+  localStorage.removeItem("token");
+  localStorage.removeItem("user");
+}
+
