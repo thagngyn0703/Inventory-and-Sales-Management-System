@@ -6,6 +6,8 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
+console.log('ProductRequests route loaded');
+
 function escapeRegex(s) {
   return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -22,6 +24,8 @@ function normalizeProduct(p) {
 
 // POST /api/product-requests (warehouse, admin, manager)
 router.post('/', requireAuth, requireRole(['warehouse', 'admin', 'manager']), async (req, res) => {
+  console.log('POST /api/product-requests called by', req.user?.id, req.user?.role);
+  console.log('body:', JSON.stringify(req.body).slice(0, 1000));
   try {
     const {
       category_id,
@@ -85,6 +89,7 @@ router.post('/', requireAuth, requireRole(['warehouse', 'admin', 'manager']), as
 
     return res.status(201).json({ productRequest: normalizeProduct(doc.toObject()) });
   } catch (err) {
+    console.error('ProductRequest create error:', err);
     if (err?.code === 11000) {
       const field = Object.keys(err.keyPattern || {})[0] || 'field';
       return res.status(409).json({ message: `${field} already exists in requests format` });

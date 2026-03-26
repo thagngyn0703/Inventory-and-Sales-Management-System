@@ -115,8 +115,9 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
   }
 });
 
-// GET /api/suppliers?q=...&status=active|inactive|all&page=1&limit=20&sort=name|created_at  (manager, admin)
-router.get('/', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
+// GET /api/suppliers?q=...&status=active|inactive|all&page=1&limit=20&sort=name|created_at  (manager, admin, warehouse)
+// Warehouse staff may need to read active suppliers for dropdowns when creating receipts.
+router.get('/', requireAuth, requireRole(['manager', 'admin', 'warehouse']), async (req, res) => {
   try {
     const { q = '', status = 'active', page = '1', limit = '20', sort = 'name' } = req.query;
     const query = String(q || '').trim();
@@ -169,8 +170,9 @@ router.get('/', requireAuth, requireRole(['manager', 'admin']), async (req, res)
   }
 });
 
-// GET /api/suppliers/:id  (manager, admin)
-router.get('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
+// GET /api/suppliers/:id  (manager, admin, warehouse)
+// Allow warehouse staff to read supplier details for creating receipts.
+router.get('/:id', requireAuth, requireRole(['manager', 'admin', 'warehouse']), async (req, res) => {
   try {
     const { id } = req.params;
     if (!mongoose.isValidObjectId(id)) {

@@ -298,7 +298,13 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
                     <button type="button" className="warehouse-btn warehouse-btn-secondary" onClick={onClose} disabled={loading}>
                         Hủy
                     </button>
-                    <button type="submit" form="product-create-form" className="warehouse-btn warehouse-btn-primary" disabled={loading}>
+                    <button
+                        type="submit"
+                        form="product-create-form"
+                        className="warehouse-btn warehouse-btn-primary"
+                        disabled={loading}
+                        onClick={handleSubmit}
+                    >
                         {loading ? 'Đang gửi...' : 'Gửi yêu cầu tạo sản phẩm'}
                     </button>
                 </div>

@@ -32,6 +32,8 @@ export default function WarehouseSidebar() {
   const navItems = [
     { label: 'Tổng quan', path: '/warehouse', icon: 'fa-house' },
     { label: 'Kiểm kê kho', path: '/warehouse/stocktakes', icon: 'fa-clipboard-list' },
+    { label: 'Danh sách phiếu nhập', path: '/warehouse/receipts', icon: 'fa-list' },
+    { label: 'Nhập hàng', path: '/warehouse/receipts/new', icon: 'fa-box' },
   ];
 
   const isActive = (path) => location.pathname === path;

@@ -272,15 +272,11 @@ export default function ManagerProductRequests() {
             </div>
 
             {confirmModal.show && (
-                <div className="manager-modal-overlay">
-                    <div className="manager-modal-content">
-                        <div className="manager-modal-header">
-                            <h2>{confirmModal.title}</h2>
-                        </div>
-                        <div className="manager-modal-body">
-                            <p>{confirmModal.message}</p>
-                        </div>
-                        <div className="manager-modal-actions">
+                <div className="manager-reason-modal-overlay" onClick={handleConfirmClose}>
+                    <div className="manager-reason-modal-box" onClick={(e) => e.stopPropagation()}>
+                        <h3 className="manager-reason-modal-title">{confirmModal.title}</h3>
+                        <p className="manager-reason-modal-hint">{confirmModal.message}</p>
+                        <div className="manager-reason-modal-actions">
                             <button className="manager-btn-secondary" onClick={handleConfirmClose}>
                                 Hủy
                             </button>
