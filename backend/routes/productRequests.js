@@ -47,16 +47,16 @@ router.post('/', requireAuth, requireRole(['warehouse', 'admin', 'manager']), as
     // Check if sku already exists in Product or ProductRequest (pending/approved)
     const existingProduct = await Product.findOne({ sku: String(sku).trim() });
     if (existingProduct) {
-        return res.status(409).json({ message: 'sku already exists in Products' });
+      return res.status(409).json({ message: 'sku already exists in Products' });
     }
 
     const base = base_unit ? String(base_unit).trim() : 'Cái';
     let selling_units = Array.isArray(bodyUnits) && bodyUnits.length > 0
       ? bodyUnits.map((u) => ({
-          name: String(u.name || '').trim() || base,
-          ratio: Number(u.ratio) > 0 ? Number(u.ratio) : 1,
-          sale_price: Number(u.sale_price) >= 0 ? Number(u.sale_price) : 0,
-        }))
+        name: String(u.name || '').trim() || base,
+        ratio: Number(u.ratio) > 0 ? Number(u.ratio) : 1,
+        sale_price: Number(u.sale_price) >= 0 ? Number(u.sale_price) : 0,
+      }))
       : [{ name: base, ratio: 1, sale_price: Number(sale_price) >= 0 ? Number(sale_price) : 0 }];
 
     const hasBase = selling_units.some((u) => u.ratio === 1);
@@ -103,7 +103,7 @@ router.get('/', requireAuth, requireRole(['manager', 'admin']), async (req, res)
 
     const filter = {};
     if (status) {
-        filter.status = status;
+      filter.status = status;
     }
     if (query) {
       const re = new RegExp(escapeRegex(query), 'i');
@@ -154,76 +154,76 @@ router.get('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
 
 // POST /api/product-requests/:id/approve (manager, admin)
 router.post('/:id/approve', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
-    try {
-        const { id } = req.params;
-        if (!mongoose.isValidObjectId(id)) {
-            return res.status(400).json({ message: 'Invalid request id' });
-        }
-        
-        const request = await ProductRequest.findById(id);
-        if (!request) return res.status(404).json({ message: 'Product request not found' });
-        if (request.status !== 'pending') {
-            return res.status(400).json({ message: `Request is already ${request.status}` });
-        }
-
-        // Check if SKU exists
-        const existingProduct = await Product.findOne({ sku: request.sku });
-        if (existingProduct) {
-            return res.status(409).json({ message: 'sku already exists in Products' });
-        }
-
-        // Create product
-        const newProduct = await Product.create({
-            category_id: request.category_id,
-            name: request.name,
-            sku: request.sku,
-            barcode: request.barcode,
-            cost_price: request.cost_price,
-            sale_price: request.sale_price,
-            stock_qty: request.stock_qty,
-            reorder_level: request.reorder_level,
-            base_unit: request.base_unit,
-            selling_units: request.selling_units,
-            status: 'active'
-        });
-
-        // Update request status
-        request.status = 'approved';
-        request.approved_by = req.user.id;
-        request.updated_at = new Date();
-        await request.save();
-
-        return res.json({ message: 'Product approved and created successfully', product: normalizeProduct(newProduct.toObject()) });
-    } catch (err) {
-        console.error('Approve error:', err);
-        return res.status(500).json({ message: 'Server error during approval' });
+  try {
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ message: 'Invalid request id' });
     }
+
+    const request = await ProductRequest.findById(id);
+    if (!request) return res.status(404).json({ message: 'Product request not found' });
+    if (request.status !== 'pending') {
+      return res.status(400).json({ message: `Request is already ${request.status}` });
+    }
+
+    // Check if SKU exists
+    const existingProduct = await Product.findOne({ sku: request.sku });
+    if (existingProduct) {
+      return res.status(409).json({ message: 'sku already exists in Products' });
+    }
+
+    // Create product
+    const newProduct = await Product.create({
+      category_id: request.category_id,
+      name: request.name,
+      sku: request.sku,
+      barcode: request.barcode,
+      cost_price: request.cost_price,
+      sale_price: request.sale_price,
+      stock_qty: request.stock_qty,
+      reorder_level: request.reorder_level,
+      base_unit: request.base_unit,
+      selling_units: request.selling_units,
+      status: 'active'
+    });
+
+    // Update request status
+    request.status = 'approved';
+    request.approved_by = req.user.id;
+    request.updated_at = new Date();
+    await request.save();
+
+    return res.json({ message: 'Product approved and created successfully', product: normalizeProduct(newProduct.toObject()) });
+  } catch (err) {
+    console.error('Approve error:', err);
+    return res.status(500).json({ message: 'Server error during approval' });
+  }
 });
 
 // POST /api/product-requests/:id/reject (manager, admin)
 router.post('/:id/reject', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
-    try {
-        const { id } = req.params;
-        if (!mongoose.isValidObjectId(id)) {
-            return res.status(400).json({ message: 'Invalid request id' });
-        }
-        
-        const request = await ProductRequest.findById(id);
-        if (!request) return res.status(404).json({ message: 'Product request not found' });
-        if (request.status !== 'pending') {
-            return res.status(400).json({ message: `Request is already ${request.status}` });
-        }
-
-        // Update request status
-        request.status = 'rejected';
-        request.approved_by = req.user.id;
-        request.updated_at = new Date();
-        await request.save();
-
-        return res.json({ message: 'Product request rejected successfully', productRequest: normalizeProduct(request.toObject()) });
-    } catch (err) {
-        return res.status(500).json({ message: 'Server error' });
+  try {
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ message: 'Invalid request id' });
     }
+
+    const request = await ProductRequest.findById(id);
+    if (!request) return res.status(404).json({ message: 'Product request not found' });
+    if (request.status !== 'pending') {
+      return res.status(400).json({ message: `Request is already ${request.status}` });
+    }
+
+    // Update request status
+    request.status = 'rejected';
+    request.approved_by = req.user.id;
+    request.updated_at = new Date();
+    await request.save();
+
+    return res.json({ message: 'Product request rejected successfully', productRequest: normalizeProduct(request.toObject()) });
+  } catch (err) {
+    return res.status(500).json({ message: 'Server error' });
+  }
 });
 
 module.exports = router;

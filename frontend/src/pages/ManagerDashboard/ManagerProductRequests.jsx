@@ -16,7 +16,7 @@ export default function ManagerProductRequests() {
     const [search, setSearch] = useState('');
     const [searchInput, setSearchInput] = useState('');
     const [statusFilter, setStatusFilter] = useState('');
-    
+
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [successMessage, setSuccessMessage] = useState('');
@@ -65,7 +65,7 @@ export default function ManagerProductRequests() {
     const handleConfirmSubmit = async () => {
         const { action, id } = confirmModal;
         handleConfirmClose();
-        
+
         if (action === 'approve') {
             setProcessingId(id);
             setError('');
@@ -137,8 +137,8 @@ export default function ManagerProductRequests() {
                     </div>
 
                     <div style={{ marginBottom: 16, display: 'flex', gap: 16 }}>
-                        <select 
-                            value={statusFilter} 
+                        <select
+                            value={statusFilter}
                             onChange={handleFilterChange}
                             style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #e5e7eb' }}
                         >
@@ -167,7 +167,7 @@ export default function ManagerProductRequests() {
                                                 <th>Tên sản phẩm</th>
                                                 <th>Giá vốn</th>
                                                 <th>Giá bán</th>
-                                                <th>Người yêu cầu</th>
+                                                <th>Ngày gửi</th>
                                                 <th>Ghi chú</th>
                                                 <th>Trạng thái</th>
                                                 <th>Thao tác</th>
@@ -284,8 +284,8 @@ export default function ManagerProductRequests() {
                             <button className="manager-btn-secondary" onClick={handleConfirmClose}>
                                 Hủy
                             </button>
-                            <button 
-                                className="manager-btn-primary" 
+                            <button
+                                className="manager-btn-primary"
                                 style={confirmModal.action === 'reject' ? { background: '#dc2626' } : {}}
                                 onClick={handleConfirmSubmit}
                             >
