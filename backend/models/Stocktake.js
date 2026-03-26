@@ -7,6 +7,12 @@ const stocktakeSchema = new Schema(
             ref: 'Warehouse',
             required: false,
         },
+        storeId: {
+            type: Schema.Types.ObjectId,
+            ref: 'Store',
+            required: false,
+            index: true,
+        },
         created_by: {
             type: Schema.Types.ObjectId,
             ref: 'User',

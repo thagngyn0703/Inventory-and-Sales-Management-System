@@ -4,6 +4,15 @@ function getToken() {
   return localStorage.getItem('token') || '';
 }
 
+export async function checkAdjustmentsApi() {
+  try {
+    const res = await fetch(`${API_BASE}/stock-adjustments/health`);
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * @param {{ page?: number, limit?: number, status?: string }} params
  */
@@ -17,7 +26,12 @@ export async function getAdjustments(params = {}) {
     headers: { Authorization: `Bearer ${token}` },
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.message || 'Không thể tải lịch sử điều chỉnh');
+  if (!res.ok) {
+    if (res.status === 404) {
+      throw new Error('Backend chưa có route lịch sử điều chỉnh. Hãy khởi động lại server backend (npm start trong thư mục backend).');
+    }
+    throw new Error(data.message || 'Không thể tải lịch sử điều chỉnh');
+  }
   return data;
 }
 

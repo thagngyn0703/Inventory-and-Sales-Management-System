@@ -29,6 +29,14 @@ const customerSchema = new Schema(
             type: Number,
             default: 0,
         },
+        credit_limit: {
+            type: Number,
+            default: 0,
+        },
+        is_regular: {
+            type: Boolean,
+            default: false,
+        },
         created_at: {
             type: Date,
             default: Date.now,

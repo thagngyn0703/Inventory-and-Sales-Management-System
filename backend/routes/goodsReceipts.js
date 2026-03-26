@@ -1,119 +1,69 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const GoodsReceipt = require('../models/GoodsReceipt');
-const Product = require('../models/Product');
 const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
-// Get all receipts
-router.get('/', requireAuth, requireRole(['manager', 'warehouse', 'admin']), async (req, res) => {
+// GET /api/goods-receipts?page=&limit=&status=&supplier_id=
+router.get('/', requireAuth, requireRole(['manager', 'admin', 'warehouse']), async (req, res) => {
     try {
-        const { status } = req.query;
+        const { page = '1', limit = '20', status, supplier_id } = req.query;
+        const pageNum = Math.max(1, parseInt(page, 10) || 1);
+        const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
         const filter = {};
-        if (status) filter.status = status;
-        const receipts = await GoodsReceipt.find(filter)
-            .sort({ created_at: -1 })
-            .populate('supplier_id', 'name phone email')
-            .populate('received_by', 'fullName email')
-            .populate('approved_by', 'fullName email');
-        res.json({ goodsReceipts: receipts });
-    } catch (error) {
-        res.status(500).json({ message: 'Server error', error: error.message });
-    }
-});
+        if (status && ['pending', 'approved', 'rejected'].includes(status)) {
+            filter.status = status;
+        }
+        if (supplier_id && mongoose.isValidObjectId(supplier_id)) {
+            filter.supplier_id = new mongoose.Types.ObjectId(supplier_id);
+        }
 
-// Get a single receipt
-router.get('/:id', requireAuth, requireRole(['manager', 'warehouse', 'admin']), async (req, res) => {
-    try {
-        const receipt = await GoodsReceipt.findById(req.params.id)
-            .populate('supplier_id', 'name phone email address')
+        const total = await GoodsReceipt.countDocuments(filter);
+        const skip = (pageNum - 1) * limitNum;
+        const list = await GoodsReceipt.find(filter)
+            .sort({ received_at: -1 })
+            .skip(skip)
+            .limit(limitNum)
+            .populate('supplier_id', 'name phone email')
+            .populate('po_id', 'status expected_date')
             .populate('received_by', 'fullName email')
             .populate('approved_by', 'fullName email')
-            .populate('items.product_id', 'name sku base_unit');
-        if (!receipt) return res.status(404).json({ message: 'Receipt not found' });
-        res.json({ goodsReceipt: receipt });
-    } catch (error) {
-        res.status(500).json({ message: 'Server error', error: error.message });
-    }
-});
+            .populate('items.product_id', 'name sku')
+            .lean();
 
-// Create a new receipt (draft or pending)
-router.post('/', requireAuth, requireRole(['warehouse', 'admin']), async (req, res) => {
-    try {
-        const { supplier_id, reason, status = 'draft', items, total_amount } = req.body;
-        
-        if (!items || items.length === 0) {
-            return res.status(400).json({ message: 'Items cannot be empty' });
-        }
-
-        const receipt = new GoodsReceipt({
-            supplier_id,
-            reason,
-            status,
-            items,
-            total_amount,
-            received_by: req.user.id
+        return res.json({
+            goodsReceipts: list,
+            total,
+            page: pageNum,
+            limit: limitNum,
+            totalPages: Math.ceil(total / limitNum) || 1,
         });
-
-        await receipt.save();
-        res.status(201).json({ goodsReceipt: receipt, message: 'Receipt created successfully' });
-    } catch (error) {
-        res.status(500).json({ message: 'Server error', error: error.message });
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({ message: err.message || 'Server error' });
     }
 });
 
-// Update a draft receipt
-router.put('/:id', requireAuth, requireRole(['warehouse', 'admin']), async (req, res) => {
+// GET /api/goods-receipts/:id
+router.get('/:id', requireAuth, requireRole(['manager', 'admin', 'warehouse']), async (req, res) => {
     try {
-        const { supplier_id, reason, items, total_amount, status } = req.body;
-        const receipt = await GoodsReceipt.findById(req.params.id);
-        
-        if (!receipt) return res.status(404).json({ message: 'Receipt not found' });
-        if (receipt.status === 'approved') return res.status(400).json({ message: 'Cannot edit an approved receipt' });
-
-        receipt.supplier_id = supplier_id || receipt.supplier_id;
-        receipt.reason = reason !== undefined ? reason : receipt.reason;
-        receipt.items = items || receipt.items;
-        receipt.total_amount = total_amount !== undefined ? total_amount : receipt.total_amount;
-        if (status) receipt.status = status;
-
-        await receipt.save();
-        res.json({ goodsReceipt: receipt, message: 'Receipt updated successfully' });
-    } catch (error) {
-        res.status(500).json({ message: 'Server error', error: error.message });
-    }
-});
-
-// Change status (manager approves/rejects)
-router.patch('/:id/status', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
-    try {
-        const { status } = req.body;
-        if (!['approved', 'rejected'].includes(status)) {
-            return res.status(400).json({ message: 'Invalid status update' });
+        const { id } = req.params;
+        if (!mongoose.isValidObjectId(id)) {
+            return res.status(400).json({ message: 'Invalid goods receipt id' });
         }
-
-        const receipt = await GoodsReceipt.findById(req.params.id);
-        if (!receipt) return res.status(404).json({ message: 'Receipt not found' });
-        if (receipt.status === 'approved') return res.status(400).json({ message: 'Receipt is already approved' });
-
-        receipt.status = status;
-        if (status === 'approved') {
-            receipt.approved_by = req.user.id;
-            
-            // Update stock quantities
-            for (const item of receipt.items) {
-                const ratio = item.ratio || 1;
-                await Product.findByIdAndUpdate(item.product_id, {
-                    $inc: { stock_qty: item.quantity * ratio }
-                });
-            }
-        }
-
-        await receipt.save();
-        res.json({ goodsReceipt: receipt, message: `Receipt ${status} successfully` });
-    } catch (error) {
-        res.status(500).json({ message: 'Server error', error: error.message });
+        const gr = await GoodsReceipt.findById(id)
+            .populate('supplier_id', 'name phone email address')
+            .populate('po_id')
+            .populate('received_by', 'fullName email')
+            .populate('approved_by', 'fullName email')
+            .populate('items.product_id', 'name sku')
+            .lean();
+        if (!gr) return res.status(404).json({ message: 'Goods receipt not found' });
+        return res.json({ goodsReceipt: gr });
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({ message: err.message || 'Server error' });
     }
 });
 

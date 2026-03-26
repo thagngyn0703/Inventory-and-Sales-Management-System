@@ -1,16 +1,278 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const Supplier = require('../models/Supplier');
 const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
-router.get('/', requireAuth, requireRole(['manager', 'warehouse', 'admin']), async (req, res) => {
-    try {
-        const suppliers = await Supplier.find({ status: 'active' }).sort({ name: 1 }).lean();
-        res.json({ suppliers });
-    } catch (error) {
-        res.status(500).json({ message: 'Server error', error: error.message });
+function escapeRegex(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function normalizeStr(v) {
+  const s = v != null ? String(v).trim() : '';
+  return s || '';
+}
+
+function normalizeContacts(contacts) {
+  if (!Array.isArray(contacts)) return [];
+  return contacts
+    .map((c) => ({
+      name: c?.name != null ? String(c.name).trim() : '',
+      phone: c?.phone != null ? String(c.phone).trim() : '',
+      email: c?.email != null ? String(c.email).trim().toLowerCase() : '',
+      position: c?.position != null ? String(c.position).trim() : '',
+      note: c?.note != null ? String(c.note).trim() : '',
+    }))
+    .filter((c) => c.name || c.phone || c.email || c.position || c.note);
+}
+
+function getSupplierScopeFilter(req) {
+  const role = String(req.user?.role || '').toLowerCase();
+  if (role === 'manager') {
+    return { storeId: req.user?.storeId || null };
+  }
+  return {};
+}
+
+async function findSupplierDuplicate({ scopeFilter = {}, excludeId, code, tax_code, name }) {
+  const or = [];
+
+  const codeNorm = normalizeStr(code);
+  if (codeNorm) or.push({ code: codeNorm });
+
+  const taxNorm = normalizeStr(tax_code);
+  if (taxNorm) or.push({ tax_code: taxNorm });
+
+  const nameNorm = normalizeStr(name);
+  if (nameNorm) {
+    // exact match but case-insensitive
+    or.push({ name: new RegExp(`^${escapeRegex(nameNorm)}$`, 'i') });
+  }
+
+  if (!or.length) return null;
+
+  const filter = { ...scopeFilter, $or: or };
+  if (excludeId && mongoose.isValidObjectId(excludeId)) {
+    filter._id = { $ne: excludeId };
+  }
+
+  return Supplier.findOne(filter).select('_id code name tax_code').lean();
+}
+
+// POST /api/suppliers  (manager, admin)
+router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
+  try {
+    const scopeFilter = getSupplierScopeFilter(req);
+    const {
+      code,
+      name,
+      phone,
+      email,
+      address,
+      tax_code,
+      contacts,
+      note,
+      status,
+      payable_account,
+    } = req.body || {};
+
+    if (!name || !String(name).trim()) {
+      return res.status(400).json({ message: 'name is required' });
     }
+
+    const duplicate = await findSupplierDuplicate({ scopeFilter, code, tax_code, name });
+    if (duplicate) {
+      return res.status(409).json({
+        message: 'Supplier already exists',
+        duplicate,
+      });
+    }
+
+    const doc = await Supplier.create({
+      code: code != null && String(code).trim() ? String(code).trim() : undefined,
+      name: String(name).trim(),
+      phone: phone != null && String(phone).trim() ? String(phone).trim() : undefined,
+      email: email != null && String(email).trim() ? String(email).trim().toLowerCase() : undefined,
+      address: address != null && String(address).trim() ? String(address).trim() : undefined,
+      tax_code: tax_code != null && String(tax_code).trim() ? String(tax_code).trim() : undefined,
+      contacts: normalizeContacts(contacts),
+      note: note != null && String(note).trim() ? String(note).trim() : undefined,
+      status: status === 'inactive' ? 'inactive' : 'active',
+      payable_account: payable_account != null ? Number(payable_account) || 0 : undefined,
+      storeId: req.user?.role === 'manager' ? (req.user?.storeId || null) : undefined,
+      created_at: new Date(),
+      updated_at: new Date(),
+    });
+
+    return res.status(201).json({ supplier: doc.toObject() });
+  } catch (err) {
+    if (err?.code === 11000) {
+      const field = Object.keys(err.keyPattern || {})[0] || 'field';
+      return res.status(409).json({ message: `${field} already exists` });
+    }
+    return res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// GET /api/suppliers?q=...&status=active|inactive|all&page=1&limit=20&sort=name|created_at  (manager, admin)
+router.get('/', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
+  try {
+    const { q = '', status = 'active', page = '1', limit = '20', sort = 'name' } = req.query;
+    const query = String(q || '').trim();
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
+
+    const filter = getSupplierScopeFilter(req);
+    const statusNorm = String(status || '').toLowerCase();
+    if (statusNorm === 'active' || statusNorm === 'inactive') {
+      filter.status = statusNorm;
+    } else if (statusNorm !== 'all' && statusNorm !== '') {
+      // unknown value -> keep default active behavior for backward compatibility
+      filter.status = 'active';
+    }
+
+    if (query) {
+      const re = new RegExp(escapeRegex(query), 'i');
+      filter.$or = [
+        { name: re },
+        { code: re },
+        { phone: re },
+        { email: re },
+        { address: re },
+        { tax_code: re },
+        { 'contacts.name': re },
+        { 'contacts.phone': re },
+        { 'contacts.email': re },
+      ];
+    }
+
+    const total = await Supplier.countDocuments(filter);
+    const skip = (pageNum - 1) * limitNum;
+    const sortObj = String(sort || '') === 'created_at' ? { created_at: -1 } : { name: 1 };
+
+    const suppliers = await Supplier.find(filter)
+      .sort(sortObj)
+      .skip(skip)
+      .limit(limitNum)
+      .lean();
+
+    return res.json({
+      suppliers,
+      total,
+      page: pageNum,
+      limit: limitNum,
+      totalPages: Math.ceil(total / limitNum) || 1,
+    });
+  } catch (err) {
+    return res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// GET /api/suppliers/:id  (manager, admin)
+router.get('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ message: 'Invalid supplier id' });
+    }
+    const scopeFilter = getSupplierScopeFilter(req);
+    const supplier = await Supplier.findOne({ _id: id, ...scopeFilter }).lean();
+    if (!supplier) return res.status(404).json({ message: 'Supplier not found' });
+    return res.json({ supplier });
+  } catch (err) {
+    return res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// PUT /api/suppliers/:id  (manager, admin)
+router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ message: 'Invalid supplier id' });
+    }
+
+    const scopeFilter = getSupplierScopeFilter(req);
+    const supplier = await Supplier.findOne({ _id: id, ...scopeFilter });
+    if (!supplier) return res.status(404).json({ message: 'Supplier not found' });
+
+    const {
+      code,
+      name,
+      phone,
+      email,
+      address,
+      tax_code,
+      contacts,
+      note,
+      status,
+      payable_account,
+    } = req.body || {};
+
+    const nextCode = code !== undefined ? normalizeStr(code) : normalizeStr(supplier.code);
+    const nextTax = tax_code !== undefined ? normalizeStr(tax_code) : normalizeStr(supplier.tax_code);
+    const nextName = name !== undefined ? normalizeStr(name) : normalizeStr(supplier.name);
+
+    const duplicate = await findSupplierDuplicate({
+      scopeFilter,
+      excludeId: id,
+      code: nextCode,
+      tax_code: nextTax,
+      name: nextName,
+    });
+    if (duplicate) {
+      return res.status(409).json({
+        message: 'Supplier already exists',
+        duplicate,
+      });
+    }
+
+    if (code !== undefined) supplier.code = code && String(code).trim() ? String(code).trim() : undefined;
+    if (name !== undefined) supplier.name = String(name).trim();
+    if (phone !== undefined) supplier.phone = phone && String(phone).trim() ? String(phone).trim() : undefined;
+    if (email !== undefined) supplier.email = email && String(email).trim() ? String(email).trim().toLowerCase() : undefined;
+    if (address !== undefined) supplier.address = address && String(address).trim() ? String(address).trim() : undefined;
+    if (tax_code !== undefined) supplier.tax_code = tax_code && String(tax_code).trim() ? String(tax_code).trim() : undefined;
+    if (note !== undefined) supplier.note = note && String(note).trim() ? String(note).trim() : undefined;
+    if (status !== undefined) supplier.status = status === 'inactive' ? 'inactive' : 'active';
+    if (payable_account !== undefined) supplier.payable_account = Number(payable_account) || 0;
+    if (contacts !== undefined) supplier.contacts = normalizeContacts(contacts);
+
+    supplier.updated_at = new Date();
+    await supplier.save();
+
+    return res.json({ supplier: supplier.toObject() });
+  } catch (err) {
+    if (err?.code === 11000) {
+      const field = Object.keys(err.keyPattern || {})[0] || 'field';
+      return res.status(409).json({ message: `${field} already exists` });
+    }
+    return res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// PATCH /api/suppliers/:id/status  (manager, admin) - body: { status: 'active' | 'inactive' }
+router.patch('/:id/status', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ message: 'Invalid supplier id' });
+    }
+    const scopeFilter = getSupplierScopeFilter(req);
+    const { status } = req.body || {};
+    const newStatus = status === 'inactive' ? 'inactive' : 'active';
+
+    const supplier = await Supplier.findOneAndUpdate(
+      { _id: id, ...scopeFilter },
+      { status: newStatus, updated_at: new Date() },
+      { new: true }
+    ).lean();
+    if (!supplier) return res.status(404).json({ message: 'Supplier not found' });
+    return res.json({ supplier });
+  } catch (err) {
+    return res.status(500).json({ message: 'Server error' });
+  }
 });
 
 module.exports = router;

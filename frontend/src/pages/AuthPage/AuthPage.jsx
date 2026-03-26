@@ -10,6 +10,17 @@ const API_BASE = "http://localhost:8000/api";
 
 const isEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 
+function getPostLoginPath(user) {
+    const role = normalizeRole(user?.role);
+    const hasStoreId = Boolean(user?.storeId);
+
+    if (role === "admin") return "/admin";
+    if (role === "manager") return hasStoreId ? "/manager" : "/manager/store/register";
+    if (role === "warehouse") return hasStoreId ? "/warehouse" : "/no-store-assigned";
+    if (role === "sales") return hasStoreId ? "/sales" : "/no-store-assigned";
+    return "/home";
+}
+
 export default function AuthPage() {
     const navigate = useNavigate();
     const [mode, setMode] = useState("login"); // "login" | "register" | "verify"
@@ -96,16 +107,7 @@ export default function AuthPage() {
                 if (data.token) localStorage.setItem("token", data.token);
                 if (data.user) localStorage.setItem("user", JSON.stringify(data.user));
                 alert("Xác minh thành công!");
-                const role = normalizeRole(data.user?.role);
-                if (role === "admin") {
-                    navigate("/admin", { replace: true });
-                } else if (role === "manager" || role === "sales") {
-                    navigate("/manager", { replace: true });
-                } else if (role === "warehouse") {
-                    navigate("/warehouse", { replace: true });
-                } else {
-                    navigate("/home", { replace: true });
-                }
+                navigate(getPostLoginPath(data.user), { replace: true });
                 return;
             }
 
@@ -113,7 +115,7 @@ export default function AuthPage() {
             const payload =
                 mode === "login"
                     ? { email: email.trim(), password }
-                    : { fullName: fullName.trim(), email: email.trim(), password };
+                    : { fullName: fullName.trim(), email: email.trim(), password, role: "manager" };
 
             const res = await fetch(`${API_BASE}${endpoint}`, {
                 method: "POST",
@@ -131,16 +133,7 @@ export default function AuthPage() {
                 if (data.token) localStorage.setItem("token", data.token);
                 if (data.user) localStorage.setItem("user", JSON.stringify(data.user));
 
-                const role = normalizeRole(data.user?.role);
-                if (role === "admin") {
-                    navigate("/admin", { replace: true });
-                } else if (role === "manager" || role === "sales") {
-                    navigate("/manager", { replace: true });
-                } else if (role === "warehouse") {
-                    navigate("/warehouse", { replace: true });
-                } else {
-                    navigate("/home", { replace: true });
-                }
+                navigate(getPostLoginPath(data.user), { replace: true });
                 console.log("USER LOGIN:", data.user);
                 console.log("ROLE:", data.user?.role, typeof data.user?.role);
 
