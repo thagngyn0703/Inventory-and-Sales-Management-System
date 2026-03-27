@@ -34,6 +34,7 @@ export default function ManagerSidebar() {
         { label: 'Đơn hàng', path: '/manager/orders', icon: 'fa-file-lines' },
         { label: 'Sản phẩm', path: '/manager/products', icon: 'fa-cart-shopping' },
         { label: 'Danh mục', path: '/manager/categories', icon: 'fa-list' },
+        { label: 'Yêu cầu tạo sản phẩm', path: '/manager/product-requests', icon: 'fa-box-open' },
         { label: 'Hóa đơn', path: '/manager/invoices', icon: 'fa-receipt' },
         { label: 'Giao dịch đến (NCC)', path: '/manager/incoming-transactions', icon: 'fa-truck-ramp-box' },
         { label: 'Nhà cung cấp', path: '/manager/suppliers', icon: 'fa-handshake' },
@@ -45,6 +46,7 @@ export default function ManagerSidebar() {
 
     const manageItems = [
         { label: 'Kiểm kê chờ duyệt', path: '/manager/stocktakes/pending', icon: 'fa-clipboard-check' },
+        { label: 'Phiếu nhập chờ duyệt', path: '/manager/receipts', icon: 'fa-file-invoice' },
         { label: 'Lịch sử điều chỉnh', path: '/manager/adjustments', icon: 'fa-clock-rotate-left' },
         { label: 'Tạo tài khoản nhân viên', path: '/manager/staff/new', icon: 'fa-user-plus' },
         { label: 'Quản lý nhân viên', path: '/manager/staff/manage', icon: 'fa-users-gear' },

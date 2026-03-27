@@ -142,3 +142,63 @@ export async function commitProductImport(rows) {
     if (!res.ok) throw new Error(data.message || 'Import thất bại');
     return data;
 }
+
+// --- Product requests (warehouse -> manager) ---
+export async function createProductRequest(body) {
+    const token = getToken();
+    console.log('createProductRequest body:', body);
+    const res = await fetch(`${API_BASE}/product-requests`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(body),
+    });
+    const text = await res.text().catch(() => '');
+    let data = {};
+    try { data = text ? JSON.parse(text) : {}; } catch (e) { data = { _raw: text }; }
+    console.log('createProductRequest response status:', res.status, 'body:', data);
+    if (!res.ok) throw new Error(data.message || 'Không thể gửi yêu cầu tạo sản phẩm');
+    return data.productRequest;
+}
+
+export async function getProductRequests(page = 1, limit = 20, query = '', status) {
+    const token = getToken();
+    const url = new URL(`${API_BASE}/product-requests`);
+    url.searchParams.set('page', String(page));
+    url.searchParams.set('limit', String(limit));
+    if (query && String(query).trim()) url.searchParams.set('q', String(query).trim());
+    if (status) url.searchParams.set('status', status);
+
+    const res = await fetch(url.toString(), {
+        headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message || 'Không thể tải danh sách yêu cầu');
+    }
+    return res.json();
+}
+
+export async function approveProductRequest(id) {
+    const token = getToken();
+    const res = await fetch(`${API_BASE}/product-requests/${id}/approve`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.message || 'Không thể duyệt yêu cầu');
+    return data;
+}
+
+export async function rejectProductRequest(id) {
+    const token = getToken();
+    const res = await fetch(`${API_BASE}/product-requests/${id}/reject`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.message || 'Không thể từ chối yêu cầu');
+    return data;
+}
