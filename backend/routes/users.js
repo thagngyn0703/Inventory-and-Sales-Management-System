@@ -9,7 +9,7 @@ function escapeRegex(s) {
     return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-// GET /api/users?q=&page=1&limit=20&status=  (admin only)
+// GET /api/users?q=&page=1&limit=20&status=  (quản trị nền tảng)
 router.get('/', requireAuth, requireRole(['admin']), async (req, res) => {
     try {
         const { q = '', page = '1', limit = '20', status = '' } = req.query;
@@ -62,7 +62,7 @@ router.get('/', requireAuth, requireRole(['admin']), async (req, res) => {
     }
 });
 
-// PATCH /api/users/:id/status  (admin only)
+// PATCH /api/users/:id/status
 router.patch('/:id/status', requireAuth, requireRole(['admin']), async (req, res) => {
     try {
         const { id } = req.params;

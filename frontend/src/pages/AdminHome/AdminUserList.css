@@ -284,6 +284,11 @@
     color: #065f46;
 }
 
+.au-role-badge--staff {
+    background: linear-gradient(135deg, #e0e7ff, #c7d2fe);
+    color: #3730a3;
+}
+
 /* ── Status pills ── */
 .au-status-pill {
     display: inline-flex;

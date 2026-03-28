@@ -34,7 +34,7 @@ export default function ManagerInvoiceDetail() {
 
   const user = getCurrentUser();
   const role = user?.role || '';
-  const isManager = ['manager', 'admin'].includes(role);
+  const isManager = role === 'manager';
 
   const loadProducts = useCallback(async () => {
     try {
@@ -183,7 +183,7 @@ export default function ManagerInvoiceDetail() {
 
   const currentStatus = invoice?.status || 'confirmed';
   const canEdit = isNew || ((!!invoice?._id) && (currentStatus === 'confirmed' || isManager));
-  const canCancel = !!invoice?._id && currentStatus === 'confirmed' && role === 'admin';
+  const canCancel = !!invoice?._id && currentStatus === 'confirmed' && isManager;
 
   if (loading) {
     return (

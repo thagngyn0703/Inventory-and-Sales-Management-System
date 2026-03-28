@@ -5,10 +5,7 @@ import { getCurrentUser, hasAnyRole } from "../utils/auth";
 export default function RequireRole({ allowedRoles, children, message }) {
   const user = getCurrentUser();
 
-  // Dev-friendly: allow admin as "superuser"
-  const effectiveAllowed = Array.from(new Set([...(allowedRoles || []), "admin"]));
-
-  if (!hasAnyRole(user, effectiveAllowed)) {
+  if (!hasAnyRole(user, allowedRoles || [])) {
     return (
       <AccessDenied
         title="Forbidden"

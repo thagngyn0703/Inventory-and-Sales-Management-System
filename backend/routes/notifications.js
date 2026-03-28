@@ -67,7 +67,7 @@ async function syncExpiryNotifications(req) {
   }
 }
 
-router.get('/unread-count', requireAuth, requireRole(['manager']), async (req, res) => {
+router.get('/unread-count', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
   try {
     await syncExpiryNotifications(req);
     const storeId = req.user?.storeId ? String(req.user.storeId) : null;
@@ -82,7 +82,7 @@ router.get('/unread-count', requireAuth, requireRole(['manager']), async (req, r
   }
 });
 
-router.get('/', requireAuth, requireRole(['manager']), async (req, res) => {
+router.get('/', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
   try {
     await syncExpiryNotifications(req);
     const storeId = req.user?.storeId ? String(req.user.storeId) : null;
@@ -100,7 +100,7 @@ router.get('/', requireAuth, requireRole(['manager']), async (req, res) => {
   }
 });
 
-router.patch('/:id/read', requireAuth, requireRole(['manager']), async (req, res) => {
+router.patch('/:id/read', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
   try {
     const { id } = req.params;
     if (!mongoose.isValidObjectId(id)) return res.status(400).json({ message: 'Invalid notification id' });
@@ -117,7 +117,7 @@ router.patch('/:id/read', requireAuth, requireRole(['manager']), async (req, res
   }
 });
 
-router.patch('/read-all', requireAuth, requireRole(['manager']), async (req, res) => {
+router.patch('/read-all', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
   try {
     const storeId = req.user?.storeId ? String(req.user.storeId) : null;
     const result = await Notification.updateMany(

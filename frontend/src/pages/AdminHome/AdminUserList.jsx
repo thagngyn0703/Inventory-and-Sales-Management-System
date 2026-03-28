@@ -5,10 +5,11 @@ import './AdminUserList.css';
 const API = process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
 
 const ROLE_LABELS = {
-    admin: 'Admin',
+    admin: 'Quản trị hệ thống',
     manager: 'Quản lý',
-    warehouse_staff: 'Kho',
-    sales_staff: 'Bán hàng',
+    staff: 'Nhân viên',
+    warehouse_staff: 'Nhân viên (cũ)',
+    sales_staff: 'Nhân viên (cũ)',
 };
 
 export default function AdminUserList() {
@@ -108,7 +109,7 @@ export default function AdminUserList() {
         { title: 'Tổng tài khoản', value: summary.totalAll, icon: '👥', tone: 'blue' },
         { title: 'Đang hoạt động', value: summary.totalActive, icon: '✅', tone: 'green' },
         { title: 'Đã vô hiệu hóa', value: summary.totalInactive, icon: '🚫', tone: 'red' },
-        { title: 'Tài khoản Admin', value: summary.totalAdmin, icon: '🛡️', tone: 'purple' },
+        { title: 'Quản trị hệ thống', value: summary.totalAdmin, icon: '🛡️', tone: 'purple' },
     ];
 
     const startItem = (page - 1) * limit + 1;

@@ -105,7 +105,7 @@ function App() {
         path="/manager/categories"
         element={
           <RequireAuth>
-            <RequireRole allowedRoles={["manager", "warehouse_staff"]}>
+            <RequireRole allowedRoles={["manager", "staff"]}>
               <RequireManagerStore>
                 <RequireStaffStore>
                   <Categories />
@@ -139,7 +139,7 @@ function App() {
         path="/warehouse"
         element={
           <RequireAuth>
-            <RequireRole allowedRoles={['warehouse', 'manager', 'admin']}>
+            <RequireRole allowedRoles={['warehouse', 'staff', 'manager', 'admin']}>
               <RequireStaffStore>
                 <WarehouseDashboard />
               </RequireStaffStore>
@@ -160,7 +160,7 @@ function App() {
         path="/sales"
         element={
           <RequireAuth>
-            <RequireRole allowedRoles={['sales', 'sales_staff', 'admin', 'manager']}>
+            <RequireRole allowedRoles={['sales', 'staff', 'manager', 'admin']}>
               <SalesDashboard />
             </RequireRole>
           </RequireAuth>

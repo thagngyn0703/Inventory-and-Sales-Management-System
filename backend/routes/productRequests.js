@@ -23,7 +23,7 @@ function normalizeProduct(p) {
 }
 
 // POST /api/product-requests (warehouse, admin, manager)
-router.post('/', requireAuth, requireRole(['warehouse', 'admin', 'manager']), async (req, res) => {
+router.post('/', requireAuth, requireRole(['warehouse', 'manager']), async (req, res) => {
   console.log('POST /api/product-requests called by', req.user?.id, req.user?.role);
   console.log('body:', JSON.stringify(req.body).slice(0, 1000));
   try {

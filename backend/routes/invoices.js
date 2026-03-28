@@ -196,7 +196,7 @@ router.get('/', requireAuth, requireRole(['sales', 'warehouse', 'manager', 'admi
         const pageNum = Math.max(1, parseInt(page, 10) || 1);
         const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
         const filter = {};
-        // Scope by store (admin sees all)
+        // Scope by store (quản trị nền tảng xem tất cả)
         const userRole = String(req.user?.role || '').toLowerCase();
         if (req.user.storeId && userRole !== 'admin') {
             filter.store_id = req.user.storeId;

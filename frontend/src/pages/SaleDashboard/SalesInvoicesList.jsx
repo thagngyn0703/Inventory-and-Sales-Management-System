@@ -29,7 +29,7 @@ export default function SalesInvoicesList() {
 
   const user = getCurrentUser();
   const role = user?.role || '';
-  const isWarehouse = ['warehouse', 'warehouse_staff', 'manager'].includes(role);
+  const isWarehouse = ['warehouse', 'warehouse_staff', 'staff', 'manager'].includes(role);
 
   // Base path is now always /sales
   const basePath = '/sales';

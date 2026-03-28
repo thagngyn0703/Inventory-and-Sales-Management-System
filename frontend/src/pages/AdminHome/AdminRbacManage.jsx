@@ -125,8 +125,7 @@ export default function AdminRbacManage() {
                           <select value={u.role} onChange={(e) => onUserRoleChange(u._id, e.target.value)}>
                             <option value="admin">admin</option>
                             <option value="manager">manager</option>
-                            <option value="warehouse_staff">warehouse_staff</option>
-                            <option value="sales_staff">sales_staff</option>
+                            <option value="staff">staff</option>
                           </select>
                         </td>
                       </tr>

@@ -8,7 +8,7 @@ const router = express.Router();
 function getRoleStoreFilter(req) {
   const role = String(req.user?.role || '').toLowerCase();
   const storeId = req.user?.storeId ? String(req.user.storeId) : null;
-  const isStoreScopedRole = ['manager', 'warehouse_staff', 'sales_staff'].includes(role);
+  const isStoreScopedRole = ['manager', 'warehouse_staff', 'sales_staff', 'staff'].includes(role);
   if (!isStoreScopedRole) return {};
   if (!storeId) return null;
   return { storeId };
