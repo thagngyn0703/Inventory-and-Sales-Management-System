@@ -47,6 +47,7 @@ import ManagerReceiptDetail from "./pages/ManagerDashboard/ManagerReceiptDetail"
 import ManagerProductRequests from "./pages/ManagerDashboard/ManagerProductRequests";
 import ManagerStoreRegister from "./pages/ManagerDashboard/ManagerStoreRegister";
 import ManagerNotifications from "./pages/ManagerDashboard/ManagerNotifications";
+import ManagerPriceChangeReport from "./pages/ManagerDashboard/ManagerPriceChangeReport";
 import RequireManagerStore from "./components/RequireManagerStore";
 import RequireStaffStore from "./components/RequireStaffStore";
 
@@ -135,6 +136,7 @@ function App() {
       <Route path="/manager/staff/new" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerCreateStaff /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/staff/manage" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerStaffManage /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/notifications" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerNotifications /></RequireManagerStore></RequireRole></RequireAuth>} />
+      <Route path="/manager/reports" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerPriceChangeReport /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route
         path="/warehouse"
         element={

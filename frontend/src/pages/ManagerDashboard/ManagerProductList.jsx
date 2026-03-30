@@ -33,6 +33,7 @@ export default function ManagerProductList() {
     const [importLoading, setImportLoading] = useState(false);
     const [importCommitting, setImportCommitting] = useState(false);
     const [importError, setImportError] = useState('');
+    const [priceChangeConfirmed, setPriceChangeConfirmed] = useState(false);
     const fileInputRef = useRef(null);
 
     const fetchList = useCallback(async () => {
@@ -90,12 +91,16 @@ export default function ManagerProductList() {
         return Number(n).toLocaleString('vi-VN') + '₫';
     };
 
+    const thStyle = { padding: '6px 10px', textAlign: 'left', fontWeight: 600, whiteSpace: 'nowrap' };
+    const tdStyle = { padding: '6px 10px', verticalAlign: 'middle' };
+
     const closeImportModal = () => {
         setImportOpen(false);
         setImportPreview(null);
         setImportError('');
         setImportLoading(false);
         setImportCommitting(false);
+        setPriceChangeConfirmed(false);
         if (fileInputRef.current) fileInputRef.current.value = '';
     };
 
@@ -113,6 +118,7 @@ export default function ManagerProductList() {
         if (!file) return;
         setImportError('');
         setImportPreview(null);
+        setPriceChangeConfirmed(false);
         setImportLoading(true);
         try {
             const data = await previewProductImport(file);
@@ -128,6 +134,13 @@ export default function ManagerProductList() {
         if (!importPreview?.rows?.length) return;
         const validRows = importPreview.rows.filter((r) => r.valid);
         if (validRows.length === 0) return;
+
+        // Nếu có thay đổi giá mà chưa xác nhận thì chặn
+        if (importPreview.has_price_changes && !priceChangeConfirmed) {
+            setImportError('Vui lòng đọc và tích xác nhận thay đổi giá trước khi import.');
+            return;
+        }
+
         const payload = validRows.map((r) => ({
             row: r.row,
             name: r.name,
@@ -141,15 +154,21 @@ export default function ManagerProductList() {
         setImportCommitting(true);
         setImportError('');
         try {
-            const result = await commitProductImport(payload);
+            const result = await commitProductImport(payload, priceChangeConfirmed);
+
+            // Backend trả 409 — cần xác nhận (double-check an toàn)
+            if (result.needsConfirmation) {
+                setImportError('Vui lòng xác nhận thay đổi giá trước khi import.');
+                setImportCommitting(false);
+                return;
+            }
+
             const parts = [];
             if (result.createdCount > 0) parts.push(`tạo mới ${result.createdCount} sản phẩm`);
             if (result.updatedCount > 0) parts.push(`cập nhật ${result.updatedCount} sản phẩm (cộng tồn kho)`);
             const msg =
                 parts.length > 0
-                    ? `Đã ${parts.join(', ')}.${
-                          result.failedCount > 0 ? ` (${result.failedCount} dòng lỗi.)` : ''
-                      }`
+                    ? `Đã ${parts.join(', ')}.${result.failedCount > 0 ? ` (${result.failedCount} dòng lỗi.)` : ''}`
                     : result.failedCount > 0
                       ? `Không thành công (${result.failedCount} dòng lỗi).`
                       : 'Hoàn tất.';
@@ -393,6 +412,84 @@ export default function ManagerProductList() {
                                             <strong>{importPreview.validCount}</strong> —{' '}
                                             <span className="err">Lỗi: {importPreview.invalidCount}</span>
                                         </p>
+
+                                        {/* ── Cảnh báo thay đổi giá ── */}
+                                        {importPreview.has_price_changes && (
+                                            <div style={{
+                                                border: '1.5px solid #f59e0b',
+                                                borderRadius: 10,
+                                                background: '#fffbeb',
+                                                padding: '14px 16px',
+                                                marginBottom: 16,
+                                            }}>
+                                                <p style={{ margin: '0 0 8px 0', fontWeight: 700, color: '#b45309', fontSize: 14 }}>
+                                                    <i className="fa-solid fa-triangle-exclamation" style={{ marginRight: 6 }} />
+                                                    Phát hiện {importPreview.price_changes.length} sản phẩm bị thay đổi giá
+                                                </p>
+                                                <p style={{ margin: '0 0 10px 0', fontSize: 13, color: '#78350f', lineHeight: 1.5 }}>
+                                                    Các sản phẩm dưới đây đang có giá khác so với hệ thống.
+                                                    Sau khi import, giá mới sẽ được áp dụng ngay.
+                                                    Điều này <strong>không ảnh hưởng</strong> đến các đơn hàng đã bán trước đó
+                                                    (giá cũ vẫn được lưu trong từng hóa đơn),
+                                                    nhưng sẽ ảnh hưởng đến <strong>báo cáo lợi nhuận từ thời điểm này trở đi</strong>.
+                                                </p>
+                                                <div style={{ overflowX: 'auto', marginBottom: 12 }}>
+                                                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                                                        <thead>
+                                                            <tr style={{ background: '#fef3c7' }}>
+                                                                <th style={thStyle}>Sản phẩm</th>
+                                                                <th style={thStyle}>SKU</th>
+                                                                <th style={{ ...thStyle, textAlign: 'right' }}>Giá vốn cũ</th>
+                                                                <th style={{ ...thStyle, textAlign: 'right' }}>Giá vốn mới</th>
+                                                                <th style={{ ...thStyle, textAlign: 'right' }}>Giá bán cũ</th>
+                                                                <th style={{ ...thStyle, textAlign: 'right' }}>Giá bán mới</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {importPreview.price_changes.map((pc, i) => (
+                                                                <tr key={i} style={{ borderBottom: '1px solid #fde68a' }}>
+                                                                    <td style={tdStyle}><strong>{pc.name}</strong></td>
+                                                                    <td style={tdStyle}>{pc.sku || '—'}</td>
+                                                                    <td style={{ ...tdStyle, textAlign: 'right' }}>{formatMoney(pc.old_cost_price)}</td>
+                                                                    <td style={{ ...tdStyle, textAlign: 'right', color: pc.cost_changed ? '#b91c1c' : undefined, fontWeight: pc.cost_changed ? 700 : undefined }}>
+                                                                        {formatMoney(pc.new_cost_price)}
+                                                                        {pc.cost_changed && (
+                                                                            <span style={{ fontSize: 11, marginLeft: 4 }}>
+                                                                                ({pc.new_cost_price > pc.old_cost_price ? '▲' : '▼'}
+                                                                                {Math.abs(pc.new_cost_price - pc.old_cost_price).toLocaleString('vi-VN')}₫)
+                                                                            </span>
+                                                                        )}
+                                                                    </td>
+                                                                    <td style={{ ...tdStyle, textAlign: 'right' }}>{formatMoney(pc.old_sale_price)}</td>
+                                                                    <td style={{ ...tdStyle, textAlign: 'right', color: pc.sale_changed ? '#b91c1c' : undefined, fontWeight: pc.sale_changed ? 700 : undefined }}>
+                                                                        {formatMoney(pc.new_sale_price)}
+                                                                        {pc.sale_changed && (
+                                                                            <span style={{ fontSize: 11, marginLeft: 4 }}>
+                                                                                ({pc.new_sale_price > pc.old_sale_price ? '▲' : '▼'}
+                                                                                {Math.abs(pc.new_sale_price - pc.old_sale_price).toLocaleString('vi-VN')}₫)
+                                                                            </span>
+                                                                        )}
+                                                                    </td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                                <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer', fontSize: 13, color: '#78350f' }}>
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={priceChangeConfirmed}
+                                                        onChange={e => setPriceChangeConfirmed(e.target.checked)}
+                                                        style={{ marginTop: 2, width: 16, height: 16, cursor: 'pointer', accentColor: '#d97706' }}
+                                                    />
+                                                    <span>
+                                                        <strong>Tôi đã kiểm tra và xác nhận</strong> các thay đổi giá trên là đúng.
+                                                        Hệ thống sẽ cập nhật giá mới ngay sau khi import.
+                                                    </span>
+                                                </label>
+                                            </div>
+                                        )}
+
                                         <div className="manager-import-table-wrap">
                                             <table className="manager-import-table">
                                                 <thead>
@@ -457,7 +554,13 @@ export default function ManagerProductList() {
                                                 className="manager-btn-primary"
                                                 disabled={
                                                     importCommitting ||
-                                                    !importPreview.validCount
+                                                    !importPreview.validCount ||
+                                                    (importPreview.has_price_changes && !priceChangeConfirmed)
+                                                }
+                                                title={
+                                                    importPreview.has_price_changes && !priceChangeConfirmed
+                                                        ? 'Vui lòng tích xác nhận thay đổi giá ở trên trước khi import'
+                                                        : ''
                                                 }
                                                 onClick={handleCommitImport}
                                             >
