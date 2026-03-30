@@ -29,12 +29,12 @@ async function run() {
 
   const staffA = await User.findOneAndUpdate(
     { email: staffAEmail },
-    { $set: { role: 'warehouse_staff', storeId: storeA._id } },
+    { $set: { role: 'staff', storeId: storeA._id } },
     { new: true }
   ).select('_id email role storeId').lean();
   const staffB = await User.findOneAndUpdate(
     { email: staffBEmail },
-    { $set: { role: 'warehouse_staff', storeId: storeB._id } },
+    { $set: { role: 'staff', storeId: storeB._id } },
     { new: true }
   ).select('_id email role storeId').lean();
   if (!staffA) throw new Error(`Staff A not found: ${staffAEmail}`);

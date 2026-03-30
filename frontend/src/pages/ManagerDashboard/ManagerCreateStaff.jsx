@@ -5,7 +5,6 @@ import ManagerNotificationBell from '../../components/ManagerNotificationBell';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
 
-// Gọi API qua proxy (proxy trong package.json trỏ tới http://localhost:8000) để tránh 404 khi backend chạy cùng máy
 const API_BASE = process.env.REACT_APP_API_URL || '/api';
 
 const defaultForm = {
@@ -13,7 +12,6 @@ const defaultForm = {
     email: '',
     password: '',
     confirmPassword: '',
-    role: 'warehouse_staff',
 };
 
 const isEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
@@ -26,7 +24,6 @@ export default function ManagerCreateStaff() {
     const [success, setSuccess] = useState('');
     const [ready, setReady] = useState(false);
 
-    // Chỉ Manager mới được vào trang này; nếu chưa đăng nhập hoặc không phải manager thì chuyển hướng
     useEffect(() => {
         const token = localStorage.getItem('token');
         let user = null;
@@ -99,7 +96,6 @@ export default function ManagerCreateStaff() {
                     fullName: form.fullName.trim(),
                     email: form.email.trim().toLowerCase(),
                     password: form.password,
-                    role: form.role,
                 }),
             });
             const data = await res.json().catch(() => ({}));
@@ -159,7 +155,7 @@ export default function ManagerCreateStaff() {
                         <div>
                             <h1 className="manager-page-title">Tạo tài khoản nhân viên</h1>
                             <p className="manager-page-subtitle">
-                                Tạo tài khoản Warehouse Staff hoặc Sales Staff cho cửa hàng. Nhân viên đăng nhập ngay bằng email và mật khẩu (không cần xác thực email).
+                                Tài khoản mới có vai trò <strong>Staff</strong> (làm việc kho và bán hàng). Nhân viên đăng nhập ngay bằng email và mật khẩu (không cần xác thực email).
                             </p>
                         </div>
                         <button
@@ -219,18 +215,6 @@ export default function ManagerCreateStaff() {
                                         onChange={(e) => update('confirmPassword', e.target.value)}
                                         placeholder="Nhập lại mật khẩu"
                                     />
-                                </div>
-                            </div>
-                            <div className="manager-form-row manager-form-row--2">
-                                <div className="manager-form-group">
-                                    <label>Vai trò <span className="required">*</span></label>
-                                    <select
-                                        value={form.role}
-                                        onChange={(e) => update('role', e.target.value)}
-                                    >
-                                        <option value="warehouse_staff">Warehouse Staff (Nhân viên kho)</option>
-                                        <option value="sales_staff">Sales Staff (Nhân viên bán hàng)</option>
-                                    </select>
                                 </div>
                             </div>
                             <div className="manager-form-actions">

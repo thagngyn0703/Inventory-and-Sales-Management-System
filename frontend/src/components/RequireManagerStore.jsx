@@ -8,7 +8,11 @@ export default function RequireManagerStore({ children }) {
   const role = normalizeRole(user?.role);
   const hasStoreId = Boolean(user?.storeId);
 
-  if (role === "manager" && !hasStoreId && location.pathname !== "/manager/store/register") {
+  if (
+    role === "manager" &&
+    !hasStoreId &&
+    location.pathname !== "/manager/store/register"
+  ) {
     return <Navigate to="/manager/store/register" replace />;
   }
 

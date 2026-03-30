@@ -352,11 +352,35 @@ export default function SalesInvoiceDetail() {
 
   const processCheckout = async () => {
     updateActiveTab({ saving: true, error: '', successMessage: '' });
+
+    let customerId = activeTab.customerId;
+    let recipientName = activeTab.recipientName || 'Khách lẻ';
+
+    // Auto-create customer from inline inputs before processing
+    if (showCreateCustomer && newCustomer.full_name.trim()) {
+      const cleanPhone = newCustomer.phone.trim().replace(/\s/g, '');
+      if (cleanPhone && (cleanPhone.length < 10 || cleanPhone.length > 11)) {
+        updateActiveTab({ error: 'Số điện thoại phải có 10 hoặc 11 chữ số.', saving: false });
+        return;
+      }
+      try {
+        const created = await createCustomer({ full_name: newCustomer.full_name.trim(), phone: cleanPhone, status: 'active', is_regular: true });
+        customerId = created._id;
+        recipientName = created.full_name;
+        updateActiveTab({ customerId: created._id, customerData: created, recipientName: created.full_name });
+        setShowCreateCustomer(false);
+        setNewCustomer({ full_name: '', phone: '' });
+      } catch (e) {
+        updateActiveTab({ error: e.message || 'Lỗi khi thêm khách hàng mới', saving: false });
+        return;
+      }
+    }
+
     try {
       const payload = {
-        payment_method: activeTab.paymentMethod, // 'cash' or 'transfer' or 'mixed'
-        recipient_name: activeTab.recipientName || 'Khách lẻ',
-        customer_id: activeTab.customerId || null,
+        payment_method: activeTab.paymentMethod,
+        recipient_name: recipientName,
+        customer_id: customerId || null,
         items: activeTab.items.map(it => ({
           product_id: it.product_id,
           quantity: it.quantity,
@@ -367,20 +391,13 @@ export default function SalesInvoiceDetail() {
       };
 
       if (!activeTab.invoiceId) {
-        // Create new
         const created = await createInvoice({ ...payload, status: 'confirmed' });
         
         if (activeTab.paymentMethod !== 'debt') {
             handlePrintInvoice(created, activeTab);
         }
         
-        // Show Toast instead of alert
         showToast('Thanh toán thành công! ' + (changeAmount > 0 ? `Tiền thừa trả khách: ${formatMoney(changeAmount)}` : ''), 'success');
-        
-        // If they paid old debt, update activeTab customerData to reflect that
-        if (activeTab.payOldDebt) {
-           // We can just clear it locally or let the next fetch handle it
-        }
         
         if (tabs.length === 1) {
             const newTab = createDefaultTab(tabCounter);
@@ -393,11 +410,9 @@ export default function SalesInvoiceDetail() {
             setActiveTabId(newTabs[0].tabId);
         }
         
-        // Refresh product stock after successful sale
         loadProducts();
         
       } else {
-        // Update existing
         await updateInvoice(activeTab.invoiceId, payload);
         updateActiveTab({ successMessage: 'Đã lưu thay đổi.', saving: false });
         showToast('Đã lưu thay đổi hóa đơn.', 'success');
@@ -557,13 +572,46 @@ export default function SalesInvoiceDetail() {
       {/* Right Sidebar: Summary */}
       <div className="pos-right-sidebar">
         <div className="pos-customer-section">
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
             <span style={{ fontWeight: 700, color: '#1e293b' }}>Khách hàng</span>
-            <i className="fa-solid fa-user-pen" style={{ color: '#0081ff', cursor: 'pointer' }} />
           </div>
-          <div className="pos-customer-search" style={{ position: 'relative' }}>
-             <input 
-                type="text" 
+
+          {showCreateCustomer ? (
+            /* Inline create customer mode */
+            <div>
+              <input
+                type="text"
+                placeholder="Tên khách hàng *"
+                value={newCustomer.full_name}
+                onChange={e => setNewCustomer({ ...newCustomer, full_name: e.target.value })}
+                className="pos-search-input"
+                style={{ marginBottom: 6 }}
+                autoFocus
+              />
+              <input
+                type="text"
+                placeholder="Số điện thoại *"
+                value={newCustomer.phone}
+                onChange={e => setNewCustomer({ ...newCustomer, phone: e.target.value })}
+                className="pos-search-input"
+                style={{ marginBottom: 6 }}
+              />
+              {customerModalError && (
+                <div style={{ color: '#ef4444', fontSize: 12, marginBottom: 6 }}>{customerModalError}</div>
+              )}
+              <button
+                className="warehouse-btn warehouse-btn-secondary"
+                style={{ width: '100%', padding: '6px', fontSize: 13, marginTop: 2 }}
+                onClick={() => { setShowCreateCustomer(false); setNewCustomer({ full_name: '', phone: '' }); setCustomerModalError(''); }}
+              >
+                <i className="fa-solid fa-xmark" style={{ marginRight: 6 }} /> Hủy thêm khách hàng
+              </button>
+            </div>
+          ) : (
+            /* Normal search mode */
+            <div className="pos-customer-search" style={{ position: 'relative' }}>
+              <input
+                type="text"
                 placeholder={activeTab.customerId ? activeTab.customerData?.full_name : "Khách lẻ (mặc định) (Tên/SĐT)"}
                 className="pos-search-input"
                 value={customerSearch !== '' ? customerSearch : (activeTab.customerId ? activeTab.recipientName : activeTab.recipientName)}
@@ -574,34 +622,34 @@ export default function SalesInvoiceDetail() {
                 }}
                 onFocus={() => { if(customerList.length > 0) setShowCustomerDropdown(true); }}
                 onBlur={() => setTimeout(() => setShowCustomerDropdown(false), 200)}
-             />
-             {activeTab.customerId && (
-                 <i className="fa-solid fa-xmark" style={{ position: 'absolute', right: 40, top: 10, cursor: 'pointer', color: '#94a3b8' }} 
-                     onClick={() => {
-                        updateActiveTab({ customerId: null, customerData: null, recipientName: '', paymentMethod: 'cash', payOldDebt: false });
+              />
+              {activeTab.customerId && (
+                <i className="fa-solid fa-xmark" style={{ position: 'absolute', right: 40, top: 10, cursor: 'pointer', color: '#94a3b8' }}
+                  onClick={() => {
+                    updateActiveTab({ customerId: null, customerData: null, recipientName: '', paymentMethod: 'cash', payOldDebt: false });
+                    setCustomerSearch('');
+                  }} />
+              )}
+              <button className="warehouse-btn warehouse-btn-secondary" style={{ padding: '0 12px' }} onClick={() => setShowCreateCustomer(true)}>+</button>
+
+              {/* Dropdown */}
+              {showCustomerDropdown && customerList.length > 0 && (
+                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: '1px solid #cbd5e1', borderRadius: 6, zIndex: 10, maxHeight: 200, overflowY: 'auto', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)', marginTop: 4 }}>
+                  {customerList.map(c => (
+                    <div key={c._id} style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}
+                      onClick={() => {
+                        updateActiveTab({ customerId: c._id, customerData: c, recipientName: c.full_name });
                         setCustomerSearch('');
-                    }} />
-             )}
-             <button className="warehouse-btn warehouse-btn-secondary" style={{ padding: '0 12px' }} onClick={() => setShowCreateCustomer(true)}>+</button>
-
-
-             {/* Dropdown */}
-             {showCustomerDropdown && customerList.length > 0 && (
-                 <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: '1px solid #cbd5e1', borderRadius: 6, zIndex: 10, maxHeight: 200, overflowY: 'auto', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)', marginTop: 4 }}>
-                     {customerList.map(c => (
-                         <div key={c._id} style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }} 
-                            onClick={() => {
-                                updateActiveTab({ customerId: c._id, customerData: c, recipientName: c.full_name });
-                                setCustomerSearch('');
-                                setShowCustomerDropdown(false);
-                            }}>
-                             <div style={{ fontWeight: 600, fontSize: 13, color: '#0f172a' }}>{c.full_name}</div>
-                             <div style={{ fontSize: 12, color: '#64748b' }}>{c.phone}</div>
-                         </div>
-                     ))}
-                 </div>
-             )}
-          </div>
+                        setShowCustomerDropdown(false);
+                      }}>
+                      <div style={{ fontWeight: 600, fontSize: 13, color: '#0f172a' }}>{c.full_name}</div>
+                      <div style={{ fontSize: 12, color: '#64748b' }}>{c.phone}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="pos-summary-section">
@@ -751,57 +799,7 @@ export default function SalesInvoiceDetail() {
 
       </div>
       
-      {/* Create Customer Modal */}
-      {showCreateCustomer && (
-        <div style={{
-          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-          background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex',
-          alignItems: 'center', justifyContent: 'center'
-        }}>
-          <div style={{
-            background: 'white', padding: '24px', borderRadius: '8px',
-            width: '400px', maxWidth: '90%', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)'
-          }}>
-             <h3 style={{ marginTop: 0, marginBottom: '20px', fontSize: '18px', color: '#1e293b' }}>Thêm Khách hàng Mới</h3>
-             {customerModalError && <div className="warehouse-alert warehouse-alert-error" style={{ marginBottom: '16px' }}>{customerModalError}</div>}
-             <div style={{ marginBottom: '16px' }}>
-                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>Tên khách hàng <span style={{ color: '#ef4444' }}>*</span></label>
-                <input 
-                   type="text" 
-                   value={newCustomer.full_name}
-                   onChange={e => setNewCustomer({ ...newCustomer, full_name: e.target.value })}
-                   className="pos-search-input"
-                   placeholder="Nhập tên khách hàng"
-                />
-             </div>
-             <div style={{ marginBottom: '24px' }}>
-                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>Số điện thoại <span style={{ color: '#ef4444' }}>*</span></label>
-                <input 
-                   type="text" 
-                   value={newCustomer.phone}
-                   onChange={e => setNewCustomer({ ...newCustomer, phone: e.target.value })}
-                   className="pos-search-input"
-                   placeholder="Nhập số điện thoại"
-                />
-             </div>
-             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-                <button 
-                  style={{ padding: '8px 16px', border: '1px solid #cbd5e1', background: 'white', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}
-                  onClick={() => { setShowCreateCustomer(false); setCustomerModalError(''); }}
-                >
-                  Hủy
-                </button>
-                <button 
-                  style={{ padding: '8px 16px', border: 'none', background: '#0081ff', color: 'white', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}
-                  onClick={handleCreateCustomer}
-                  disabled={creatingCustomer}
-                >
-                  {creatingCustomer ? 'Đang thêm...' : 'Lưu khách hàng'}
-                </button>
-             </div>
-          </div>
-        </div>
-      )}
+
 
       {/* Toast Notification */}
       {toast.message && (

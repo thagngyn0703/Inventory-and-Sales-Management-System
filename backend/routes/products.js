@@ -112,7 +112,10 @@ async function findExistingProductForImport({ sku, name, storeId }) {
 function getRoleStoreFilter(req) {
   const role = String(req.user?.role || '').toLowerCase();
   const storeId = req.user?.storeId ? String(req.user.storeId) : null;
-  const isStoreScopedRole = ['manager', 'warehouse_staff', 'sales_staff'].includes(role);
+  if (String(req.user?.role || '').toLowerCase() === 'admin') {
+    return {};
+  }
+  const isStoreScopedRole = ['manager', 'warehouse_staff', 'sales_staff', 'staff'].includes(role);
   if (!isStoreScopedRole) return {};
   if (!storeId) return null;
   return { storeId };
@@ -162,10 +165,11 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
 
     const baseUnit = selling_units.find((u) => u.ratio === 1);
     const baseUnitPrice = baseUnit ? baseUnit.sale_price : (Number(sale_price) || 0);
-    const resolvedStoreId = role === 'admin'
+    const isPlatform = role === 'admin';
+    const resolvedStoreId = isPlatform
       ? (req.body?.storeId && mongoose.isValidObjectId(req.body.storeId) ? req.body.storeId : undefined)
       : requesterStoreId;
-    if (role !== 'admin' && !resolvedStoreId) {
+    if (!isPlatform && !resolvedStoreId) {
       return res.status(403).json({
         message: 'Manager chưa có cửa hàng. Vui lòng đăng ký cửa hàng trước khi tạo sản phẩm.',
         code: 'STORE_REQUIRED',
@@ -339,13 +343,13 @@ router.post('/import/commit', requireAuth, requireRole(['manager', 'admin']), as
 
     const role = String(req.user?.role || '').toLowerCase();
     const requesterStoreId = req.user?.storeId ? String(req.user.storeId) : null;
-    const resolvedStoreId =
-      role === 'admin'
-        ? req.body?.storeId && mongoose.isValidObjectId(req.body.storeId)
-          ? req.body.storeId
-          : undefined
-        : requesterStoreId;
-    if (role !== 'admin' && !resolvedStoreId) {
+    const isPlatformImport = role === 'admin';
+    const resolvedStoreId = isPlatformImport
+      ? req.body?.storeId && mongoose.isValidObjectId(req.body.storeId)
+        ? req.body.storeId
+        : undefined
+      : requesterStoreId;
+    if (!isPlatformImport && !resolvedStoreId) {
       return res.status(403).json({
         message: 'Manager chưa có cửa hàng. Vui lòng đăng ký cửa hàng trước khi import.',
         code: 'STORE_REQUIRED',

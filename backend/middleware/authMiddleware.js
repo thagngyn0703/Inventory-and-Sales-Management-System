@@ -25,17 +25,15 @@ const verifyToken = async (req, res, next) => {
 };
 
 const requireAdmin = (req, res, next) => {
-    // Check if user is authenticated and is an admin
     if (!req.user || req.user.role !== 'admin') {
         return res.status(403).json({ message: 'Access denied. Admin only.' });
     }
     next();
 };
 
-// new middleware for categories only: manager or warehouse_staff
 const requireManagerOrWarehouse = (req, res, next) => {
-    if (!req.user || !['manager', 'warehouse_staff'].includes(req.user.role)) {
-        return res.status(403).json({ message: 'Access denied. Manager or Warehouse Staff only.' });
+    if (!req.user || !['admin', 'manager', 'staff', 'warehouse_staff'].includes(req.user.role)) {
+        return res.status(403).json({ message: 'Access denied. Admin, Manager, or Staff only.' });
     }
     if (req.user.role === 'manager' && !req.user.storeId) {
         return res.status(403).json({
@@ -47,8 +45,8 @@ const requireManagerOrWarehouse = (req, res, next) => {
 };
 
 const requireManagerOrAdminOrWarehouse = (req, res, next) => {
-    if (!req.user || !['admin', 'manager', 'warehouse_staff'].includes(req.user.role)) {
-        return res.status(403).json({ message: 'Access denied. Manager, Admin, or Warehouse Staff only.' });
+    if (!req.user || !['admin', 'manager', 'staff', 'warehouse_staff'].includes(req.user.role)) {
+        return res.status(403).json({ message: 'Access denied. Admin, Manager, or Staff only.' });
     }
     if (req.user.role === 'manager' && !req.user.storeId) {
         return res.status(403).json({

@@ -12,8 +12,10 @@ export default function Home() {
             navigate("/login", { replace: true });
             return;
         }
-        if (user.role === "manager" || user.role === "admin") {
+        if (user.role === "admin") {
             navigate("/admin", { replace: true });
+        } else if (user.role === "manager") {
+            navigate(user.storeId ? "/manager" : "/manager/store/register", { replace: true });
         }
     }, [user, navigate]);
 
@@ -34,7 +36,7 @@ export default function Home() {
                         Xin chào <b>{user?.email || "User"}</b>
                     </p>
                     <p>
-                        Role: <b>{user?.role === "warehouse_staff" ? "Warehouse Staff" : user?.role === "sales_staff" ? "Sales Staff" : user?.role}</b>
+                        Role: <b>{user?.role === "staff" ? "Staff" : user?.role === "warehouse_staff" || user?.role === "sales_staff" ? "Staff (dữ liệu cũ)" : user?.role}</b>
                     </p>
 
                     <button className="home-btn" onClick={logout}>

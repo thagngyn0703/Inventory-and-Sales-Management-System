@@ -15,6 +15,7 @@ async function requireAuth(req, res, next) {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const user = await User.findById(decoded.id).lean();
     if (!user) return res.status(401).json({ message: 'Unauthorized' });
+    if (user.status === 'inactive') return res.status(403).json({ message: 'Tài khoản đã bị vô hiệu hóa' });
 
     let storeStatus = null;
     if (user.storeId) {
@@ -40,8 +41,12 @@ function requireRole(allowedRoles, options = {}) {
   const baseAllowed = (allowedRoles || []).map((r) => String(r).toLowerCase());
   const allowed = [...baseAllowed];
   const allowManagerWithoutStore = Boolean(options.allowManagerWithoutStore);
-  if (baseAllowed.includes('warehouse')) allowed.push('warehouse_staff');
-  if (baseAllowed.includes('sales')) allowed.push('sales_staff');
+  if (baseAllowed.includes('warehouse')) {
+    allowed.push('warehouse_staff', 'staff');
+  }
+  if (baseAllowed.includes('sales')) {
+    allowed.push('sales_staff', 'staff');
+  }
   const normalizeRole = (role) => {
     const r = String(role || '').toLowerCase();
     if (r === 'warehouse_staff' || r === 'warehouse staff') return 'warehouse';
@@ -49,10 +54,14 @@ function requireRole(allowedRoles, options = {}) {
     return r;
   };
   return (req, res, next) => {
-    const role = normalizeRole(req.user?.role) || String(req.user?.role || '').toLowerCase();
+    const raw = String(req.user?.role || '').toLowerCase();
+    const role = normalizeRole(req.user?.role) || raw;
     const isManagerAllowed = allowed.includes('manager');
     const missingManagerStore = role === 'manager' && isManagerAllowed && !req.user?.storeId;
-    const isStoreScopedRole = ['manager', 'warehouse', 'sales'].includes(role) || ['manager', 'warehouse_staff', 'sales_staff'].includes(String(req.user?.role || '').toLowerCase());
+    const isStoreScopedRole =
+      ['manager', 'warehouse', 'sales'].includes(role) ||
+      raw === 'staff' ||
+      ['manager', 'warehouse_staff', 'sales_staff'].includes(raw);
     const isWrite = !['GET', 'HEAD', 'OPTIONS'].includes(String(req.method || '').toUpperCase());
 
     if (missingManagerStore && !allowManagerWithoutStore) {
@@ -70,13 +79,14 @@ function requireRole(allowedRoles, options = {}) {
     }
 
     if (allowed.includes(role)) return next();
+    if (allowed.includes(raw)) return next();
     return res.status(403).json({ message: 'Forbidden' });
   };
 }
 
 function blockStoreLockedWrite(req, res, next) {
   const role = String(req.user?.role || '').toLowerCase();
-  const isStoreScopedRole = ['manager', 'warehouse_staff', 'sales_staff'].includes(role);
+  const isStoreScopedRole = ['manager', 'warehouse_staff', 'sales_staff', 'staff'].includes(role);
   const isWrite = !['GET', 'HEAD', 'OPTIONS'].includes(String(req.method || '').toUpperCase());
   if (isStoreScopedRole && isWrite && req.user?.storeStatus === 'inactive') {
     return res.status(403).json({
@@ -88,4 +98,3 @@ function blockStoreLockedWrite(req, res, next) {
 }
 
 module.exports = { requireAuth, requireRole, blockStoreLockedWrite };
-

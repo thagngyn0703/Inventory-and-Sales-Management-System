@@ -15,7 +15,6 @@ router.get('/', requireAuth, requireRole(['sales', 'manager', 'admin']), async (
         const limitNum = Math.min(200, Math.max(1, parseInt(limit, 10) || 50));
         const filter = {};
 
-        // Scope by store (admin sees all)
         const userRole = String(req.user?.role || '').toLowerCase();
         if (req.user.storeId && userRole !== 'admin') {
             filter.store_id = req.user.storeId;

@@ -16,8 +16,7 @@ function getPostLoginPath(user) {
 
     if (role === "admin") return "/admin";
     if (role === "manager") return hasStoreId ? "/manager" : "/manager/store/register";
-    if (role === "warehouse") return hasStoreId ? "/warehouse" : "/no-store-assigned";
-    if (role === "sales" || role === "sales_staff") return hasStoreId ? "/sales" : "/no-store-assigned";
+    if (role === "staff") return hasStoreId ? "/sales" : "/no-store-assigned";
     return "/home";
 }
 

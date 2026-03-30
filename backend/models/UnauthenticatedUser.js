@@ -19,7 +19,7 @@ const unauthenticatedUserSchema = new Schema(
         },
         role: {
             type: String,
-            enum: ['manager', 'warehouse_staff', 'sales_staff'],
+            enum: ['manager'],
             required: true,
         },
         verificationToken: {

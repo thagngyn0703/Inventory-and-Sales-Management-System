@@ -13,12 +13,12 @@ export default function AdminDashboard() {
             navigate("/login", { replace: true });
             return;
         }
-        if (user.role !== "manager" && user.role !== "admin") {
+        if (user.role !== "admin") {
             navigate("/home", { replace: true });
         }
     }, [user, navigate]);
 
-    if (!user || (user.role !== "manager" && user.role !== "admin")) return null;
+    if (!user || user.role !== "admin") return null;
 
     return (
         <div className="manager-page-with-sidebar">
@@ -36,7 +36,7 @@ export default function AdminDashboard() {
                         </button>
                         <div className="manager-user-badge">
                             <i className="fa-solid fa-circle-user" />
-                            <span>{user?.role === "admin" ? "Admin" : "Manager"}</span>
+                            <span>Quản trị hệ thống</span>
                         </div>
                     </div>
                 </header>
@@ -57,7 +57,7 @@ export default function AdminDashboard() {
                             <div className="manager-metric-body">
                                 <p className="manager-metric-label">Tổng người dùng</p>
                                 <p className="manager-metric-value">-</p>
-                                <p className="manager-metric-meta">Admin / Manager / Staff</p>
+                                <p className="manager-metric-meta">Manager / Staff</p>
                             </div>
                         </div>
                         <div className="manager-metric-card">

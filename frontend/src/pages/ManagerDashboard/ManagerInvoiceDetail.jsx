@@ -35,7 +35,7 @@ export default function ManagerInvoiceDetail() {
 
   const user = getCurrentUser();
   const role = user?.role || '';
-  const isManager = ['manager', 'admin'].includes(role);
+  const isManager = role === 'manager';
 
   const loadProducts = useCallback(async () => {
     try {

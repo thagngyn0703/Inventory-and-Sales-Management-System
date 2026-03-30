@@ -31,7 +31,7 @@ export default function SalesInvoicesList() {
 
   const user = getCurrentUser();
   const role = user?.role || '';
-  const isWarehouse = ['warehouse', 'warehouse_staff', 'manager'].includes(role);
+  const isWarehouse = ['warehouse', 'warehouse_staff', 'staff', 'manager'].includes(role);
 
   // Base path is now always /sales
   const basePath = '/sales';
@@ -51,9 +51,14 @@ export default function SalesInvoicesList() {
       const resp = await getInvoices({
         page: 1,
         limit: 1000,
-        status: statusFilter || undefined
+        status: isReturnsPage ? 'cancelled' : 'confirmed'
       });
       let allInvoices = resp.invoices || [];
+
+      // For sales history: exclude debt invoices (those are handled via customer debt page)
+      if (!isReturnsPage) {
+        allInvoices = allInvoices.filter(i => i.payment_method !== 'debt');
+      }
 
       if (dateFrom) {
         const df = new Date(dateFrom);

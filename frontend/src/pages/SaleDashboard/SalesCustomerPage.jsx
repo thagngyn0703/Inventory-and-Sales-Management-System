@@ -259,9 +259,9 @@ export default function SalesCustomerPage() {
                                         <th style={{ padding: '12px 16px', textAlign: 'left', color: '#475569', fontSize: 13, width: 60 }}>STT</th>
                                         <th style={{ padding: '12px 16px', textAlign: 'left', color: '#475569', fontSize: 13 }}>Tên khách hàng</th>
                                         <th style={{ padding: '12px 16px', textAlign: 'left', color: '#475569', fontSize: 13 }}>Số điện thoại</th>
-                                        <th style={{ padding: '12px 16px', textAlign: 'right', color: '#475569', fontSize: 13 }}>Dư nợ (VNĐ)</th>
+                                        <th style={{ padding: '12px 16px', textAlign: 'right', color: '#475569', fontSize: 13, width: 120 }}>Dư nợ (VNĐ)</th>
                                         <th style={{ padding: '12px 16px', textAlign: 'center', color: '#475569', fontSize: 13, width: 100 }}>Ngày tạo</th>
-                                        <th style={{ padding: '12px 16px', textAlign: 'center', color: '#475569', fontSize: 13, width: 140 }}>Thao tác</th>
+                                        <th style={{ padding: '12px 16px', textAlign: 'center', color: '#475569', fontSize: 13, width: 180 }}>Thao tác</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -279,23 +279,23 @@ export default function SalesCustomerPage() {
                                                 <td style={{ padding: '16px', textAlign: 'center', color: '#64748b' }}>
                                                     {new Date(c.created_at).toLocaleDateString('vi-VN')}
                                                 </td>
-                                                <td style={{ padding: '16px', textAlign: 'center', display: 'flex', gap: 8, justifyContent: 'center' }}>
+                                                <td style={{ padding: '12px 16px', textAlign: 'center', whiteSpace: 'nowrap' }}>
                                                     <button 
                                                         onClick={() => fetchDebtHistory(c)}
-                                                        style={{ background: '#eff6ff', color: '#0081ff', border: '1px solid #dbeafe', padding: '6px 12px', borderRadius: 4, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+                                                        style={{ background: '#eff6ff', color: '#0081ff', border: '1px solid #dbeafe', padding: '4px 8px', borderRadius: 4, cursor: 'pointer', fontSize: 11, fontWeight: 600, marginRight: 4 }}
                                                     >
                                                         Lịch sử nợ
                                                     </button>
                                                     <button 
                                                         onClick={() => setEditCustomerModal({ show: true, customer: { ...c }, saving: false })}
-                                                        style={{ background: '#f1f5f9', color: '#64748b', border: '1px solid #e2e8f0', padding: '6px 12px', borderRadius: 4, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+                                                        style={{ background: '#f1f5f9', color: '#64748b', border: '1px solid #e2e8f0', padding: '4px 8px', borderRadius: 4, cursor: 'pointer', fontSize: 11, fontWeight: 600, marginRight: 4 }}
                                                     >
                                                         Sửa
                                                     </button>
                                                     {c.debt_account > 0 && (
                                                         <button 
                                                             onClick={() => setPayDebtModal({ show: true, customer: c, amount: c.debt_account, paymentMethod: 'cash' })}
-                                                            style={{ background: '#fef2f2', color: '#ef4444', border: '1px solid #fee2e2', padding: '6px 12px', borderRadius: 4, cursor: 'pointer', fontSize: 12, fontWeight: 700 }}
+                                                            style={{ background: '#fef2f2', color: '#ef4444', border: '1px solid #fee2e2', padding: '4px 8px', borderRadius: 4, cursor: 'pointer', fontSize: 11, fontWeight: 700 }}
                                                         >
                                                             Thu nợ
                                                         </button>

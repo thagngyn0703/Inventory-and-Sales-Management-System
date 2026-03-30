@@ -8,8 +8,9 @@ import './ManagerProducts.css';
 const API_BASE = process.env.REACT_APP_API_URL || '/api';
 
 const roleLabel = (role) => {
-    if (role === 'warehouse_staff') return 'Warehouse Staff';
-    if (role === 'sales_staff') return 'Sales Staff';
+    if (role === 'staff') return 'Staff';
+    if (role === 'warehouse_staff') return 'Staff (cũ: kho)';
+    if (role === 'sales_staff') return 'Staff (cũ: bán hàng)';
     return role || '-';
 };
 
@@ -48,37 +49,6 @@ export default function ManagerStaffManage() {
     useEffect(() => {
         fetchStaff();
     }, [fetchStaff]);
-
-    const updateRole = async (userId, role) => {
-        const token = localStorage.getItem('token');
-        if (!token) {
-            navigate('/login', { replace: true });
-            return;
-        }
-        setSavingId(userId);
-        setError('');
-        setSuccess('');
-        try {
-            const res = await fetch(`${API_BASE}/auth/staff/${userId}/role`, {
-                method: 'PATCH',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${token}`,
-                },
-                body: JSON.stringify({ role }),
-            });
-            const data = await res.json().catch(() => ({}));
-            if (!res.ok) {
-                throw new Error(data.message || 'Không cập nhật được vai trò');
-            }
-            setStaff((prev) => prev.map((u) => (u._id === userId ? { ...u, role } : u)));
-            setSuccess('Cập nhật vai trò thành công.');
-        } catch (err) {
-            setError(err.message || 'Không cập nhật được vai trò');
-        } finally {
-            setSavingId('');
-        }
-    };
 
     const removeFromStore = async (userId) => {
         const ok = window.confirm('Gỡ nhân viên này khỏi cửa hàng? Tài khoản vẫn được giữ trong hệ thống.');
@@ -130,7 +100,7 @@ export default function ManagerStaffManage() {
                         <div>
                             <h1 className="manager-page-title">Quản lý tài khoản nhân viên</h1>
                             <p className="manager-page-subtitle">
-                                Bạn có thể đổi vai trò hoặc gỡ nhân viên khỏi cửa hàng của mình.
+                                Nhân viên dùng một vai trò Staff (kho và bán hàng). Bạn có thể gỡ nhân viên khỏi cửa hàng khi cần.
                             </p>
                         </div>
                         <button type="button" className="manager-btn-primary" onClick={() => navigate('/manager/staff/new')}>
@@ -151,15 +121,14 @@ export default function ManagerStaffManage() {
                                         <tr>
                                             <th>Họ tên</th>
                                             <th>Email</th>
-                                            <th>Vai trò hiện tại</th>
-                                            <th>Đổi vai trò</th>
+                                            <th>Vai trò</th>
                                             <th>Thao tác</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         {staff.length === 0 ? (
                                             <tr>
-                                                <td colSpan={5} className="manager-products-empty">
+                                                <td colSpan={4} className="manager-products-empty">
                                                     Chưa có nhân viên nào trong cửa hàng
                                                 </td>
                                             </tr>
@@ -169,17 +138,6 @@ export default function ManagerStaffManage() {
                                                     <td>{u.fullName}</td>
                                                     <td>{u.email}</td>
                                                     <td>{roleLabel(u.role)}</td>
-                                                    <td>
-                                                        <select
-                                                            className="manager-select"
-                                                            value={u.role}
-                                                            onChange={(e) => updateRole(u._id, e.target.value)}
-                                                            disabled={savingId === u._id}
-                                                        >
-                                                            <option value="warehouse_staff">Warehouse Staff</option>
-                                                            <option value="sales_staff">Sales Staff</option>
-                                                        </select>
-                                                    </td>
                                                     <td>
                                                         <button
                                                             type="button"
