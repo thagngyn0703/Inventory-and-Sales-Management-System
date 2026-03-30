@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const SalesInvoice = require('../models/SalesInvoice');
 const Product = require('../models/Product');
 const User = require('../models/User');
+const { adjustStockFIFO } = require('../utils/inventoryUtils');
 const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
@@ -64,22 +65,17 @@ async function checkStockAvailability(items) {
     return problems;
 }
 
-async function adjustInventory(items, direction = -1) {
+async function adjustInventory(items, direction = -1, storeId = null) {
     if (!Array.isArray(items) || items.length === 0) return;
-    const bulkOps = items.map((item) => {
-        const pid = normalizeId(item.product_id);
-        if (!pid) return null;
-        const amount = Math.abs(item.quantity || 0) * direction;
-        return {
-            updateOne: {
-                filter: { _id: pid },
-                update: { $inc: { stock_qty: amount } },
-            },
-        };
-    }).filter(Boolean);
 
-    if (bulkOps.length > 0) {
-        await Product.bulkWrite(bulkOps);
+    for (const item of items) {
+        const pid = normalizeId(item.product_id);
+        if (!pid) continue;
+
+        const quantity = Math.abs(item.quantity || 0);
+        await adjustStockFIFO(pid, storeId, quantity * direction, {
+            note: direction === -1 ? 'Bán hàng (Hóa đơn)' : 'Khách trả hàng/Hủy hóa đơn'
+        });
     }
 }
 
@@ -101,12 +97,12 @@ async function syncInventory(invoice, nextStatus, nextItems = null) {
         const itemsToDeduct = nextItems || invoice.items;
         const problems = await checkStockAvailability(itemsToDeduct);
         if (problems.length > 0) throw { status: 400, message: 'Không đủ tồn kho', problems };
-        await adjustInventory(itemsToDeduct, -1);
+        await adjustInventory(itemsToDeduct, -1, invoice.store_id);
     } 
     else if (isOldSale && !isNextSale) {
         // Transitional Restore
         console.log(`[syncInventory] Restoring old items`);
-        await adjustInventory(invoice.items, 1);
+        await adjustInventory(invoice.items, 1, invoice.store_id);
     } 
     else if (isOldSale && isNextSale && itemsChanged) {
         // Item Update within Sale State
@@ -114,8 +110,8 @@ async function syncInventory(invoice, nextStatus, nextItems = null) {
         const problems = await checkStockAvailability(nextItems);
         if (problems.length > 0) throw { status: 400, message: 'Không đủ tồn kho để cập nhật sản phẩm', problems };
         
-        await adjustInventory(invoice.items, 1);
-        await adjustInventory(nextItems, -1);
+        await adjustInventory(invoice.items, 1, invoice.store_id);
+        await adjustInventory(nextItems, -1, invoice.store_id);
     }
 }
 

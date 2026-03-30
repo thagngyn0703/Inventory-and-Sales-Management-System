@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const Stocktake = require('../models/Stocktake');
 const Product = require('../models/Product');
 const StockAdjustment = require('../models/StockAdjustment');
+const { adjustStockFIFO } = require('../utils/inventoryUtils');
 const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
@@ -162,7 +163,9 @@ router.post('/:id/approve', requireAuth, requireRole(['manager', 'admin']), asyn
     });
 
     for (const it of adjustmentItems) {
-      await Product.findByIdAndUpdate(it.product_id, { $inc: { stock_qty: it.adjusted_qty }, updated_at: new Date() });
+      await adjustStockFIFO(it.product_id, stocktake.storeId || req.user.storeId, it.adjusted_qty, {
+        note: `Kiểm kê (Phiếu #${id.substring(id.length - 6).toUpperCase()})`
+      });
     }
 
     await Stocktake.findByIdAndUpdate(id, { status: 'completed', completed_at: new Date(), updated_at: new Date() });
