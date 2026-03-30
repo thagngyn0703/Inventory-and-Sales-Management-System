@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { getGoodsReceipts } from '../../services/goodsReceiptsApi';
+import { useWarehouseBase } from '../../utils/useWarehouseBase';
 
 const STATUS_LABEL = {
   draft: 'Nháp',
@@ -12,6 +13,7 @@ const STATUS_LABEL = {
 export default function WarehouseGoodsReceiptList() {
   const navigate = useNavigate();
   const location = useLocation();
+  const warehouseBase = useWarehouseBase();
   const [receipts, setReceipts] = useState([]);
   const [statusFilter, setStatusFilter] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
@@ -170,7 +172,7 @@ export default function WarehouseGoodsReceiptList() {
               type="button"
               className="warehouse-btn warehouse-btn-primary"
               style={{ marginLeft: 8 }}
-              onClick={() => navigate('/warehouse/receipts/new')}
+              onClick={() => navigate(`${warehouseBase}/receipts/new`)}
             >
               Tạo phiếu nhập kho
             </button>

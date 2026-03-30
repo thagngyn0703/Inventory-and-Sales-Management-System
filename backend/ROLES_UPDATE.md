@@ -1,43 +1,43 @@
-# Cập nhật role user trong MongoDB
+# Mô hình phân quyền 3 Role
 
-**Lưu ý:** Khi bạn sửa enum `role` trong model `User.js`, MongoDB **không tự động** cập nhật các document đã có. Các user cũ vẫn giữ nguyên giá trị `role` hiện tại (ví dụ `user` hoặc `admin`).
+Hệ thống chỉ sử dụng **3 role**:
 
-Để tài khoản đăng nhập vào Manager Dashboard và dùng được Sản phẩm (xem danh sách, thêm sản phẩm), bạn cần **đổi role** của user đó sang `manager` (hoặc `warehouse` / `sales` tùy quyền).
+| Role | Mô tả |
+|---|---|
+| `admin` | Quản trị nền tảng (quản lý store, user, RBAC) |
+| `manager` | Chủ cửa hàng — full quyền trong store của mình |
+| `staff` | Nhân viên — vận hành hằng ngày (POS + nhập kho + kiểm kho) |
 
-## Cách 1: MongoDB Compass (giao diện)
+> Role cũ `warehouse_staff`, `sales_staff`, `warehouse`, `sales` đã được **backward-compat map về `staff`** trong cả BE middleware và FE util, nhưng không nên tạo mới.
 
-1. Mở MongoDB Compass, kết nối tới database (cùng `MONGO_URI` trong `.env`).
-2. Chọn database → collection `users`.
-3. Tìm document user cần đổi (theo `email` hoặc `fullName`).
-4. Bấm **Edit** (hoặc double-click document), sửa field `role` từ `user` thành `manager` (hoặc `warehouse`, `sales`).
-5. Save.
+---
 
-## Cách 2: MongoDB Shell (mongosh)
+## Migrate user cũ (nếu có role cũ trong DB)
 
-Kết nối shell tới MongoDB (hoặc dùng "MongoSH" trong Compass), chạy:
+Chạy lệnh sau trong **MongoDB Shell (mongosh)** hoặc Compass để chuẩn hóa:
 
-**Đổi 1 user theo email (ví dụ đổi thành manager):**
 ```javascript
+// Đổi tất cả role cũ về 'staff'
+db.users.updateMany(
+  { role: { $in: ["warehouse_staff", "sales_staff", "warehouse", "sales"] } },
+  { $set: { role: "staff" } }
+)
+```
+
+```javascript
+// Đổi 1 user cụ thể thành manager
 db.users.updateOne(
-  { email: "email_cua_ban@example.com" },
+  { email: "owner@example.com" },
   { $set: { role: "manager" } }
 )
 ```
 
-**Đổi tất cả user hiện có thành manager (cẩn thận, chỉ dùng khi cần):**
 ```javascript
-db.users.updateMany(
-  {},
-  { $set: { role: "manager" } }
+// Đổi 1 user cụ thể thành staff
+db.users.updateOne(
+  { email: "staff@example.com" },
+  { $set: { role: "staff" } }
 )
 ```
 
-**Chỉ đổi những user đang là `user` thành `manager`:**
-```javascript
-db.users.updateMany(
-  { role: "user" },
-  { $set: { role: "manager" } }
-)
-```
-
-Sau khi cập nhật, user đăng nhập lại sẽ có role mới và vào được `/manager` cùng trang Sản phẩm.
+Sau khi cập nhật, user đăng nhập lại sẽ có role mới và vào đúng dashboard.

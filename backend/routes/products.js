@@ -111,12 +111,11 @@ async function findExistingProductForImport({ sku, name, storeId }) {
 
 function getRoleStoreFilter(req) {
   const role = String(req.user?.role || '').toLowerCase();
-  const storeId = req.user?.storeId ? String(req.user.storeId) : null;
-  if (String(req.user?.role || '').toLowerCase() === 'admin') {
-    return {};
-  }
-  const isStoreScopedRole = ['manager', 'warehouse_staff', 'sales_staff', 'staff'].includes(role);
+  if (role === 'admin') return {};
+  // Nhận diện đủ role cũ (backward compat) và role mới
+  const isStoreScopedRole = ['manager', 'staff', 'warehouse_staff', 'sales_staff'].includes(role);
   if (!isStoreScopedRole) return {};
+  const storeId = req.user?.storeId ? String(req.user.storeId) : null;
   if (!storeId) return null;
   return { storeId };
 }
@@ -224,8 +223,8 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
   }
 });
 
-// GET /api/products?q=...&page=1&limit=20  (manager, warehouse, sales, admin)
-router.get('/', requireAuth, requireRole(['manager', 'warehouse', 'sales', 'admin']), async (req, res) => {
+// GET /api/products?q=...&page=1&limit=20  (staff, manager, admin)
+router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
   try {
     const { q = '', page = '1', limit = '20' } = req.query;
     const query = String(q || '').trim();
@@ -491,8 +490,8 @@ router.post('/import/commit', requireAuth, requireRole(['manager', 'admin']), as
   }
 });
 
-// GET /api/products/:id  (manager, warehouse, sales, admin)
-router.get('/:id', requireAuth, requireRole(['manager', 'warehouse', 'sales', 'admin']), async (req, res) => {
+// GET /api/products/:id  (staff, manager, admin)
+router.get('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
   try {
     const { id } = req.params;
     if (!mongoose.isValidObjectId(id)) {

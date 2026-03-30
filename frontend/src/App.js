@@ -139,7 +139,7 @@ function App() {
         path="/warehouse"
         element={
           <RequireAuth>
-            <RequireRole allowedRoles={['warehouse', 'staff', 'manager', 'admin']}>
+            <RequireRole allowedRoles={['staff', 'manager', 'admin']}>
               <RequireStaffStore>
                 <WarehouseDashboard />
               </RequireStaffStore>
@@ -160,7 +160,7 @@ function App() {
         path="/sales"
         element={
           <RequireAuth>
-            <RequireRole allowedRoles={['sales', 'staff', 'manager', 'admin']}>
+            <RequireRole allowedRoles={['staff', 'manager', 'admin']}>
               <SalesDashboard />
             </RequireRole>
           </RequireAuth>
@@ -172,6 +172,13 @@ function App() {
         <Route path="returns" element={<SalesInvoicesList />} />
         <Route path="returns/new" element={<SalesReturnPage />} />
         <Route path=":id" element={<SalesInvoiceView />} />
+        {/* Warehouse sub-routes accessible from staff dashboard */}
+        <Route path="receipts" element={<WarehouseGoodsReceiptList />} />
+        <Route path="receipts/new" element={<WarehouseGoodsReceiptCreate />} />
+        <Route path="receipts/:id" element={<WarehouseGoodsReceiptDetail />} />
+        <Route path="stocktakes" element={<WarehouseStocktakingList />} />
+        <Route path="stocktakes/new" element={<WarehouseStocktakingCreate />} />
+        <Route path="stocktakes/:id" element={<WarehouseStocktakingDetail />} />
       </Route>
     </Routes>
   );

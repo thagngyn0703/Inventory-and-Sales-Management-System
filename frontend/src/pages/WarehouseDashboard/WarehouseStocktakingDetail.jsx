@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useWarehouseBase } from '../../utils/useWarehouseBase';
 import { getStocktake, updateStocktake } from '../../services/stocktakesApi';
 
 const STATUS_LABEL = {
@@ -12,6 +13,7 @@ const STATUS_LABEL = {
 export default function WarehouseStocktakingDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const warehouseBase = useWarehouseBase();
   const [stocktake, setStocktake] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -113,7 +115,7 @@ export default function WarehouseStocktakingDetail() {
     return (
       <>
         <div className="warehouse-alert warehouse-alert-error">{error}</div>
-        <button type="button" className="warehouse-btn warehouse-btn-secondary" onClick={() => navigate('/warehouse/stocktakes')}>
+        <button type="button" className="warehouse-btn warehouse-btn-secondary" onClick={() => navigate(`${warehouseBase}/stocktakes`)}>
           Quay lại danh sách
         </button>
       </>
@@ -129,7 +131,7 @@ export default function WarehouseStocktakingDetail() {
         <button
           type="button"
           className="warehouse-btn warehouse-btn-secondary"
-          onClick={() => navigate('/warehouse/stocktakes')}
+          onClick={() => navigate(`${warehouseBase}/stocktakes`)}
         >
           ← Quay lại
         </button>

@@ -1,5 +1,5 @@
 :root {
-  --sales-primary: #0d9488; /* Teal like warehouse */
+  --sales-primary: #0d9488;
   --sales-primary-hover: #0f766e;
   --sales-bg: #f4f6f8;
   --sales-sidebar-bg: #ffffff;
@@ -10,6 +10,7 @@
   --sales-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
   --sales-sidebar-width: 250px;
   --sales-header-height: 64px;
+  --sidebar-transition: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .sales-layout {
@@ -19,7 +20,7 @@
   font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
 }
 
-/* Sidebar Styling - Matching Warehouse */
+/* Sidebar Styling */
 .sales-sidebar {
   width: var(--sales-sidebar-width);
   background-color: var(--sales-sidebar-bg);
@@ -31,14 +32,33 @@
   z-index: 100;
   border-right: 1px solid var(--sales-border);
   box-shadow: 2px 0 8px rgba(0, 0, 0, 0.04);
+  overflow: hidden;
+  transform: translateX(0);
+  transition: transform var(--sidebar-transition), width var(--sidebar-transition);
+}
+
+.sales-sidebar.collapsed {
+  transform: translateX(-100%);
 }
 
 .sales-sidebar-brand {
-  padding: 24px 20px;
+  padding: 20px 20px 16px;
   display: flex;
   align-items: center;
   gap: 12px;
   border-bottom: 1px solid var(--sales-border);
+  flex-shrink: 0;
+}
+
+.sales-sidebar-store {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: var(--sales-primary);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
 }
 
 .brand-icon {
@@ -63,9 +83,22 @@
 
 .sales-nav {
   flex: 1;
-  padding: 16px 0;
+  padding: 8px 0;
   display: flex;
   flex-direction: column;
+  overflow-y: auto;
+}
+
+/* Group label trong sidebar */
+.sales-nav-group-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 12px 20px 4px;
+  margin: 0;
+  flex-shrink: 0;
 }
 
 .sales-nav-link {
@@ -133,6 +166,11 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+  transition: margin-left var(--sidebar-transition);
+}
+
+.sales-layout.sidebar-collapsed .sales-main {
+  margin-left: 0;
 }
 
 .sales-header {
@@ -141,24 +179,60 @@
   border-bottom: 1px solid var(--sales-border);
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  padding: 0 24px;
+  justify-content: space-between;
+  padding: 0 16px 0 12px;
+  gap: 12px;
   position: sticky;
   top: 0;
   z-index: 90;
 }
 
-/* Add a user badge similar to warehouse */
+/* Toggle button */
+.sales-toggle-btn {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border: none;
+  background: #f3f4f6;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 15px;
+  color: #374151;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+}
+
+.sales-toggle-btn:hover {
+  background: #e5e7eb;
+  color: #111827;
+}
+
+/* User badge */
 .sales-user-badge {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 12px;
-    background: #f9fafb;
-    border-radius: 10px;
-    font-size: 14px;
-    font-weight: 600;
-    color: #374151;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  background: #f9fafb;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+  flex-shrink: 0;
+}
+
+/* Store name pill bên trong user badge */
+.sales-store-tag {
+  font-size: 11px;
+  font-weight: 700;
+  color: #0d9488;
+  background: #f0fdfa;
+  border: 1px solid #99f6e4;
+  border-radius: 6px;
+  padding: 1px 7px;
+  white-space: nowrap;
 }
 
 .sales-content {

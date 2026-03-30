@@ -9,7 +9,7 @@ const Product = require('../models/Product');
 const Supplier = require('../models/Supplier');
 
 // GET /api/goods-receipts?page=&limit=&status=&supplier_id=
-router.get('/', requireAuth, requireRole(['manager', 'warehouse', 'admin']), async (req, res) => {
+router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
         const { page = '1', limit = '20', status, supplier_id } = req.query;
         const pageNum = Math.max(1, parseInt(page, 10) || 1);
@@ -49,7 +49,7 @@ router.get('/', requireAuth, requireRole(['manager', 'warehouse', 'admin']), asy
 });
 
 // GET /api/goods-receipts/:id
-router.get('/:id', requireAuth, requireRole(['manager', 'warehouse', 'admin']), async (req, res) => {
+router.get('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
         const { id } = req.params;
         if (!mongoose.isValidObjectId(id)) {
@@ -70,8 +70,8 @@ router.get('/:id', requireAuth, requireRole(['manager', 'warehouse', 'admin']), 
     }
 });
 
-// POST /api/goods-receipts  (warehouse, manager, admin)
-router.post('/', requireAuth, requireRole(['warehouse', 'manager']), async (req, res) => {
+// POST /api/goods-receipts  (staff, manager)
+router.post('/', requireAuth, requireRole(['staff', 'manager']), async (req, res) => {
     try {
         const {
             po_id,

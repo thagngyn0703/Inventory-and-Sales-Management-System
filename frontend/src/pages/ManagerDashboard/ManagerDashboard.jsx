@@ -6,9 +6,35 @@ import { getIncomingFrequencyBySupplier } from '../../services/analyticsApi';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
 
+function useCurrentUser() {
+    const [user, setUser] = useState(() => {
+        try { return JSON.parse(localStorage.getItem('user') || 'null'); }
+        catch { return null; }
+    });
+    useEffect(() => {
+        const token = localStorage.getItem('token') || '';
+        if (!token) return;
+        fetch('http://localhost:8000/api/auth/me', {
+            headers: { Authorization: `Bearer ${token}` },
+        })
+            .then(res => res.json().catch(() => ({})))
+            .then(data => {
+                if (!data?.user) return;
+                setUser(data.user);
+                localStorage.setItem('user', JSON.stringify(data.user));
+            })
+            .catch(() => {});
+    }, []);
+    return user;
+}
+
 const MONTH_NAMES = ['Tháng 1', 'Tháng 2', 'Tháng 3', 'Tháng 4', 'Tháng 5', 'Tháng 6', 'Tháng 7', 'Tháng 8', 'Tháng 9', 'Tháng 10', 'Tháng 11', 'Tháng 12'];
 
 export default function ManagerDashboard() {
+    const currentUser = useCurrentUser();
+    const storeName = currentUser?.storeName || '';
+    const displayName = currentUser?.fullName || currentUser?.email || 'Quản lý';
+
     const now = new Date();
     const [incomingYear, setIncomingYear] = useState(now.getFullYear());
     const [incomingMonth, setIncomingMonth] = useState(now.getMonth() + 1);
@@ -49,8 +75,19 @@ export default function ManagerDashboard() {
                     <div className="manager-topbar-actions">
                         <ManagerNotificationBell />
                         <div className="manager-user-badge">
-                            <i className="fa-solid fa-circle-user" />
-                            <span>Quản lý</span>
+                            <i className="fa-solid fa-circle-user" style={{ color: '#6366f1' }} />
+                            {storeName && (
+                                <span style={{
+                                    fontSize: '11px', fontWeight: 700, color: '#6366f1',
+                                    background: '#eef2ff', border: '1px solid #c7d2fe',
+                                    borderRadius: 6, padding: '1px 7px', whiteSpace: 'nowrap',
+                                }}>
+                                    <i className="fa-solid fa-store" style={{ marginRight: 4, fontSize: 10 }} />
+                                    {storeName}
+                                </span>
+                            )}
+                            <span>{displayName}</span>
+                            <span style={{ fontSize: '11px', opacity: 0.6 }}>(Quản lý)</span>
                         </div>
                     </div>
                 </header>

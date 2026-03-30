@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useWarehouseBase } from '../../utils/useWarehouseBase';
 import { getProducts } from '../../services/productsApi';
 import { createStocktake } from '../../services/stocktakesApi';
 
@@ -7,6 +8,7 @@ const PRODUCT_LIMIT = 500;
 
 export default function WarehouseStocktakingCreate() {
   const navigate = useNavigate();
+  const warehouseBase = useWarehouseBase();
   const [products, setProducts] = useState([]);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [loading, setLoading] = useState(true);
@@ -60,7 +62,7 @@ export default function WarehouseStocktakingCreate() {
     setError('');
     try {
       const { stocktake } = await createStocktake({ product_ids: ids });
-      navigate('/warehouse/stocktakes', { state: { success: 'Đã tạo phiếu kiểm kê thành công.' } });
+      navigate(`${warehouseBase}/stocktakes`, { state: { success: 'Đã tạo phiếu kiểm kê thành công.' } });
     } catch (err) {
       setError(err.message || 'Không thể tạo phiếu kiểm kê');
     } finally {
@@ -163,7 +165,7 @@ export default function WarehouseStocktakingCreate() {
                 <button
                   type="button"
                   className="warehouse-btn warehouse-btn-secondary"
-                  onClick={() => navigate('/warehouse/stocktakes')}
+                  onClick={() => navigate(`${warehouseBase}/stocktakes`)}
                 >
                   Hủy
                 </button>

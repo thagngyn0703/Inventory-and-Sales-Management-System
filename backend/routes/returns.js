@@ -8,7 +8,7 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 const router = express.Router();
 
 // GET /api/returns — list returns for the user's store
-router.get('/', requireAuth, requireRole(['sales', 'manager', 'admin']), async (req, res) => {
+router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
         const { page = '1', limit = '50', status } = req.query;
         const pageNum = Math.max(1, parseInt(page, 10) || 1);
@@ -48,7 +48,7 @@ router.get('/', requireAuth, requireRole(['sales', 'manager', 'admin']), async (
 });
 
 // POST /api/returns — create a return receipt
-router.post('/', requireAuth, requireRole(['sales', 'manager', 'admin']), async (req, res) => {
+router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     const session = await mongoose.startSession();
     session.startTransaction();
     try {

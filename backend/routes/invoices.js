@@ -134,7 +134,7 @@ function buildStockAvailability(items, productsById) {
 
 
 // POST /api/invoices — create a confirmed outbound invoice
-router.post('/', requireAuth, requireRole(['sales', 'warehouse', 'manager', 'admin']), async (req, res) => {
+router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
         const { customer_id, items: reqItems, payment_method, recipient_name } = req.body || {};
         if (!Array.isArray(reqItems) || reqItems.length === 0) {
@@ -190,7 +190,7 @@ router.post('/', requireAuth, requireRole(['sales', 'warehouse', 'manager', 'adm
 });
 
 // GET /api/invoices?page=&limit=&status=
-router.get('/', requireAuth, requireRole(['sales', 'warehouse', 'manager', 'admin']), async (req, res) => {
+router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
         const { page = '1', limit = '20', status, dateFrom, dateTo, searchKey } = req.query;
         const pageNum = Math.max(1, parseInt(page, 10) || 1);
@@ -277,7 +277,7 @@ router.get('/', requireAuth, requireRole(['sales', 'warehouse', 'manager', 'admi
 });
 
 // GET /api/invoices/:id
-router.get('/:id', requireAuth, requireRole(['sales', 'warehouse', 'manager', 'admin']), async (req, res) => {
+router.get('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
         const { id } = req.params;
         if (!mongoose.isValidObjectId(id)) {
@@ -309,8 +309,8 @@ router.get('/:id', requireAuth, requireRole(['sales', 'warehouse', 'manager', 'a
     }
 });
 
-// PATCH /api/invoices/:id — update invoice (warehouse, manager)
-router.patch('/:id', requireAuth, requireRole(['warehouse', 'manager', 'admin']), async (req, res) => {
+// PATCH /api/invoices/:id — update invoice (staff, manager)
+router.patch('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
         const { id } = req.params;
         if (!mongoose.isValidObjectId(id)) {
@@ -390,7 +390,7 @@ router.patch('/:id', requireAuth, requireRole(['warehouse', 'manager', 'admin'])
 });
 
 // GET /api/invoices/stats/daily-sales — 7-day sales stats for dashboard
-router.get('/stats/daily-sales', requireAuth, requireRole(['sales', 'warehouse', 'manager', 'admin']), async (req, res) => {
+router.get('/stats/daily-sales', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
         const days = 7;
         const result = [];
@@ -431,7 +431,7 @@ router.get('/stats/daily-sales', requireAuth, requireRole(['sales', 'warehouse',
 });
 
 // POST /api/invoices/:id/cancel — Simplify cancel
-router.post('/:id/cancel', requireAuth, requireRole(['sales', 'warehouse', 'manager', 'admin']), async (req, res) => {
+router.post('/:id/cancel', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
         const { id } = req.params;
         const invoice = await SalesInvoice.findById(id);

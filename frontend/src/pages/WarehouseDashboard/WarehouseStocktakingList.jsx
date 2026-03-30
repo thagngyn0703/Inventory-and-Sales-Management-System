@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { getStocktakes } from '../../services/stocktakesApi';
+import { useWarehouseBase } from '../../utils/useWarehouseBase';
 
 const LIMIT = 10;
 
@@ -14,6 +15,7 @@ const STATUS_LABEL = {
 export default function WarehouseStocktakingList() {
   const navigate = useNavigate();
   const location = useLocation();
+  const warehouseBase = useWarehouseBase();
   const [stocktakes, setStocktakes] = useState([]);
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
@@ -115,7 +117,7 @@ export default function WarehouseStocktakingList() {
               type="button"
               className="warehouse-btn warehouse-btn-primary"
               style={{ marginLeft: 8 }}
-              onClick={() => navigate('/warehouse/stocktakes/new')}
+              onClick={() => navigate(`${warehouseBase}/stocktakes/new`)}
             >
               Tạo phiếu kiểm kê
             </button>
@@ -149,7 +151,7 @@ export default function WarehouseStocktakingList() {
                           type="button"
                           className="warehouse-btn warehouse-btn-secondary"
                           style={{ padding: '6px 12px', fontSize: 13 }}
-                          onClick={() => navigate(`/warehouse/stocktakes/${st._id}`)}
+                          onClick={() => navigate(`${warehouseBase}/stocktakes/${st._id}`)}
                         >
                           Xem
                         </button>

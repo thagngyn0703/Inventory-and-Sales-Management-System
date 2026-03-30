@@ -9,17 +9,18 @@ const router = express.Router();
 
 function getRoleStoreFilter(req) {
   const role = String(req.user?.role || '').toLowerCase();
-  const storeId = req.user?.storeId ? String(req.user.storeId) : null;
-  const isStoreScopedRole = ['manager', 'warehouse_staff', 'sales_staff', 'staff'].includes(role);
+  if (role === 'admin') return {};
+  const isStoreScopedRole = ['manager', 'staff', 'warehouse_staff', 'sales_staff'].includes(role);
   if (!isStoreScopedRole) return {};
+  const storeId = req.user?.storeId ? String(req.user.storeId) : null;
   if (!storeId) return null;
   return { storeId };
 }
 
-// POST /api/stocktakes — Create stocktaking record (draft). Warehouse, Manager, Admin.
+// POST /api/stocktakes — Create stocktaking record (draft). Staff, Manager, Admin.
 // Body: { warehouse_id?: ObjectId, product_ids: [ObjectId] }
 // Snapshot current system_qty for each product; actual_qty/variance filled later.
-router.post('/', requireAuth, requireRole(['warehouse', 'manager', 'admin']), async (req, res) => {
+router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
   try {
     const { warehouse_id, product_ids } = req.body || {};
     const ids = Array.isArray(product_ids) ? product_ids : [];
@@ -33,7 +34,7 @@ router.post('/', requireAuth, requireRole(['warehouse', 'manager', 'admin']), as
 
     const role = String(req.user?.role || '').toLowerCase();
     const requesterStoreId = req.user?.storeId ? String(req.user.storeId) : null;
-    if (['manager', 'warehouse_staff', 'sales_staff', 'staff'].includes(role) && !requesterStoreId) {
+    if (['manager', 'staff', 'warehouse_staff', 'sales_staff'].includes(role) && !requesterStoreId) {
       return res.status(403).json({
         message: 'Tài khoản chưa được gán cửa hàng.',
         code: 'STORE_REQUIRED',
@@ -76,8 +77,8 @@ router.post('/', requireAuth, requireRole(['warehouse', 'manager', 'admin']), as
   }
 });
 
-// GET /api/stocktakes?page=1&limit=20&status= — List stocktakes. Warehouse, Manager, Admin.
-router.get('/', requireAuth, requireRole(['warehouse', 'manager', 'admin']), async (req, res) => {
+// GET /api/stocktakes?page=1&limit=20&status= — List stocktakes. Staff, Manager, Admin.
+router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
   try {
     const { page = '1', limit = '20', status } = req.query;
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
@@ -237,7 +238,7 @@ router.post('/:id/reject', requireAuth, requireRole(['manager', 'admin']), async
 });
 
 // GET /api/stocktakes/:id — Get one stocktake with items and product details.
-router.get('/:id', requireAuth, requireRole(['warehouse', 'manager', 'admin']), async (req, res) => {
+router.get('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
   try {
     const { id } = req.params;
     if (!mongoose.isValidObjectId(id)) {
@@ -264,7 +265,7 @@ router.get('/:id', requireAuth, requireRole(['warehouse', 'manager', 'admin']), 
 
 // PATCH /api/stocktakes/:id — Update items (actual_qty, reason) and/or submit. Only when status is draft.
 // Body: { items?: [{ product_id, actual_qty?, reason? }], status?: 'submitted' }
-router.patch('/:id', requireAuth, requireRole(['warehouse', 'manager', 'admin']), async (req, res) => {
+router.patch('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
   try {
     const { id } = req.params;
     if (!mongoose.isValidObjectId(id)) {
