@@ -30,7 +30,12 @@ export default function SalesReturnPage() {
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
-  const [successMessage, setSuccessMessage] = useState('');
+  const [toast, setToast] = useState({ message: '', type: 'success' });
+
+  const showToast = (message, type = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast({ message: '', type: 'success' }), 4000);
+  };
 
   const handleLoadInvoice = useCallback(async () => {
     const id = invoiceInput.trim();
@@ -39,7 +44,7 @@ export default function SalesReturnPage() {
     setInvoiceError('');
     setInvoice(null);
     setReturnQty({});
-    setSuccessMessage('');
+    setToast({ message: '', type: 'success' });
     setSubmitError('');
     try {
       const data = await getInvoice(id);
@@ -100,13 +105,14 @@ export default function SalesReturnPage() {
         items,
         reason: reason || 'Khách trả hàng',
       });
-      setSuccessMessage(`Trả hàng thành công! Đã hoàn trả ${items.length} sản phẩm, tổng tiền: ${formatMoney(totalRefund)}`);
+      showToast(`Trả hàng thành công! Đã hoàn trả ${items.length} sản phẩm, tổng tiền: ${formatMoney(totalRefund)}`, 'success');
       setInvoice(null);
       setInvoiceInput('');
       setReturnQty({});
       setReason('');
     } catch (e) {
       setSubmitError(e.message || 'Lỗi khi thực hiện trả hàng');
+      showToast(e.message || 'Lỗi khi thực hiện trả hàng', 'error');
     } finally {
       setSubmitting(false);
     }
@@ -128,11 +134,17 @@ export default function SalesReturnPage() {
         </div>
       </div>
 
-      {/* Success toast */}
-      {successMessage && (
-        <div style={{ background: '#d1fae5', border: '1px solid #6ee7b7', color: '#065f46', padding: '16px 20px', borderRadius: 10, marginBottom: 20, display: 'flex', alignItems: 'center', gap: 12, fontWeight: 600 }}>
-          <i className="fa-solid fa-circle-check" style={{ fontSize: 20 }} />
-          {successMessage}
+      {/* Status Toast */}
+      {toast.message && (
+        <div style={{
+          position: 'fixed', bottom: 40, right: 40, 
+          background: toast.type === 'error' ? '#ef4444' : '#10b981', 
+          color: 'white', padding: '16px 24px', 
+          borderRadius: 8, boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', zIndex: 9999, fontWeight: 600,
+          display: 'flex', alignItems: 'center', gap: 12, animation: 'slideUp 0.3s ease-out'
+        }}>
+          <i className={toast.type === 'error' ? "fa-solid fa-circle-xmark" : "fa-solid fa-circle-check"} style={{ fontSize: 20 }} />
+          {toast.message}
         </div>
       )}
 

@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { getInvoice, createInvoice, updateInvoice } from '../../services/invoicesApi';
 import { getProducts } from '../../services/productsApi';
+import { getCustomers, createCustomer } from '../../services/customersApi';
 import { getCurrentUser } from '../../utils/auth';
 import './SalesPOS.css';
 
@@ -18,11 +19,14 @@ const createDefaultTab = (index = 1) => ({
   items: [],
   paymentMethod: 'cash',
   recipientName: '',
+  customerId: null,
+  customerData: null,
   customerPaid: '',
   saving: false,
   error: '',
   successMessage: '',
-  invoiceId: null // If loaded from existing
+  invoiceId: null, // If loaded from existing
+  payOldDebt: false
 });
 
 export default function SalesInvoiceDetail() {
@@ -39,8 +43,64 @@ export default function SalesInvoiceDetail() {
   const [activeTabId, setActiveTabId] = useState(tabs[0].tabId);
   const [tabCounter, setTabCounter] = useState(2); // to name new tabs Hóa đơn 2, 3...
   
-  const [showQRModal, setShowQRModal] = useState(false);
-  const [toastMessage, setToastMessage] = useState('');
+  const [toast, setToast] = useState({ message: '', type: 'success' }); // { message, type: 'success' | 'error' }
+
+  const showToast = (message, type = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast({ message: '', type: 'success' }), 4000);
+  };
+
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [customerList, setCustomerList] = useState([]);
+  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
+  const debounceRef = React.useRef(null);
+
+  const [showCreateCustomer, setShowCreateCustomer] = useState(false);
+  const [newCustomer, setNewCustomer] = useState({ full_name: '', phone: '' });
+  const [creatingCustomer, setCreatingCustomer] = useState(false);
+  const [customerModalError, setCustomerModalError] = useState('');
+
+  const handleCreateCustomer = async () => {
+    if (!newCustomer.full_name || !newCustomer.phone) {
+      setCustomerModalError('Vui lòng nhập đầy đủ Tên và Số điện thoại.');
+      return;
+    }
+    const cleanPhone = newCustomer.phone.trim().replace(/\s/g, '');
+    if (cleanPhone.length < 10 || cleanPhone.length > 11) {
+      setCustomerModalError('Số điện thoại hợp lệ phải có 10 hoặc 11 chữ số.');
+      return;
+    }
+    setCreatingCustomer(true);
+    setCustomerModalError('');
+    try {
+      const created = await createCustomer({ ...newCustomer, status: 'active', is_regular: true });
+      updateActiveTab({ customerId: created._id, customerData: created, recipientName: created.full_name, paymentMethod: 'cash' });
+      setCustomerSearch('');
+      setShowCreateCustomer(false);
+      setNewCustomer({ full_name: '', phone: '' });
+      showToast('Thêm khách hàng thành công!', 'success');
+    } catch (e) {
+      setCustomerModalError(e.message || 'Lỗi khi thêm khách hàng mới');
+    } finally {
+      setCreatingCustomer(false);
+    }
+  };
+
+  const searchCustomers = (val) => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (!val.trim()) {
+      setCustomerList([]);
+      return;
+    }
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const res = await getCustomers(val);
+        setCustomerList(res.customers || []);
+        setShowCustomerDropdown(true);
+      } catch (e) { console.error(e); }
+    }, 300);
+  };
+
 
   const activeTab = tabs.find(t => t.tabId === activeTabId) || tabs[0];
   const activeTabIndex = tabs.findIndex(t => t.tabId === activeTabId);
@@ -76,6 +136,8 @@ export default function SalesInvoiceDetail() {
         })),
         paymentMethod: data.payment_method || 'cash',
         recipientName: data.recipient_name || '',
+        customerId: data.customer_id?._id || data.customer_id || null,
+        customerData: data.customer_id || null,
         customerPaid: data.total_amount || '',
         saving: false, error: '', successMessage: '',
         invoiceId: data._id
@@ -177,17 +239,21 @@ export default function SalesInvoiceDetail() {
   };
 
   const totalAmount = useMemo(() => activeTab.items.reduce((s, it) => s + (it.line_total || 0), 0), [activeTab.items]);
+  const totalWithDebt = useMemo(() => {
+    return totalAmount + (activeTab.payOldDebt ? (activeTab.customerData?.debt_account || 0) : 0);
+  }, [totalAmount, activeTab.payOldDebt, activeTab.customerData]);
   
   // Calculate change
+  // Calculate change based on total with debt if selected
   const customerPaidNum = Number(activeTab.customerPaid) || 0;
-  const changeAmount = Math.max(0, customerPaidNum - totalAmount);
+  const changeAmount = Math.max(0, customerPaidNum - totalWithDebt);
   // Missing amount if they haven't paid enough yet
-  const missingAmount = Math.max(0, totalAmount - customerPaidNum);
+  const missingAmount = Math.max(0, totalWithDebt - customerPaidNum);
   
   // Validation
   const isPaymentSufficient = activeTab.paymentMethod === 'bank_transfer' || customerPaidNum >= totalAmount;
   const canSubmit = !activeTab.saving && activeTab.items.length > 0 && 
-    (activeTab.paymentMethod === 'debt' || isPaymentSufficient);
+    (activeTab.paymentMethod === 'debt' || customerPaidNum >= totalWithDebt || activeTab.paymentMethod === 'bank_transfer');
 
   const handlePrintInvoice = (invoice, tab) => {
     const printWindow = window.open('', '_blank');
@@ -252,8 +318,17 @@ export default function SalesInvoiceDetail() {
           </table>
 
           <div class="text-right total-row">
-            Tổng cộng: ${Number(invoice.total_amount || 0).toLocaleString('vi-VN')}₫
+            Tổng tiền hàng: ${Number(invoice.total_amount || 0).toLocaleString('vi-VN')}₫
           </div>
+
+          ${tab.payOldDebt ? `
+            <div class="text-right" style="margin-top: 5px;">
+              Nợ cũ đã trả: ${Number(tab.customerData?.debt_account || 0).toLocaleString('vi-VN')}₫
+            </div>
+            <div class="text-right total-row" style="color: #000; border-top: 1px solid #000; padding-top: 5px; margin-top: 5px;">
+              TỔNG THANH TOÁN: ${Number((invoice.total_amount || 0) + (tab.customerData?.debt_account || 0)).toLocaleString('vi-VN')}₫
+            </div>
+          ` : ''}
 
           <div class="footer">
             Cảm ơn quý khách và hẹn gặp lại!
@@ -280,24 +355,32 @@ export default function SalesInvoiceDetail() {
     try {
       const payload = {
         payment_method: activeTab.paymentMethod, // 'cash' or 'transfer' or 'mixed'
-        recipient_name: activeTab.recipientName,
+        recipient_name: activeTab.recipientName || 'Khách lẻ',
+        customer_id: activeTab.customerId || null,
         items: activeTab.items.map(it => ({
           product_id: it.product_id,
           quantity: it.quantity,
           unit_price: it.unit_price,
           discount: it.discount
-        }))
+        })),
+        previous_debt_paid: activeTab.payOldDebt ? (activeTab.customerData?.debt_account || 0) : 0
       };
 
       if (!activeTab.invoiceId) {
         // Create new
         const created = await createInvoice({ ...payload, status: 'confirmed' });
         
-        handlePrintInvoice(created, activeTab);
+        if (activeTab.paymentMethod !== 'debt') {
+            handlePrintInvoice(created, activeTab);
+        }
         
         // Show Toast instead of alert
-        setToastMessage('Thanh toán thành công! ' + (changeAmount > 0 ? `Tiền thừa trả khách: ${formatMoney(changeAmount)}` : ''));
-        setTimeout(() => setToastMessage(''), 3000);
+        showToast('Thanh toán thành công! ' + (changeAmount > 0 ? `Tiền thừa trả khách: ${formatMoney(changeAmount)}` : ''), 'success');
+        
+        // If they paid old debt, update activeTab customerData to reflect that
+        if (activeTab.payOldDebt) {
+           // We can just clear it locally or let the next fetch handle it
+        }
         
         if (tabs.length === 1) {
             const newTab = createDefaultTab(tabCounter);
@@ -317,11 +400,11 @@ export default function SalesInvoiceDetail() {
         // Update existing
         await updateInvoice(activeTab.invoiceId, payload);
         updateActiveTab({ successMessage: 'Đã lưu thay đổi.', saving: false });
-        setToastMessage('Đã lưu thay đổi hóa đơn.');
-        setTimeout(() => setToastMessage(''), 3000);
+        showToast('Đã lưu thay đổi hóa đơn.', 'success');
       }
     } catch (e) {
       updateActiveTab({ error: e.message || 'Lỗi khi lưu hóa đơn', saving: false });
+      showToast(e.message || 'Lỗi khi lưu hóa đơn', 'error');
     }
   };
 
@@ -331,11 +414,6 @@ export default function SalesInvoiceDetail() {
     // Check if empty
     if (activeTab.items.length === 0) {
       updateActiveTab({ error: 'Chưa có hàng hóa trong đơn.' });
-      return;
-    }
-
-    if (!activeTab.recipientName || activeTab.recipientName.trim() === '') {
-      updateActiveTab({ error: 'Tên khách hàng là bắt buộc.' });
       return;
     }
 
@@ -483,15 +561,46 @@ export default function SalesInvoiceDetail() {
             <span style={{ fontWeight: 700, color: '#1e293b' }}>Khách hàng</span>
             <i className="fa-solid fa-user-pen" style={{ color: '#0081ff', cursor: 'pointer' }} />
           </div>
-          <div className="pos-customer-search">
+          <div className="pos-customer-search" style={{ position: 'relative' }}>
              <input 
                 type="text" 
-                placeholder="Khách hàng"
+                placeholder={activeTab.customerId ? activeTab.customerData?.full_name : "Khách lẻ (mặc định) (Tên/SĐT)"}
                 className="pos-search-input"
-                value={activeTab.recipientName}
-                onChange={(e) => updateActiveTab({ recipientName: e.target.value })}
+                value={customerSearch !== '' ? customerSearch : (activeTab.customerId ? activeTab.recipientName : activeTab.recipientName)}
+                onChange={(e) => {
+                    setCustomerSearch(e.target.value);
+                    updateActiveTab({ recipientName: e.target.value, customerId: null, customerData: null });
+                    searchCustomers(e.target.value);
+                }}
+                onFocus={() => { if(customerList.length > 0) setShowCustomerDropdown(true); }}
+                onBlur={() => setTimeout(() => setShowCustomerDropdown(false), 200)}
              />
-             <button className="warehouse-btn warehouse-btn-secondary" style={{ padding: '0 12px' }}>+</button>
+             {activeTab.customerId && (
+                 <i className="fa-solid fa-xmark" style={{ position: 'absolute', right: 40, top: 10, cursor: 'pointer', color: '#94a3b8' }} 
+                     onClick={() => {
+                        updateActiveTab({ customerId: null, customerData: null, recipientName: '', paymentMethod: 'cash', payOldDebt: false });
+                        setCustomerSearch('');
+                    }} />
+             )}
+             <button className="warehouse-btn warehouse-btn-secondary" style={{ padding: '0 12px' }} onClick={() => setShowCreateCustomer(true)}>+</button>
+
+
+             {/* Dropdown */}
+             {showCustomerDropdown && customerList.length > 0 && (
+                 <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: '1px solid #cbd5e1', borderRadius: 6, zIndex: 10, maxHeight: 200, overflowY: 'auto', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)', marginTop: 4 }}>
+                     {customerList.map(c => (
+                         <div key={c._id} style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }} 
+                            onClick={() => {
+                                updateActiveTab({ customerId: c._id, customerData: c, recipientName: c.full_name });
+                                setCustomerSearch('');
+                                setShowCustomerDropdown(false);
+                            }}>
+                             <div style={{ fontWeight: 600, fontSize: 13, color: '#0f172a' }}>{c.full_name}</div>
+                             <div style={{ fontSize: 12, color: '#64748b' }}>{c.phone}</div>
+                         </div>
+                     ))}
+                 </div>
+             )}
           </div>
         </div>
 
@@ -509,8 +618,8 @@ export default function SalesInvoiceDetail() {
             />
           </div>
           <div className="pos-total-row">
-            <span>Khách cần trả</span>
-            <span style={{ color: '#0081ff', fontSize: 20 }}>{formatMoney(totalAmount)}</span>
+            <span>{activeTab.payOldDebt ? 'Tổng thanh toán (+Nợ)' : 'Khách cần trả'}</span>
+            <span style={{ color: '#0081ff', fontSize: 20 }}>{formatMoney(totalWithDebt)}</span>
           </div>
           
           {/* Detailed Payment Inputs */}
@@ -530,6 +639,14 @@ export default function SalesInvoiceDetail() {
                   >
                      <i className="fa-solid fa-building-columns" style={{ marginRight: 6 }}/> Chuyển khoản
                   </button>
+                  {activeTab.customerId && !activeTab.payOldDebt && (
+                      <button 
+                         style={{ flex: 1, padding: '8px', borderRadius: 6, border: activeTab.paymentMethod === 'debt' ? '1px solid #0081ff' : '1px solid #cbd5e1', background: activeTab.paymentMethod === 'debt' ? '#eff6ff' : 'white', cursor: 'pointer', fontWeight: 600, color: activeTab.paymentMethod === 'debt' ? '#0081ff' : '#64748b' }}
+                         onClick={() => updateActiveTab({ paymentMethod: 'debt' })}
+                      >
+                         <i className="fa-solid fa-book" style={{ marginRight: 6 }}/> Ghi nợ
+                      </button>
+                  )}
               </div>
 
               {activeTab.paymentMethod === 'cash' && (
@@ -572,6 +689,53 @@ export default function SalesInvoiceDetail() {
                 </div>
               )}
           </div>
+
+          {/* Debt Notification Alert */}
+          {activeTab.customerData?.debt_account > 0 && (
+              <div style={{ 
+                 marginTop: 16, 
+                 padding: '16px', 
+                 background: '#fff7ed', 
+                 border: '1px solid #fed7aa', 
+                 borderRadius: 12,
+                 boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)'
+              }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+                      <div style={{ background: '#ffedd5', color: '#ea580c', width: 32, height: 32, borderRadius: '50%', display: 'flex', alignItems: 'center', flexShrink: 0, justifyContent: 'center' }}>
+                          <i className="fa-solid fa-triangle-exclamation" />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 13, color: '#9a3412', fontWeight: 700, marginBottom: 4 }}>THÔNG BÁO NỢ CŨ</div>
+                          <div style={{ fontSize: 13, color: '#c2410c' }}>
+                              Khách hàng đang còn nợ: <span style={{ fontWeight: 800 }}>{formatMoney(activeTab.customerData.debt_account)}</span>
+                          </div>
+                          
+                          <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'white', padding: '8px 12px', borderRadius: 8, border: '1px solid #fdba74' }}>
+                              <span style={{ fontSize: 12, fontWeight: 600, color: '#9a3412' }}>Thanh toán cùng đơn này?</span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                  <button 
+                                     onClick={() => {
+                                        const nextPayOld = !activeTab.payOldDebt;
+                                        const updates = { payOldDebt: nextPayOld };
+                                        if (nextPayOld && activeTab.paymentMethod === 'debt') {
+                                           updates.paymentMethod = 'cash';
+                                        }
+                                        updateActiveTab(updates);
+                                     }}
+                                     style={{ 
+                                         background: activeTab.payOldDebt ? '#ea580c' : '#f1f5f9',
+                                         color: activeTab.payOldDebt ? 'white' : '#64748b',
+                                         border: 'none', padding: '4px 12px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer'
+                                     }}
+                                  >
+                                     {activeTab.payOldDebt ? 'TRẢ LUÔN' : 'CHƯA TRẢ'}
+                                  </button>
+                              </div>
+                          </div>
+                      </div>
+                  </div>
+              </div>
+          )}
           
           <div style={{ marginTop: 24 }}>
             <button 
@@ -587,15 +751,69 @@ export default function SalesInvoiceDetail() {
 
       </div>
       
-      {/* Toast Notification */}
-      {toastMessage && (
+      {/* Create Customer Modal */}
+      {showCreateCustomer && (
         <div style={{
-          position: 'fixed', bottom: 40, right: 40, background: '#10b981', color: 'white', padding: '16px 24px', 
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex',
+          alignItems: 'center', justifyContent: 'center'
+        }}>
+          <div style={{
+            background: 'white', padding: '24px', borderRadius: '8px',
+            width: '400px', maxWidth: '90%', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)'
+          }}>
+             <h3 style={{ marginTop: 0, marginBottom: '20px', fontSize: '18px', color: '#1e293b' }}>Thêm Khách hàng Mới</h3>
+             {customerModalError && <div className="warehouse-alert warehouse-alert-error" style={{ marginBottom: '16px' }}>{customerModalError}</div>}
+             <div style={{ marginBottom: '16px' }}>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>Tên khách hàng <span style={{ color: '#ef4444' }}>*</span></label>
+                <input 
+                   type="text" 
+                   value={newCustomer.full_name}
+                   onChange={e => setNewCustomer({ ...newCustomer, full_name: e.target.value })}
+                   className="pos-search-input"
+                   placeholder="Nhập tên khách hàng"
+                />
+             </div>
+             <div style={{ marginBottom: '24px' }}>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>Số điện thoại <span style={{ color: '#ef4444' }}>*</span></label>
+                <input 
+                   type="text" 
+                   value={newCustomer.phone}
+                   onChange={e => setNewCustomer({ ...newCustomer, phone: e.target.value })}
+                   className="pos-search-input"
+                   placeholder="Nhập số điện thoại"
+                />
+             </div>
+             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                <button 
+                  style={{ padding: '8px 16px', border: '1px solid #cbd5e1', background: 'white', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}
+                  onClick={() => { setShowCreateCustomer(false); setCustomerModalError(''); }}
+                >
+                  Hủy
+                </button>
+                <button 
+                  style={{ padding: '8px 16px', border: 'none', background: '#0081ff', color: 'white', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}
+                  onClick={handleCreateCustomer}
+                  disabled={creatingCustomer}
+                >
+                  {creatingCustomer ? 'Đang thêm...' : 'Lưu khách hàng'}
+                </button>
+             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast Notification */}
+      {toast.message && (
+        <div style={{
+          position: 'fixed', bottom: 40, right: 40, 
+          background: toast.type === 'error' ? '#ef4444' : '#10b981', 
+          color: 'white', padding: '16px 24px', 
           borderRadius: 8, boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', zIndex: 9999, fontWeight: 600,
           display: 'flex', alignItems: 'center', gap: 12, animation: 'slideUp 0.3s ease-out'
         }}>
-          <i className="fa-solid fa-circle-check" style={{ fontSize: 20 }} />
-          {toastMessage}
+          <i className={toast.type === 'error' ? "fa-solid fa-circle-xmark" : "fa-solid fa-circle-check"} style={{ fontSize: 20 }} />
+          {toast.message}
         </div>
       )}
 

@@ -44,7 +44,8 @@ export default function SalesInvoiceView() {
     'cash': 'Tiền mặt',
     'bank_transfer': 'Chuyển khoản',
     'credit': 'Thẻ tín dụng',
-    'card': 'Quẹt thẻ'
+    'card': 'Quẹt thẻ',
+    'debt': 'Ghi nợ'
   };
 
   return (

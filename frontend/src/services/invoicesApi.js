@@ -16,7 +16,7 @@ function parseResponse(res, defaultMessage) {
     });
 }
 
-export async function getInvoices({ page = 1, limit = 20, status, dateFrom, dateTo, searchKey } = {}) {
+export async function getInvoices({ page = 1, limit = 20, status, dateFrom, dateTo, searchKey, customer_id, payment_method } = {}) {
   const token = getToken();
   const url = new URL(`${API_BASE}/invoices`);
   url.searchParams.set('page', String(page));
@@ -25,6 +25,8 @@ export async function getInvoices({ page = 1, limit = 20, status, dateFrom, date
   if (dateFrom) url.searchParams.set('dateFrom', dateFrom);
   if (dateTo) url.searchParams.set('dateTo', dateTo);
   if (searchKey) url.searchParams.set('searchKey', searchKey);
+  if (customer_id) url.searchParams.set('customer_id', customer_id);
+  if (payment_method) url.searchParams.set('payment_method', payment_method);
   const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${token}` } });
   const data = await parseResponse(res, 'Không thể tải danh sách hóa đơn');
   return data;

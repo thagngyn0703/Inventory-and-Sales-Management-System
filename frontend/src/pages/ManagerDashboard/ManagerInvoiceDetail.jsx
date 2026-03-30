@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import ManagerSidebar from './ManagerSidebar';
-import { getInvoice, createInvoice, updateInvoice, cancelInvoice } from '../../services/invoicesApi';
+import { getInvoice, createInvoice, updateInvoice } from '../../services/invoicesApi';
 import { getProducts } from '../../services/productsApi';
 import { getCurrentUser } from '../../utils/auth';
 import './ManagerDashboard.css';
@@ -9,6 +9,7 @@ import './ManagerProducts.css';
 
 const STATUS_LABEL = {
   confirmed: 'Đã thanh toán',
+  pending: 'Chờ thanh toán',
   cancelled: 'Trả hàng',
 };
 
@@ -166,24 +167,8 @@ export default function ManagerInvoiceDetail() {
   };
 
 
-  const handleCancel = async () => {
-    setSaving(true);
-    setError('');
-    setSuccessMessage('');
-    try {
-      await cancelInvoice(invoice._id);
-      setSuccessMessage('Đã hủy hóa đơn');
-      loadInvoice();
-    } catch (e) {
-      setError(e.message || 'Không thể hủy hóa đơn');
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const currentStatus = invoice?.status || 'confirmed';
   const canEdit = isNew || ((!!invoice?._id) && (currentStatus === 'confirmed' || isManager));
-  const canCancel = !!invoice?._id && currentStatus === 'confirmed' && role === 'admin';
 
   if (loading) {
     return (
@@ -240,16 +225,7 @@ export default function ManagerInvoiceDetail() {
                 >
                   Lưu thay đổi
                 </button>
-                {canCancel && (
-                  <button
-                    type="button"
-                    className="manager-btn-secondary"
-                    onClick={handleCancel}
-                    disabled={saving}
-                  >
-                    Hủy
-                  </button>
-                )}
+
               </div>
 
               <div style={{ marginBottom: 24 }}>

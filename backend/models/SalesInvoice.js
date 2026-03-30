@@ -26,7 +26,7 @@ const salesInvoiceSchema = new Schema(
         },
         status: {
             type: String,
-            enum: ['confirmed', 'cancelled'],
+            enum: ['confirmed', 'cancelled', 'pending'],
             default: 'confirmed',
         },
         invoice_at: {
@@ -35,7 +35,7 @@ const salesInvoiceSchema = new Schema(
         },
         payment_method: {
             type: String,
-            enum: ['cash', 'bank_transfer', 'credit', 'card'],
+            enum: ['cash', 'bank_transfer', 'credit', 'card', 'debt'],
             default: 'cash',
         },
         items: [
@@ -69,6 +69,10 @@ const salesInvoiceSchema = new Schema(
             default: 0,
         },
         paid_amount: {
+            type: Number,
+            default: 0,
+        },
+        previous_debt_paid: {
             type: Number,
             default: 0,
         },

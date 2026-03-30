@@ -55,28 +55,69 @@ router.post('/', requireAuth, requireRole(['sales', 'manager', 'admin']), async 
     try {
         const { invoice_id, items: reqItems, reason } = req.body || {};
 
-        if (!invoice_id || !reqItems || reqItems.length === 0) {
-            return res.status(400).json({ message: 'invoice_id and items are required' });
+        if (!invoice_id) {
+            return res.status(400).json({ message: '[TC_INV_018] invoice_id is required' });
+        }
+        if (!reqItems || reqItems.length === 0) {
+            return res.status(400).json({ message: 'items are required' });
         }
 
         // 1. Check original invoice
         const invoice = await SalesInvoice.findById(invoice_id).populate('customer_id');
-        if (!invoice) return res.status(404).json({ message: 'Không tìm thấy hóa đơn gốc' });
+        if (!invoice) return res.status(404).json({ message: '[TC_INV_019] Invoice not found (Không tìm thấy hóa đơn)' });
+
+        if (invoice.status === 'cancelled') {
+            return res.status(400).json({ message: 'Hóa đơn này đã được hủy hoặc đã trả hàng trước đó.' });
+        }
+
+        // Build map of sold items: product_id -> quantity
+        const soldItemsMap = new Map();
+        (invoice.items || []).forEach(item => {
+            const pid = item.product_id?._id?.toString() || item.product_id?.toString();
+            soldItemsMap.set(pid, (soldItemsMap.get(pid) || 0) + (item.quantity || 0));
+        });
 
         // Store ownership check
         const userRole = String(req.user?.role || '').toLowerCase();
         if (userRole !== 'admin' && req.user.storeId && invoice.store_id && String(invoice.store_id) !== String(req.user.storeId)) {
             await session.abortTransaction();
             session.endSession();
-            return res.status(403).json({ message: 'Không có quyền trả hàng cho hóa đơn này' });
+            return res.status(403).json({ message: 'Access denied: different store' });
         }
 
         let returnItems = [];
         let firstSupplierId = null;
 
+        let returnTotalAmount = 0;
+
         for (const it of reqItems) {
+            const reqPid = it.product_id?.toString();
+            const reqQty = Number(it.quantity) || 0;
+
+            if (!reqPid || reqQty <= 0) {
+                const err = new Error('Dữ liệu sản phẩm trả lại không hợp lệ.');
+                err.status = 400;
+                throw err;
+            }
+
+            const soldQty = soldItemsMap.get(reqPid) || 0;
+            if (soldQty === 0) {
+                const err = new Error('[TC_INV_021] Product not in invoice (Sản phẩm không tồn tại trong hóa đơn bán hàng gốc)');
+                err.status = 400;
+                throw err;
+            }
+            if (reqQty > soldQty) {
+                const err = new Error(`[TC_INV_020] Return more than sold (Số lượng trả ${reqQty} vượt quá số lượng đã mua ${soldQty})`);
+                err.status = 400;
+                throw err;
+            }
+
             const product = await Product.findById(it.product_id);
-            if (!product) throw new Error(`Sản phẩm ${it.product_id} không tồn tại`);
+            if (!product) {
+                const err = new Error(`Không tìm thấy sản phẩm trong kho: ${it.product_id}`);
+                err.status = 400;
+                throw err;
+            }
 
             // 2. Identify supplier (from product)
             if (!firstSupplierId && product.supplier_id) {
@@ -85,13 +126,15 @@ router.post('/', requireAuth, requireRole(['sales', 'manager', 'admin']), async 
             
             returnItems.push({
                 product_id: it.product_id,
-                quantity: it.quantity,
+                quantity: reqQty,
                 unit_price: it.unit_price || 0,
                 disposition: 'restock'
             });
 
+            returnTotalAmount += (it.unit_price || 0) * reqQty;
+
             // 4. Increase stock quantity
-            product.stock_qty += it.quantity;
+            product.stock_qty += reqQty;
             await product.save({ session });
         }
 
@@ -114,6 +157,17 @@ router.post('/', requireAuth, requireRole(['sales', 'manager', 'admin']), async 
         invoice.status = 'cancelled';
         await invoice.save({ session });
 
+        // Decrease customer debt if payment method was debt
+        if (invoice.payment_method === 'debt') {
+            const customerId = invoice.customer_id?._id || invoice.customer_id;
+            if (customerId) {
+                const Customer = mongoose.model('Customer');
+                await Customer.findByIdAndUpdate(customerId, {
+                    $inc: { debt_account: -returnTotalAmount }
+                }, { session });
+            }
+        }
+
         await session.commitTransaction();
         session.endSession();
 
@@ -122,7 +176,7 @@ router.post('/', requireAuth, requireRole(['sales', 'manager', 'admin']), async 
         await session.abortTransaction();
         session.endSession();
         console.error('Sales Return Error:', err);
-        return res.status(500).json({ 
+        return res.status(err.status || 400).json({ 
             message: err.message || 'Lỗi hệ thống khi thực hiện trả hàng',
             error: err.toString() 
         });

@@ -7,6 +7,7 @@ const LIMIT = 10;
 
 const STATUS_LABEL = {
   confirmed: 'Đã thanh toán',
+  pending: 'Chờ thanh toán',
   cancelled: 'Trả hàng',
 };
 
@@ -15,6 +16,7 @@ const PAYMENT_LABEL = {
   bank_transfer: 'Chuyển khoản',
   credit: 'Công nợ',
   card: 'Thẻ',
+  debt: 'Ghi nợ',
 };
 
 export default function SalesInvoicesList() {
@@ -34,7 +36,7 @@ export default function SalesInvoicesList() {
   // Base path is now always /sales
   const basePath = '/sales';
   const isReturnsPage = location.pathname.includes('/returns');
-  const [statusFilter, setStatusFilter] = useState(isReturnsPage ? 'cancelled' : 'confirmed');
+  const [statusFilter, setStatusFilter] = useState(isReturnsPage ? 'cancelled' : '');
 
   // Search Filters
   const [dateFrom, setDateFrom] = useState('');
@@ -93,7 +95,7 @@ export default function SalesInvoicesList() {
   // Reset page and update filter when switching between Invoices and Returns
   useEffect(() => {
     setPage(1);
-    setStatusFilter(isReturnsPage ? 'cancelled' : 'confirmed');
+    setStatusFilter(isReturnsPage ? 'cancelled' : '');
   }, [isReturnsPage]);
 
   useEffect(() => {
@@ -178,7 +180,7 @@ export default function SalesInvoicesList() {
                     <tr key={inv._id}>
                       <td>{formatDate(inv.invoice_at)}</td>
                       <td>{inv._id}</td>
-                      <td>{inv.recipient_name || '—'}</td>
+                      <td>{inv.recipient_name || 'Khách lẻ'}</td>
                       <td>
                         <span className={`warehouse-status-badge warehouse-status-${inv.status}`}>
                           {STATUS_LABEL[inv.status] ?? inv.status}
