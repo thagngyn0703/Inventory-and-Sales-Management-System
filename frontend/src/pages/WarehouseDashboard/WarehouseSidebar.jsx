@@ -34,6 +34,7 @@ export default function WarehouseSidebar() {
     { label: 'Kiểm kê kho', path: '/warehouse/stocktakes', icon: 'fa-clipboard-list' },
     { label: 'Danh sách phiếu nhập', path: '/warehouse/receipts', icon: 'fa-list' },
     { label: 'Nhập hàng', path: '/warehouse/receipts/new', icon: 'fa-box' },
+    { label: 'Yêu cầu tạo sản phẩm', path: '/warehouse/product-requests', icon: 'fa-file-circle-plus' },
   ];
 
   const isActive = (path) => location.pathname === path;

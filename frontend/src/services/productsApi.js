@@ -202,3 +202,19 @@ export async function rejectProductRequest(id) {
     if (!res.ok) throw new Error(data.message || 'Không thể từ chối yêu cầu');
     return data;
 }
+
+/**
+ * @param {string} id
+ * @returns {Promise<{ batches: Array }>}
+ */
+export async function getProductBatches(id) {
+    const token = getToken();
+    const res = await fetch(`${API_BASE}/products/${id}/batches`, {
+        headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+        throw new Error(data.message || 'Không thể tải danh sách lô hàng');
+    }
+    return data;
+}

@@ -26,6 +26,7 @@ import WarehouseStocktakingDetail from "./pages/WarehouseDashboard/WarehouseStoc
 import WarehouseGoodsReceiptList from "./pages/WarehouseDashboard/WarehouseGoodsReceiptList.jsx";
 import WarehouseGoodsReceiptCreate from "./pages/WarehouseDashboard/WarehouseGoodsReceiptCreate.jsx";
 import WarehouseGoodsReceiptDetail from "./pages/WarehouseDashboard/WarehouseGoodsReceiptDetail.jsx";
+import WarehouseProductRequests from "./pages/WarehouseDashboard/WarehouseProductRequests.jsx";
 import SalesInvoicesList from "./pages/SaleDashboard/SalesInvoicesList.jsx";
 import SalesInvoiceDetail from "./pages/SaleDashboard/SalesInvoiceDetail.jsx";
 import SalesInvoiceView from "./pages/SaleDashboard/SalesInvoiceView.jsx";
@@ -154,6 +155,7 @@ function App() {
         <Route path="receipts" element={<WarehouseGoodsReceiptList />} />
         <Route path="receipts/new" element={<WarehouseGoodsReceiptCreate />} />
         <Route path="receipts/:id" element={<WarehouseGoodsReceiptDetail />} />
+        <Route path="product-requests" element={<WarehouseProductRequests />} />
       </Route>
 
       <Route

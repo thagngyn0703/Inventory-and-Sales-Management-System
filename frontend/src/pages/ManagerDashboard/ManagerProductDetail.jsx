@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import ManagerSidebar from './ManagerSidebar';
 import ManagerNotificationBell from '../../components/ManagerNotificationBell';
-import { getProduct, setProductStatus } from '../../services/productsApi';
+import { getProduct, setProductStatus, getProductBatches } from '../../services/productsApi';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
 
@@ -11,6 +11,7 @@ export default function ManagerProductDetail() {
     const { id } = useParams();
     const [product, setProduct] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [batches, setBatches] = useState([]);
     const [error, setError] = useState('');
     const [successMessage, setSuccessMessage] = useState('');
     const [toggling, setToggling] = useState(false);
@@ -19,9 +20,15 @@ export default function ManagerProductDetail() {
         if (!id) return;
         setLoading(true);
         setError('');
-        getProduct(id)
-            .then(setProduct)
-            .catch((e) => setError(e.message || 'Không tải được sản phẩm'))
+        Promise.all([
+            getProduct(id),
+            getProductBatches(id)
+        ])
+            .then(([p, b]) => {
+                setProduct(p);
+                setBatches(b.batches || []);
+            })
+            .catch((e) => setError(e.message || 'Không tải được thông tin sản phẩm'))
             .finally(() => setLoading(false));
     }, [id]);
 
@@ -251,6 +258,36 @@ export default function ManagerProductDetail() {
                                         </tr>
                                     </tbody>
                                 </table>
+                            </div>
+                        </div>
+
+                        <div className="manager-detail-section">
+                            <h3 className="manager-detail-section-title">Quản lý lô hàng (FIFO)</h3>
+                            <div className="manager-detail-table-wrap">
+                                {batches.length > 0 ? (
+                                    <table className="manager-detail-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Ngày nhập</th>
+                                                <th>Gốc</th>
+                                                <th>Còn</th>
+                                                <th>Giá vốn</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {batches.map((b, idx) => (
+                                                <tr key={b._id || idx}>
+                                                    <td>{new Date(b.received_at).toLocaleDateString('vi-VN')}</td>
+                                                    <td>{b.initial_qty}</td>
+                                                    <td style={{ fontWeight: 'bold', color: '#2ecc71' }}>{b.remaining_qty}</td>
+                                                    <td>{formatMoney(b.unit_cost)}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                ) : (
+                                    <p style={{ padding: '10px', color: '#666' }}>Không có lô hàng khả dụng hoặc chưa có dữ liệu nhập kho.</p>
+                                )}
                             </div>
                         </div>
                     </div>

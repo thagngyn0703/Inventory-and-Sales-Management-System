@@ -167,6 +167,7 @@ export default function ManagerProductRequests() {
                                                 <th>Tên sản phẩm</th>
                                                 <th>Giá vốn</th>
                                                 <th>Giá bán</th>
+                                                <th>Người gửi</th>
                                                 <th>Ngày gửi</th>
                                                 <th>Ghi chú</th>
                                                 <th>Trạng thái</th>
@@ -188,10 +189,10 @@ export default function ManagerProductRequests() {
                                                         <td>{formatMoney(r.cost_price)}</td>
                                                         <td>{formatMoney(r.sale_price)}</td>
                                                         <td>
-                                                            <div>{r.requested_by?.name || '—'}</div>
-                                                            <div style={{ fontSize: 12, color: '#6b7280' }}>
-                                                                {new Date(r.created_at).toLocaleDateString('vi-VN')}
-                                                            </div>
+                                                            <strong>{r.requested_by?.fullName || '—'}</strong>
+                                                        </td>
+                                                        <td>
+                                                            {new Date(r.created_at).toLocaleDateString('vi-VN')}
                                                         </td>
                                                         <td style={{ maxWidth: 150 }}>
                                                             <div style={{ wordWrap: 'break-word', whiteSpace: 'normal', fontSize: 12, color: '#4b5563' }}>
