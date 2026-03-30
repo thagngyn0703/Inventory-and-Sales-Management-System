@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const ProductRequest = require('../models/ProductRequest');
 const Product = require('../models/Product');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const User = require('../models/User');
 
 const router = express.Router();
 
@@ -17,15 +18,27 @@ function normalizeProduct(p) {
   const base = p.base_unit || 'Cái';
   const units = p.selling_units && p.selling_units.length > 0
     ? p.selling_units
-    : [{ name: base, ratio: 1, sale_price: p.sale_price != null ? p.sale_price : 0 }];
+    : [{ name: base, ratio: 1, sale_price: p.sale_price || 0 }];
   const baseUnit = units.find((u) => u.ratio === 1) || units[0];
   return { ...p, selling_units: units, sale_price: baseUnit ? baseUnit.sale_price : (p.sale_price || 0) };
 }
 
-// POST /api/product-requests (warehouse, admin, manager)
-router.post('/', requireAuth, requireRole(['warehouse', 'manager']), async (req, res) => {
-  console.log('POST /api/product-requests called by', req.user?.id, req.user?.role);
-  console.log('body:', JSON.stringify(req.body).slice(0, 1000));
+function getRoleStoreFilter(req) {
+  const role = String(req.user?.role || '').toLowerCase();
+  const storeId = req.user?.storeId ? String(req.user.storeId) : null;
+  if (String(req.user?.role || '').toLowerCase() === 'admin') {
+    return {};
+  }
+  const isStoreScopedRole = ['manager', 'warehouse_staff', 'sales_staff', 'staff'].includes(role);
+  if (!isStoreScopedRole) return {};
+  if (!storeId) return null;
+  return { storeId };
+}
+
+// POST /api/product-requests (warehouse, admin, manager, sales)
+router.post('/', requireAuth, requireRole(['warehouse', 'manager', 'sales', 'admin']), async (req, res) => {
+  console.log('POST /api/product-requests called');
+  console.log('User:', req.user?.id, req.user?.role, req.user?.email);
   try {
     const {
       category_id,
@@ -48,10 +61,10 @@ router.post('/', requireAuth, requireRole(['warehouse', 'manager']), async (req,
       return res.status(400).json({ message: 'sku is required' });
     }
 
-    // Check if sku already exists in Product or ProductRequest (pending/approved)
-    const existingProduct = await Product.findOne({ sku: String(sku).trim() });
+    const storeId = req.user.storeId;
+    const existingProduct = await Product.findOne({ sku: String(sku).trim(), storeId });
     if (existingProduct) {
-      return res.status(409).json({ message: 'sku already exists in Products' });
+      return res.status(409).json({ message: 'sku already exists in Products for this store' });
     }
 
     const base = base_unit ? String(base_unit).trim() : 'Cái';
@@ -73,6 +86,7 @@ router.post('/', requireAuth, requireRole(['warehouse', 'manager']), async (req,
 
     const doc = await ProductRequest.create({
       category_id: category_id && mongoose.isValidObjectId(category_id) ? category_id : undefined,
+      storeId: req.user.storeId,
       name: String(name).trim(),
       sku: String(sku).trim(),
       barcode: barcode ? String(barcode).trim() : undefined,
@@ -82,10 +96,12 @@ router.post('/', requireAuth, requireRole(['warehouse', 'manager']), async (req,
       reorder_level: Number(reorder_level || 0),
       base_unit: base,
       selling_units,
-      requested_by: req.user.id,
+      requested_by: new mongoose.Types.ObjectId(req.user.id),
       status: 'pending',
       note: note ? String(note).trim() : undefined
     });
+
+    console.log('DEBUG: Created request with requested_by:', doc.requested_by);
 
     return res.status(201).json({ productRequest: normalizeProduct(doc.toObject()) });
   } catch (err) {
@@ -98,15 +114,21 @@ router.post('/', requireAuth, requireRole(['warehouse', 'manager']), async (req,
   }
 });
 
-// GET /api/product-requests (manager, admin)
-router.get('/', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
+// GET /api/product-requests (manager, admin, warehouse, sales)
+router.get('/', requireAuth, requireRole(['manager', 'admin', 'warehouse', 'sales']), async (req, res) => {
   try {
     const { q = '', page = '1', limit = '20', status } = req.query;
     const query = String(q || '').trim();
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
 
-    const filter = {};
+    const filter = getRoleStoreFilter(req);
+    if (filter == null) {
+      return res.status(403).json({
+        message: 'Tài khoản chưa được gán cửa hàng.',
+        code: 'STORE_REQUIRED',
+      });
+    }
     if (status) {
       filter.status = status;
     }
@@ -118,12 +140,21 @@ router.get('/', requireAuth, requireRole(['manager', 'admin']), async (req, res)
     const total = await ProductRequest.countDocuments(filter);
     const skip = (pageNum - 1) * limitNum;
     const requests = await ProductRequest.find(filter)
-      .populate('requested_by', 'name email role')
-      .populate('approved_by', 'name email role')
+      .populate('requested_by', 'fullName email role')
+      .populate('approved_by', 'fullName email role')
       .sort({ created_at: -1 })
       .skip(skip)
       .limit(limitNum)
       .lean();
+
+    console.log('DEBUG: ProductRequests found:', requests.length);
+    if (requests.length > 0) {
+      console.log('DEBUG: First request data:', JSON.stringify({
+        _id: requests[0]._id,
+        sku: requests[0].sku,
+        requested_by: requests[0].requested_by
+      }, null, 2));
+    }
 
     const normalized = requests.map(normalizeProduct);
 
@@ -135,20 +166,28 @@ router.get('/', requireAuth, requireRole(['manager', 'admin']), async (req, res)
       totalPages: Math.ceil(total / limitNum) || 1,
     });
   } catch (err) {
+    console.error('GET ProductRequests error:', err);
     return res.status(500).json({ message: 'Server error' });
   }
 });
 
-// GET /api/product-requests/:id (manager, admin)
-router.get('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
+// GET /api/product-requests/:id (manager, admin, warehouse, sales)
+router.get('/:id', requireAuth, requireRole(['manager', 'admin', 'warehouse', 'sales']), async (req, res) => {
   try {
     const { id } = req.params;
     if (!mongoose.isValidObjectId(id)) {
       return res.status(400).json({ message: 'Invalid request id' });
     }
-    const request = await ProductRequest.findById(id)
-      .populate('requested_by', 'name email role')
-      .populate('approved_by', 'name email role')
+    const storeFilter = getRoleStoreFilter(req);
+    if (storeFilter == null) {
+      return res.status(403).json({
+        message: 'Tài khoản chưa được gán cửa hàng.',
+        code: 'STORE_REQUIRED',
+      });
+    }
+    const request = await ProductRequest.findOne({ _id: id, ...storeFilter })
+      .populate('requested_by', 'fullName email role')
+      .populate('approved_by', 'fullName email role')
       .lean();
     if (!request) return res.status(404).json({ message: 'Product request not found' });
     return res.json({ productRequest: normalizeProduct(request) });
@@ -171,15 +210,14 @@ router.post('/:id/approve', requireAuth, requireRole(['manager', 'admin']), asyn
       return res.status(400).json({ message: `Request is already ${request.status}` });
     }
 
-    // Check if SKU exists
-    const existingProduct = await Product.findOne({ sku: request.sku });
+    const existingProduct = await Product.findOne({ sku: request.sku, storeId: request.storeId });
     if (existingProduct) {
-      return res.status(409).json({ message: 'sku already exists in Products' });
+      return res.status(409).json({ message: 'sku already exists in Products for this store' });
     }
 
-    // Create product
     const newProduct = await Product.create({
       category_id: request.category_id,
+      storeId: request.storeId,
       name: request.name,
       sku: request.sku,
       barcode: request.barcode,
@@ -192,7 +230,6 @@ router.post('/:id/approve', requireAuth, requireRole(['manager', 'admin']), asyn
       status: 'active'
     });
 
-    // Update request status
     request.status = 'approved';
     request.approved_by = req.user.id;
     request.updated_at = new Date();
@@ -219,7 +256,6 @@ router.post('/:id/reject', requireAuth, requireRole(['manager', 'admin']), async
       return res.status(400).json({ message: `Request is already ${request.status}` });
     }
 
-    // Update request status
     request.status = 'rejected';
     request.approved_by = req.user.id;
     request.updated_at = new Date();

@@ -2,6 +2,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const multer = require('multer');
 const Product = require('../models/Product');
+const StockBatch = require('../models/StockBatch');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const {
   parseExcelToMatrix,
@@ -643,6 +644,56 @@ router.patch('/:id/status', requireAuth, requireRole(['manager', 'admin']), asyn
     if (!product) return res.status(404).json({ message: 'Product not found' });
     return res.json({ product: normalizeProduct(product) });
   } catch (err) {
+    return res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// GET /api/products/:id/batches (manager, warehouse, sales, admin)
+router.get('/:id/batches', requireAuth, requireRole(['manager', 'warehouse', 'sales', 'admin']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log(`[GET_BATCHES] ProductID: ${id}, User: ${req.user.email}, Role: ${req.user.role}`);
+    
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ message: 'Invalid product id' });
+    }
+    const storeFilter = getRoleStoreFilter(req);
+    console.log(`[GET_BATCHES] Filter:`, JSON.stringify(storeFilter));
+    
+    if (storeFilter == null) {
+      return res.status(403).json({
+        message: 'Tài khoản chưa được gán cửa hàng.',
+        code: 'STORE_REQUIRED',
+      });
+    }
+
+    let batches = await StockBatch.find({ 
+      productId: new mongoose.Types.ObjectId(id), 
+      ...storeFilter, 
+      remaining_qty: { $gt: 0 } 
+    }).sort({ received_at: 1 }).lean();
+
+    if (batches.length === 0) {
+      const product = await Product.findOne({ _id: id, ...storeFilter }).lean();
+      if (product && product.stock_qty > 0) {
+        console.log(`[GET_BATCHES] No batches found for positive stock (${product.stock_qty}). Creating legacy batch.`);
+        const legacyBatch = await StockBatch.create({
+          productId: product._id,
+          storeId: product.storeId,
+          initial_qty: product.stock_qty,
+          remaining_qty: product.stock_qty,
+          unit_cost: product.cost_price || 0,
+          received_at: product.created_at || new Date(),
+          note: 'Hàng tồn kho ban đầu (Legacy)',
+        });
+        batches = [legacyBatch.toObject()];
+      }
+    }
+    
+    console.log(`[GET_BATCHES] Found ${batches.length} batches`);
+    return res.json({ batches });
+  } catch (err) {
+    console.error(`[GET_BATCHES] Error:`, err);
     return res.status(500).json({ message: 'Server error' });
   }
 });

@@ -7,6 +7,7 @@ const router = express.Router();
 
 const Product = require('../models/Product');
 const Supplier = require('../models/Supplier');
+const { adjustStockFIFO } = require('../utils/inventoryUtils');
 
 // GET /api/goods-receipts?page=&limit=&status=&supplier_id=
 router.get('/', requireAuth, requireRole(['manager', 'warehouse', 'admin']), async (req, res) => {
@@ -110,6 +111,7 @@ router.post('/', requireAuth, requireRole(['warehouse', 'manager']), async (req,
         const doc = await GoodsReceipt.create({
             po_id: po_id && mongoose.isValidObjectId(po_id) ? po_id : undefined,
             supplier_id,
+            storeId: req.user.storeId,
             received_by: req.user.id,
             status: ['draft', 'pending', 'approved', 'rejected'].includes(status) ? status : 'draft',
             received_at: received_at ? new Date(received_at) : new Date(),
@@ -150,14 +152,13 @@ router.patch('/:id/status', requireAuth, requireRole(['manager', 'admin']), asyn
         if (status === 'approved') {
             // update product stocks
             for (const it of gr.items) {
-                const product = await Product.findById(it.product_id);
-                if (!product) {
-                    return res.status(404).json({ message: `Product not found: ${String(it.product_id)}` });
-                }
                 const addQty = Number(it.quantity) * (Number(it.ratio) || 1);
-                product.stock_qty = (Number(product.stock_qty) || 0) + addQty;
-                product.updated_at = new Date();
-                await product.save();
+                await adjustStockFIFO(it.product_id, gr.storeId || req.user.storeId, addQty, {
+                    unitCost: Number(it.unit_cost) || 0,
+                    receivedAt: gr.received_at || new Date(),
+                    receiptId: gr._id,
+                    note: 'Duyệt phiếu nhập kho'
+                });
             }
             gr.approved_by = req.user.id;
             gr.status = 'approved';

@@ -7,6 +7,12 @@ const productRequestSchema = new Schema(
             ref: 'Category',
             required: false,
         },
+        storeId: {
+            type: Schema.Types.ObjectId,
+            ref: 'Store',
+            required: false,
+            index: true,
+        },
         name: {
             type: String,
             required: true,
@@ -48,7 +54,7 @@ const productRequestSchema = new Schema(
             ratio: { type: Number, required: true, min: 0.001 },
             sale_price: { type: Number, required: true, min: 0 },
         }],
-        
+
         // Request specific fields
         requested_by: {
             type: Schema.Types.ObjectId,
@@ -68,7 +74,7 @@ const productRequestSchema = new Schema(
             type: String,
             trim: true,
         },
-        
+
         created_at: {
             type: Date,
             default: Date.now,
