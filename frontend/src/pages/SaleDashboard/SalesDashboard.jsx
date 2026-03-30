@@ -5,7 +5,7 @@ import './SalesDashboard.css';
 
 export default function SalesDashboard() {
   return (
-    <div className="sales-layout">
+    <div className="sales-layout collapsed">
       <SalesSidebar />
       <main className="sales-main">
         <header className="sales-header">

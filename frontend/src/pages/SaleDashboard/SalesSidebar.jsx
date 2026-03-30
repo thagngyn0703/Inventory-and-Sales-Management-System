@@ -19,10 +19,12 @@ export default function SalesSidebar() {
   ];
 
   return (
-    <aside className="sales-sidebar">
+    <aside className="sales-sidebar collapsed-hoverable">
       <div className="sales-sidebar-brand">
-        <div className="brand-icon">S</div>
-        <span className="brand-text">Nhân viên bán hàng</span>
+        <div className="brand-content">
+          <div className="brand-icon">S</div>
+          <span className="brand-text">Nhân viên bán hàng</span>
+        </div>
       </div>
       
       <nav className="sales-nav">
@@ -36,7 +38,7 @@ export default function SalesSidebar() {
             }
           >
             <i className={`fa-solid ${item.icon}`} />
-            <span>{item.label}</span>
+            <span className="nav-text">{item.label}</span>
           </NavLink>
         ))}
       </nav>
@@ -44,7 +46,7 @@ export default function SalesSidebar() {
       <div className="sales-sidebar-footer">
         <button className="sales-logout-btn" onClick={handleLogout}>
           <i className="fa-solid fa-right-from-bracket" />
-          <span>Đăng xuất</span>
+          <span className="footer-text">Đăng xuất</span>
         </button>
       </div>
     </aside>

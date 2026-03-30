@@ -8,7 +8,8 @@
   --sales-border: #e5e7eb;
   --sales-card-bg: #ffffff;
   --sales-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
-  --sales-sidebar-width: 250px;
+  --sales-sidebar-width: 260px;
+  --sales-sidebar-collapsed-width: 76px;
   --sales-header-height: 64px;
 }
 
@@ -21,7 +22,7 @@
 
 /* Sidebar Styling - Matching Warehouse */
 .sales-sidebar {
-  width: var(--sales-sidebar-width);
+  width: var(--sales-sidebar-collapsed-width);
   background-color: var(--sales-sidebar-bg);
   color: var(--sales-text-main);
   display: flex;
@@ -30,15 +31,23 @@
   height: 100vh;
   z-index: 100;
   border-right: 1px solid var(--sales-border);
-  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.04);
+  box-shadow: 2px 0 12px rgba(0, 0, 0, 0.08);
+  transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+}
+
+.sales-sidebar:hover {
+  width: var(--sales-sidebar-width);
 }
 
 .sales-sidebar-brand {
-  padding: 24px 20px;
+  padding: 24px 15px;
   display: flex;
   align-items: center;
   gap: 12px;
   border-bottom: 1px solid var(--sales-border);
+  height: 80px;
+  box-sizing: border-box;
 }
 
 .brand-icon {
@@ -49,6 +58,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
   font-weight: 800;
   font-size: 20px;
   color: white;
@@ -59,6 +69,13 @@
   font-size: 14px;
   color: #374151;
   text-transform: none;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.sales-sidebar:hover .brand-text {
+  opacity: 1;
 }
 
 .sales-nav {
@@ -71,20 +88,33 @@
 .sales-nav-link {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 12px 20px;
+  padding: 12px 18px;
   color: #374151;
   text-decoration: none;
   font-size: 14px;
   transition: all 0.2s;
   border-left: 3px solid transparent;
+  white-space: nowrap;
+  height: 48px;
+  box-sizing: border-box;
+}
+
+.nav-text {
+  margin-left: 12px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.sales-sidebar:hover .nav-text {
+  opacity: 1;
 }
 
 .sales-nav-link i {
-  width: 18px;
+  width: 32px;
   text-align: center;
-  font-size: 14px;
+  font-size: 18px;
   opacity: 0.9;
+  flex-shrink: 0;
 }
 
 .sales-nav-link:hover {
@@ -100,16 +130,19 @@
 }
 
 .sales-sidebar-footer {
-  padding: 16px 20px;
+  padding: 16px 15px;
   border-top: 1px solid var(--sales-border);
+}
+
+.sales-sidebar.collapsed .sales-sidebar-footer {
+    padding: 16px 10px;
 }
 
 .sales-logout-btn {
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px;
+  padding: 10px 15px;
   background: #f9fafb;
   border: 1px solid var(--sales-border);
   color: #374151;
@@ -118,6 +151,20 @@
   font-size: 14px;
   font-weight: 600;
   transition: all 0.2s;
+  white-space: nowrap;
+  overflow: hidden;
+  height: 42px;
+  box-sizing: border-box;
+}
+
+.footer-text {
+  margin-left: 12px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.sales-sidebar:hover .footer-text {
+  opacity: 1;
 }
 
 .sales-logout-btn:hover {
@@ -129,10 +176,15 @@
 /* Main Content Area */
 .sales-main {
   flex: 1;
-  margin-left: var(--sales-sidebar-width);
+  margin-left: var(--sales-sidebar-collapsed-width);
   display: flex;
   flex-direction: column;
   min-width: 0;
+  transition: margin-left 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.sales-sidebar:hover + .sales-main {
+  margin-left: var(--sales-sidebar-width);
 }
 
 .sales-header {

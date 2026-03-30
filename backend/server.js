@@ -16,6 +16,7 @@ const purchaseOrderRoutes = require('./routes/purchaseOrders');
 const goodsReceiptRoutes = require('./routes/goodsReceipts');
 const notificationRoutes = require('./routes/notifications');
 const analyticsRoutes = require('./routes/analytics');
+const customerRoutes = require('./routes/customers');
 const adminStoreRoutes = require('./routes/adminStores');
 const rbacRoutes = require('./routes/rbac');
 const { hasSmtpConfig } = require('./services/emailService');
@@ -54,6 +55,7 @@ app.use('/api/goods-receipts', goodsReceiptRoutes);
 app.use('/api/product-requests', productRequestRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/analytics', analyticsRoutes);
+app.use('/api/customers', customerRoutes);
 app.use('/api/admin/stores', adminStoreRoutes);
 app.use('/api/admin/rbac', rbacRoutes);
 

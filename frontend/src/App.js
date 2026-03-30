@@ -30,6 +30,7 @@ import SalesInvoicesList from "./pages/SaleDashboard/SalesInvoicesList.jsx";
 import SalesInvoiceDetail from "./pages/SaleDashboard/SalesInvoiceDetail.jsx";
 import SalesInvoiceView from "./pages/SaleDashboard/SalesInvoiceView.jsx";
 import SalesReturnPage from "./pages/SaleDashboard/SalesReturnPage.jsx";
+import SalesCustomerPage from "./pages/SaleDashboard/SalesCustomerPage.jsx";
 import SalesDashboard from "./pages/SaleDashboard/SalesDashboard";
 // SalesHome removed as per user request
 import ManagerStocktakePending from "./pages/ManagerDashboard/ManagerStocktakePending";
@@ -171,6 +172,8 @@ function App() {
         <Route path="invoices/new" element={<SalesInvoiceDetail />} />
         <Route path="returns" element={<SalesInvoicesList />} />
         <Route path="returns/new" element={<SalesReturnPage />} />
+        <Route path="customers" element={<SalesCustomerPage />} />
+        <Route path="invoices/:id" element={<SalesInvoiceView />} />
         <Route path=":id" element={<SalesInvoiceView />} />
       </Route>
     </Routes>
