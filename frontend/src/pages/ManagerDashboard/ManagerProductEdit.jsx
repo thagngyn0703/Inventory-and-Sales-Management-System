@@ -1,10 +1,14 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { Platform } from 'react-bits/lib/modules/Platform';
+import { Plus, X } from 'lucide-react';
 import ManagerSidebar from './ManagerSidebar';
 import ManagerNotificationBell from '../../components/ManagerNotificationBell';
-import { getProduct, updateProduct } from '../../services/productsApi';
+import { getProduct, updateProduct, uploadProductImages } from '../../services/productsApi';
 import { minExpiryDateString, isExpiryDateNotInPast } from '../../utils/dateInput';
 import { getSuppliers } from '../../services/suppliersApi';
+import { Button } from '../../components/ui/button';
+import { Card, CardContent } from '../../components/ui/card';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
 
@@ -23,6 +27,7 @@ const defaultForm = {
     expiry_date: '',
     base_unit: 'Cái',
     selling_units: [defaultSellingUnit()],
+    image_urls: [],
     status: 'active',
 };
 
@@ -34,6 +39,8 @@ export default function ManagerProductEdit() {
     const [loading, setLoading] = useState(false);
     const [loadProduct, setLoadProduct] = useState(true);
     const [error, setError] = useState('');
+    const [selectedImages, setSelectedImages] = useState([]);
+    const [imagePreviews, setImagePreviews] = useState([]);
 
     useEffect(() => {
         let cancelled = false;
@@ -43,10 +50,7 @@ export default function ManagerProductEdit() {
         return () => { cancelled = true; };
     }, []);
 
-    const baseUnitEntry = useMemo(() => form.selling_units.find((u) => Number(u.ratio) === 1) || form.selling_units[0], [form.selling_units]);
-    const saleNum = useMemo(() => Number(baseUnitEntry?.sale_price) || 0, [baseUnitEntry]);
     const costNum = useMemo(() => Number(form.cost_price) || 0, [form.cost_price]);
-    const expectedProfit = useMemo(() => Math.max(0, saleNum - costNum), [saleNum, costNum]);
 
     useEffect(() => {
         if (!id) return;
@@ -79,12 +83,19 @@ export default function ManagerProductEdit() {
                     expiry_date: expStr && expStr >= minD ? expStr : '',
                     base_unit: p.base_unit || 'Cái',
                     selling_units: units,
+                    image_urls: Array.isArray(p.image_urls) ? p.image_urls.slice(0, 3) : [],
                     status: p.status === 'inactive' ? 'inactive' : 'active',
                 });
             })
             .catch((e) => setError(e.message || 'Không tải được sản phẩm'))
             .finally(() => setLoadProduct(false));
     }, [id]);
+
+    useEffect(() => {
+        return () => {
+            imagePreviews.forEach((url) => URL.revokeObjectURL(url));
+        };
+    }, [imagePreviews]);
 
     const update = (field, value) => {
         setForm((prev) => {
@@ -125,6 +136,36 @@ export default function ManagerProductEdit() {
         });
     };
 
+    const handleSelectImages = (e) => {
+        const files = Array.from(e.target.files || []);
+        if (files.length > 3) {
+            if (e.target) e.target.value = '';
+            setSelectedImages([]);
+            setImagePreviews([]);
+            setError('Mỗi lần chỉ được chọn tối đa 3 ảnh.');
+            return;
+        }
+        setSelectedImages(files);
+        setImagePreviews(files.map((f) => URL.createObjectURL(f)));
+        setError('');
+    };
+
+    const removeExistingImage = (urlToRemove) => {
+        setForm((prev) => ({
+            ...prev,
+            image_urls: (prev.image_urls || []).filter((url) => url !== urlToRemove),
+        }));
+    };
+
+    const removeNewImageAt = (index) => {
+        setSelectedImages((prev) => prev.filter((_, i) => i !== index));
+        setImagePreviews((prev) => {
+            const target = prev[index];
+            if (target) URL.revokeObjectURL(target);
+            return prev.filter((_, i) => i !== index);
+        });
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         if (!id) return;
@@ -155,9 +196,20 @@ export default function ManagerProductEdit() {
             return;
         }
 
+        const existingImages = Array.isArray(form.image_urls) ? form.image_urls : [];
+        if (existingImages.length + selectedImages.length > 3) {
+            setError('Tổng số ảnh sản phẩm không được vượt quá 3 ảnh.');
+            return;
+        }
+
         setLoading(true);
         setError('');
         try {
+            let finalImageUrls = existingImages;
+            if (selectedImages.length > 0) {
+                const uploaded = await uploadProductImages(selectedImages);
+                finalImageUrls = [...existingImages, ...uploaded].slice(0, 3);
+            }
             await updateProduct(id, {
                 name: form.name.trim(),
                 sku: form.sku.trim(),
@@ -169,6 +221,7 @@ export default function ManagerProductEdit() {
                 expiry_date: form.expiry_date ? form.expiry_date : null,
                 base_unit: form.base_unit || 'Cái',
                 selling_units: units,
+                image_urls: finalImageUrls,
                 status: form.status === 'inactive' ? 'inactive' : 'active',
             });
             navigate('/manager/products', { state: { success: 'Cập nhật sản phẩm thành công.' } });
@@ -207,196 +260,152 @@ export default function ManagerProductEdit() {
                     </div>
                 </header>
 
-                <div className="manager-content manager-product-detail-page manager-product-form-page">
-                    <div className="manager-products-header">
+                <div className="manager-content manager-product-create-fullwidth bg-slate-50">
+                    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                         <div>
-                            <h1 className="manager-page-title">Sửa sản phẩm</h1>
-                            <p className="manager-page-subtitle">Đơn vị tồn kho (gốc) và nhiều đơn vị bán với giá khác nhau.</p>
+                            <h1 className="text-2xl font-bold text-slate-900">Sửa sản phẩm</h1>
+                            <p className="text-sm text-slate-500">Cập nhật thông tin và hình ảnh sản phẩm theo bố cục đồng nhất.</p>
                         </div>
-                        <div className="manager-detail-actions">
-                            <button type="button" className="manager-btn-outline" onClick={() => navigate(`/manager/products/${id}`)}>
-                                <i className="fa-solid fa-eye" /> Xem chi tiết
-                            </button>
-                            <button type="button" className="manager-btn-outline" onClick={() => navigate('/manager/products')}>
-                                <i className="fa-solid fa-arrow-left" /> Danh sách
-                            </button>
+                        <div className="flex gap-2">
+                            <Button type="button" variant="outline" onClick={() => navigate(`/manager/products/${id}`)}>Xem chi tiết</Button>
+                            <Button type="button" variant="outline" onClick={() => navigate('/manager/products')}>Danh sách</Button>
                         </div>
                     </div>
 
-                    {error && <div className="manager-products-error">{error}</div>}
+                    {error && <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-600">{error}</div>}
 
-                    <form onSubmit={handleSubmit}>
-                        <div className="manager-detail-card">
-                            <div className="manager-detail-sections-row">
-                                <div className="manager-detail-section">
-                                    <h3 className="manager-detail-section-title">Thông tin cơ bản</h3>
-                                    <div className="manager-detail-table-wrap">
-                                        <table className="manager-detail-table manager-detail-table--form">
-                                            <tbody>
-                                                <tr>
-                                                    <td className="manager-detail-label">Tên sản phẩm <span className="required">*</span></td>
-                                                    <td className="manager-detail-value">
-                                                        <input type="text" value={form.name} onChange={(e) => update('name', e.target.value)} placeholder="Nhập tên sản phẩm" />
-                                                    </td>
-                                                </tr>
-                                                <tr>
-                                                    <td className="manager-detail-label">SKU <span className="required">*</span></td>
-                                                    <td className="manager-detail-value">
-                                                        <input type="text" value={form.sku} onChange={(e) => update('sku', e.target.value)} placeholder="Mã SKU" />
-                                                    </td>
-                                                </tr>
-                                                <tr>
-                                                    <td className="manager-detail-label">Barcode</td>
-                                                    <td className="manager-detail-value">
-                                                        <input type="text" value={form.barcode} onChange={(e) => update('barcode', e.target.value)} placeholder="Mã vạch (tùy chọn)" />
-                                                    </td>
-                                                </tr>
-                                                <tr>
-                                                    <td className="manager-detail-label">Nhà cung cấp</td>
-                                                    <td className="manager-detail-value">
-                                                        <select value={form.supplier_id} onChange={(e) => update('supplier_id', e.target.value)}>
-                                                            <option value="">— Không chọn —</option>
-                                                            {suppliers.map((s) => (
-                                                                <option key={s._id} value={s._id}>
-                                                                    {s.name}
-                                                                    {s.phone ? ` — ${s.phone}` : ''}
-                                                                </option>
-                                                            ))}
-                                                        </select>
-                                                    </td>
-                                                </tr>
-                                                <tr>
-                                                    <td className="manager-detail-label">Trạng thái</td>
-                                                    <td className="manager-detail-value">
-                                                        <select value={form.status} onChange={(e) => update('status', e.target.value)}>
-                                                            <option value="active">Đang bán</option>
-                                                            <option value="inactive">Ngừng bán</option>
-                                                        </select>
-                                                    </td>
-                                                </tr>
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
-
-                                <div className="manager-detail-form-col">
-                                    <div className="manager-detail-section">
-                                        <h3 className="manager-detail-section-title">Giá & đơn vị</h3>
-                                        <div className="manager-detail-table-wrap">
-                                            <table className="manager-detail-table manager-detail-table--form">
-                                                <tbody>
-                                                    <tr>
-                                                        <td className="manager-detail-label">Đơn vị tồn kho (gốc)</td>
-                                                        <td className="manager-detail-value">
-                                                            <select value={form.base_unit} onChange={(e) => update('base_unit', e.target.value)}>
-                                                                {PRODUCT_BASE_UNITS.map((u) => (
-                                                                    <option key={u} value={u}>{u}</option>
-                                                                ))}
-                                                            </select>
-                                                        </td>
-                                                    </tr>
-                                                    <tr>
-                                                        <td className="manager-detail-label">Giá vốn (₫) / 1 đơn vị gốc</td>
-                                                        <td className="manager-detail-value">
-                                                            <input type="number" min="0" step="1000" value={form.cost_price} onChange={(e) => setForm((prev) => ({ ...prev, cost_price: e.target.value }))} placeholder="0" />
-                                                        </td>
-                                                    </tr>
-                                                </tbody>
-                                            </table>
+                    <form onSubmit={handleSubmit} className="space-y-4">
+                        <div className="grid gap-4 xl:grid-cols-12">
+                            <Card className="xl:col-span-8">
+                                <CardContent className="space-y-4">
+                                    <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Thông tin chung</h3>
+                                    <div className="grid gap-3 md:grid-cols-2">
+                                        <div>
+                                            <label className="mb-1 block text-sm font-medium text-slate-600">Tên sản phẩm *</label>
+                                            <input type="text" value={form.name} onChange={(e) => update('name', e.target.value)} placeholder="Nhập tên sản phẩm" className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2" />
+                                        </div>
+                                        <div>
+                                            <label className="mb-1 block text-sm font-medium text-slate-600">SKU *</label>
+                                            <input type="text" value={form.sku} onChange={(e) => update('sku', e.target.value)} placeholder="Mã SKU" className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2" />
+                                        </div>
+                                        <div>
+                                            <label className="mb-1 block text-sm font-medium text-slate-600">Barcode</label>
+                                            <input type="text" value={form.barcode} onChange={(e) => update('barcode', e.target.value)} placeholder="Mã vạch (tùy chọn)" className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2" />
+                                        </div>
+                                        <div>
+                                            <label className="mb-1 block text-sm font-medium text-slate-600">Nhà cung cấp</label>
+                                            <select value={form.supplier_id} onChange={(e) => update('supplier_id', e.target.value)} className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2">
+                                                <option value="">— Không chọn —</option>
+                                                {suppliers.map((s) => <option key={s._id} value={s._id}>{s.name}{s.phone ? ` — ${s.phone}` : ''}</option>)}
+                                            </select>
                                         </div>
                                     </div>
-                                    <div className="manager-detail-section">
-                                        <h3 className="manager-detail-section-title">Tồn kho</h3>
-                                        <div className="manager-detail-table-wrap">
-                                            <table className="manager-detail-table manager-detail-table--form">
-                                                <tbody>
-                                                    <tr>
-                                                        <td className="manager-detail-label">Tồn kho (theo đơn vị gốc)</td>
-                                                        <td className="manager-detail-value">
-                                                            <input type="number" min="0" value={form.stock_qty} onChange={(e) => update('stock_qty', e.target.value)} placeholder="0" />
-                                                        </td>
-                                                    </tr>
-                                                    <tr>
-                                                        <td className="manager-detail-label">Mức tồn tối thiểu</td>
-                                                        <td className="manager-detail-value">
-                                                            <input type="number" min="0" value={form.reorder_level} onChange={(e) => update('reorder_level', e.target.value)} placeholder="0" />
-                                                        </td>
-                                                    </tr>
-                                                    <tr>
-                                                        <td className="manager-detail-label">Hạn sử dụng</td>
-                                                        <td className="manager-detail-value">
-                                                            <input
-                                                                type="date"
-                                                                min={minExpiryDateString()}
-                                                                value={form.expiry_date}
-                                                                onChange={(e) => update('expiry_date', e.target.value)}
-                                                            />
-                                                            <p className="manager-form-hint-inline" style={{ marginTop: 6 }}>
-                                                                Chỉ chọn ngày từ hôm nay trở đi. Nếu sản phẩm trước đây có hạn quá khứ, hãy nhập lại hạn mới hoặc để trống.
-                                                            </p>
-                                                        </td>
-                                                    </tr>
-                                                </tbody>
-                                            </table>
+                                </CardContent>
+                            </Card>
+
+                            <Card className="xl:col-span-4">
+                                <CardContent className="space-y-4">
+                                    <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Đơn vị bán & giá</h3>
+                                    <Button type="button" variant="outline" onClick={addSellingUnit}>
+                                        <Plus className="mr-1 h-4 w-4" /> Thêm đơn vị bán
+                                    </Button>
+                                    <div className="space-y-2">
+                                        {form.selling_units.map((u, i) => (
+                                            <div key={i} className="grid grid-cols-[1fr_90px_1fr_36px] gap-2">
+                                                <input type="text" value={u.name} onChange={(e) => updateSellingUnit(i, 'name', e.target.value)} placeholder="Đơn vị" className="h-10 rounded-lg border border-slate-200 px-2 text-sm outline-none ring-sky-200 transition focus:ring-2" />
+                                                <input type="number" min="1" step="1" value={u.ratio} onChange={(e) => updateSellingUnit(i, 'ratio', e.target.value)} placeholder="Tỉ lệ" className="h-10 rounded-lg border border-slate-200 px-2 text-sm outline-none ring-sky-200 transition focus:ring-2" />
+                                                <input type="number" min="0" step="1000" value={u.sale_price} onChange={(e) => updateSellingUnit(i, 'sale_price', e.target.value)} placeholder="Giá bán" className="h-10 rounded-lg border border-slate-200 px-2 text-sm outline-none ring-sky-200 transition focus:ring-2" />
+                                                <button type="button" onClick={() => removeSellingUnit(i)} disabled={form.selling_units.length <= 1} className="inline-flex h-10 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40">
+                                                    <X className="h-4 w-4" />
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </CardContent>
+                            </Card>
+
+                            <Card className="xl:col-span-8">
+                                <CardContent className="space-y-4">
+                                    <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Giá sản phẩm & tồn kho</h3>
+                                    <div className="grid gap-3 md:grid-cols-2">
+                                        <div>
+                                            <label className="mb-1 block text-sm font-medium text-slate-600">Đơn vị tồn kho (gốc)</label>
+                                            <select value={form.base_unit} onChange={(e) => update('base_unit', e.target.value)} className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2">
+                                                {PRODUCT_BASE_UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="mb-1 block text-sm font-medium text-slate-600">Giá vốn (₫) / 1 đơn vị gốc</label>
+                                            <input type="number" min="0" step="1000" value={form.cost_price} onChange={(e) => setForm((prev) => ({ ...prev, cost_price: e.target.value }))} placeholder="0" className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2" />
+                                        </div>
+                                        <div>
+                                            <label className="mb-1 block text-sm font-medium text-slate-600">Tồn kho hiện tại</label>
+                                            <input type="number" min="0" value={form.stock_qty} onChange={(e) => update('stock_qty', e.target.value)} placeholder="0" className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2" />
+                                        </div>
+                                        <div>
+                                            <label className="mb-1 block text-sm font-medium text-slate-600">Mức tồn tối thiểu</label>
+                                            <input type="number" min="0" value={form.reorder_level} onChange={(e) => update('reorder_level', e.target.value)} placeholder="0" className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2" />
+                                        </div>
+                                        <div className="md:col-span-2">
+                                            <label className="mb-1 block text-sm font-medium text-slate-600">Hạn sử dụng</label>
+                                            <input type="date" min={minExpiryDateString()} value={form.expiry_date} onChange={(e) => update('expiry_date', e.target.value)} className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2" />
+                                            <p className="mt-1 text-xs text-slate-500">{Platform.select({ web: 'Chỉ chọn ngày từ hôm nay trở đi.', default: 'Chỉ chọn ngày hợp lệ.' })}</p>
                                         </div>
                                     </div>
-                                </div>
-                            </div>
+                                </CardContent>
+                            </Card>
 
-                            <div className="manager-detail-section">
-                                <h3 className="manager-detail-section-title">Đơn vị bán & giá</h3>
-                                <p className="manager-form-hint-inline">
-                                    Tỉ lệ = số đơn vị gốc (vd: 1 Thùng = 24 Lon → tỉ lệ 24). Phải có ít nhất 1 đơn vị với tỉ lệ 1.
-                                </p>
-                                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-                                    <button type="button" className="manager-btn-outline manager-btn-small" onClick={addSellingUnit}>
-                                        <i className="fa-solid fa-plus" /> Thêm đơn vị bán
-                                    </button>
-                                </div>
-                                <div className="manager-selling-units-table-wrap">
-                                    <table className="manager-selling-units-table">
-                                        <thead>
-                                            <tr>
-                                                <th>Đơn vị</th>
-                                                <th>Tỉ lệ</th>
-                                                <th>Giá bán (₫)</th>
-                                                <th></th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {form.selling_units.map((u, i) => (
-                                                <tr key={i}>
-                                                    <td>
-                                                        <input type="text" value={u.name} onChange={(e) => updateSellingUnit(i, 'name', e.target.value)} placeholder="vd: Lon" className="manager-selling-unit-input" />
-                                                    </td>
-                                                    <td>
-                                                        <input type="number" min="1" step="1" value={u.ratio} onChange={(e) => updateSellingUnit(i, 'ratio', e.target.value)} placeholder="1" className="manager-selling-unit-input manager-selling-unit-ratio" />
-                                                    </td>
-                                                    <td>
-                                                        <input type="number" min="0" step="1000" value={u.sale_price} onChange={(e) => updateSellingUnit(i, 'sale_price', e.target.value)} placeholder="0" className="manager-selling-unit-input" />
-                                                    </td>
-                                                    <td>
-                                                        <button type="button" className="manager-btn-icon" title="Xóa" onClick={() => removeSellingUnit(i)} disabled={form.selling_units.length <= 1}>
-                                                            <i className="fa-solid fa-trash" />
+                            <Card className="xl:col-span-4">
+                                <CardContent className="space-y-4">
+                                    <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Trạng thái & ảnh</h3>
+                                    <div>
+                                        <label className="mb-1 block text-sm font-medium text-slate-600">Trạng thái</label>
+                                        <select value={form.status} onChange={(e) => update('status', e.target.value)} className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2">
+                                            <option value="active">Đang bán</option>
+                                            <option value="inactive">Ngừng bán</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="mb-1 block text-sm font-medium text-slate-600">Ảnh sản phẩm (tối đa 3)</label>
+                                        <input type="file" accept="image/*" multiple onChange={handleSelectImages} className="block w-full rounded-lg border border-slate-200 bg-white p-2 text-xs text-slate-600" />
+                                    </div>
+                                    {Array.isArray(form.image_urls) && form.image_urls.length > 0 && (
+                                        <div>
+                                            <div className="mb-1 text-xs text-slate-500">Ảnh hiện tại:</div>
+                                            <div className="flex flex-wrap gap-2">
+                                                {form.image_urls.map((url, idx) => (
+                                                    <div key={`${url}-${idx}`} className="relative">
+                                                        <img src={url} alt={`current-${idx + 1}`} className="h-16 w-16 rounded-lg border border-slate-200 object-cover" />
+                                                        <button type="button" onClick={() => removeExistingImage(url)} className="absolute -right-1 -top-1 inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600">
+                                                            <X className="h-3 w-3" />
                                                         </button>
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                                {(saleNum > 0 || costNum > 0) && (
-                                    <div className="manager-profit-hint">
-                                        Lời dự kiến (theo đơn vị gốc): <strong>{expectedProfit.toLocaleString('vi-VN')}₫</strong>
-                                        {costNum > 0 && <span className="manager-profit-margin">(tỷ lệ lãi: {((expectedProfit / costNum) * 100).toFixed(1)}%)</span>}
-                                    </div>
-                                )}
-                            </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                    {imagePreviews.length > 0 && (
+                                        <div>
+                                            <div className="mb-1 text-xs text-slate-500">Ảnh mới sẽ thêm:</div>
+                                            <div className="flex flex-wrap gap-2">
+                                                {imagePreviews.map((url, idx) => (
+                                                    <div key={`${url}-${idx}`} className="relative">
+                                                        <img src={url} alt={`new-${idx + 1}`} className="h-16 w-16 rounded-lg border border-slate-200 object-cover" />
+                                                        <button type="button" onClick={() => removeNewImageAt(idx)} className="absolute -right-1 -top-1 inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600">
+                                                            <X className="h-3 w-3" />
+                                                        </button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                </CardContent>
+                            </Card>
+                        </div>
 
-                            <div className="manager-detail-form-actions">
-                                <button type="button" className="manager-btn-outline" onClick={() => navigate('/manager/products')}>Hủy</button>
-                                <button type="submit" className="manager-btn-primary" disabled={loading}>{loading ? 'Đang lưu...' : 'Lưu thay đổi'}</button>
-                            </div>
+                        <div className="flex items-center justify-end gap-2">
+                            <Button type="button" variant="outline" onClick={() => navigate('/manager/products')}>Hủy</Button>
+                            <Button type="submit" disabled={loading}>{loading ? 'Đang lưu...' : 'Lưu thay đổi'}</Button>
                         </div>
                     </form>
                 </div>

@@ -464,7 +464,15 @@ export default function SalesInvoiceDetail() {
                 style={{ opacity: isAdded ? 0.5 : 1, cursor: isAdded ? 'not-allowed' : 'pointer' }}
               >
                 <div className="pos-product-img">
-                  <i className="fa-solid fa-box" />
+                  {Array.isArray(p.image_urls) && p.image_urls[0] ? (
+                    <img
+                      src={p.image_urls[0]}
+                      alt={p.name || 'product-image'}
+                      style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 6 }}
+                    />
+                  ) : (
+                    <i className="fa-solid fa-box" />
+                  )}
                 </div>
                 <div className="pos-product-info">
                   <div className="pos-product-name">{p.name}</div>

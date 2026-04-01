@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
+import { Platform } from 'react-bits/lib/modules/Platform';
 import ManagerSidebar from './ManagerSidebar';
 import ManagerNotificationBell from '../../components/ManagerNotificationBell';
 import {
@@ -11,6 +12,7 @@ import {
 } from '../../services/analyticsApi';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
+import { Button } from '../../components/ui/button';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -268,19 +270,11 @@ export default function ManagerDashboard() {
             <div>
               <h1 className="manager-page-title">Tổng quan kinh doanh</h1>
               <p className="manager-page-subtitle">Nhìn nhanh hiệu quả bán hàng, tồn kho và nhập hàng</p>
+              <p className="text-xs text-slate-500">{Platform.select({ web: 'Dashboard đã được đồng bộ UI theo Tailwind + shadcn + React Bits.', default: 'Dashboard manager.' })}</p>
             </div>
-                        <div style={{ display: 'flex', gap: 8 }}>
-                            <Link to="/manager/reports" className="manager-panel-link" style={{
-                                padding: '8px 12px',
-                                borderRadius: 8,
-                                border: '1px solid #c7d2fe',
-                                background: '#eef2ff',
-                                fontWeight: 700,
-                            }}>
-                                <i className="fa-solid fa-chart-column" style={{ marginRight: 6 }} />
-                                Báo cáo đổi giá
-                            </Link>
-                        </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Link to="/manager/reports"><Button type="button" variant="outline">Báo cáo đổi giá</Button></Link>
+            </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <label style={{ fontSize: 13, color: '#6b7280' }}>Từ</label>
               <input
@@ -294,15 +288,7 @@ export default function ManagerDashboard() {
                 onChange={e => setSummaryTo(e.target.value)}
                 style={{ padding: '6px 10px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13 }}
               />
-              <button
-                onClick={fetchSummary}
-                style={{
-                  padding: '6px 14px', background: '#6366f1', color: '#fff',
-                  border: 'none', borderRadius: 8, fontSize: 13, cursor: 'pointer',
-                }}
-              >
-                Xem
-              </button>
+              <Button type="button" onClick={fetchSummary}>Xem</Button>
             </div>
           </div>
 
@@ -313,7 +299,7 @@ export default function ManagerDashboard() {
           {/* ── 4 Metric cards ── */}
           <div className="manager-cards-row manager-cards-row--4">
             {/* Doanh thu hôm nay */}
-            <div className="manager-metric-card">
+            <div className="manager-metric-card transition-transform duration-200 hover:-translate-y-0.5">
               <div className="manager-metric-icon manager-metric-icon--blue">
                 <i className="fa-solid fa-sack-dollar" />
               </div>
@@ -335,7 +321,7 @@ export default function ManagerDashboard() {
             </div>
 
             {/* Đơn hàng hôm nay */}
-            <div className="manager-metric-card">
+            <div className="manager-metric-card transition-transform duration-200 hover:-translate-y-0.5">
               <div className="manager-metric-icon manager-metric-icon--green">
                 <i className="fa-solid fa-clipboard-list" />
               </div>
@@ -354,7 +340,7 @@ export default function ManagerDashboard() {
             </div>
 
             {/* Giá trị tồn kho */}
-            <div className="manager-metric-card">
+            <div className="manager-metric-card transition-transform duration-200 hover:-translate-y-0.5">
               <div className="manager-metric-icon manager-metric-icon--purple">
                 <i className="fa-solid fa-warehouse" />
               </div>
@@ -371,7 +357,7 @@ export default function ManagerDashboard() {
             </div>
 
             {/* Cảnh báo tồn kho thấp */}
-            <div className="manager-metric-card">
+            <div className="manager-metric-card transition-transform duration-200 hover:-translate-y-0.5">
               <div className="manager-metric-icon manager-metric-icon--orange">
                 <i className="fa-solid fa-triangle-exclamation" />
               </div>

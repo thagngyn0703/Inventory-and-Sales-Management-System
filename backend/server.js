@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
+const path = require('path');
 
 const authRoutes = require('./routes/auth');
 const categoryRoutes = require('./routes/categories');
@@ -43,6 +44,7 @@ app.use(cors({ origin: true }));
 // express.raw phải đăng ký TRƯỚC express.json để webhook SePay nhận được raw body
 app.use('/api/payments/sepay/webhook', express.raw({ type: 'application/json' }));
 app.use(express.json());
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Routes
 app.use('/api/auth', authRoutes);

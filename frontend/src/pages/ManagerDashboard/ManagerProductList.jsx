@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { Platform } from 'react-bits/lib/modules/Platform';
+import { Search } from 'lucide-react';
 import ManagerSidebar from './ManagerSidebar';
 import ManagerNotificationBell from '../../components/ManagerNotificationBell';
 import {
@@ -11,6 +13,9 @@ import {
 } from '../../services/productsApi';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
+import { Button } from '../../components/ui/button';
+import { Card, CardContent } from '../../components/ui/card';
+import { Badge } from '../../components/ui/badge';
 
 const LIMIT = 10;
 
@@ -191,16 +196,17 @@ export default function ManagerProductList() {
             <div className="manager-main">
                 <header className="manager-topbar">
                     <form onSubmit={handleSearchSubmit} className="manager-topbar-search-wrap">
-                        <input
-                            type="search"
-                            className="manager-search"
-                            placeholder="Tìm kiếm theo tên, SKU, barcode..."
-                            value={searchInput}
-                            onChange={(e) => setSearchInput(e.target.value)}
-                        />
-                        <button type="submit" className="manager-icon-btn" aria-label="Tìm kiếm">
-                            <i className="fa-solid fa-search" />
-                        </button>
+                        <div className="relative w-full">
+                            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                            <input
+                                type="search"
+                                className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
+                                placeholder="Tìm kiếm theo tên, SKU, barcode..."
+                                value={searchInput}
+                                onChange={(e) => setSearchInput(e.target.value)}
+                            />
+                        </div>
+                        <Button type="submit" variant="outline" aria-label="Tìm kiếm">Tìm</Button>
                     </form>
                     <div className="manager-topbar-actions">
                         <ManagerNotificationBell />
@@ -216,26 +222,26 @@ export default function ManagerProductList() {
                         <div>
                             <h1 className="manager-page-title">Sản phẩm</h1>
                             <p className="manager-page-subtitle">Xem danh sách và tìm kiếm sản phẩm</p>
+                            <p className="text-xs text-slate-500">{Platform.select({ web: 'Giao diện danh sách đã đồng bộ cùng trang thêm/sửa sản phẩm.', default: 'Danh sách sản phẩm.' })}</p>
                         </div>
                         <div className="manager-supplier-header-actions">
-                            <button
+                            <Button
                                 type="button"
-                                className="manager-btn-outline"
+                                variant="outline"
                                 onClick={() => {
                                     setImportOpen(true);
                                     setImportPreview(null);
                                     setImportError('');
                                 }}
                             >
-                                <i className="fa-solid fa-file-import" /> Import Excel
-                            </button>
-                            <button
+                                Import Excel
+                            </Button>
+                            <Button
                                 type="button"
-                                className="manager-btn-primary"
                                 onClick={() => navigate('/manager/products/new')}
                             >
-                                <i className="fa-solid fa-plus" /> Thêm sản phẩm
-                            </button>
+                                Thêm sản phẩm
+                            </Button>
                         </div>
                     </div>
 
@@ -244,7 +250,8 @@ export default function ManagerProductList() {
                     )}
                     {error && <div className="manager-products-error">{error}</div>}
 
-                    <div className="manager-panel-card manager-products-card">
+                    <Card className="manager-products-card">
+                        <CardContent className="p-0">
                         {loading ? (
                             <p className="manager-products-loading">Đang tải...</p>
                         ) : (
@@ -254,6 +261,7 @@ export default function ManagerProductList() {
                                         <thead>
                                             <tr>
                                                 <th>STT</th>
+                                                <th>Ảnh</th>
                                                 <th>SKU</th>
                                                 <th>Tên sản phẩm</th>
                                                 <th>Barcode</th>
@@ -268,7 +276,7 @@ export default function ManagerProductList() {
                                         <tbody>
                                             {products.length === 0 ? (
                                                 <tr>
-                                                    <td colSpan={10} className="manager-products-empty">
+                                                    <td colSpan={11} className="manager-products-empty">
                                                         {search ? 'Không có sản phẩm nào phù hợp.' : 'Chưa có sản phẩm.'}
                                                     </td>
                                                 </tr>
@@ -276,6 +284,23 @@ export default function ManagerProductList() {
                                                 products.map((p, idx) => (
                                                     <tr key={p._id}>
                                                         <td>{(page - 1) * LIMIT + idx + 1}</td>
+                                                        <td>
+                                                            {Array.isArray(p.image_urls) && p.image_urls[0] ? (
+                                                                <img
+                                                                    src={p.image_urls[0]}
+                                                                    alt={p.name || 'product-image'}
+                                                                    style={{
+                                                                        width: 44,
+                                                                        height: 44,
+                                                                        objectFit: 'cover',
+                                                                        borderRadius: 6,
+                                                                        border: '1px solid #e5e7eb',
+                                                                    }}
+                                                                />
+                                                            ) : (
+                                                                <span style={{ color: '#9ca3af' }}>—</span>
+                                                            )}
+                                                        </td>
                                                         <td>{p.sku || '—'}</td>
                                                         <td>
                                                             <button
@@ -292,9 +317,9 @@ export default function ManagerProductList() {
                                                         <td>{Number(p.stock_qty ?? 0).toLocaleString('vi-VN')}</td>
                                                         <td>{p.base_unit || 'Cái'}</td>
                                                         <td>
-                                                            <span className={`manager-products-status manager-products-status--${p.status || 'active'}`}>
+                                                            <Badge className={p.status === 'inactive' ? 'bg-rose-100 text-rose-700' : ''}>
                                                                 {p.status === 'inactive' ? 'Ngừng' : 'Đang bán'}
-                                                            </span>
+                                                            </Badge>
                                                         </td>
                                                         <td>
                                                             <div className="manager-products-actions">
@@ -365,7 +390,8 @@ export default function ManagerProductList() {
                                 )}
                             </>
                         )}
-                    </div>
+                        </CardContent>
+                    </Card>
 
                     {importOpen && (
                         <div

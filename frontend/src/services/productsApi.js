@@ -54,6 +54,28 @@ export async function createProduct(body) {
     return data.product;
 }
 
+export async function uploadProductImages(files) {
+    const token = getToken();
+    const form = new FormData();
+    files.forEach((file) => form.append('images', file));
+    const res = await fetch(`${API_BASE}/products/upload-images`, {
+        method: 'POST',
+        headers: {
+            Authorization: `Bearer ${token}`,
+        },
+        body: form,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (data?.code === 'CLOUDINARY_NOT_CONFIGURED') {
+        throw new Error('Chức năng upload ảnh đang tạm thời chưa sẵn sàng. Vui lòng báo admin cấu hình Cloudinary.');
+    }
+    if (String(data?.message || '').toLowerCase().includes('cloudinary')) {
+        throw new Error('Chức năng upload ảnh đang tạm thời chưa sẵn sàng. Vui lòng báo admin cấu hình Cloudinary.');
+    }
+    if (!res.ok) throw new Error(data.message || 'Không thể upload ảnh sản phẩm');
+    return data.image_urls || [];
+}
+
 export async function updateProduct(id, body) {
     const token = getToken();
     const res = await fetch(`${API_BASE}/products/${id}`, {

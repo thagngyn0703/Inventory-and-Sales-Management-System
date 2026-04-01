@@ -1,9 +1,13 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+const crypto = require('crypto');
 const Product = require('../models/Product');
 const ProductPriceHistory = require('../models/ProductPriceHistory');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const { ensureCloudinaryConfigured, hasCloudinaryConfig } = require('../services/cloudinary');
 const {
   parseExcelToMatrix,
   mapRowsFromMatrix,
@@ -28,6 +32,19 @@ const upload = multer({
   },
 });
 
+const uploadProductImages = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 4 * 1024 * 1024,
+    files: 3,
+  },
+  fileFilter: (req, file, cb) => {
+    const ok = String(file.mimetype || '').startsWith('image/');
+    if (ok) cb(null, true);
+    else cb(new Error('Chỉ chấp nhận file ảnh'));
+  },
+});
+
 function escapeRegex(s) {
   return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -36,6 +53,58 @@ function parseOptionalDate(value) {
   if (!value) return undefined;
   const d = new Date(value);
   return Number.isNaN(d.getTime()) ? undefined : d;
+}
+
+function normalizeImageUrls(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((x) => String(x || '').trim())
+    .filter(Boolean)
+    .slice(0, 3);
+}
+
+function uploadBufferToCloudinary(buffer, folder = 'ims/products') {
+  const cloud = ensureCloudinaryConfigured();
+  return new Promise((resolve, reject) => {
+    const stream = cloud.uploader.upload_stream(
+      { folder, resource_type: 'image' },
+      (err, result) => {
+        if (err) return reject(err);
+        resolve(result);
+      }
+    );
+    stream.end(buffer);
+  });
+}
+
+const LOCAL_PRODUCT_UPLOAD_DIR = path.join(__dirname, '..', 'uploads', 'products');
+
+async function ensureLocalUploadDir() {
+  await fs.promises.mkdir(LOCAL_PRODUCT_UPLOAD_DIR, { recursive: true });
+}
+
+function extensionFromMimetype(mimetype) {
+  const map = {
+    'image/jpeg': '.jpg',
+    'image/jpg': '.jpg',
+    'image/png': '.png',
+    'image/webp': '.webp',
+    'image/gif': '.gif',
+  };
+  return map[String(mimetype || '').toLowerCase()] || '.jpg';
+}
+
+async function uploadBufferToLocal(file, req) {
+  await ensureLocalUploadDir();
+  const ext = extensionFromMimetype(file.mimetype);
+  const fileName = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}${ext}`;
+  const fullPath = path.join(LOCAL_PRODUCT_UPLOAD_DIR, fileName);
+  await fs.promises.writeFile(fullPath, file.buffer);
+  const origin = `${req.protocol}://${req.get('host')}`;
+  return {
+    secure_url: `${origin}/uploads/products/${fileName}`,
+    public_id: `local/products/${fileName}`,
+  };
 }
 
 function startOfDay(d) {
@@ -73,11 +142,17 @@ async function findBarcodeDuplicate({ barcode, storeId, excludeId }) {
 function normalizeProduct(p) {
   if (!p) return p;
   const base = p.base_unit || 'Cái';
+  const imageUrls = normalizeImageUrls(p.image_urls);
   const units = p.selling_units && p.selling_units.length > 0
     ? p.selling_units
     : [{ name: base, ratio: 1, sale_price: p.sale_price != null ? p.sale_price : 0 }];
   const baseUnit = units.find((u) => u.ratio === 1) || units[0];
-  return { ...p, selling_units: units, sale_price: baseUnit ? baseUnit.sale_price : (p.sale_price || 0) };
+  return {
+    ...p,
+    image_urls: imageUrls,
+    selling_units: units,
+    sale_price: baseUnit ? baseUnit.sale_price : (p.sale_price || 0),
+  };
 }
 
 async function findSkuDuplicate({ sku, storeId, excludeId }) {
@@ -144,6 +219,48 @@ function getRoleStoreFilter(req) {
   return { storeId };
 }
 
+// POST /api/products/upload-images (manager, admin) - tối đa 3 ảnh
+router.post(
+  '/upload-images',
+  requireAuth,
+  requireRole(['manager', 'admin']),
+  (req, res, next) => {
+    uploadProductImages.array('images', 3)(req, res, (err) => {
+      if (err) return res.status(400).json({ message: err.message || 'Lỗi upload ảnh' });
+      next();
+    });
+  },
+  async (req, res) => {
+    try {
+      const files = req.files || [];
+      if (!files.length) {
+        return res.status(400).json({ message: 'Vui lòng chọn ít nhất 1 ảnh' });
+      }
+      if (files.length > 3) {
+        return res.status(400).json({ message: 'Chỉ được upload tối đa 3 ảnh cho mỗi sản phẩm' });
+      }
+
+      const uploaded = [];
+      for (const file of files) {
+        let result;
+        if (hasCloudinaryConfig()) {
+          result = await uploadBufferToCloudinary(file.buffer);
+        } else {
+          result = await uploadBufferToLocal(file, req);
+        }
+        uploaded.push({
+          url: result.secure_url,
+          public_id: result.public_id,
+        });
+      }
+      return res.json({ images: uploaded, image_urls: uploaded.map((x) => x.url) });
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ message: err.message || 'Không thể upload ảnh' });
+    }
+  }
+);
+
 // POST /api/products  (manager, admin)
 router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
   try {
@@ -160,6 +277,7 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
       expiry_date,
       base_unit,
       selling_units: bodyUnits,
+      image_urls,
       status,
     } = req.body || {};
     const role = String(req.user?.role || '').toLowerCase();
@@ -217,6 +335,11 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
       }
     }
 
+    const safeImageUrls = normalizeImageUrls(image_urls);
+    if (Array.isArray(image_urls) && image_urls.length > 3) {
+      return res.status(400).json({ message: 'Chỉ được lưu tối đa 3 ảnh cho mỗi sản phẩm' });
+    }
+
     const doc = await Product.create({
       category_id: category_id && mongoose.isValidObjectId(category_id) ? category_id : undefined,
       supplier_id: supplier_id && mongoose.isValidObjectId(supplier_id) ? supplier_id : undefined,
@@ -231,6 +354,7 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
       expiry_date: expCheck.date,
       base_unit: base,
       selling_units,
+      image_urls: safeImageUrls,
       status: status === 'inactive' ? 'inactive' : 'active',
     });
 
@@ -640,6 +764,7 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
       expiry_date,
       base_unit,
       selling_units: bodyUnits,
+      image_urls,
       status,
     } = req.body || {};
 
@@ -686,6 +811,12 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
     }
     if (supplier_id !== undefined) {
       product.supplier_id = supplier_id && mongoose.isValidObjectId(supplier_id) ? supplier_id : null;
+    }
+    if (image_urls !== undefined) {
+      if (Array.isArray(image_urls) && image_urls.length > 3) {
+        return res.status(400).json({ message: 'Chỉ được lưu tối đa 3 ảnh cho mỗi sản phẩm' });
+      }
+      product.image_urls = normalizeImageUrls(image_urls);
     }
     if (sku !== undefined) {
       const duplicate = await findSkuDuplicate({ sku, storeId: product.storeId, excludeId: id });

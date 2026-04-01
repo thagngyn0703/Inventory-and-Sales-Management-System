@@ -1,10 +1,15 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Platform } from 'react-bits/lib/modules/Platform';
+import { Search, Plus, X } from 'lucide-react';
 import ManagerSidebar from './ManagerSidebar';
 import ManagerNotificationBell from '../../components/ManagerNotificationBell';
-import { createProduct, getProducts } from '../../services/productsApi';
+import { createProduct, getProducts, uploadProductImages } from '../../services/productsApi';
 import { minExpiryDateString, isExpiryDateNotInPast } from '../../utils/dateInput';
 import { getSuppliers } from '../../services/suppliersApi';
+import { Button } from '../../components/ui/button';
+import { Card, CardContent } from '../../components/ui/card';
+import { Badge } from '../../components/ui/badge';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
 
@@ -23,6 +28,7 @@ const createDefaultForm = () => ({
     expiry_date: '',
     base_unit: 'Cái',
     selling_units: [defaultSellingUnit()],
+    image_urls: [],
     status: 'active',
 });
 
@@ -34,6 +40,9 @@ export default function ManagerProductCreate() {
     const [selectedExistingId, setSelectedExistingId] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const [selectedImages, setSelectedImages] = useState([]);
+    const [imagePreviews, setImagePreviews] = useState([]);
+    const [quickSearch, setQuickSearch] = useState('');
 
     useEffect(() => {
         let cancelled = false;
@@ -45,18 +54,37 @@ export default function ManagerProductCreate() {
 
     useEffect(() => {
         let cancelled = false;
-        getProducts(1, 200)
+        getProducts(1, 1000)
             .then((data) => { if (!cancelled) setExistingProducts(data.products || []); })
             .catch(() => { if (!cancelled) setExistingProducts([]); });
         return () => { cancelled = true; };
     }, []);
 
-    const baseUnitEntry = useMemo(() => form.selling_units.find((u) => Number(u.ratio) === 1) || form.selling_units[0], [form.selling_units]);
-    const saleNum = useMemo(() => Number(baseUnitEntry?.sale_price) || 0, [baseUnitEntry]);
+    useEffect(() => {
+        return () => {
+            imagePreviews.forEach((url) => URL.revokeObjectURL(url));
+        };
+    }, [imagePreviews]);
+
     const costNum = useMemo(() => Number(form.cost_price) || 0, [form.cost_price]);
-    const expectedProfit = useMemo(() => Math.max(0, saleNum - costNum), [saleNum, costNum]);
+    const filteredExistingProducts = useMemo(() => {
+        const term = String(quickSearch || '').trim().toLowerCase();
+        if (!term) return existingProducts;
+        return existingProducts.filter((p) =>
+            String(p.name || '').toLowerCase().includes(term) ||
+            String(p.sku || '').toLowerCase().includes(term) ||
+            String(p.barcode || '').toLowerCase().includes(term)
+        );
+    }, [existingProducts, quickSearch]);
+    const quickFillHint = Platform.select({
+        web: 'Khi bạn sửa tên/SKU/barcode sau khi chọn mẫu, hệ thống sẽ tự chuyển về trạng thái không chọn để tránh nhầm sản phẩm gốc.',
+        default: 'Sửa thông tin sau khi điền nhanh để tạo sản phẩm mới.',
+    });
 
     const update = (field, value) => {
+        if (selectedExistingId && ['name', 'sku', 'barcode'].includes(field)) {
+            setSelectedExistingId('');
+        }
         setForm((prev) => {
             const next = { ...prev, [field]: value };
             if (field === 'base_unit') {
@@ -97,6 +125,20 @@ export default function ManagerProductCreate() {
         });
     };
 
+    const handleSelectImages = (e) => {
+        const files = Array.from(e.target.files || []);
+        if (files.length > 3) {
+            setSelectedImages([]);
+            setImagePreviews([]);
+            if (e.target) e.target.value = '';
+            setError('Chỉ được chọn tối đa 3 ảnh cho mỗi sản phẩm.');
+            return;
+        }
+        setSelectedImages(files);
+        setImagePreviews(files.map((f) => URL.createObjectURL(f)));
+        setError('');
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         if (!form.name.trim()) {
@@ -127,10 +169,18 @@ export default function ManagerProductCreate() {
             setError('Ngày hết hạn phải từ hôm nay trở đi (không chọn ngày quá khứ).');
             return;
         }
+        if (selectedImages.length > 3) {
+            setError('Chỉ được chọn tối đa 3 ảnh cho mỗi sản phẩm.');
+            return;
+        }
 
         setLoading(true);
         setError('');
         try {
+            let uploadedImageUrls = form.image_urls || [];
+            if (selectedImages.length > 0) {
+                uploadedImageUrls = await uploadProductImages(selectedImages);
+            }
             await createProduct({
                 name: form.name.trim(),
                 sku: form.sku.trim(),
@@ -142,6 +192,7 @@ export default function ManagerProductCreate() {
                 expiry_date: form.expiry_date || undefined,
                 base_unit: form.base_unit || 'Cái',
                 selling_units: units,
+                image_urls: uploadedImageUrls,
                 status: form.status === 'inactive' ? 'inactive' : 'active',
             });
             navigate('/manager/products', { state: { success: 'Thêm sản phẩm thành công.' } });
@@ -157,6 +208,8 @@ export default function ManagerProductCreate() {
         const p = existingProducts.find((x) => x._id === productId);
         if (!p) {
             setForm(createDefaultForm());
+            setSelectedImages([]);
+            setImagePreviews([]);
             setError('');
             return;
         }
@@ -180,8 +233,37 @@ export default function ManagerProductCreate() {
                     sale_price: u.sale_price != null ? String(u.sale_price) : '',
                 }))
                 : prev.selling_units,
+            image_urls: Array.isArray(p.image_urls) ? p.image_urls.slice(0, 3) : [],
             status: p.status === 'inactive' ? 'inactive' : 'active',
         }));
+        setSelectedImages([]);
+        setImagePreviews([]);
+        setError('');
+    };
+
+    const handleQuickSearchKeyDown = (e) => {
+        if (e.key !== 'Enter') return;
+        e.preventDefault();
+
+        const term = String(quickSearch || '').trim().toLowerCase();
+        if (!term) {
+            setError('Vui lòng nhập tên/SKU/barcode để tìm nhanh.');
+            return;
+        }
+
+        const exact = existingProducts.find((p) => (
+            String(p.name || '').toLowerCase() === term ||
+            String(p.sku || '').toLowerCase() === term ||
+            String(p.barcode || '').toLowerCase() === term
+        ));
+
+        const target = exact || filteredExistingProducts[0];
+        if (!target) {
+            setError('Không tìm thấy sản phẩm phù hợp để điền nhanh.');
+            return;
+        }
+
+        fillFromExisting(target._id);
         setError('');
     };
 
@@ -200,293 +282,298 @@ export default function ManagerProductCreate() {
                     </div>
                 </header>
 
-                <div className="manager-content manager-product-detail-page manager-product-form-page">
-                    <div className="manager-products-header">
+                <div className="manager-content manager-product-create-fullwidth bg-slate-50">
+                    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                         <div>
-                            <h1 className="manager-page-title">Thêm sản phẩm</h1>
-                            <p className="manager-page-subtitle">Tồn kho theo đơn vị gốc. Nhiều đơn vị bán với giá khác nhau (vd: Lon 10k, Thùng 200k).</p>
+                            <h1 className="text-2xl font-bold text-slate-900">Thêm sản phẩm</h1>
+                            <p className="text-sm text-slate-500">Điền nhanh từ mẫu có sẵn, sau đó chỉnh lại để tạo sản phẩm mới.</p>
                         </div>
-                        <button
-                            type="button"
-                            className="manager-btn-outline"
-                            onClick={() => navigate('/manager/products')}
-                        >
-                            <i className="fa-solid fa-arrow-left" /> Quay lại
-                        </button>
+                        <Button type="button" variant="outline" onClick={() => navigate('/manager/products')}>
+                            Quay lại danh sách
+                        </Button>
                     </div>
 
-                    {error && <div className="manager-products-error">{error}</div>}
-
-                    <div className="manager-panel-card" style={{ marginBottom: 16 }}>
-                        <div className="manager-form-row manager-form-row--2" style={{ alignItems: 'end' }}>
-                            <div className="manager-form-group">
-                                <label>Chọn nhanh sản phẩm đã có sẵn (để điền form)</label>
-                                <select value={selectedExistingId} onChange={(e) => fillFromExisting(e.target.value)}>
-                                    <option value="">— Không chọn —</option>
-                                    {existingProducts.map((p) => (
-                                        <option key={p._id} value={p._id}>
-                                            {p.name} — {p.sku}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div className="manager-form-hint-inline">
-                                Có thể chọn sản phẩm cũ để copy nhanh thông tin, sau đó chỉnh sửa lại trước khi lưu.
-                            </div>
+                    {error && (
+                        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-600">
+                            {error}
                         </div>
-                    </div>
+                    )}
 
-                    <form onSubmit={handleSubmit}>
-                        <div className="manager-detail-card">
-                            <div className="manager-detail-sections-row">
-                                <div className="manager-detail-section">
-                                    <h3 className="manager-detail-section-title">Thông tin cơ bản</h3>
-                                    <div className="manager-detail-table-wrap">
-                                        <table className="manager-detail-table manager-detail-table--form">
-                                            <tbody>
-                                                <tr>
-                                                    <td className="manager-detail-label">Tên sản phẩm <span className="required">*</span></td>
-                                                    <td className="manager-detail-value">
-                                                        <input
-                                                            type="text"
-                                                            value={form.name}
-                                                            onChange={(e) => update('name', e.target.value)}
-                                                            placeholder="Nhập tên sản phẩm"
-                                                        />
-                                                    </td>
-                                                </tr>
-                                                <tr>
-                                                    <td className="manager-detail-label">SKU <span className="required">*</span></td>
-                                                    <td className="manager-detail-value">
-                                                        <input
-                                                            type="text"
-                                                            value={form.sku}
-                                                            onChange={(e) => update('sku', e.target.value)}
-                                                            placeholder="Mã SKU"
-                                                        />
-                                                    </td>
-                                                </tr>
-                                                <tr>
-                                                    <td className="manager-detail-label">Barcode</td>
-                                                    <td className="manager-detail-value">
-                                                        <input
-                                                            type="text"
-                                                            value={form.barcode}
-                                                            onChange={(e) => update('barcode', e.target.value)}
-                                                            placeholder="Mã vạch (tùy chọn)"
-                                                        />
-                                                    </td>
-                                                </tr>
-                                                <tr>
-                                                    <td className="manager-detail-label">Nhà cung cấp</td>
-                                                    <td className="manager-detail-value">
-                                                        <select
-                                                            value={form.supplier_id}
-                                                            onChange={(e) => update('supplier_id', e.target.value)}
-                                                        >
-                                                            <option value="">— Không chọn —</option>
-                                                            {suppliers.map((s) => (
-                                                                <option key={s._id} value={s._id}>
-                                                                    {s.name}
-                                                                    {s.phone ? ` — ${s.phone}` : ''}
-                                                                </option>
-                                                            ))}
-                                                        </select>
-                                                    </td>
-                                                </tr>
-                                                <tr>
-                                                    <td className="manager-detail-label">Trạng thái</td>
-                                                    <td className="manager-detail-value">
-                                                        <select
-                                                            value={form.status}
-                                                            onChange={(e) => update('status', e.target.value)}
-                                                        >
-                                                            <option value="active">Đang bán</option>
-                                                            <option value="inactive">Ngừng bán</option>
-                                                        </select>
-                                                    </td>
-                                                </tr>
-                                            </tbody>
-                                        </table>
+                    <form onSubmit={handleSubmit} className="space-y-4">
+                        <div className="grid gap-4 xl:grid-cols-12">
+                            <Card className="xl:col-span-12">
+                                <CardContent className="space-y-2 py-4">
+                                    <div className="flex items-center justify-between">
+                                        <h2 className="text-sm font-semibold text-slate-700">Điền nhanh từ sản phẩm có sẵn</h2>
+                                        {selectedExistingId ? <Badge>Đang dùng mẫu có sẵn</Badge> : <Badge className="bg-slate-100 text-slate-600">Không chọn</Badge>}
                                     </div>
-                                </div>
+                                    <div className="grid gap-3 md:grid-cols-2">
+                                        <div className="relative">
+                                            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                                            <input
+                                                type="text"
+                                                value={quickSearch}
+                                                onChange={(e) => setQuickSearch(e.target.value)}
+                                                onKeyDown={handleQuickSearchKeyDown}
+                                                placeholder="Tìm theo tên, SKU, barcode..."
+                                                className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
+                                            />
+                                        </div>
+                                        <select
+                                            value={selectedExistingId}
+                                            onChange={(e) => fillFromExisting(e.target.value)}
+                                            className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
+                                        >
+                                            <option value="">— Không chọn —</option>
+                                            {filteredExistingProducts.map((p) => (
+                                                <option key={p._id} value={p._id}>
+                                                    {p.name} — {p.sku}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <p className="text-xs text-slate-500">{quickFillHint}</p>
+                                </CardContent>
+                            </Card>
 
-                                <div className="manager-detail-form-col">
-                                    <div className="manager-detail-section">
-                                        <h3 className="manager-detail-section-title">Giá & đơn vị</h3>
-                                        <div className="manager-detail-table-wrap">
-                                            <table className="manager-detail-table manager-detail-table--form">
-                                                <tbody>
-                                                    <tr>
-                                                        <td className="manager-detail-label">Đơn vị tồn kho (gốc)</td>
-                                                        <td className="manager-detail-value">
-                                                            <select
-                                                                value={form.base_unit}
-                                                                onChange={(e) => update('base_unit', e.target.value)}
-                                                            >
-                                                                {PRODUCT_BASE_UNITS.map((u) => (
-                                                                    <option key={u} value={u}>{u}</option>
-                                                                ))}
-                                                            </select>
+                            <Card className="xl:col-span-8">
+                                <CardContent className="space-y-4">
+                                    <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Thông tin chung</h3>
+                                    <div className="space-y-3">
+                                        <div>
+                                            <label className="mb-1 block text-sm font-medium text-slate-600">Tên sản phẩm *</label>
+                                            <input
+                                                type="text"
+                                                value={form.name}
+                                                onChange={(e) => update('name', e.target.value)}
+                                                placeholder="Nhập tên sản phẩm"
+                                                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="mb-1 block text-sm font-medium text-slate-600">SKU *</label>
+                                            <input
+                                                type="text"
+                                                value={form.sku}
+                                                onChange={(e) => update('sku', e.target.value)}
+                                                placeholder="Mã SKU"
+                                                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="mb-1 block text-sm font-medium text-slate-600">Barcode</label>
+                                            <input
+                                                type="text"
+                                                value={form.barcode}
+                                                onChange={(e) => update('barcode', e.target.value)}
+                                                placeholder="Mã vạch (tùy chọn)"
+                                                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="mb-1 block text-sm font-medium text-slate-600">Nhà cung cấp</label>
+                                            <select
+                                                value={form.supplier_id}
+                                                onChange={(e) => update('supplier_id', e.target.value)}
+                                                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
+                                            >
+                                                <option value="">— Không chọn —</option>
+                                                {suppliers.map((s) => (
+                                                    <option key={s._id} value={s._id}>
+                                                        {s.name}{s.phone ? ` — ${s.phone}` : ''}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    </div>
+                                </CardContent>
+                            </Card>
+
+                            <Card className="xl:col-span-4">
+                                <CardContent>
+                                    <div className="mb-3 flex items-center justify-between">
+                                        <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Đơn vị bán & giá</h3>
+                                        <Button type="button" variant="outline" onClick={addSellingUnit}>
+                                            <Plus className="mr-1 h-4 w-4" />
+                                            Thêm đơn vị bán
+                                        </Button>
+                                    </div>
+                                    <div className="overflow-x-auto">
+                                        <table className="min-w-full text-sm">
+                                            <thead>
+                                                <tr className="border-b border-slate-200 text-left text-xs uppercase text-slate-500">
+                                                    <th className="py-2 pr-2">Đơn vị</th>
+                                                    <th className="py-2 pr-2">Tỉ lệ</th>
+                                                    <th className="py-2 pr-2">Giá bán (₫)</th>
+                                                    <th className="py-2 text-right">Thao tác</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {form.selling_units.map((u, i) => (
+                                                    <tr key={i} className="border-b border-slate-100">
+                                                        <td className="py-2 pr-2">
+                                                            <input
+                                                                type="text"
+                                                                value={u.name}
+                                                                onChange={(e) => updateSellingUnit(i, 'name', e.target.value)}
+                                                                placeholder="vd: Lon"
+                                                                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
+                                                            />
                                                         </td>
-                                                    </tr>
-                                                    <tr>
-                                                        <td className="manager-detail-label">Giá vốn (₫) / 1 đơn vị gốc</td>
-                                                        <td className="manager-detail-value">
+                                                        <td className="py-2 pr-2">
+                                                            <input
+                                                                type="number"
+                                                                min="1"
+                                                                step="1"
+                                                                value={u.ratio}
+                                                                onChange={(e) => updateSellingUnit(i, 'ratio', e.target.value)}
+                                                                placeholder="1"
+                                                                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
+                                                            />
+                                                        </td>
+                                                        <td className="py-2 pr-2">
                                                             <input
                                                                 type="number"
                                                                 min="0"
                                                                 step="1000"
-                                                                value={form.cost_price}
-                                                                onChange={(e) => setForm((prev) => ({ ...prev, cost_price: e.target.value }))}
+                                                                value={u.sale_price}
+                                                                onChange={(e) => updateSellingUnit(i, 'sale_price', e.target.value)}
                                                                 placeholder="0"
+                                                                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
                                                             />
                                                         </td>
+                                                        <td className="py-2 text-right">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => removeSellingUnit(i)}
+                                                                disabled={form.selling_units.length <= 1}
+                                                                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-500 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                                                                title="Xóa"
+                                                            >
+                                                                <X className="h-4 w-4" />
+                                                            </button>
+                                                        </td>
                                                     </tr>
-                                                </tbody>
-                                            </table>
-                                        </div>
+                                                ))}
+                                            </tbody>
+                                        </table>
                                     </div>
-                                    <div className="manager-detail-section">
-                                        <h3 className="manager-detail-section-title">Tồn kho</h3>
-                                        <div className="manager-detail-table-wrap">
-                                            <table className="manager-detail-table manager-detail-table--form">
-                                                <tbody>
-                                                    <tr>
-                                                        <td className="manager-detail-label">Tồn kho ban đầu</td>
-                                                        <td className="manager-detail-value">
-                                                            <input
-                                                                type="number"
-                                                                min="0"
-                                                                value={form.stock_qty}
-                                                                onChange={(e) => update('stock_qty', e.target.value)}
-                                                                placeholder="vd: 24"
-                                                            />
-                                                        </td>
-                                                    </tr>
-                                                    <tr>
-                                                        <td className="manager-detail-label">Mức tồn tối thiểu</td>
-                                                        <td className="manager-detail-value">
-                                                            <input
-                                                                type="number"
-                                                                min="0"
-                                                                value={form.reorder_level}
-                                                                onChange={(e) => update('reorder_level', e.target.value)}
-                                                                placeholder="0"
-                                                            />
-                                                        </td>
-                                                    </tr>
-                                                    <tr>
-                                                        <td className="manager-detail-label">Hạn sử dụng</td>
-                                                        <td className="manager-detail-value">
-                                                            <input
-                                                                type="date"
-                                                                min={minExpiryDateString()}
-                                                                value={form.expiry_date}
-                                                                onChange={(e) => update('expiry_date', e.target.value)}
-                                                            />
-                                                            <p className="manager-form-hint-inline" style={{ marginTop: 6 }}>
-                                                                Chỉ chọn ngày từ hôm nay trở đi (hàng đã hết hạn cần xử lý riêng, không nhập ngày quá khứ).
-                                                            </p>
-                                                        </td>
-                                                    </tr>
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
+                                </CardContent>
+                            </Card>
 
-                            <div className="manager-detail-section">
-                                <h3 className="manager-detail-section-title">Đơn vị bán & giá</h3>
-                                <p className="manager-form-hint-inline">
-                                    Tỉ lệ = số đơn vị gốc (vd: 1 Thùng = 24 Lon → tỉ lệ 24). Phải có ít nhất 1 đơn vị với tỉ lệ 1.
-                                </p>
-                                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-                                    <button type="button" className="manager-btn-outline manager-btn-small" onClick={addSellingUnit}>
-                                        <i className="fa-solid fa-plus" /> Thêm đơn vị bán
-                                    </button>
-                                </div>
-                                <div className="manager-selling-units-table-wrap">
-                                    <table className="manager-selling-units-table">
-                                        <thead>
-                                            <tr>
-                                                <th>Đơn vị</th>
-                                                <th>Tỉ lệ</th>
-                                                <th>Giá bán (₫)</th>
-                                                <th></th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {form.selling_units.map((u, i) => (
-                                                <tr key={i}>
-                                                    <td>
-                                                        <input
-                                                            type="text"
-                                                            value={u.name}
-                                                            onChange={(e) => updateSellingUnit(i, 'name', e.target.value)}
-                                                            placeholder="vd: Lon"
-                                                            className="manager-selling-unit-input"
-                                                        />
-                                                    </td>
-                                                    <td>
-                                                        <input
-                                                            type="number"
-                                                            min="1"
-                                                            step="1"
-                                                            value={u.ratio}
-                                                            onChange={(e) => updateSellingUnit(i, 'ratio', e.target.value)}
-                                                            placeholder="1"
-                                                            className="manager-selling-unit-input manager-selling-unit-ratio"
-                                                        />
-                                                    </td>
-                                                    <td>
-                                                        <input
-                                                            type="number"
-                                                            min="0"
-                                                            step="1000"
-                                                            value={u.sale_price}
-                                                            onChange={(e) => updateSellingUnit(i, 'sale_price', e.target.value)}
-                                                            placeholder="0"
-                                                            className="manager-selling-unit-input"
-                                                        />
-                                                    </td>
-                                                    <td>
-                                                        <button
-                                                            type="button"
-                                                            className="manager-btn-icon"
-                                                            title="Xóa"
-                                                            onClick={() => removeSellingUnit(i)}
-                                                            disabled={form.selling_units.length <= 1}
-                                                        >
-                                                            <i className="fa-solid fa-trash" />
-                                                        </button>
-                                                    </td>
-                                                </tr>
+                            <Card className="xl:col-span-8">
+                                <CardContent className="space-y-4">
+                                    <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Giá sản phẩm & tồn kho</h3>
+                                    <div className="grid gap-3 md:grid-cols-2">
+                                        <div>
+                                            <label className="mb-1 block text-sm font-medium text-slate-600">Đơn vị tồn kho (gốc)</label>
+                                            <select
+                                                value={form.base_unit}
+                                                onChange={(e) => update('base_unit', e.target.value)}
+                                                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
+                                            >
+                                                {PRODUCT_BASE_UNITS.map((u) => (
+                                                    <option key={u} value={u}>{u}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="mb-1 block text-sm font-medium text-slate-600">Giá vốn (₫) / 1 đơn vị gốc</label>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                step="1000"
+                                                value={form.cost_price}
+                                                onChange={(e) => setForm((prev) => ({ ...prev, cost_price: e.target.value }))}
+                                                placeholder="0"
+                                                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="mb-1 block text-sm font-medium text-slate-600">Tồn kho ban đầu</label>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                value={form.stock_qty}
+                                                onChange={(e) => update('stock_qty', e.target.value)}
+                                                placeholder="vd: 24"
+                                                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="mb-1 block text-sm font-medium text-slate-600">Mức tồn tối thiểu</label>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                value={form.reorder_level}
+                                                onChange={(e) => update('reorder_level', e.target.value)}
+                                                placeholder="0"
+                                                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
+                                            />
+                                        </div>
+                                        <div className="md:col-span-2">
+                                            <label className="mb-1 block text-sm font-medium text-slate-600">Hạn sử dụng</label>
+                                            <input
+                                                type="date"
+                                                min={minExpiryDateString()}
+                                                value={form.expiry_date}
+                                                onChange={(e) => update('expiry_date', e.target.value)}
+                                                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
+                                            />
+                                            <p className="mt-1 text-xs text-slate-500">Chỉ chọn ngày từ hôm nay trở đi.</p>
+                                        </div>
+                                    </div>
+                                </CardContent>
+                            </Card>
+
+                            <Card className="xl:col-span-4">
+                                <CardContent className="space-y-4">
+                                    <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Trạng thái & ảnh</h3>
+                                    <div>
+                                        <label className="mb-1 block text-sm font-medium text-slate-600">Trạng thái</label>
+                                        <select
+                                            value={form.status}
+                                            onChange={(e) => update('status', e.target.value)}
+                                            className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
+                                        >
+                                            <option value="active">Đang bán</option>
+                                            <option value="inactive">Ngừng bán</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="mb-1 block text-sm font-medium text-slate-600">Ảnh sản phẩm (tối đa 3)</label>
+                                        <input
+                                            type="file"
+                                            accept="image/*"
+                                            multiple
+                                            onChange={handleSelectImages}
+                                            className="block w-full rounded-lg border border-slate-200 bg-white p-2 text-xs text-slate-600"
+                                        />
+                                        <p className="mt-1 text-xs text-slate-500">Ảnh sẽ upload lên Cloudinary hoặc local fallback.</p>
+                                    </div>
+                                    {(imagePreviews.length > 0 || form.image_urls.length > 0) && (
+                                        <div className="flex flex-wrap gap-2">
+                                            {(imagePreviews.length > 0 ? imagePreviews : form.image_urls).slice(0, 3).map((url, idx) => (
+                                                <img
+                                                    key={`${url}-${idx}`}
+                                                    src={url}
+                                                    alt={`preview-${idx + 1}`}
+                                                    className="h-16 w-16 rounded-lg border border-slate-200 object-cover"
+                                                />
                                             ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                                {(saleNum > 0 || costNum > 0) && (
-                                    <div className="manager-profit-hint">
-                                        Lời dự kiến (theo đơn vị gốc): <strong>{expectedProfit.toLocaleString('vi-VN')}₫</strong>
-                                        {costNum > 0 && (
-                                            <span className="manager-profit-margin">
-                                                (tỷ lệ lãi: {((expectedProfit / costNum) * 100).toFixed(1)}%)
-                                            </span>
-                                        )}
-                                    </div>
-                                )}
-                            </div>
+                                        </div>
+                                    )}
+                                </CardContent>
+                            </Card>
+                        </div>
 
-                            <div className="manager-detail-form-actions">
-                                <button type="button" className="manager-btn-outline" onClick={() => navigate('/manager/products')}>
-                                    Hủy
-                                </button>
-                                <button type="submit" className="manager-btn-primary" disabled={loading}>
-                                    {loading ? 'Đang lưu...' : 'Tạo sản phẩm'}
-                                </button>
-                            </div>
+                        <div className="flex items-center justify-end gap-2 pb-2">
+                            <Button type="button" variant="outline" onClick={() => navigate('/manager/products')}>
+                                Hủy
+                            </Button>
+                            <Button type="submit" disabled={loading}>
+                                {loading ? 'Đang lưu...' : 'Tạo sản phẩm'}
+                            </Button>
                         </div>
                     </form>
                 </div>
