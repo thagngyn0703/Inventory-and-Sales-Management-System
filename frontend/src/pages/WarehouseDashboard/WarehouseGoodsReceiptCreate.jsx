@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useWarehouseBase } from '../../utils/useWarehouseBase';
 import { getProducts } from '../../services/productsApi';
 import { getSuppliers } from '../../services/suppliersApi';
 import { createGoodsReceipt } from '../../services/goodsReceiptsApi';
@@ -7,6 +8,7 @@ import WarehouseProductCreateModal from './WarehouseProductCreateModal';
 
 export default function WarehouseGoodsReceiptCreate() {
   const navigate = useNavigate();
+  const warehouseBase = useWarehouseBase();
   const [suppliers, setSuppliers] = useState([]);
   const [selectedSupplierId, setSelectedSupplierId] = useState('');
   const [reason, setReason] = useState('');
@@ -119,7 +121,7 @@ export default function WarehouseGoodsReceiptCreate() {
         total_amount: totalAmount,
       });
 
-      navigate('/warehouse/receipts', { state: { success: 'Đã tạo phiếu nhập kho thành công' } });
+      navigate(`${warehouseBase}/receipts`, { state: { success: 'Đã tạo phiếu nhập kho thành công' } });
     } catch (err) {
       setError(err.message || 'Không thể tạo phiếu nhập kho');
       setSubmitting(false);
@@ -297,7 +299,7 @@ export default function WarehouseGoodsReceiptCreate() {
           <button
             type="button"
             className="warehouse-btn warehouse-btn-secondary"
-            onClick={() => navigate('/warehouse/receipts')}
+            onClick={() => navigate(`${warehouseBase}/receipts`)}
           >
             Hủy
           </button>

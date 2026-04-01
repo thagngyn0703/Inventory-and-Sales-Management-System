@@ -6,7 +6,7 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 const router = express.Router();
 
 // GET /api/customers - List/Search customers
-router.get('/', requireAuth, requireRole(['sales', 'manager', 'admin']), async (req, res) => {
+router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
         const { searchKey, status, is_regular, limit = 50 } = req.query;
         const filter = {};
@@ -35,7 +35,7 @@ router.get('/', requireAuth, requireRole(['sales', 'manager', 'admin']), async (
 });
 
 // POST /api/customers - Create a new customer
-router.post('/', requireAuth, requireRole(['sales', 'manager', 'admin']), async (req, res) => {
+router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
         const { full_name, phone, email, address, is_regular, credit_limit } = req.body;
         

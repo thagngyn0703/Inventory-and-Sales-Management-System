@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useWarehouseBase } from '../../utils/useWarehouseBase';
 import { getGoodsReceipt, updateGoodsReceipt } from '../../services/goodsReceiptsApi';
 
 const STATUS_LABEL = {
@@ -12,6 +13,7 @@ const STATUS_LABEL = {
 export default function WarehouseGoodsReceiptDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const warehouseBase = useWarehouseBase();
   const [receipt, setReceipt] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -40,7 +42,7 @@ export default function WarehouseGoodsReceiptDetail() {
     setError('');
     try {
       await updateGoodsReceipt(id, { status: 'pending' });
-      navigate('/warehouse/receipts', { state: { success: 'Đã gửi phiếu nhập để chờ duyệt' } });
+      navigate(`${warehouseBase}/receipts`, { state: { success: 'Đã gửi phiếu nhập để chờ duyệt' } });
     } catch (e) {
       setError(e.message || 'Lỗi khi gửi duyệt');
       setSubmitting(false);
@@ -66,7 +68,7 @@ export default function WarehouseGoodsReceiptDetail() {
         <button
           type="button"
           className="warehouse-btn warehouse-btn-secondary"
-          onClick={() => navigate('/warehouse/receipts')}
+          onClick={() => navigate(`${warehouseBase}/receipts`)}
         >
           <i className="fa-solid fa-arrow-left" style={{ marginRight: 6 }} />
           Quay lại

@@ -28,11 +28,11 @@ function normalizeContacts(contacts) {
 }
 
 function getSupplierScopeFilter(req) {
-  if (String(req.user?.role || '').toLowerCase() === 'admin') {
-    return {};
-  }
   const role = String(req.user?.role || '').toLowerCase();
-  if (role === 'manager') {
+  if (role === 'admin') return {};
+  // manager và staff đều scope theo storeId
+  const isStoreScopedRole = ['manager', 'staff'].includes(role);
+  if (isStoreScopedRole) {
     return { storeId: req.user?.storeId || null };
   }
   return {};
@@ -123,9 +123,9 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
   }
 });
 
-// GET /api/suppliers?q=...&status=active|inactive|all&page=1&limit=20&sort=name|created_at  (manager, admin, warehouse)
-// Warehouse staff may need to read active suppliers for dropdowns when creating receipts.
-router.get('/', requireAuth, requireRole(['manager', 'warehouse', 'admin']), async (req, res) => {
+// GET /api/suppliers?q=...&status=active|inactive|all&page=1&limit=20&sort=name|created_at  (staff, manager, admin)
+// Staff cần đọc nhà cung cấp cho dropdown khi tạo phiếu nhập.
+router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
   try {
     const { q = '', status = 'active', page = '1', limit = '20', sort = 'name' } = req.query;
     const query = String(q || '').trim();
@@ -178,9 +178,9 @@ router.get('/', requireAuth, requireRole(['manager', 'warehouse', 'admin']), asy
   }
 });
 
-// GET /api/suppliers/:id  (manager, admin, warehouse)
-// Allow warehouse staff to read supplier details for creating receipts.
-router.get('/:id', requireAuth, requireRole(['manager', 'warehouse', 'admin']), async (req, res) => {
+// GET /api/suppliers/:id  (staff, manager, admin)
+// Staff cần đọc chi tiết nhà cung cấp khi tạo phiếu nhập.
+router.get('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
   try {
     const { id } = req.params;
     if (!mongoose.isValidObjectId(id)) {

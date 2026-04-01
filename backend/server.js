@@ -19,6 +19,7 @@ const analyticsRoutes = require('./routes/analytics');
 const customerRoutes = require('./routes/customers');
 const adminStoreRoutes = require('./routes/adminStores');
 const rbacRoutes = require('./routes/rbac');
+const paymentRoutes = require('./routes/payments');
 const { hasSmtpConfig } = require('./services/emailService');
 
 const app = express();
@@ -39,6 +40,8 @@ if (hasSmtpConfig) {
 
 // Middleware
 app.use(cors({ origin: true }));
+// express.raw phải đăng ký TRƯỚC express.json để webhook SePay nhận được raw body
+app.use('/api/payments/sepay/webhook', express.raw({ type: 'application/json' }));
 app.use(express.json());
 
 // Routes
@@ -58,6 +61,7 @@ app.use('/api/analytics', analyticsRoutes);
 app.use('/api/customers', customerRoutes);
 app.use('/api/admin/stores', adminStoreRoutes);
 app.use('/api/admin/rbac', rbacRoutes);
+app.use('/api/payments', paymentRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

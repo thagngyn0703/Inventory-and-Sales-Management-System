@@ -184,7 +184,7 @@ router.get('/staff/my-store', requireAuth, requireRole(['manager']), async (req,
 
         const staff = await User.find({
             storeId: manager.storeId,
-            role: { $in: ['staff', 'warehouse_staff', 'sales_staff'] },
+            role: { $in: ['staff'] },
         })
             .select('_id fullName email role storeId createdAt')
             .sort({ createdAt: -1 })
@@ -219,7 +219,7 @@ router.patch('/staff/:id/remove-from-store', requireAuth, requireRole(['manager'
         const staff = await User.findOne({
             _id: id,
             storeId: manager.storeId,
-            role: { $in: ['staff', 'warehouse_staff', 'sales_staff'] },
+            role: { $in: ['staff'] },
         });
         if (!staff) {
             return res.status(404).json({ message: 'Không tìm thấy nhân viên trong cửa hàng của bạn' });

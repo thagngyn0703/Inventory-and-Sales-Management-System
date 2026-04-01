@@ -39,41 +39,25 @@ function normalizeId(val) {
     return s;
 }
 
-const OBJECT_ID_REGEX = /^[a-fA-F0-9]{24}$/;
-
 async function checkStockAvailability(items) {
     if (!Array.isArray(items)) return [];
-
-    const problems = [];
-    const validIds = [];
-
-    // Validate ObjectId format strictly (24 hex chars) to avoid Mongoose CastError
-    items.forEach((item) => {
-        const pid = normalizeId(item.product_id);
-        if (!pid || !OBJECT_ID_REGEX.test(pid)) {
-            problems.push({ product_id: item.product_id, message: '[TC_INV_003] Product does not exist (Sản phẩm không tồn tại hoặc ID sai định dạng)' });
-        } else {
-            validIds.push(pid);
-        }
-    });
-
-    // Return early if any ID is already invalid — no DB query needed
-    if (problems.length > 0) return problems;
-
-    const products = await Product.find({ _id: { $in: validIds } });
+    const productIds = items
+        .map((item) => normalizeId(item.product_id))
+        .filter(Boolean);
+    const products = await Product.find({ _id: { $in: productIds } });
     const productMap = new Map(products.map((p) => [String(p._id), p]));
-
+    const problems = [];
     items.forEach((item) => {
         const pid = normalizeId(item.product_id);
         const product = pid ? productMap.get(pid) : null;
         const needed = item.quantity || 0;
         const available = product ? product.stock_qty || 0 : 0;
         if (!product) {
-            problems.push({ product_id: item.product_id, message: '[TC_INV_003] Product does not exist' });
+            problems.push({ product_id: item.product_id, message: 'Sản phẩm không tồn tại' });
         } else if (available < needed) {
             problems.push({
                 product_id: item.product_id,
-                message: `[TC_INV_004] Insufficient stock (Không đủ hàng trong kho): required ${needed}, available ${available}`,
+                message: `Không đủ tồn kho: cần ${needed}, còn ${available}`,
             });
         }
     });
@@ -102,7 +86,7 @@ async function adjustInventory(items, direction = -1) {
 async function syncInventory(invoice, nextStatus, nextItems = null) {
     const isNew = invoice.isNew || !invoice._id;
     const oldStatus = isNew ? 'new' : invoice.status;
-    const saleStatuses = ['confirmed', 'pending'];
+    const saleStatuses = ['confirmed'];
 
     const isOldSale = saleStatuses.includes(oldStatus);
     const isNextSale = saleStatuses.includes(nextStatus);
@@ -116,7 +100,7 @@ async function syncInventory(invoice, nextStatus, nextItems = null) {
         console.log(`[syncInventory] Deducting next items`);
         const itemsToDeduct = nextItems || invoice.items;
         const problems = await checkStockAvailability(itemsToDeduct);
-        if (problems.length > 0) throw { status: 400, message: problems[0].message, problems };
+        if (problems.length > 0) throw { status: 400, message: 'Không đủ tồn kho', problems };
         await adjustInventory(itemsToDeduct, -1);
     } 
     else if (isOldSale && !isNextSale) {
@@ -128,7 +112,7 @@ async function syncInventory(invoice, nextStatus, nextItems = null) {
         // Item Update within Sale State
         console.log(`[syncInventory] Updating items in sale state.`);
         const problems = await checkStockAvailability(nextItems);
-        if (problems.length > 0) throw { status: 400, message: problems[0].message, problems };
+        if (problems.length > 0) throw { status: 400, message: 'Không đủ tồn kho để cập nhật sản phẩm', problems };
         
         await adjustInventory(invoice.items, 1);
         await adjustInventory(nextItems, -1);
@@ -149,58 +133,55 @@ function buildStockAvailability(items, productsById) {
 }
 
 
+/**
+ * Sinh mã tham chiếu thanh toán dạng IMS-XXXXXX (6 ký tự hex in hoa).
+ * Nhúng vào nội dung chuyển khoản để SePay webhook tự động đối soát.
+ */
+function generatePaymentRef() {
+    const hex = require('crypto').randomBytes(3).toString('hex').toUpperCase();
+    return `IMS-${hex}`;
+}
+
 // POST /api/invoices — create a confirmed outbound invoice
-router.post('/', requireAuth, requireRole(['sales', 'sales_staff', 'manager', 'admin']), async (req, res) => {
+router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
-        const { customer_id, items: reqItems, payment_method, recipient_name, previous_debt_paid } = req.body || {};
+        const { customer_id, items: reqItems, payment_method, recipient_name } = req.body || {};
         if (!Array.isArray(reqItems) || reqItems.length === 0) {
-            return res.status(400).json({ message: '[TC_INV_002] items is required (Danh sách hàng hóa không được để trống)' });
+            return res.status(400).json({ message: 'items (array) is required' });
         }
-
-        if (payment_method === 'debt' && !customer_id) {
-            return res.status(400).json({ message: '[TC_INV_005] customer required (Khách hàng không được để trống khi ghi nợ)' });
-        }
-
 
         const { totalAmount, items: normalizedItems } = calculateInvoiceTotals(reqItems);
         const invalidLine = normalizedItems.find((it) => !it.product_id);
         if (invalidLine) {
-            return res.status(400).json({ message: 'Each line must have a valid product' });
+            return res.status(400).json({ message: 'Mỗi dòng phải có sản phẩm hợp lệ' });
         }
 
-        let status = (req.body.status === 'cancelled') ? 'cancelled' : 'confirmed';
-        if (payment_method === 'debt' && status === 'confirmed') {
-            status = 'pending';
-        }
+        const status = (req.body.status === 'cancelled') ? 'cancelled' : 'confirmed';
+        const method = payment_method || 'cash';
+
+        // Với chuyển khoản: sinh payment_ref để nhúng vào nội dung QR, trạng thái chờ xác nhận
+        // Với tiền mặt: coi là đã thanh toán ngay
+        const paymentRef = method === 'bank_transfer' ? generatePaymentRef() : null;
+        const paymentStatus = method === 'cash' ? 'paid' : 'unpaid';
 
         const invoice = new SalesInvoice({
             store_id: req.user.storeId || null,
             customer_id,
-            recipient_name: (recipient_name && recipient_name.trim()) ? recipient_name.trim() : 'Khách lẻ',
+            recipient_name,
             created_by: req.user.id,
             status,
-            payment_method: payment_method || 'cash',
+            payment_method: method,
+            payment_ref: paymentRef,
+            payment_status: paymentStatus,
+            paid_at: method === 'cash' ? new Date() : null,
             items: normalizedItems,
             total_amount: totalAmount,
-            previous_debt_paid: Number(previous_debt_paid) || 0,
         });
 
         // Use syncInventory to handle deduction if created as confirmed
         try {
             await syncInventory(invoice, status, normalizedItems);
             await invoice.save();
-
-            if (payment_method === 'debt' && customer_id && (status === 'confirmed' || status === 'pending')) {
-                await mongoose.model('Customer').findByIdAndUpdate(customer_id, {
-                    $inc: { debt_account: totalAmount }
-                });
-            }
-
-            if (previous_debt_paid > 0 && customer_id && (status === 'confirmed' || status === 'pending')) {
-                await mongoose.model('Customer').findByIdAndUpdate(customer_id, {
-                    $inc: { debt_account: -Math.abs(previous_debt_paid) }
-                });
-            }
         } catch (err) {
             if (err.status) return res.status(err.status).json({ message: err.message, problems: err.problems });
             throw err;
@@ -219,7 +200,11 @@ router.post('/', requireAuth, requireRole(['sales', 'sales_staff', 'manager', 'a
         const productsById = new Map(products.map((p) => [String(p._id), p]));
         populated.items = buildStockAvailability(populated.items, productsById);
 
-        return res.status(201).json({ invoice: populated });
+        return res.status(201).json({
+            invoice: populated,
+            payment_ref: paymentRef,
+            payment_status: paymentStatus,
+        });
     } catch (err) {
         console.error(err);
         return res.status(500).json({ message: err.message || 'Server error' });
@@ -227,9 +212,9 @@ router.post('/', requireAuth, requireRole(['sales', 'sales_staff', 'manager', 'a
 });
 
 // GET /api/invoices?page=&limit=&status=
-router.get('/', requireAuth, requireRole(['sales', 'sales_staff', 'manager', 'admin']), async (req, res) => {
+router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
-        const { page = '1', limit = '20', status, dateFrom, dateTo, searchKey, customer_id, payment_method } = req.query;
+        const { page = '1', limit = '20', status, dateFrom, dateTo, searchKey } = req.query;
         const pageNum = Math.max(1, parseInt(page, 10) || 1);
         const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
         const filter = {};
@@ -240,13 +225,6 @@ router.get('/', requireAuth, requireRole(['sales', 'sales_staff', 'manager', 'ad
         }
         if (status && ['confirmed', 'cancelled'].includes(status)) {
             filter.status = status;
-        }
-
-        if (customer_id && customer_id !== 'null' && customer_id !== 'undefined') {
-            filter.customer_id = customer_id;
-        }
-        if (payment_method) {
-            filter.payment_method = payment_method;
         }
 
         // Apply Date Filters
@@ -321,22 +299,22 @@ router.get('/', requireAuth, requireRole(['sales', 'sales_staff', 'manager', 'ad
 });
 
 // GET /api/invoices/:id
-router.get('/:id', requireAuth, requireRole(['sales', 'sales_staff', 'manager', 'admin']), async (req, res) => {
+router.get('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
         const { id } = req.params;
         if (!mongoose.isValidObjectId(id)) {
-            return res.status(400).json({ message: '[TC_INV_012] Invalid invoice id' });
+            return res.status(400).json({ message: 'Invalid invoice id' });
         }
         const invoice = await SalesInvoice.findById(id)
             .populate('customer_id', 'fullName email')
             .populate('created_by', 'fullName email')
             .populate('items.product_id', 'name sku stock_qty')
             .lean();
-        if (!invoice) return res.status(404).json({ message: '[TC_INV_013] Invoice not found' });
+        if (!invoice) return res.status(404).json({ message: 'Invoice not found' });
         // Store ownership check
         const userRole2 = String(req.user?.role || '').toLowerCase();
         if (userRole2 !== 'admin' && req.user.storeId && String(invoice.store_id) !== String(req.user.storeId)) {
-            return res.status(403).json({ message: 'Access denied: different store' });
+            return res.status(403).json({ message: 'Không có quyền xem hóa đơn này' });
         }
 
         const productIds = (invoice.items || [])
@@ -353,19 +331,19 @@ router.get('/:id', requireAuth, requireRole(['sales', 'sales_staff', 'manager', 
     }
 });
 
-// PATCH /api/invoices/:id — update invoice (sales_staff, manager)
-router.patch('/:id', requireAuth, requireRole(['sales_staff', 'manager', 'admin']), async (req, res) => {
+// PATCH /api/invoices/:id — update invoice (staff, manager)
+router.patch('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
         const { id } = req.params;
         if (!mongoose.isValidObjectId(id)) {
-            return res.status(400).json({ message: '[TC_INV_012] Invalid invoice id' });
+            return res.status(400).json({ message: 'Invalid invoice id' });
         }
         const invoice = await SalesInvoice.findById(id);
-        if (!invoice) return res.status(404).json({ message: '[TC_INV_013] Invoice not found' });
+        if (!invoice) return res.status(404).json({ message: 'Invoice not found' });
         // Store ownership check
         const patchRole = String(req.user?.role || '').toLowerCase();
         if (patchRole !== 'admin' && req.user.storeId && String(invoice.store_id) !== String(req.user.storeId)) {
-            return res.status(403).json({ message: 'Access denied: different store' });
+            return res.status(403).json({ message: 'Không có quyền chỉnh sửa hóa đơn này' });
         }
         const oldStatus = invoice.status;
         const { customer_id, items: reqItems, status: requestedStatus, payment_method, recipient_name } = req.body || {};
@@ -382,7 +360,7 @@ router.patch('/:id', requireAuth, requireRole(['sales_staff', 'manager', 'admin'
             const { totalAmount, items: normalizedItems } = calculateInvoiceTotals(reqItems);
             const invalidLine = normalizedItems.find((it) => !it.product_id);
             if (invalidLine) {
-                return res.status(400).json({ message: 'Each line must have a valid product' });
+                return res.status(400).json({ message: 'Mỗi dòng phải có sản phẩm hợp lệ' });
             }
             nextItems = normalizedItems;
             // Note: Don't update invoice.items/total_amount yet, syncInventory needs the old items
@@ -434,7 +412,7 @@ router.patch('/:id', requireAuth, requireRole(['sales_staff', 'manager', 'admin'
 });
 
 // GET /api/invoices/stats/daily-sales — 7-day sales stats for dashboard
-router.get('/stats/daily-sales', requireAuth, requireRole(['sales', 'sales_staff', 'manager', 'admin']), async (req, res) => {
+router.get('/stats/daily-sales', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
         const days = 7;
         const result = [];
@@ -473,4 +451,33 @@ router.get('/stats/daily-sales', requireAuth, requireRole(['sales', 'sales_staff
         return res.status(500).json({ message: 'Server error' });
     }
 });
+
+// POST /api/invoices/:id/cancel — Simplify cancel
+router.post('/:id/cancel', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const invoice = await SalesInvoice.findById(id);
+        if (!invoice) return res.status(404).json({ message: 'Invoice not found' });
+        // Store ownership check
+        const cancelRole = String(req.user?.role || '').toLowerCase();
+        if (cancelRole !== 'admin' && req.user.storeId && String(invoice.store_id) !== String(req.user.storeId)) {
+            return res.status(403).json({ message: 'Không có quyền hủy hóa đơn này' });
+        }
+        
+        try {
+            await syncInventory(invoice, 'cancelled');
+            invoice.status = 'cancelled';
+            invoice.updated_at = new Date();
+            await invoice.save();
+            return res.json({ invoice });
+        } catch (err) {
+            if (err.status) return res.status(err.status).json({ message: err.message });
+            throw err;
+        }
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({ message: 'Server error' });
+    }
+});
+
 module.exports = router;

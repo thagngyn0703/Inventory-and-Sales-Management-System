@@ -2,6 +2,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const multer = require('multer');
 const Product = require('../models/Product');
+const ProductPriceHistory = require('../models/ProductPriceHistory');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const {
   parseExcelToMatrix,
@@ -109,14 +110,36 @@ async function findExistingProductForImport({ sku, name, storeId }) {
   return null;
 }
 
+async function logPriceChange({
+  productId,
+  storeId,
+  changedBy,
+  source,
+  oldCost,
+  newCost,
+  oldSale,
+  newSale,
+}) {
+  if (Number(oldCost) === Number(newCost) && Number(oldSale) === Number(newSale)) return;
+  await ProductPriceHistory.create({
+    product_id: productId,
+    storeId: storeId || null,
+    changed_by: changedBy,
+    source,
+    old_cost_price: Number(oldCost) || 0,
+    new_cost_price: Number(newCost) || 0,
+    old_sale_price: Number(oldSale) || 0,
+    new_sale_price: Number(newSale) || 0,
+    changed_at: new Date(),
+  });
+}
+
 function getRoleStoreFilter(req) {
   const role = String(req.user?.role || '').toLowerCase();
-  const storeId = req.user?.storeId ? String(req.user.storeId) : null;
-  if (String(req.user?.role || '').toLowerCase() === 'admin') {
-    return {};
-  }
-  const isStoreScopedRole = ['manager', 'warehouse_staff', 'sales_staff', 'staff'].includes(role);
+  if (role === 'admin') return {};
+  const isStoreScopedRole = ['manager', 'staff'].includes(role);
   if (!isStoreScopedRole) return {};
+  const storeId = req.user?.storeId ? String(req.user.storeId) : null;
   if (!storeId) return null;
   return { storeId };
 }
@@ -224,8 +247,8 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
   }
 });
 
-// GET /api/products?q=...&page=1&limit=20  (manager, warehouse, sales, admin)
-router.get('/', requireAuth, requireRole(['manager', 'warehouse', 'sales', 'admin']), async (req, res) => {
+// GET /api/products?q=...&page=1&limit=20  (staff, manager, admin)
+router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
   try {
     const { q = '', page = '1', limit = '20' } = req.query;
     const query = String(q || '').trim();
@@ -304,6 +327,10 @@ router.post(
       const mapped = mapRowsFromMatrix(parsed.rows);
       if (mapped.error) return res.status(400).json({ message: mapped.error });
 
+      const role = String(req.user?.role || '').toLowerCase();
+      const requesterStoreId = req.user?.storeId ? String(req.user.storeId) : null;
+      const resolvedStoreId = role === 'admin' ? undefined : requesterStoreId;
+
       const rows = mapped.mapped.map((r) => ({
         row: r.row,
         name: r.name,
@@ -317,11 +344,42 @@ router.post(
         errors: r.errors,
       }));
 
+      // So sánh giá với sản phẩm đang có trong DB để cảnh báo thay đổi giá
+      const price_changes = [];
+      for (const r of rows) {
+        if (!r.valid) continue;
+        const existing = await findExistingProductForImport({
+          sku: r.sku,
+          name: r.name,
+          storeId: resolvedStoreId,
+        });
+        if (!existing) continue;
+        const oldCost = Number(existing.cost_price) || 0;
+        const oldSale = Number(existing.sale_price) || 0;
+        const newCost = Number(r.cost_price) || 0;
+        const newSale = Number(r.sale_price) || 0;
+        if (oldCost !== newCost || oldSale !== newSale) {
+          price_changes.push({
+            row: r.row,
+            name: existing.name,
+            sku: existing.sku,
+            old_cost_price: oldCost,
+            new_cost_price: newCost,
+            old_sale_price: oldSale,
+            new_sale_price: newSale,
+            cost_changed: oldCost !== newCost,
+            sale_changed: oldSale !== newSale,
+          });
+        }
+      }
+
       return res.json({
         rows,
         totalRows: rows.length,
         validCount: rows.filter((x) => x.valid).length,
         invalidCount: rows.filter((x) => !x.valid).length,
+        price_changes,
+        has_price_changes: price_changes.length > 0,
       });
     } catch (err) {
       console.error(err);
@@ -330,10 +388,10 @@ router.post(
   }
 );
 
-// POST /api/products/import/commit — body: { rows: [...], storeId? } (manager, admin)
+// POST /api/products/import/commit — body: { rows: [...], storeId?, confirmPriceChanges?: boolean }
 router.post('/import/commit', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
   try {
-    const { rows } = req.body || {};
+    const { rows, confirmPriceChanges } = req.body || {};
     if (!Array.isArray(rows) || rows.length === 0) {
       return res.status(400).json({ message: 'Không có dữ liệu để import.' });
     }
@@ -354,6 +412,41 @@ router.post('/import/commit', requireAuth, requireRole(['manager', 'admin']), as
         message: 'Manager chưa có cửa hàng. Vui lòng đăng ký cửa hàng trước khi import.',
         code: 'STORE_REQUIRED',
       });
+    }
+
+    // Kiểm tra thay đổi giá — nếu có mà chưa xác nhận thì chặn lại
+    if (!confirmPriceChanges) {
+      const pendingChanges = [];
+      for (const raw of rows) {
+        const name = String(raw.name || '').trim();
+        const existing = await findExistingProductForImport({
+          sku: raw.sku != null ? String(raw.sku).trim() : '',
+          name,
+          storeId: resolvedStoreId,
+        });
+        if (!existing) continue;
+        const oldCost = Number(existing.cost_price) || 0;
+        const oldSale = Number(existing.sale_price) || 0;
+        const newCost = Number(raw.cost_price) || 0;
+        const newSale = Number(raw.sale_price) || 0;
+        if (oldCost !== newCost || oldSale !== newSale) {
+          pendingChanges.push({
+            name: existing.name,
+            sku: existing.sku,
+            old_cost_price: oldCost,
+            new_cost_price: newCost,
+            old_sale_price: oldSale,
+            new_sale_price: newSale,
+          });
+        }
+      }
+      if (pendingChanges.length > 0) {
+        return res.status(409).json({
+          code: 'PRICE_CHANGE_CONFIRMATION_REQUIRED',
+          message: `Có ${pendingChanges.length} sản phẩm bị thay đổi giá. Vui lòng xác nhận trước khi import.`,
+          price_changes: pendingChanges,
+        });
+      }
     }
 
     const base = 'Cái';
@@ -392,6 +485,8 @@ router.post('/import/commit', requireAuth, requireRole(['manager', 'admin']), as
         });
 
         if (existing) {
+          const oldCost = Number(existing.cost_price) || 0;
+          const oldSale = Number(existing.sale_price) || 0;
           if (barcodeIn) {
             const dupBc = await findBarcodeDuplicate({
               barcode: barcodeIn,
@@ -417,6 +512,16 @@ router.post('/import/commit', requireAuth, requireRole(['manager', 'admin']), as
           }
           existing.updated_at = new Date();
           await existing.save();
+          await logPriceChange({
+            productId: existing._id,
+            storeId: existing.storeId || resolvedStoreId || null,
+            changedBy: req.user?.id,
+            source: 'import_excel',
+            oldCost,
+            newCost: existing.cost_price,
+            oldSale,
+            newSale: existing.sale_price,
+          });
           updated.push({
             row: rowLabel,
             action: 'updated',
@@ -491,8 +596,8 @@ router.post('/import/commit', requireAuth, requireRole(['manager', 'admin']), as
   }
 });
 
-// GET /api/products/:id  (manager, warehouse, sales, admin)
-router.get('/:id', requireAuth, requireRole(['manager', 'warehouse', 'sales', 'admin']), async (req, res) => {
+// GET /api/products/:id  (staff, manager, admin)
+router.get('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
   try {
     const { id } = req.params;
     if (!mongoose.isValidObjectId(id)) {
@@ -547,6 +652,8 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
     }
     const product = await Product.findOne({ _id: id, ...storeFilter });
     if (!product) return res.status(404).json({ message: 'Product not found' });
+    const oldCost = Number(product.cost_price) || 0;
+    const oldSale = Number(product.sale_price) || 0;
 
     if (expiry_date !== undefined) {
       const expCheck = validateExpiryDateForWrite(expiry_date);
@@ -604,6 +711,16 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
     }
     product.updated_at = new Date();
     await product.save();
+    await logPriceChange({
+      productId: product._id,
+      storeId: product.storeId || null,
+      changedBy: req.user?.id,
+      source: 'manual_update',
+      oldCost,
+      newCost: product.cost_price,
+      oldSale,
+      newSale: product.sale_price,
+    });
 
     return res.json({ product: normalizeProduct(product.toObject()) });
   } catch (err) {

@@ -1,9 +1,8 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
-import { useNavigate, useParams, useLocation } from 'react-router-dom';
-import { getInvoice, createInvoice, updateInvoice } from '../../services/invoicesApi';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { getInvoice, createInvoice, updateInvoice, getPaymentStatus } from '../../services/invoicesApi';
 import { getProducts } from '../../services/productsApi';
-import { getCustomers, createCustomer } from '../../services/customersApi';
-import { getCurrentUser } from '../../utils/auth';
+import PaymentWaitModal from '../../components/payment/PaymentWaitModal';
 import './SalesPOS.css';
 
 function formatMoney(n) {
@@ -19,20 +18,25 @@ const createDefaultTab = (index = 1) => ({
   items: [],
   paymentMethod: 'cash',
   recipientName: '',
-  customerId: null,
-  customerData: null,
   customerPaid: '',
   saving: false,
   error: '',
   successMessage: '',
-  invoiceId: null, // If loaded from existing
-  payOldDebt: false
+  invoiceId: null // If loaded from existing
 });
 
 export default function SalesInvoiceDetail() {
   const { id = '' } = useParams();
   const navigate = useNavigate();
   const isNew = id === 'new' || !id || id === 'undefined' || id === 'null';
+
+ 
+  const rawBankAccountConfig = String(process.env.REACT_APP_BANK_ACCOUNT || 'MB-0000000000').trim();
+  const [configuredBankCode, configuredAccountNumber] = rawBankAccountConfig.includes('-')
+    ? rawBankAccountConfig.split('-', 2)
+    : ['MB', rawBankAccountConfig];
+  const bankCode = String(configuredBankCode || 'MB').toUpperCase();
+  const bankAccountNumber = String(configuredAccountNumber || '0000000000');
   
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -43,68 +47,13 @@ export default function SalesInvoiceDetail() {
   const [activeTabId, setActiveTabId] = useState(tabs[0].tabId);
   const [tabCounter, setTabCounter] = useState(2); // to name new tabs Hóa đơn 2, 3...
   
-  const [toast, setToast] = useState({ message: '', type: 'success' }); // { message, type: 'success' | 'error' }
+  const [toastMessage, setToastMessage] = useState('');
 
-  const showToast = (message, type = 'success') => {
-    setToast({ message, type });
-    setTimeout(() => setToast({ message: '', type: 'success' }), 4000);
-  };
-
-  const [customerSearch, setCustomerSearch] = useState('');
-  const [customerList, setCustomerList] = useState([]);
-  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
-  const debounceRef = React.useRef(null);
-
-  const [showCreateCustomer, setShowCreateCustomer] = useState(false);
-  const [newCustomer, setNewCustomer] = useState({ full_name: '', phone: '' });
-  const [creatingCustomer, setCreatingCustomer] = useState(false);
-  const [customerModalError, setCustomerModalError] = useState('');
-
-  const handleCreateCustomer = async () => {
-    if (!newCustomer.full_name || !newCustomer.phone) {
-      setCustomerModalError('Vui lòng nhập đầy đủ Tên và Số điện thoại.');
-      return;
-    }
-    const cleanPhone = newCustomer.phone.trim().replace(/\s/g, '');
-    if (cleanPhone.length < 10 || cleanPhone.length > 11) {
-      setCustomerModalError('Số điện thoại hợp lệ phải có 10 hoặc 11 chữ số.');
-      return;
-    }
-    setCreatingCustomer(true);
-    setCustomerModalError('');
-    try {
-      const created = await createCustomer({ ...newCustomer, status: 'active', is_regular: true });
-      updateActiveTab({ customerId: created._id, customerData: created, recipientName: created.full_name, paymentMethod: 'cash' });
-      setCustomerSearch('');
-      setShowCreateCustomer(false);
-      setNewCustomer({ full_name: '', phone: '' });
-      showToast('Thêm khách hàng thành công!', 'success');
-    } catch (e) {
-      setCustomerModalError(e.message || 'Lỗi khi thêm khách hàng mới');
-    } finally {
-      setCreatingCustomer(false);
-    }
-  };
-
-  const searchCustomers = (val) => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (!val.trim()) {
-      setCustomerList([]);
-      return;
-    }
-    debounceRef.current = setTimeout(async () => {
-      try {
-        const res = await getCustomers(val);
-        setCustomerList(res.customers || []);
-        setShowCustomerDropdown(true);
-      } catch (e) { console.error(e); }
-    }, 300);
-  };
-
+  // Trạng thái chờ thanh toán chuyển khoản
+  const [pendingPayment, setPendingPayment] = useState(null); // { paymentRef, totalAmount, invoice }
+  const pollingRef = useRef(null);
 
   const activeTab = tabs.find(t => t.tabId === activeTabId) || tabs[0];
-  const activeTabIndex = tabs.findIndex(t => t.tabId === activeTabId);
-
   const updateActiveTab = (updates) => {
     setTabs(prev => prev.map(t => t.tabId === activeTabId ? { ...t, ...updates } : t));
   };
@@ -115,6 +64,83 @@ export default function SalesInvoiceDetail() {
       setProducts(data);
     } catch (e) { console.error(e); }
   }, []);
+
+  // Loa thông báo thanh toán thành công (Web Speech API)
+  const speakPayment = useCallback(() => {
+    if (!window.speechSynthesis) return;
+    const msg = new SpeechSynthesisUtterance('success');
+    msg.lang = 'vi-VN';
+    msg.rate = 0.95;
+    msg.pitch = 1;
+    // Ưu tiên giọng tiếng Việt nếu có
+    const voices = window.speechSynthesis.getVoices();
+    const viVoice = voices.find(v => v.lang === 'vi-VN' || v.lang.startsWith('vi'));
+    if (viVoice) msg.voice = viVoice;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(msg);
+  }, []);
+
+  // Polling kiểm tra trạng thái thanh toán chuyển khoản
+  const stopPolling = useCallback(() => {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+  }, []);
+
+  const startPolling = useCallback((paymentRef, invoiceData, tabSnapshot) => {
+    stopPolling();
+    let attempts = 0;
+    const MAX_ATTEMPTS = 120; // 10 phút (mỗi 5 giây)
+
+    pollingRef.current = setInterval(async () => {
+      attempts++;
+      try {
+        const result = await getPaymentStatus(paymentRef);
+        if (result.payment_status === 'paid') {
+          stopPolling();
+          setPendingPayment(null);
+
+          // Phát loa
+          speakPayment();
+
+          // In hóa đơn
+          handlePrintInvoice(invoiceData, tabSnapshot);
+
+          // Toast
+          setToastMessage('Thanh toán chuyển khoản thành công!');
+          setTimeout(() => setToastMessage(''), 4000);
+
+          // Reset tab
+          setTabs(prev => {
+            const filtered = prev.filter(t => t.tabId !== tabSnapshot.tabId);
+            if (filtered.length === 0) {
+              const newTab = createDefaultTab(1);
+              setActiveTabId(newTab.tabId);
+              setTabCounter(2);
+              return [newTab];
+            }
+            setActiveTabId(filtered[0].tabId);
+            return filtered;
+          });
+
+          loadProducts();
+        }
+      } catch (e) {
+        console.warn('[Polling] Error:', e.message);
+      }
+
+      if (attempts >= MAX_ATTEMPTS) {
+        stopPolling();
+        setPendingPayment(null);
+        setToastMessage('Hết thời gian chờ thanh toán. Vui lòng kiểm tra lại.');
+        setTimeout(() => setToastMessage(''), 5000);
+      }
+    }, 5000);
+  }, [stopPolling, speakPayment, loadProducts]);
+
+  // Dọn dẹp polling khi unmount
+  useEffect(() => () => stopPolling(), [stopPolling]);
 
   const loadInvoice = useCallback(async () => {
     if (!id || isNew) return;
@@ -136,8 +162,6 @@ export default function SalesInvoiceDetail() {
         })),
         paymentMethod: data.payment_method || 'cash',
         recipientName: data.recipient_name || '',
-        customerId: data.customer_id?._id || data.customer_id || null,
-        customerData: data.customer_id || null,
         customerPaid: data.total_amount || '',
         saving: false, error: '', successMessage: '',
         invoiceId: data._id
@@ -181,7 +205,7 @@ export default function SalesInvoiceDetail() {
        setTabs([newTab]);
        setActiveTabId(newTab.tabId);
        setTabCounter(2);
-       if (!isNew) navigate('/sales/invoices/new'); // escape edit mode if closing the only tab
+       if (!isNew) navigate('/staff/invoices/new'); // escape edit mode if closing the only tab
        return;
     }
     const newTabs = tabs.filter(t => t.tabId !== tabIdToClose);
@@ -239,26 +263,22 @@ export default function SalesInvoiceDetail() {
   };
 
   const totalAmount = useMemo(() => activeTab.items.reduce((s, it) => s + (it.line_total || 0), 0), [activeTab.items]);
-  const totalWithDebt = useMemo(() => {
-    return totalAmount + (activeTab.payOldDebt ? (activeTab.customerData?.debt_account || 0) : 0);
-  }, [totalAmount, activeTab.payOldDebt, activeTab.customerData]);
   
   // Calculate change
-  // Calculate change based on total with debt if selected
   const customerPaidNum = Number(activeTab.customerPaid) || 0;
-  const changeAmount = Math.max(0, customerPaidNum - totalWithDebt);
+  const changeAmount = Math.max(0, customerPaidNum - totalAmount);
   // Missing amount if they haven't paid enough yet
-  const missingAmount = Math.max(0, totalWithDebt - customerPaidNum);
+  const missingAmount = Math.max(0, totalAmount - customerPaidNum);
   
   // Validation
   const isPaymentSufficient = activeTab.paymentMethod === 'bank_transfer' || customerPaidNum >= totalAmount;
   const canSubmit = !activeTab.saving && activeTab.items.length > 0 && 
-    (activeTab.paymentMethod === 'debt' || customerPaidNum >= totalWithDebt || activeTab.paymentMethod === 'bank_transfer');
+    (activeTab.paymentMethod === 'debt' || isPaymentSufficient);
 
   const handlePrintInvoice = (invoice, tab) => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) {
-      alert('Vui lòng cho phép popup để in hóa đơn.');
+      
       return;
     }
     const html = `
@@ -318,17 +338,8 @@ export default function SalesInvoiceDetail() {
           </table>
 
           <div class="text-right total-row">
-            Tổng tiền hàng: ${Number(invoice.total_amount || 0).toLocaleString('vi-VN')}₫
+            Tổng cộng: ${Number(invoice.total_amount || 0).toLocaleString('vi-VN')}₫
           </div>
-
-          ${tab.payOldDebt ? `
-            <div class="text-right" style="margin-top: 5px;">
-              Nợ cũ đã trả: ${Number(tab.customerData?.debt_account || 0).toLocaleString('vi-VN')}₫
-            </div>
-            <div class="text-right total-row" style="color: #000; border-top: 1px solid #000; padding-top: 5px; margin-top: 5px;">
-              TỔNG THANH TOÁN: ${Number((invoice.total_amount || 0) + (tab.customerData?.debt_account || 0)).toLocaleString('vi-VN')}₫
-            </div>
-          ` : ''}
 
           <div class="footer">
             Cảm ơn quý khách và hẹn gặp lại!
@@ -352,74 +363,54 @@ export default function SalesInvoiceDetail() {
 
   const processCheckout = async () => {
     updateActiveTab({ saving: true, error: '', successMessage: '' });
-
-    let customerId = activeTab.customerId;
-    let recipientName = activeTab.recipientName || 'Khách lẻ';
-
-    // Auto-create customer from inline inputs before processing
-    if (showCreateCustomer && newCustomer.full_name.trim()) {
-      const cleanPhone = newCustomer.phone.trim().replace(/\s/g, '');
-      if (cleanPhone && (cleanPhone.length < 10 || cleanPhone.length > 11)) {
-        updateActiveTab({ error: 'Số điện thoại phải có 10 hoặc 11 chữ số.', saving: false });
-        return;
-      }
-      try {
-        const created = await createCustomer({ full_name: newCustomer.full_name.trim(), phone: cleanPhone, status: 'active', is_regular: true });
-        customerId = created._id;
-        recipientName = created.full_name;
-        updateActiveTab({ customerId: created._id, customerData: created, recipientName: created.full_name });
-        setShowCreateCustomer(false);
-        setNewCustomer({ full_name: '', phone: '' });
-      } catch (e) {
-        updateActiveTab({ error: e.message || 'Lỗi khi thêm khách hàng mới', saving: false });
-        return;
-      }
-    }
-
     try {
       const payload = {
         payment_method: activeTab.paymentMethod,
-        recipient_name: recipientName,
-        customer_id: customerId || null,
+        recipient_name: activeTab.recipientName,
         items: activeTab.items.map(it => ({
           product_id: it.product_id,
           quantity: it.quantity,
           unit_price: it.unit_price,
           discount: it.discount
-        })),
-        previous_debt_paid: activeTab.payOldDebt ? (activeTab.customerData?.debt_account || 0) : 0
+        }))
       };
 
       if (!activeTab.invoiceId) {
-        const created = await createInvoice({ ...payload, status: 'confirmed' });
-        
-        if (activeTab.paymentMethod !== 'debt') {
-            handlePrintInvoice(created, activeTab);
-        }
-        
-        showToast('Thanh toán thành công! ' + (changeAmount > 0 ? `Tiền thừa trả khách: ${formatMoney(changeAmount)}` : ''), 'success');
-        
-        if (tabs.length === 1) {
+        const { invoice: created, payment_ref } = await createInvoice({ ...payload, status: 'confirmed' });
+
+        if (activeTab.paymentMethod === 'bank_transfer' && payment_ref) {
+          // Chuyển khoản: hiện màn hình QR chờ, bắt đầu polling
+          const tabSnapshot = { ...activeTab, items: [...activeTab.items] };
+          setPendingPayment({ paymentRef: payment_ref, totalAmount: totalAmount, invoice: created });
+          startPolling(payment_ref, created, tabSnapshot);
+          updateActiveTab({ saving: false });
+        } else {
+          // Tiền mặt: hoàn tất ngay
+          speakPayment();
+          handlePrintInvoice(created, activeTab);
+          setToastMessage('Thanh toán thành công! ' + (changeAmount > 0 ? `Tiền thừa trả khách: ${formatMoney(changeAmount)}` : ''));
+          setTimeout(() => setToastMessage(''), 3000);
+
+          if (tabs.length === 1) {
             const newTab = createDefaultTab(tabCounter);
             setTabs([newTab]);
             setActiveTabId(newTab.tabId);
             setTabCounter(c => c + 1);
-        } else {
+          } else {
             const newTabs = tabs.filter(t => t.tabId !== activeTabId);
             setTabs(newTabs);
             setActiveTabId(newTabs[0].tabId);
+          }
+          loadProducts();
         }
-        
-        loadProducts();
-        
       } else {
         await updateInvoice(activeTab.invoiceId, payload);
         updateActiveTab({ successMessage: 'Đã lưu thay đổi.', saving: false });
-        showToast('Đã lưu thay đổi hóa đơn.', 'success');
+        setToastMessage('Đã lưu thay đổi hóa đơn.');
+        setTimeout(() => setToastMessage(''), 3000);
       }
     } catch (e) {
       updateActiveTab({ error: e.message || 'Lỗi khi lưu hóa đơn', saving: false });
-      showToast(e.message || 'Lỗi khi lưu hóa đơn', 'error');
     }
   };
 
@@ -429,6 +420,11 @@ export default function SalesInvoiceDetail() {
     // Check if empty
     if (activeTab.items.length === 0) {
       updateActiveTab({ error: 'Chưa có hàng hóa trong đơn.' });
+      return;
+    }
+
+    if (!activeTab.recipientName || activeTab.recipientName.trim() === '') {
+      updateActiveTab({ error: 'Tên khách hàng là bắt buộc.' });
       return;
     }
 
@@ -561,7 +557,7 @@ export default function SalesInvoiceDetail() {
         </div>
         <div className="pos-bottom-bar">
              <div style={{ flex: 1, display: 'flex', gap: 20 }}>
-                  <div className="pos-mode-btn" onClick={() => navigate('/sales/invoices')}><i className="fa-solid fa-clock" /> Lịch sử Hóa đơn</div>
+                  <div className="pos-mode-btn" onClick={() => navigate('/staff/invoices')}><i className="fa-solid fa-clock" /> Lịch sử Hóa đơn</div>
              </div>
              <div style={{ color: '#64748b', fontSize: 13, fontWeight: 600 }}>
                 Tổng số dòng: {activeTab.items.length}
@@ -572,84 +568,20 @@ export default function SalesInvoiceDetail() {
       {/* Right Sidebar: Summary */}
       <div className="pos-right-sidebar">
         <div className="pos-customer-section">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
             <span style={{ fontWeight: 700, color: '#1e293b' }}>Khách hàng</span>
+            <i className="fa-solid fa-user-pen" style={{ color: '#0081ff', cursor: 'pointer' }} />
           </div>
-
-          {showCreateCustomer ? (
-            /* Inline create customer mode */
-            <div>
-              <input
-                type="text"
-                placeholder="Tên khách hàng *"
-                value={newCustomer.full_name}
-                onChange={e => setNewCustomer({ ...newCustomer, full_name: e.target.value })}
+          <div className="pos-customer-search">
+             <input 
+                type="text" 
+                placeholder="Khách hàng"
                 className="pos-search-input"
-                style={{ marginBottom: 6 }}
-                autoFocus
-              />
-              <input
-                type="text"
-                placeholder="Số điện thoại *"
-                value={newCustomer.phone}
-                onChange={e => setNewCustomer({ ...newCustomer, phone: e.target.value })}
-                className="pos-search-input"
-                style={{ marginBottom: 6 }}
-              />
-              {customerModalError && (
-                <div style={{ color: '#ef4444', fontSize: 12, marginBottom: 6 }}>{customerModalError}</div>
-              )}
-              <button
-                className="warehouse-btn warehouse-btn-secondary"
-                style={{ width: '100%', padding: '6px', fontSize: 13, marginTop: 2 }}
-                onClick={() => { setShowCreateCustomer(false); setNewCustomer({ full_name: '', phone: '' }); setCustomerModalError(''); }}
-              >
-                <i className="fa-solid fa-xmark" style={{ marginRight: 6 }} /> Hủy thêm khách hàng
-              </button>
-            </div>
-          ) : (
-            /* Normal search mode */
-            <div className="pos-customer-search" style={{ position: 'relative' }}>
-              <input
-                type="text"
-                placeholder={activeTab.customerId ? activeTab.customerData?.full_name : "Khách lẻ (mặc định) (Tên/SĐT)"}
-                className="pos-search-input"
-                value={customerSearch !== '' ? customerSearch : (activeTab.customerId ? activeTab.recipientName : activeTab.recipientName)}
-                onChange={(e) => {
-                    setCustomerSearch(e.target.value);
-                    updateActiveTab({ recipientName: e.target.value, customerId: null, customerData: null });
-                    searchCustomers(e.target.value);
-                }}
-                onFocus={() => { if(customerList.length > 0) setShowCustomerDropdown(true); }}
-                onBlur={() => setTimeout(() => setShowCustomerDropdown(false), 200)}
-              />
-              {activeTab.customerId && (
-                <i className="fa-solid fa-xmark" style={{ position: 'absolute', right: 40, top: 10, cursor: 'pointer', color: '#94a3b8' }}
-                  onClick={() => {
-                    updateActiveTab({ customerId: null, customerData: null, recipientName: '', paymentMethod: 'cash', payOldDebt: false });
-                    setCustomerSearch('');
-                  }} />
-              )}
-              <button className="warehouse-btn warehouse-btn-secondary" style={{ padding: '0 12px' }} onClick={() => setShowCreateCustomer(true)}>+</button>
-
-              {/* Dropdown */}
-              {showCustomerDropdown && customerList.length > 0 && (
-                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: '1px solid #cbd5e1', borderRadius: 6, zIndex: 10, maxHeight: 200, overflowY: 'auto', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)', marginTop: 4 }}>
-                  {customerList.map(c => (
-                    <div key={c._id} style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}
-                      onClick={() => {
-                        updateActiveTab({ customerId: c._id, customerData: c, recipientName: c.full_name });
-                        setCustomerSearch('');
-                        setShowCustomerDropdown(false);
-                      }}>
-                      <div style={{ fontWeight: 600, fontSize: 13, color: '#0f172a' }}>{c.full_name}</div>
-                      <div style={{ fontSize: 12, color: '#64748b' }}>{c.phone}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+                value={activeTab.recipientName}
+                onChange={(e) => updateActiveTab({ recipientName: e.target.value })}
+             />
+             <button className="warehouse-btn warehouse-btn-secondary" style={{ padding: '0 12px' }}>+</button>
+          </div>
         </div>
 
         <div className="pos-summary-section">
@@ -666,8 +598,8 @@ export default function SalesInvoiceDetail() {
             />
           </div>
           <div className="pos-total-row">
-            <span>{activeTab.payOldDebt ? 'Tổng thanh toán (+Nợ)' : 'Khách cần trả'}</span>
-            <span style={{ color: '#0081ff', fontSize: 20 }}>{formatMoney(totalWithDebt)}</span>
+            <span>Khách cần trả</span>
+            <span style={{ color: '#0081ff', fontSize: 20 }}>{formatMoney(totalAmount)}</span>
           </div>
           
           {/* Detailed Payment Inputs */}
@@ -687,14 +619,6 @@ export default function SalesInvoiceDetail() {
                   >
                      <i className="fa-solid fa-building-columns" style={{ marginRight: 6 }}/> Chuyển khoản
                   </button>
-                  {activeTab.customerId && !activeTab.payOldDebt && (
-                      <button 
-                         style={{ flex: 1, padding: '8px', borderRadius: 6, border: activeTab.paymentMethod === 'debt' ? '1px solid #0081ff' : '1px solid #cbd5e1', background: activeTab.paymentMethod === 'debt' ? '#eff6ff' : 'white', cursor: 'pointer', fontWeight: 600, color: activeTab.paymentMethod === 'debt' ? '#0081ff' : '#64748b' }}
-                         onClick={() => updateActiveTab({ paymentMethod: 'debt' })}
-                      >
-                         <i className="fa-solid fa-book" style={{ marginRight: 6 }}/> Ghi nợ
-                      </button>
-                  )}
               </div>
 
               {activeTab.paymentMethod === 'cash' && (
@@ -727,63 +651,17 @@ export default function SalesInvoiceDetail() {
               )}
 
               {activeTab.paymentMethod === 'bank_transfer' && totalAmount > 0 && (
-                <div style={{ marginTop: 12, textAlign: 'center', background: 'white', padding: 16, borderRadius: 8, border: '1px solid #0081ff' }}>
-                  <p style={{ margin: '0 0 10px', fontSize: 13, color: '#0081ff', fontWeight: 600 }}>Khách quét mã để thanh toán</p>
-                  <img 
-                    src={`https://img.vietqr.io/image/vcb-1122334455-compact2.png?amount=${totalAmount}&addInfo=Thanh toan don hang`} 
-                    alt="QR Code" 
-                    style={{ width: 160, height: 160, mixBlendMode: 'multiply' }} 
-                  />
+                <div style={{ marginTop: 12, textAlign: 'center', background: 'white', padding: 12, borderRadius: 8, border: '1px solid #0081ff' }}>
+                  <p style={{ margin: '0 0 8px', fontSize: 12, color: '#0081ff', fontWeight: 600 }}>
+                    Nhấn THANH TOÁN để tạo mã QR chính xác
+                  </p>
+                  <div style={{ fontSize: 12, color: '#64748b', padding: '8px 0' }}>
+                    <i className="fa-solid fa-qrcode" style={{ fontSize: 40, color: '#cbd5e1', display: 'block', marginBottom: 6 }} />
+                    Mã QR sẽ hiển thị sau khi xác nhận đơn
+                  </div>
                 </div>
               )}
           </div>
-
-          {/* Debt Notification Alert */}
-          {activeTab.customerData?.debt_account > 0 && (
-              <div style={{ 
-                 marginTop: 16, 
-                 padding: '16px', 
-                 background: '#fff7ed', 
-                 border: '1px solid #fed7aa', 
-                 borderRadius: 12,
-                 boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)'
-              }}>
-                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-                      <div style={{ background: '#ffedd5', color: '#ea580c', width: 32, height: 32, borderRadius: '50%', display: 'flex', alignItems: 'center', flexShrink: 0, justifyContent: 'center' }}>
-                          <i className="fa-solid fa-triangle-exclamation" />
-                      </div>
-                      <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 13, color: '#9a3412', fontWeight: 700, marginBottom: 4 }}>THÔNG BÁO NỢ CŨ</div>
-                          <div style={{ fontSize: 13, color: '#c2410c' }}>
-                              Khách hàng đang còn nợ: <span style={{ fontWeight: 800 }}>{formatMoney(activeTab.customerData.debt_account)}</span>
-                          </div>
-                          
-                          <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'white', padding: '8px 12px', borderRadius: 8, border: '1px solid #fdba74' }}>
-                              <span style={{ fontSize: 12, fontWeight: 600, color: '#9a3412' }}>Thanh toán cùng đơn này?</span>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                  <button 
-                                     onClick={() => {
-                                        const nextPayOld = !activeTab.payOldDebt;
-                                        const updates = { payOldDebt: nextPayOld };
-                                        if (nextPayOld && activeTab.paymentMethod === 'debt') {
-                                           updates.paymentMethod = 'cash';
-                                        }
-                                        updateActiveTab(updates);
-                                     }}
-                                     style={{ 
-                                         background: activeTab.payOldDebt ? '#ea580c' : '#f1f5f9',
-                                         color: activeTab.payOldDebt ? 'white' : '#64748b',
-                                         border: 'none', padding: '4px 12px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer'
-                                     }}
-                                  >
-                                     {activeTab.payOldDebt ? 'TRẢ LUÔN' : 'CHƯA TRẢ'}
-                                  </button>
-                              </div>
-                          </div>
-                      </div>
-                  </div>
-              </div>
-          )}
           
           <div style={{ marginTop: 24 }}>
             <button 
@@ -799,22 +677,28 @@ export default function SalesInvoiceDetail() {
 
       </div>
       
-
-
       {/* Toast Notification */}
-      {toast.message && (
+      {toastMessage && (
         <div style={{
-          position: 'fixed', bottom: 40, right: 40, 
-          background: toast.type === 'error' ? '#ef4444' : '#10b981', 
-          color: 'white', padding: '16px 24px', 
+          position: 'fixed', bottom: 40, right: 40, background: '#10b981', color: 'white', padding: '16px 24px', 
           borderRadius: 8, boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', zIndex: 9999, fontWeight: 600,
           display: 'flex', alignItems: 'center', gap: 12, animation: 'slideUp 0.3s ease-out'
         }}>
-          <i className={toast.type === 'error' ? "fa-solid fa-circle-xmark" : "fa-solid fa-circle-check"} style={{ fontSize: 20 }} />
-          {toast.message}
+          <i className="fa-solid fa-circle-check" style={{ fontSize: 20 }} />
+          {toastMessage}
         </div>
       )}
 
+      <PaymentWaitModal
+        pendingPayment={pendingPayment}
+        bankCode={bankCode}
+        bankAccountNumber={bankAccountNumber}
+        storeName={process.env.REACT_APP_STORE_NAME || 'Cua hang IMS'}
+        onCancel={() => {
+          stopPolling();
+          setPendingPayment(null);
+        }}
+      />
 
     </div>
   );

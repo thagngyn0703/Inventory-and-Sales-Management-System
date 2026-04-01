@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import ManagerSidebar from './ManagerSidebar';
-import { getStocktake } from '../../services/stocktakesApi';
+import { getStocktake, approveStocktake, rejectStocktake } from '../../services/stocktakesApi';
 import './ManagerDashboard.css';
 import '../WarehouseDashboard/WarehouseDashboard.css';
 
@@ -18,6 +18,10 @@ export default function ManagerStocktakeDetail() {
   const [stocktake, setStocktake] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
+  const [modal, setModal] = useState({ open: false, type: null });
+  const [reasonInput, setReasonInput] = useState('');
+  const [actionLoading, setActionLoading] = useState(false);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -36,6 +40,47 @@ export default function ManagerStocktakeDetail() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const openModal = (type) => {
+    setModal({ open: true, type });
+    setReasonInput('');
+    setError('');
+  };
+
+  const closeModal = () => {
+    setModal({ open: false, type: null });
+    setReasonInput('');
+  };
+
+  const confirmApprove = async () => {
+    setActionLoading(true);
+    setError('');
+    try {
+      await approveStocktake(id, { reason: reasonInput.trim() });
+      setSuccessMessage('Đã duyệt phiếu và cập nhật tồn kho.');
+      closeModal();
+      load();
+    } catch (err) {
+      setError(err.message || 'Không thể duyệt phiếu');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const confirmReject = async () => {
+    setActionLoading(true);
+    setError('');
+    try {
+      await rejectStocktake(id, { reason: reasonInput.trim() });
+      setSuccessMessage('Đã từ chối phiếu kiểm kê.');
+      closeModal();
+      load();
+    } catch (err) {
+      setError(err.message || 'Không thể từ chối phiếu');
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
   const formatDate = (d) => {
     if (!d) return '—';
@@ -76,9 +121,65 @@ export default function ManagerStocktakeDetail() {
   }
 
   const items = stocktake?.items || [];
+  const isPending = stocktake?.status === 'submitted';
 
   return (
     <div className="manager-page-with-sidebar">
+      {/* Modal duyệt / từ chối */}
+      {modal.open && (
+        <div
+          className="manager-reason-modal-overlay"
+          onClick={(e) => e.target === e.currentTarget && closeModal()}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="reason-modal-title"
+        >
+          <div className="manager-reason-modal-box">
+            <h2 id="reason-modal-title" className="manager-reason-modal-title">
+              {modal.type === 'reject' ? 'Lý do từ chối' : 'Lý do điều chỉnh'}
+            </h2>
+            <p className="manager-reason-modal-hint">
+              {modal.type === 'reject'
+                ? 'Nhập lý do từ chối phiếu kiểm kê (có thể để trống).'
+                : 'Ghi chú lý do áp dụng điều chỉnh tồn (tùy chọn).'}
+            </p>
+            <textarea
+              className="manager-reason-modal-input"
+              value={reasonInput}
+              onChange={(e) => setReasonInput(e.target.value)}
+              placeholder={modal.type === 'reject' ? 'Ví dụ: Số liệu chưa kiểm tra kỹ...' : 'Ví dụ: Đã kiểm đếm lại cuối tháng...'}
+              rows={4}
+              autoFocus
+            />
+            <div className="manager-reason-modal-actions">
+              <button type="button" className="warehouse-btn warehouse-btn-secondary" onClick={closeModal} disabled={actionLoading}>
+                Hủy
+              </button>
+              {modal.type === 'reject' ? (
+                <button
+                  type="button"
+                  className="warehouse-btn"
+                  style={{ background: '#b91c1c', color: '#fff' }}
+                  onClick={confirmReject}
+                  disabled={actionLoading}
+                >
+                  {actionLoading ? 'Đang xử lý...' : 'Từ chối'}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="warehouse-btn warehouse-btn-primary"
+                  onClick={confirmApprove}
+                  disabled={actionLoading}
+                >
+                  {actionLoading ? 'Đang duyệt...' : 'Duyệt & điều chỉnh tồn'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       <ManagerSidebar />
       <div className="manager-main">
         <header className="manager-topbar">
@@ -90,7 +191,8 @@ export default function ManagerStocktakeDetail() {
           </div>
         </header>
         <div className="manager-content">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+          {/* Thanh hành động trên cùng */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
             <button
               type="button"
               className="warehouse-btn warehouse-btn-secondary"
@@ -98,6 +200,28 @@ export default function ManagerStocktakeDetail() {
             >
               ← Quay lại
             </button>
+            {isPending && (
+              <>
+                <button
+                  type="button"
+                  className="warehouse-btn warehouse-btn-primary"
+                  style={{ marginLeft: 'auto' }}
+                  onClick={() => openModal('approve')}
+                  disabled={actionLoading}
+                >
+                  Duyệt & điều chỉnh tồn
+                </button>
+                <button
+                  type="button"
+                  className="warehouse-btn warehouse-btn-secondary"
+                  style={{ color: '#b91c1c', borderColor: '#fecaca' }}
+                  onClick={() => openModal('reject')}
+                  disabled={actionLoading}
+                >
+                  Từ chối
+                </button>
+              </>
+            )}
           </div>
 
           <h1 className="manager-page-title">Chi tiết phiếu kiểm kê</h1>
@@ -107,6 +231,17 @@ export default function ManagerStocktakeDetail() {
               {STATUS_LABEL[stocktake?.status] ?? stocktake?.status}
             </span>
           </p>
+
+          {successMessage && (
+            <div className="warehouse-alert warehouse-alert-success" style={{ marginBottom: 16 }}>
+              {successMessage}
+            </div>
+          )}
+          {error && (
+            <div className="warehouse-alert warehouse-alert-error" style={{ marginBottom: 16 }}>
+              {error}
+            </div>
+          )}
 
           {stocktake?.status === 'cancelled' && stocktake?.reject_reason && (
             <div className="warehouse-alert warehouse-alert-error" style={{ marginBottom: 16 }}>

@@ -126,9 +126,10 @@ export async function previewProductImport(file) {
 }
 
 /**
- * @param {Array<{ row: number, name: string, cost_price: number, sale_price: number, sku?: string, stock_qty: number, base_unit: string }>} rows
+ * @param {Array} rows
+ * @param {boolean} confirmPriceChanges - true nếu manager đã xác nhận thay đổi giá
  */
-export async function commitProductImport(rows) {
+export async function commitProductImport(rows, confirmPriceChanges = false) {
     const token = getToken();
     const res = await fetch(`${API_BASE}/products/import/commit`, {
         method: 'POST',
@@ -136,9 +137,13 @@ export async function commitProductImport(rows) {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ rows }),
+        body: JSON.stringify({ rows, confirmPriceChanges }),
     });
     const data = await res.json().catch(() => ({}));
+    // 409 = cần xác nhận thay đổi giá — trả về data thay vì throw để FE xử lý
+    if (res.status === 409 && data.code === 'PRICE_CHANGE_CONFIRMATION_REQUIRED') {
+        return { needsConfirmation: true, price_changes: data.price_changes, message: data.message };
+    }
     if (!res.ok) throw new Error(data.message || 'Import thất bại');
     return data;
 }
