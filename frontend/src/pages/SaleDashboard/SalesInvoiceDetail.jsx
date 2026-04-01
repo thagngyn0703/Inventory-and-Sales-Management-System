@@ -1,8 +1,8 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
-import { useNavigate, useParams, useLocation } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { getInvoice, createInvoice, updateInvoice, getPaymentStatus } from '../../services/invoicesApi';
 import { getProducts } from '../../services/productsApi';
-import { getCurrentUser } from '../../utils/auth';
+import PaymentWaitModal from '../../components/payment/PaymentWaitModal';
 import './SalesPOS.css';
 
 function formatMoney(n) {
@@ -47,7 +47,6 @@ export default function SalesInvoiceDetail() {
   const [activeTabId, setActiveTabId] = useState(tabs[0].tabId);
   const [tabCounter, setTabCounter] = useState(2); // to name new tabs Hóa đơn 2, 3...
   
-  const [showQRModal, setShowQRModal] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
 
   // Trạng thái chờ thanh toán chuyển khoản
@@ -55,8 +54,6 @@ export default function SalesInvoiceDetail() {
   const pollingRef = useRef(null);
 
   const activeTab = tabs.find(t => t.tabId === activeTabId) || tabs[0];
-  const activeTabIndex = tabs.findIndex(t => t.tabId === activeTabId);
-
   const updateActiveTab = (updates) => {
     setTabs(prev => prev.map(t => t.tabId === activeTabId ? { ...t, ...updates } : t));
   };
@@ -71,7 +68,7 @@ export default function SalesInvoiceDetail() {
   // Loa thông báo thanh toán thành công (Web Speech API)
   const speakPayment = useCallback(() => {
     if (!window.speechSynthesis) return;
-    const msg = new SpeechSynthesisUtterance('Thanh toán thành công');
+    const msg = new SpeechSynthesisUtterance('success');
     msg.lang = 'vi-VN';
     msg.rate = 0.95;
     msg.pitch = 1;
@@ -379,7 +376,7 @@ export default function SalesInvoiceDetail() {
       };
 
       if (!activeTab.invoiceId) {
-        const { invoice: created, payment_ref, payment_status } = await createInvoice({ ...payload, status: 'confirmed' });
+        const { invoice: created, payment_ref } = await createInvoice({ ...payload, status: 'confirmed' });
 
         if (activeTab.paymentMethod === 'bank_transfer' && payment_ref) {
           // Chuyển khoản: hiện màn hình QR chờ, bắt đầu polling
@@ -692,80 +689,16 @@ export default function SalesInvoiceDetail() {
         </div>
       )}
 
-      {/* Màn hình chờ thanh toán chuyển khoản */}
-      {pendingPayment && (
-        <div style={{
-          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 10000,
-          display: 'flex', alignItems: 'center', justifyContent: 'center'
-        }}>
-          <div style={{
-            background: 'white', borderRadius: 16, padding: 36, maxWidth: 420, width: '90%',
-            textAlign: 'center', boxShadow: '0 25px 50px rgba(0,0,0,0.3)'
-          }}>
-            <div style={{ fontSize: 18, fontWeight: 700, color: '#1e293b', marginBottom: 4 }}>
-              Chờ thanh toán chuyển khoản
-            </div>
-            <div style={{ fontSize: 13, color: '#64748b', marginBottom: 20 }}>
-              Yêu cầu khách quét mã QR bên dưới
-            </div>
-
-            {/* QR VietQR động với số tiền + nội dung payment_ref */}
-            <div style={{ background: '#f0f9ff', borderRadius: 12, padding: 16, marginBottom: 16, border: '2px solid #0081ff' }}>
-              <img
-                src={`https://img.vietqr.io/image/${bankCode}-${bankAccountNumber}-compact2.png?amount=${pendingPayment.totalAmount}&addInfo=${encodeURIComponent(pendingPayment.paymentRef)}&accountName=${encodeURIComponent(process.env.REACT_APP_STORE_NAME || 'Cua hang')}`}
-                alt="QR Thanh toán"
-                style={{ width: 200, height: 200, mixBlendMode: 'multiply' }}
-                onError={(e) => {
-                  // Fallback nếu VietQR không load được
-                  e.target.style.display = 'none';
-                  e.target.nextSibling.style.display = 'block';
-                }}
-              />
-              <div style={{ display: 'none', padding: 20, color: '#64748b', fontSize: 13 }}>
-                Không thể tải QR. Vui lòng chuyển khoản thủ công.
-              </div>
-            </div>
-
-            <div style={{ background: '#f8fafc', borderRadius: 8, padding: 12, marginBottom: 16, textAlign: 'left', fontSize: 13 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                <span style={{ color: '#64748b' }}>Số tiền:</span>
-                <span style={{ fontWeight: 700, color: '#0081ff', fontSize: 16 }}>{formatMoney(pendingPayment.totalAmount)}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                <span style={{ color: '#64748b' }}>Nội dung CK:</span>
-                <span style={{ fontWeight: 700, color: '#1e293b', fontFamily: 'monospace', letterSpacing: 1 }}>
-                  {pendingPayment.paymentRef}
-                </span>
-              </div>
-              <div style={{ marginTop: 8, padding: '6px 10px', background: '#fef3c7', borderRadius: 6, color: '#92400e', fontSize: 12 }}>
-                <i className="fa-solid fa-triangle-exclamation" style={{ marginRight: 6 }} />
-                Khách <strong>phải ghi đúng nội dung</strong> để hệ thống tự xác nhận
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center', marginBottom: 20, color: '#64748b', fontSize: 13 }}>
-              <div style={{
-                width: 16, height: 16, border: '2px solid #0081ff', borderTopColor: 'transparent',
-                borderRadius: '50%', animation: 'spin 1s linear infinite', flexShrink: 0
-              }} />
-              Đang chờ xác nhận từ ngân hàng...
-            </div>
-
-            <button
-              onClick={() => {
-                stopPolling();
-                setPendingPayment(null);
-              }}
-              style={{
-                padding: '10px 24px', borderRadius: 8, border: '1px solid #e2e8f0',
-                background: 'white', color: '#64748b', cursor: 'pointer', fontSize: 14, fontWeight: 600
-              }}
-            >
-              Hủy / Thanh toán tiền mặt
-            </button>
-          </div>
-        </div>
-      )}
+      <PaymentWaitModal
+        pendingPayment={pendingPayment}
+        bankCode={bankCode}
+        bankAccountNumber={bankAccountNumber}
+        storeName={process.env.REACT_APP_STORE_NAME || 'Cua hang IMS'}
+        onCancel={() => {
+          stopPolling();
+          setPendingPayment(null);
+        }}
+      />
 
     </div>
   );
