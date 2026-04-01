@@ -29,19 +29,20 @@ export default function SalesDashboard() {
   const roleLabel = currentUser?.role === 'manager' ? 'Quản lý' : 'Nhân viên';
   const storeName = currentUser?.storeName || '';
   const displayName = currentUser?.fullName || currentUser?.email || roleLabel;
+  const toggleSidebar = () => setSidebarCollapsed((c) => !c);
 
   return (
     <div className={`sales-layout${sidebarCollapsed ? ' sidebar-collapsed' : ''}`}>
       <SalesSidebar
         collapsed={sidebarCollapsed}
-        onToggle={() => setSidebarCollapsed(c => !c)}
+        onToggle={toggleSidebar}
       />
       <main className="sales-main">
         <header className="sales-header">
           {/* Nút toggle sidebar */}
           <button
             className="sales-toggle-btn"
-            onClick={() => setSidebarCollapsed(c => !c)}
+            onClick={toggleSidebar}
             title={sidebarCollapsed ? 'Mở menu' : 'Thu nhỏ menu'}
           >
             <i className="fa-solid fa-bars" />
@@ -64,7 +65,7 @@ export default function SalesDashboard() {
         </header>
 
         <div className="sales-content">
-          <Outlet />
+          <Outlet context={{ sidebarCollapsed, toggleSidebar }} />
         </div>
       </main>
     </div>

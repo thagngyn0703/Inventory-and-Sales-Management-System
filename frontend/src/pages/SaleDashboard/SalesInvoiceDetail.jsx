@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { getInvoice, createInvoice, updateInvoice, getPaymentStatus } from '../../services/invoicesApi';
 import { getProducts } from '../../services/productsApi';
 import PaymentWaitModal from '../../components/payment/PaymentWaitModal';
+import { Button } from '../../components/ui/button';
 import './SalesPOS.css';
 
 function formatMoney(n) {
@@ -41,19 +42,34 @@ export default function SalesInvoiceDetail() {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [showSearchDropdown, setShowSearchDropdown] = useState(false);
   
   // Tab Management State
   const [tabs, setTabs] = useState([createDefaultTab(1)]);
   const [activeTabId, setActiveTabId] = useState(tabs[0].tabId);
-  const [tabCounter, setTabCounter] = useState(2); // to name new tabs Hóa đơn 2, 3...
   
   const [toastMessage, setToastMessage] = useState('');
 
   // Trạng thái chờ thanh toán chuyển khoản
   const [pendingPayment, setPendingPayment] = useState(null); // { paymentRef, totalAmount, invoice }
   const pollingRef = useRef(null);
+  const searchWrapRef = useRef(null);
 
   const activeTab = tabs.find(t => t.tabId === activeTabId) || tabs[0];
+  const getNextTabNumber = useCallback((tabList) => {
+    const used = new Set(
+      (tabList || [])
+        .map((t) => {
+          const m = /^Hóa đơn\s+(\d+)$/.exec(String(t.name || '').trim());
+          return m ? Number(m[1]) : null;
+        })
+        .filter((n) => Number.isInteger(n) && n > 0)
+    );
+    let next = 1;
+    while (used.has(next)) next += 1;
+    return next;
+  }, []);
+
   const updateActiveTab = (updates) => {
     setTabs(prev => prev.map(t => t.tabId === activeTabId ? { ...t, ...updates } : t));
   };
@@ -117,7 +133,6 @@ export default function SalesInvoiceDetail() {
             if (filtered.length === 0) {
               const newTab = createDefaultTab(1);
               setActiveTabId(newTab.tabId);
-              setTabCounter(2);
               return [newTab];
             }
             setActiveTabId(filtered[0].tabId);
@@ -141,6 +156,17 @@ export default function SalesInvoiceDetail() {
 
   // Dọn dẹp polling khi unmount
   useEffect(() => () => stopPolling(), [stopPolling]);
+
+  useEffect(() => {
+    const handleOutside = (event) => {
+      if (!searchWrapRef.current) return;
+      if (!searchWrapRef.current.contains(event.target)) {
+        setShowSearchDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  }, []);
 
   const loadInvoice = useCallback(async () => {
     if (!id || isNew) return;
@@ -191,10 +217,10 @@ export default function SalesInvoiceDetail() {
 
   // Tab Actions
   const handleAddTab = () => {
-    const newTab = createDefaultTab(tabCounter);
+    const nextNumber = getNextTabNumber(tabs);
+    const newTab = createDefaultTab(nextNumber);
     setTabs(prev => [...prev, newTab]);
     setActiveTabId(newTab.tabId);
-    setTabCounter(c => c + 1);
   };
 
   const handleCloseTab = (tabIdToClose, e) => {
@@ -204,7 +230,6 @@ export default function SalesInvoiceDetail() {
        const newTab = createDefaultTab(1);
        setTabs([newTab]);
        setActiveTabId(newTab.tabId);
-       setTabCounter(2);
        if (!isNew) navigate('/staff/invoices/new'); // escape edit mode if closing the only tab
        return;
     }
@@ -245,6 +270,8 @@ export default function SalesInvoiceDetail() {
       });
     }
     updateActiveTab({ items: newItems });
+    setSearchTerm('');
+    setShowSearchDropdown(false);
   };
 
   const updateLine = (idx, changes) => {
@@ -274,6 +301,8 @@ export default function SalesInvoiceDetail() {
   const isPaymentSufficient = activeTab.paymentMethod === 'bank_transfer' || customerPaidNum >= totalAmount;
   const canSubmit = !activeTab.saving && activeTab.items.length > 0 && 
     (activeTab.paymentMethod === 'debt' || isPaymentSufficient);
+
+  const QUICK_PAID_VALUES = [10000, 20000, 50000, 100000, 200000, 500000];
 
   const handlePrintInvoice = (invoice, tab) => {
     const printWindow = window.open('', '_blank');
@@ -392,10 +421,10 @@ export default function SalesInvoiceDetail() {
           setTimeout(() => setToastMessage(''), 3000);
 
           if (tabs.length === 1) {
-            const newTab = createDefaultTab(tabCounter);
+            const nextNumber = getNextTabNumber(tabs);
+            const newTab = createDefaultTab(nextNumber);
             setTabs([newTab]);
             setActiveTabId(newTab.tabId);
-            setTabCounter(c => c + 1);
           } else {
             const newTabs = tabs.filter(t => t.tabId !== activeTabId);
             setTabs(newTabs);
@@ -437,78 +466,69 @@ export default function SalesInvoiceDetail() {
 
   return (
     <div className="pos-container">
-      {/* Left Sidebar: Product List */}
-      <div className="pos-left-sidebar">
-        <div className="pos-search-wrapper">
-          <input 
-            type="text" 
-            placeholder="Tìm hàng hóa" 
-            className="pos-search-input"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-        </div>
-        <div className="pos-product-list">
-          {filteredProducts.length === 0 ? (
-            <div style={{ padding: '20px', textAlign: 'center', color: '#64748b', fontSize: '14px' }}>
-              Không tìm thấy sản phẩm
-            </div>
-          ) : (
-            filteredProducts.map(p => {
-              const isAdded = activeTab.items.some(it => it.product_id === p._id);
-              return (
-              <div 
-                key={p._id} 
-                className="pos-product-item" 
-                onClick={() => !isAdded && handleAddProduct(p)}
-                style={{ opacity: isAdded ? 0.5 : 1, cursor: isAdded ? 'not-allowed' : 'pointer' }}
-              >
-                <div className="pos-product-img">
-                  {Array.isArray(p.image_urls) && p.image_urls[0] ? (
-                    <img
-                      src={p.image_urls[0]}
-                      alt={p.name || 'product-image'}
-                      style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 6 }}
-                    />
-                  ) : (
-                    <i className="fa-solid fa-box" />
-                  )}
-                </div>
-                <div className="pos-product-info">
-                  <div className="pos-product-name">{p.name}</div>
-                  <div className="pos-product-sku">{p.sku}</div>
-                  <div className="pos-product-stock">
-                    Tồn: {p.stock_qty || 0}
-                  </div>
-                </div>
-                <div style={{ color: '#0081ff', fontWeight: 700, fontSize: 13 }}>
-                  {Number(p.sale_price).toLocaleString('vi-VN')}
-                </div>
-              </div>
-            )})
-          )}
-        </div>
-      </div>
-
       {/* Center Area: Active Order with Tabs */}
       <div className="pos-center-area">
-        <div className="pos-tabs">
-          {tabs.map(tab => (
-            <div 
-               key={tab.tabId} 
-               className={`pos-tab ${tab.tabId === activeTabId ? 'active' : ''}`}
-               onClick={() => setActiveTabId(tab.tabId)}
-            >
-              {tab.name} 
-              <i 
-                className="fa-solid fa-xmark" 
-                style={{ fontSize: 12, marginLeft: 8, cursor: 'pointer', padding: 2 }} 
-                onClick={(e) => handleCloseTab(tab.tabId, e)}
+        <div className="pos-search-toolbar">
+          <div className="pos-toolbar-left">
+            <div className="pos-search-dropdown-wrap" ref={searchWrapRef}>
+              <input
+                type="text"
+                placeholder="Tìm hàng hóa theo tên / SKU"
+                className="pos-search-input"
+                value={searchTerm}
+                onFocus={() => setShowSearchDropdown(true)}
+                onChange={(e) => {
+                  setSearchTerm(e.target.value);
+                  setShowSearchDropdown(true);
+                }}
               />
+              {showSearchDropdown && (
+                <div className="pos-search-dropdown">
+                  {filteredProducts.length === 0 ? (
+                    <div className="pos-search-empty">Không tìm thấy sản phẩm</div>
+                  ) : (
+                    filteredProducts.map((p) => {
+                      const isAdded = activeTab.items.some((it) => it.product_id === p._id);
+                      return (
+                        <button
+                          type="button"
+                          key={p._id}
+                          className="pos-search-option"
+                          onClick={() => !isAdded && handleAddProduct(p)}
+                          disabled={isAdded}
+                        >
+                          <div>
+                            <div className="pos-search-option-name">{p.name}</div>
+                            <div className="pos-search-option-meta">{p.sku} - Tồn: {p.stock_qty || 0}</div>
+                          </div>
+                          <div className="pos-search-option-price">{Number(p.sale_price || 0).toLocaleString('vi-VN')}</div>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              )}
             </div>
-          ))}
-          <div className="pos-tab" style={{ background: 'transparent', cursor: 'pointer', padding: '0 12px' }} onClick={handleAddTab}>
-             <i className="fa-solid fa-plus" />
+          </div>
+
+          <div className="pos-tabs pos-tabs-inline">
+            {tabs.map(tab => (
+              <div
+                key={tab.tabId}
+                className={`pos-tab ${tab.tabId === activeTabId ? 'active' : ''}`}
+                onClick={() => setActiveTabId(tab.tabId)}
+              >
+                {tab.name}
+                <i
+                  className="fa-solid fa-xmark"
+                  style={{ fontSize: 12, marginLeft: 8, cursor: 'pointer', padding: 2 }}
+                  onClick={(e) => handleCloseTab(tab.tabId, e)}
+                />
+              </div>
+            ))}
+            <Button type="button" variant="outline" className="my-1 h-8 border-white/40 bg-transparent text-white hover:bg-white/10 hover:text-white" onClick={handleAddTab}>
+              <i className="fa-solid fa-plus" />
+            </Button>
           </div>
         </div>
         
@@ -642,19 +662,44 @@ export default function SalesInvoiceDetail() {
                        style={{ width: 120, height: 32, textAlign: 'right', fontWeight: 600 }}
                      />
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, marginTop: 12 }}>
-                     {missingAmount > 0 && String(activeTab.customerPaid).length > 0 ? (
-                        <>
-                           <span style={{ color: '#ef4444' }}>Còn thiếu</span>
-                           <span style={{ fontWeight: 600, color: '#ef4444' }}>{formatMoney(missingAmount)}</span>
-                        </>
-                     ) : (
-                        <>
-                           <span style={{ color: '#64748b' }}>Tiền thừa trả khách</span>
-                           <span style={{ fontWeight: 600 }}>{formatMoney(changeAmount)}</span>
-                        </>
-                     )}
-                  </div>
+                  {activeTab.items.length > 0 && String(activeTab.customerPaid).length > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, marginTop: 12 }}>
+                       {missingAmount > 0 ? (
+                          <>
+                             <span style={{ color: '#ef4444' }}>Còn thiếu</span>
+                             <span style={{ fontWeight: 600, color: '#ef4444' }}>{formatMoney(missingAmount)}</span>
+                          </>
+                       ) : (
+                          <>
+                             <span style={{ color: '#64748b' }}>Tiền thừa trả khách</span>
+                             <span style={{ fontWeight: 600 }}>{formatMoney(changeAmount)}</span>
+                          </>
+                       )}
+                    </div>
+                  )}
+                  {activeTab.items.length > 0 && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, marginTop: 12 }}>
+                      {QUICK_PAID_VALUES.map((amount) => (
+                        <button
+                          key={amount}
+                          type="button"
+                          onClick={() => updateActiveTab({ customerPaid: String(amount) })}
+                          style={{
+                            border: '1px solid #cbd5e1',
+                            borderRadius: 999,
+                            background: '#fff',
+                            color: '#334155',
+                            fontSize: 12,
+                            fontWeight: 600,
+                            padding: '6px 8px',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {amount.toLocaleString('vi-VN')}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </>
               )}
 
