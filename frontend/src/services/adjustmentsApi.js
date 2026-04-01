@@ -44,3 +44,23 @@ export async function getAdjustment(id) {
   if (!res.ok) throw new Error(data.message || 'Không thể tải chi tiết điều chỉnh');
   return data.adjustment;
 }
+
+export async function revertAdjustment(id, body = {}) {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/stock-adjustments/${id}/revert`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    if (res.status === 404) {
+      throw new Error('Backend chưa cập nhật route hoàn tác. Vui lòng khởi động lại backend rồi thử lại.');
+    }
+    throw new Error(data.message || 'Không thể hoàn tác phiếu điều chỉnh');
+  }
+  return data;
+}
