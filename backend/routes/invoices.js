@@ -133,6 +133,15 @@ function buildStockAvailability(items, productsById) {
 }
 
 
+/**
+ * Sinh mã tham chiếu thanh toán dạng IMS-XXXXXX (6 ký tự hex in hoa).
+ * Nhúng vào nội dung chuyển khoản để SePay webhook tự động đối soát.
+ */
+function generatePaymentRef() {
+    const hex = require('crypto').randomBytes(3).toString('hex').toUpperCase();
+    return `IMS-${hex}`;
+}
+
 // POST /api/invoices — create a confirmed outbound invoice
 router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
@@ -148,6 +157,12 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
         }
 
         const status = (req.body.status === 'cancelled') ? 'cancelled' : 'confirmed';
+        const method = payment_method || 'cash';
+
+        // Với chuyển khoản: sinh payment_ref để nhúng vào nội dung QR, trạng thái chờ xác nhận
+        // Với tiền mặt: coi là đã thanh toán ngay
+        const paymentRef = method === 'bank_transfer' ? generatePaymentRef() : null;
+        const paymentStatus = method === 'cash' ? 'paid' : 'unpaid';
 
         const invoice = new SalesInvoice({
             store_id: req.user.storeId || null,
@@ -155,7 +170,10 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
             recipient_name,
             created_by: req.user.id,
             status,
-            payment_method: payment_method || 'cash',
+            payment_method: method,
+            payment_ref: paymentRef,
+            payment_status: paymentStatus,
+            paid_at: method === 'cash' ? new Date() : null,
             items: normalizedItems,
             total_amount: totalAmount,
         });
@@ -182,7 +200,11 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
         const productsById = new Map(products.map((p) => [String(p._id), p]));
         populated.items = buildStockAvailability(populated.items, productsById);
 
-        return res.status(201).json({ invoice: populated });
+        return res.status(201).json({
+            invoice: populated,
+            payment_ref: paymentRef,
+            payment_status: paymentStatus,
+        });
     } catch (err) {
         console.error(err);
         return res.status(500).json({ message: err.message || 'Server error' });

@@ -1,6 +1,6 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
-import { getInvoice, createInvoice, updateInvoice } from '../../services/invoicesApi';
+import { getInvoice, createInvoice, updateInvoice, getPaymentStatus } from '../../services/invoicesApi';
 import { getProducts } from '../../services/productsApi';
 import { getCurrentUser } from '../../utils/auth';
 import './SalesPOS.css';
@@ -29,6 +29,14 @@ export default function SalesInvoiceDetail() {
   const { id = '' } = useParams();
   const navigate = useNavigate();
   const isNew = id === 'new' || !id || id === 'undefined' || id === 'null';
+
+ 
+  const rawBankAccountConfig = String(process.env.REACT_APP_BANK_ACCOUNT || 'MB-0000000000').trim();
+  const [configuredBankCode, configuredAccountNumber] = rawBankAccountConfig.includes('-')
+    ? rawBankAccountConfig.split('-', 2)
+    : ['MB', rawBankAccountConfig];
+  const bankCode = String(configuredBankCode || 'MB').toUpperCase();
+  const bankAccountNumber = String(configuredAccountNumber || '0000000000');
   
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -41,6 +49,10 @@ export default function SalesInvoiceDetail() {
   
   const [showQRModal, setShowQRModal] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
+
+  // Trạng thái chờ thanh toán chuyển khoản
+  const [pendingPayment, setPendingPayment] = useState(null); // { paymentRef, totalAmount, invoice }
+  const pollingRef = useRef(null);
 
   const activeTab = tabs.find(t => t.tabId === activeTabId) || tabs[0];
   const activeTabIndex = tabs.findIndex(t => t.tabId === activeTabId);
@@ -55,6 +67,83 @@ export default function SalesInvoiceDetail() {
       setProducts(data);
     } catch (e) { console.error(e); }
   }, []);
+
+  // Loa thông báo thanh toán thành công (Web Speech API)
+  const speakPayment = useCallback(() => {
+    if (!window.speechSynthesis) return;
+    const msg = new SpeechSynthesisUtterance('Thanh toán thành công');
+    msg.lang = 'vi-VN';
+    msg.rate = 0.95;
+    msg.pitch = 1;
+    // Ưu tiên giọng tiếng Việt nếu có
+    const voices = window.speechSynthesis.getVoices();
+    const viVoice = voices.find(v => v.lang === 'vi-VN' || v.lang.startsWith('vi'));
+    if (viVoice) msg.voice = viVoice;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(msg);
+  }, []);
+
+  // Polling kiểm tra trạng thái thanh toán chuyển khoản
+  const stopPolling = useCallback(() => {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+  }, []);
+
+  const startPolling = useCallback((paymentRef, invoiceData, tabSnapshot) => {
+    stopPolling();
+    let attempts = 0;
+    const MAX_ATTEMPTS = 120; // 10 phút (mỗi 5 giây)
+
+    pollingRef.current = setInterval(async () => {
+      attempts++;
+      try {
+        const result = await getPaymentStatus(paymentRef);
+        if (result.payment_status === 'paid') {
+          stopPolling();
+          setPendingPayment(null);
+
+          // Phát loa
+          speakPayment();
+
+          // In hóa đơn
+          handlePrintInvoice(invoiceData, tabSnapshot);
+
+          // Toast
+          setToastMessage('Thanh toán chuyển khoản thành công!');
+          setTimeout(() => setToastMessage(''), 4000);
+
+          // Reset tab
+          setTabs(prev => {
+            const filtered = prev.filter(t => t.tabId !== tabSnapshot.tabId);
+            if (filtered.length === 0) {
+              const newTab = createDefaultTab(1);
+              setActiveTabId(newTab.tabId);
+              setTabCounter(2);
+              return [newTab];
+            }
+            setActiveTabId(filtered[0].tabId);
+            return filtered;
+          });
+
+          loadProducts();
+        }
+      } catch (e) {
+        console.warn('[Polling] Error:', e.message);
+      }
+
+      if (attempts >= MAX_ATTEMPTS) {
+        stopPolling();
+        setPendingPayment(null);
+        setToastMessage('Hết thời gian chờ thanh toán. Vui lòng kiểm tra lại.');
+        setTimeout(() => setToastMessage(''), 5000);
+      }
+    }, 5000);
+  }, [stopPolling, speakPayment, loadProducts]);
+
+  // Dọn dẹp polling khi unmount
+  useEffect(() => () => stopPolling(), [stopPolling]);
 
   const loadInvoice = useCallback(async () => {
     if (!id || isNew) return;
@@ -192,7 +281,7 @@ export default function SalesInvoiceDetail() {
   const handlePrintInvoice = (invoice, tab) => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) {
-      alert('Vui lòng cho phép popup để in hóa đơn.');
+      
       return;
     }
     const html = `
@@ -279,7 +368,7 @@ export default function SalesInvoiceDetail() {
     updateActiveTab({ saving: true, error: '', successMessage: '' });
     try {
       const payload = {
-        payment_method: activeTab.paymentMethod, // 'cash' or 'transfer' or 'mixed'
+        payment_method: activeTab.paymentMethod,
         recipient_name: activeTab.recipientName,
         items: activeTab.items.map(it => ({
           product_id: it.product_id,
@@ -290,31 +379,34 @@ export default function SalesInvoiceDetail() {
       };
 
       if (!activeTab.invoiceId) {
-        // Create new
-        const created = await createInvoice({ ...payload, status: 'confirmed' });
-        
-        handlePrintInvoice(created, activeTab);
-        
-        // Show Toast instead of alert
-        setToastMessage('Thanh toán thành công! ' + (changeAmount > 0 ? `Tiền thừa trả khách: ${formatMoney(changeAmount)}` : ''));
-        setTimeout(() => setToastMessage(''), 3000);
-        
-        if (tabs.length === 1) {
+        const { invoice: created, payment_ref, payment_status } = await createInvoice({ ...payload, status: 'confirmed' });
+
+        if (activeTab.paymentMethod === 'bank_transfer' && payment_ref) {
+          // Chuyển khoản: hiện màn hình QR chờ, bắt đầu polling
+          const tabSnapshot = { ...activeTab, items: [...activeTab.items] };
+          setPendingPayment({ paymentRef: payment_ref, totalAmount: totalAmount, invoice: created });
+          startPolling(payment_ref, created, tabSnapshot);
+          updateActiveTab({ saving: false });
+        } else {
+          // Tiền mặt: hoàn tất ngay
+          speakPayment();
+          handlePrintInvoice(created, activeTab);
+          setToastMessage('Thanh toán thành công! ' + (changeAmount > 0 ? `Tiền thừa trả khách: ${formatMoney(changeAmount)}` : ''));
+          setTimeout(() => setToastMessage(''), 3000);
+
+          if (tabs.length === 1) {
             const newTab = createDefaultTab(tabCounter);
             setTabs([newTab]);
             setActiveTabId(newTab.tabId);
             setTabCounter(c => c + 1);
-        } else {
+          } else {
             const newTabs = tabs.filter(t => t.tabId !== activeTabId);
             setTabs(newTabs);
             setActiveTabId(newTabs[0].tabId);
+          }
+          loadProducts();
         }
-        
-        // Refresh product stock after successful sale
-        loadProducts();
-        
       } else {
-        // Update existing
         await updateInvoice(activeTab.invoiceId, payload);
         updateActiveTab({ successMessage: 'Đã lưu thay đổi.', saving: false });
         setToastMessage('Đã lưu thay đổi hóa đơn.');
@@ -562,13 +654,14 @@ export default function SalesInvoiceDetail() {
               )}
 
               {activeTab.paymentMethod === 'bank_transfer' && totalAmount > 0 && (
-                <div style={{ marginTop: 12, textAlign: 'center', background: 'white', padding: 16, borderRadius: 8, border: '1px solid #0081ff' }}>
-                  <p style={{ margin: '0 0 10px', fontSize: 13, color: '#0081ff', fontWeight: 600 }}>Khách quét mã để thanh toán</p>
-                  <img 
-                    src={`https://img.vietqr.io/image/vcb-1122334455-compact2.png?amount=${totalAmount}&addInfo=Thanh toan don hang`} 
-                    alt="QR Code" 
-                    style={{ width: 160, height: 160, mixBlendMode: 'multiply' }} 
-                  />
+                <div style={{ marginTop: 12, textAlign: 'center', background: 'white', padding: 12, borderRadius: 8, border: '1px solid #0081ff' }}>
+                  <p style={{ margin: '0 0 8px', fontSize: 12, color: '#0081ff', fontWeight: 600 }}>
+                    Nhấn THANH TOÁN để tạo mã QR chính xác
+                  </p>
+                  <div style={{ fontSize: 12, color: '#64748b', padding: '8px 0' }}>
+                    <i className="fa-solid fa-qrcode" style={{ fontSize: 40, color: '#cbd5e1', display: 'block', marginBottom: 6 }} />
+                    Mã QR sẽ hiển thị sau khi xác nhận đơn
+                  </div>
                 </div>
               )}
           </div>
@@ -599,6 +692,80 @@ export default function SalesInvoiceDetail() {
         </div>
       )}
 
+      {/* Màn hình chờ thanh toán chuyển khoản */}
+      {pendingPayment && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 10000,
+          display: 'flex', alignItems: 'center', justifyContent: 'center'
+        }}>
+          <div style={{
+            background: 'white', borderRadius: 16, padding: 36, maxWidth: 420, width: '90%',
+            textAlign: 'center', boxShadow: '0 25px 50px rgba(0,0,0,0.3)'
+          }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: '#1e293b', marginBottom: 4 }}>
+              Chờ thanh toán chuyển khoản
+            </div>
+            <div style={{ fontSize: 13, color: '#64748b', marginBottom: 20 }}>
+              Yêu cầu khách quét mã QR bên dưới
+            </div>
+
+            {/* QR VietQR động với số tiền + nội dung payment_ref */}
+            <div style={{ background: '#f0f9ff', borderRadius: 12, padding: 16, marginBottom: 16, border: '2px solid #0081ff' }}>
+              <img
+                src={`https://img.vietqr.io/image/${bankCode}-${bankAccountNumber}-compact2.png?amount=${pendingPayment.totalAmount}&addInfo=${encodeURIComponent(pendingPayment.paymentRef)}&accountName=${encodeURIComponent(process.env.REACT_APP_STORE_NAME || 'Cua hang')}`}
+                alt="QR Thanh toán"
+                style={{ width: 200, height: 200, mixBlendMode: 'multiply' }}
+                onError={(e) => {
+                  // Fallback nếu VietQR không load được
+                  e.target.style.display = 'none';
+                  e.target.nextSibling.style.display = 'block';
+                }}
+              />
+              <div style={{ display: 'none', padding: 20, color: '#64748b', fontSize: 13 }}>
+                Không thể tải QR. Vui lòng chuyển khoản thủ công.
+              </div>
+            </div>
+
+            <div style={{ background: '#f8fafc', borderRadius: 8, padding: 12, marginBottom: 16, textAlign: 'left', fontSize: 13 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                <span style={{ color: '#64748b' }}>Số tiền:</span>
+                <span style={{ fontWeight: 700, color: '#0081ff', fontSize: 16 }}>{formatMoney(pendingPayment.totalAmount)}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                <span style={{ color: '#64748b' }}>Nội dung CK:</span>
+                <span style={{ fontWeight: 700, color: '#1e293b', fontFamily: 'monospace', letterSpacing: 1 }}>
+                  {pendingPayment.paymentRef}
+                </span>
+              </div>
+              <div style={{ marginTop: 8, padding: '6px 10px', background: '#fef3c7', borderRadius: 6, color: '#92400e', fontSize: 12 }}>
+                <i className="fa-solid fa-triangle-exclamation" style={{ marginRight: 6 }} />
+                Khách <strong>phải ghi đúng nội dung</strong> để hệ thống tự xác nhận
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center', marginBottom: 20, color: '#64748b', fontSize: 13 }}>
+              <div style={{
+                width: 16, height: 16, border: '2px solid #0081ff', borderTopColor: 'transparent',
+                borderRadius: '50%', animation: 'spin 1s linear infinite', flexShrink: 0
+              }} />
+              Đang chờ xác nhận từ ngân hàng...
+            </div>
+
+            <button
+              onClick={() => {
+                stopPolling();
+                setPendingPayment(null);
+              }}
+              style={{
+                padding: '10px 24px', borderRadius: 8, border: '1px solid #e2e8f0',
+                background: 'white', color: '#64748b', cursor: 'pointer', fontSize: 14, fontWeight: 600
+              }}
+            >
+              Hủy / Thanh toán tiền mặt
+            </button>
+          </div>
+        </div>
+      )}
 
     </div>
   );

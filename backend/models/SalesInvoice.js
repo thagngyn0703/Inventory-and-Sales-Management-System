@@ -38,6 +38,22 @@ const salesInvoiceSchema = new Schema(
             enum: ['cash', 'bank_transfer', 'credit', 'card'],
             default: 'cash',
         },
+        payment_status: {
+            type: String,
+            enum: ['unpaid', 'partial', 'paid'],
+            default: 'unpaid',
+            index: true,
+        },
+        payment_ref: {
+            type: String,
+            trim: true,
+            index: true,
+            sparse: true,
+        },
+        paid_at: {
+            type: Date,
+            default: null,
+        },
         items: [
             {
                 product_id: {
