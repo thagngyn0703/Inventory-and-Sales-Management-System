@@ -197,7 +197,7 @@ export default function WarehouseGoodsReceiptList() {
                     <td>
                       <span 
                           style={{ color: '#059669', cursor: 'pointer', fontWeight: 500 }}
-                          onClick={() => navigate(`/warehouse/receipts/${r._id}`)}
+                          onClick={() => navigate(`${warehouseBase}/receipts/${r._id}`)}
                       >
                           {r._id.substring(r._id.length - 6).toUpperCase()}
                       </span>
@@ -229,7 +229,7 @@ export default function WarehouseGoodsReceiptList() {
                         type="button"
                         className="warehouse-btn warehouse-btn-secondary"
                         style={{ padding: '6px 12px', fontSize: 13 }}
-                        onClick={() => navigate(`/warehouse/receipts/${r._id}`)}
+                        onClick={() => navigate(`${warehouseBase}/receipts/${r._id}`)}
                       >
                         Xem
                       </button>

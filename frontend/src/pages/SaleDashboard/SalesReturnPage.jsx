@@ -117,7 +117,7 @@ export default function SalesReturnPage() {
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24 }}>
         <button
-          onClick={() => navigate('/sales/invoices')}
+          onClick={() => navigate('/staff/invoices')}
           style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #cbd5e1', background: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, color: '#475569' }}
         >
           <i className="fa-solid fa-arrow-left" /> Quay lại

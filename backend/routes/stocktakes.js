@@ -10,7 +10,7 @@ const router = express.Router();
 function getRoleStoreFilter(req) {
   const role = String(req.user?.role || '').toLowerCase();
   if (role === 'admin') return {};
-  const isStoreScopedRole = ['manager', 'staff', 'warehouse_staff', 'sales_staff'].includes(role);
+  const isStoreScopedRole = ['manager', 'staff'].includes(role);
   if (!isStoreScopedRole) return {};
   const storeId = req.user?.storeId ? String(req.user.storeId) : null;
   if (!storeId) return null;
@@ -34,7 +34,7 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
 
     const role = String(req.user?.role || '').toLowerCase();
     const requesterStoreId = req.user?.storeId ? String(req.user.storeId) : null;
-    if (['manager', 'staff', 'warehouse_staff', 'sales_staff'].includes(role) && !requesterStoreId) {
+    if (['manager', 'staff'].includes(role) && !requesterStoreId) {
       return res.status(403).json({
         message: 'Tài khoản chưa được gán cửa hàng.',
         code: 'STORE_REQUIRED',

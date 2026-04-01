@@ -29,10 +29,10 @@ export default function SalesInvoicesList() {
 
   const user = getCurrentUser();
   const role = user?.role || '';
-  const isWarehouse = ['warehouse', 'warehouse_staff', 'staff', 'manager'].includes(role);
+  const isWarehouse = ['staff', 'manager'].includes(role);
 
-  // Base path is now always /sales
-  const basePath = '/sales';
+  // Base path is now always /staff
+  const basePath = '/staff';
   const isReturnsPage = location.pathname.includes('/returns');
   const [statusFilter, setStatusFilter] = useState(isReturnsPage ? 'cancelled' : 'confirmed');
 
@@ -191,7 +191,7 @@ export default function SalesInvoicesList() {
                           type="button"
                           className="warehouse-btn warehouse-btn-secondary"
                           style={{ padding: '6px 12px', fontSize: 13 }}
-                          onClick={() => navigate(`/sales/${inv._id}`)}
+                          onClick={() => navigate(`${basePath}/${inv._id}`)}
                         >
                           Xem
                         </button>

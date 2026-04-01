@@ -30,8 +30,8 @@ function normalizeContacts(contacts) {
 function getSupplierScopeFilter(req) {
   const role = String(req.user?.role || '').toLowerCase();
   if (role === 'admin') return {};
-  // manager và staff (kể cả role cũ) đều scope theo storeId
-  const isStoreScopedRole = ['manager', 'staff', 'warehouse_staff', 'sales_staff'].includes(role);
+  // manager và staff đều scope theo storeId
+  const isStoreScopedRole = ['manager', 'staff'].includes(role);
   if (isStoreScopedRole) {
     return { storeId: req.user?.storeId || null };
   }

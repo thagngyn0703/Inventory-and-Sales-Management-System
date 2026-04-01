@@ -205,7 +205,7 @@ export default function SalesInvoiceDetail() {
        setTabs([newTab]);
        setActiveTabId(newTab.tabId);
        setTabCounter(2);
-       if (!isNew) navigate('/sales/invoices/new'); // escape edit mode if closing the only tab
+       if (!isNew) navigate('/staff/invoices/new'); // escape edit mode if closing the only tab
        return;
     }
     const newTabs = tabs.filter(t => t.tabId !== tabIdToClose);
@@ -557,7 +557,7 @@ export default function SalesInvoiceDetail() {
         </div>
         <div className="pos-bottom-bar">
              <div style={{ flex: 1, display: 'flex', gap: 20 }}>
-                  <div className="pos-mode-btn" onClick={() => navigate('/sales/invoices')}><i className="fa-solid fa-clock" /> Lịch sử Hóa đơn</div>
+                  <div className="pos-mode-btn" onClick={() => navigate('/staff/invoices')}><i className="fa-solid fa-clock" /> Lịch sử Hóa đơn</div>
              </div>
              <div style={{ color: '#64748b', fontSize: 13, fontWeight: 600 }}>
                 Tổng số dòng: {activeTab.items.length}

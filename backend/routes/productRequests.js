@@ -22,8 +22,8 @@ function normalizeProduct(p) {
   return { ...p, selling_units: units, sale_price: baseUnit ? baseUnit.sale_price : (p.sale_price || 0) };
 }
 
-// POST /api/product-requests (warehouse, admin, manager)
-router.post('/', requireAuth, requireRole(['warehouse', 'manager']), async (req, res) => {
+// POST /api/product-requests (staff, manager, admin)
+router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
   console.log('POST /api/product-requests called by', req.user?.id, req.user?.role);
   console.log('body:', JSON.stringify(req.body).slice(0, 1000));
   try {

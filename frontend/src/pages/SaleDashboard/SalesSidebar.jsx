@@ -37,19 +37,19 @@ export default function SalesSidebar({ collapsed, onToggle }) {
 
   // Nhóm Bán hàng
   const salesItems = [
-    { to: '/sales/invoices/new', icon: 'fa-plus-circle', label: 'Tạo hóa đơn', end: true },
-    { to: '/sales/invoices', icon: 'fa-file-invoice-dollar', label: 'Lịch sử bán lẻ', end: true },
-    { to: '/sales/returns/new', icon: 'fa-rotate-left', label: 'Trả hàng', end: true },
-    { to: '/sales/returns', icon: 'fa-arrow-rotate-left', label: 'Hàng trả lại', end: true },
-    { to: '/sales/customers', icon: 'fa-user-group', label: 'Khách hàng', end: true },
+    { to: '/staff/invoices/new', icon: 'fa-plus-circle', label: 'Tạo hóa đơn', end: true },
+    { to: '/staff/invoices', icon: 'fa-file-invoice-dollar', label: 'Lịch sử bán lẻ', end: true },
+    { to: '/staff/returns/new', icon: 'fa-rotate-left', label: 'Trả hàng', end: true },
+    { to: '/staff/returns', icon: 'fa-arrow-rotate-left', label: 'Hàng trả lại', end: true },
+    { to: '/staff/customers', icon: 'fa-user-group', label: 'Khách hàng', end: true },
   ];
 
   // Nhóm Kho hàng (chuyển từ Warehouse Dashboard)
   const warehouseItems = [
-    { to: '/sales/receipts/new', icon: 'fa-box', label: 'Nhập hàng', end: true },
-    { to: '/sales/receipts', icon: 'fa-list', label: 'Phiếu nhập kho', end: true },
-    { to: '/sales/stocktakes', icon: 'fa-clipboard-list', label: 'Danh sách kiểm kê', end: true },
-    { to: '/sales/stocktakes/new', icon: 'fa-clipboard-check', label: 'Tạo phiếu kiểm kê', end: true },
+    { to: '/staff/receipts/new', icon: 'fa-box', label: 'Nhập hàng', end: true },
+    { to: '/staff/receipts', icon: 'fa-list', label: 'Phiếu nhập kho', end: true },
+    { to: '/staff/stocktakes', icon: 'fa-clipboard-list', label: 'Danh sách kiểm kê', end: true },
+    { to: '/staff/stocktakes/new', icon: 'fa-clipboard-check', label: 'Tạo phiếu kiểm kê', end: true },
   ];
 
   return (

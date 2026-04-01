@@ -32,7 +32,7 @@ const requireAdmin = (req, res, next) => {
 };
 
 const requireManagerOrWarehouse = (req, res, next) => {
-    if (!req.user || !['admin', 'manager', 'staff', 'warehouse_staff'].includes(req.user.role)) {
+    if (!req.user || !['admin', 'manager', 'staff'].includes(req.user.role)) {
         return res.status(403).json({ message: 'Access denied. Admin, Manager, or Staff only.' });
     }
     if (req.user.role === 'manager' && !req.user.storeId) {
@@ -45,7 +45,7 @@ const requireManagerOrWarehouse = (req, res, next) => {
 };
 
 const requireManagerOrAdminOrWarehouse = (req, res, next) => {
-    if (!req.user || !['admin', 'manager', 'staff', 'warehouse_staff'].includes(req.user.role)) {
+    if (!req.user || !['admin', 'manager', 'staff'].includes(req.user.role)) {
         return res.status(403).json({ message: 'Access denied. Admin, Manager, or Staff only.' });
     }
     if (req.user.role === 'manager' && !req.user.storeId) {
