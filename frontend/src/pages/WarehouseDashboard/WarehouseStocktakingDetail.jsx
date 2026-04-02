@@ -1,7 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { Platform } from 'react-bits/lib/modules/Platform';
 import { useWarehouseBase } from '../../utils/useWarehouseBase';
 import { getStocktake, updateStocktake } from '../../services/stocktakesApi';
+import { Button } from '../../components/ui/button';
+import { Card, CardContent } from '../../components/ui/card';
+import { Badge } from '../../components/ui/badge';
 
 const STATUS_LABEL = {
   draft: 'Nháp',
@@ -109,15 +113,15 @@ export default function WarehouseStocktakingDetail() {
   };
 
   if (loading) {
-    return <p style={{ padding: 24, color: '#6b7280' }}>Đang tải...</p>;
+    return <p className="p-6 text-slate-500">Đang tải...</p>;
   }
   if (error && !stocktake) {
     return (
       <>
-        <div className="warehouse-alert warehouse-alert-error">{error}</div>
-        <button type="button" className="warehouse-btn warehouse-btn-secondary" onClick={() => navigate(`${warehouseBase}/stocktakes`)}>
+        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">{error}</div>
+        <Button type="button" variant="outline" onClick={() => navigate(`${warehouseBase}/stocktakes`)}>
           Quay lại danh sách
-        </button>
+        </Button>
       </>
     );
   }
@@ -127,61 +131,73 @@ export default function WarehouseStocktakingDetail() {
 
   return (
     <>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-        <button
-          type="button"
-          className="warehouse-btn warehouse-btn-secondary"
-          onClick={() => navigate(`${warehouseBase}/stocktakes`)}
-        >
-          ← Quay lại
-        </button>
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Chi tiết phiếu kiểm kê</h1>
+          <p className="text-sm text-slate-500">
+            Tạo lúc: {formatDate(stocktake?.snapshot_at)} — Người tạo: {stocktake?.created_by?.email ?? '—'}
+          </p>
+          <p className="text-xs text-slate-400">
+            {Platform.select({ web: 'Giao diện tối ưu để kiểm đếm nhanh và gửi duyệt chính xác.', default: 'Tối ưu thao tác kiểm đếm.' })}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Badge className={
+            stocktake?.status === 'completed'
+              ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+              : stocktake?.status === 'cancelled'
+                ? 'bg-red-100 text-red-700 border border-red-200'
+                : stocktake?.status === 'submitted'
+                  ? 'bg-amber-100 text-amber-700 border border-amber-200'
+                  : 'bg-slate-100 text-slate-700 border border-slate-200'
+          }>
+            {STATUS_LABEL[stocktake?.status] ?? stocktake?.status}
+          </Badge>
+          <Button type="button" variant="outline" onClick={() => navigate(`${warehouseBase}/stocktakes`)}>
+            Quay lại
+          </Button>
+        </div>
       </div>
-      <h1 className="warehouse-page-title">Chi tiết phiếu kiểm kê</h1>
-      <p className="warehouse-page-subtitle">
-        Tạo lúc: {formatDate(stocktake?.snapshot_at)} — Người tạo: {stocktake?.created_by?.email ?? '—'} — Trạng thái:{' '}
-        <span className={`warehouse-status-badge warehouse-status-${stocktake?.status}`}>
-          {STATUS_LABEL[stocktake?.status] ?? stocktake?.status}
-        </span>
-      </p>
 
       {stocktake?.status === 'cancelled' && stocktake?.reject_reason && (
-        <div className="warehouse-alert warehouse-alert-error" style={{ marginBottom: 16 }}>
+        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           <strong>Lý do từ chối:</strong> {stocktake.reject_reason}
         </div>
       )}
 
       {isDraft && (
-        <p style={{ marginBottom: 16, fontSize: 14, color: '#6b7280' }}>
+        <p className="mb-4 text-sm text-slate-500">
           Nhập <strong>số lượng thực tế</strong> đã kiểm đếm và <strong>lý do chênh lệch</strong> (nếu có), sau đó bấm Lưu hoặc Gửi duyệt.
         </p>
       )}
 
       {successMessage && (
-        <div className="warehouse-alert warehouse-alert-success" role="status">
+        <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700" role="status">
           {successMessage}
         </div>
       )}
       {error && stocktake && (
-        <div className="warehouse-alert warehouse-alert-error" role="alert">
+        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700" role="alert">
           {error}
         </div>
       )}
 
-      <div className="warehouse-card">
-        <div className="warehouse-table-wrap">
-          <table className="warehouse-table">
-            <thead>
-              <tr>
-                <th>Sản phẩm</th>
-                <th>SKU</th>
-                <th>Đơn vị</th>
-                <th style={{ textAlign: 'right' }}>Tồn hệ thống</th>
-                <th style={{ textAlign: 'right' }}>Thực tế (kiểm đếm)</th>
-                <th style={{ textAlign: 'right' }}>Chênh lệch</th>
-                <th>Lý do chênh lệch</th>
-              </tr>
-            </thead>
-            <tbody>
+      <Card>
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="bg-slate-100 text-slate-600">
+                <tr>
+                  <th className="px-4 py-3 text-left font-semibold">Sản phẩm</th>
+                  <th className="px-4 py-3 text-left font-semibold">SKU</th>
+                  <th className="px-4 py-3 text-left font-semibold">Đơn vị</th>
+                  <th className="px-4 py-3 text-right font-semibold">Tồn hệ thống</th>
+                  <th className="px-4 py-3 text-right font-semibold">Thực tế (kiểm đếm)</th>
+                  <th className="px-4 py-3 text-right font-semibold">Chênh lệch</th>
+                  <th className="px-4 py-3 text-left font-semibold">Lý do chênh lệch</th>
+                </tr>
+              </thead>
+              <tbody>
               {showEdit
                 ? editableItems.map((item, idx) => {
                     const product = items[idx]?.product_id;
@@ -193,36 +209,36 @@ export default function WarehouseStocktakingDetail() {
                     const numActual = actualVal === '' || actualVal === null ? null : Number(actualVal);
                     const variance = numActual !== null ? numActual - systemQty : null;
                     return (
-                      <tr key={item.product_id ?? idx}>
-                        <td>{name}</td>
-                        <td>{sku}</td>
-                        <td>{unit}</td>
-                        <td style={{ textAlign: 'right' }}>{Number(systemQty).toLocaleString('vi-VN')}</td>
-                        <td style={{ textAlign: 'right' }}>
+                      <tr key={item.product_id ?? idx} className="border-t border-slate-100">
+                        <td className="px-4 py-3">{name}</td>
+                        <td className="px-4 py-3">{sku}</td>
+                        <td className="px-4 py-3">{unit}</td>
+                        <td className="px-4 py-3 text-right">{Number(systemQty).toLocaleString('vi-VN')}</td>
+                        <td className="px-4 py-3 text-right">
                           <input
                             type="number"
                             min={0}
                             step={1}
                             value={actualVal === null || actualVal === undefined ? '' : actualVal}
                             onChange={(e) => updateItem(idx, 'actual_qty', e.target.value === '' ? '' : e.target.value)}
-                            style={{ width: 90, padding: '6px 8px', border: '1px solid #e5e7eb', borderRadius: 6, textAlign: 'right' }}
+                            className="h-9 w-24 rounded-md border border-slate-300 px-2 text-right text-sm"
                             placeholder="Nhập số"
                           />
                         </td>
-                        <td style={{ textAlign: 'right' }}>
+                        <td className="px-4 py-3 text-right">
                           {variance !== null ? (
-                            <span style={{ color: variance !== 0 ? (variance > 0 ? '#166534' : '#b91c1c') : undefined }}>
+                            <span className={variance > 0 ? 'text-emerald-700 font-semibold' : variance < 0 ? 'text-red-600 font-semibold' : ''}>
                               {variance > 0 ? '+' : ''}{Number(variance).toLocaleString('vi-VN')}
                             </span>
                           ) : '—'}
                         </td>
-                        <td>
+                        <td className="px-4 py-3">
                           <input
                             type="text"
                             value={item.reason}
                             onChange={(e) => updateItem(idx, 'reason', e.target.value)}
                             placeholder="Lý do (nếu có)"
-                            style={{ width: '100%', minWidth: 120, padding: '6px 8px', border: '1px solid #e5e7eb', borderRadius: 6 }}
+                            className="h-9 w-full min-w-[140px] rounded-md border border-slate-300 px-3 text-sm"
                           />
                         </td>
                       </tr>
@@ -237,51 +253,42 @@ export default function WarehouseStocktakingDetail() {
                     const actualQty = item.actual_qty;
                     const variance = item.variance != null ? item.variance : (actualQty != null ? actualQty - systemQty : null);
                     return (
-                      <tr key={item.product_id?._id ?? idx}>
-                        <td>{name}</td>
-                        <td>{sku}</td>
-                        <td>{unit}</td>
-                        <td style={{ textAlign: 'right' }}>{Number(systemQty).toLocaleString('vi-VN')}</td>
-                        <td style={{ textAlign: 'right' }}>{actualQty != null ? Number(actualQty).toLocaleString('vi-VN') : '—'}</td>
-                        <td style={{ textAlign: 'right' }}>
+                      <tr key={item.product_id?._id ?? idx} className="border-t border-slate-100">
+                        <td className="px-4 py-3">{name}</td>
+                        <td className="px-4 py-3">{sku}</td>
+                        <td className="px-4 py-3">{unit}</td>
+                        <td className="px-4 py-3 text-right">{Number(systemQty).toLocaleString('vi-VN')}</td>
+                        <td className="px-4 py-3 text-right">{actualQty != null ? Number(actualQty).toLocaleString('vi-VN') : '—'}</td>
+                        <td className="px-4 py-3 text-right">
                           {variance != null ? (
-                            <span style={{ color: variance !== 0 ? (variance > 0 ? '#166534' : '#b91c1c') : undefined }}>
+                            <span className={variance > 0 ? 'text-emerald-700 font-semibold' : variance < 0 ? 'text-red-600 font-semibold' : ''}>
                               {variance > 0 ? '+' : ''}{Number(variance).toLocaleString('vi-VN')}
                             </span>
                           ) : '—'}
                         </td>
-                        <td>{item.reason || '—'}</td>
+                        <td className="px-4 py-3">{item.reason || '—'}</td>
                       </tr>
                     );
                   })}
-            </tbody>
-          </table>
-        </div>
-        {items.length === 0 && (
-          <p style={{ padding: 24, textAlign: 'center', color: '#6b7280' }}>Không có dòng sản phẩm.</p>
-        )}
-
-        {showEdit && (
-          <div style={{ marginTop: 20, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-            <button
-              type="button"
-              className="warehouse-btn warehouse-btn-primary"
-              onClick={handleSave}
-              disabled={saving || submitting}
-            >
-              {saving ? 'Đang lưu...' : 'Lưu'}
-            </button>
-            <button
-              type="button"
-              className="warehouse-btn warehouse-btn-secondary"
-              onClick={handleSubmit}
-              disabled={saving || submitting}
-            >
-              {submitting ? 'Đang gửi...' : 'Gửi duyệt'}
-            </button>
+              </tbody>
+            </table>
           </div>
-        )}
-      </div>
+          {items.length === 0 && (
+            <p className="p-8 text-center text-slate-500">Không có dòng sản phẩm.</p>
+          )}
+
+          {showEdit && (
+            <div className="flex flex-wrap gap-2 border-t border-slate-100 p-4">
+              <Button type="button" onClick={handleSave} disabled={saving || submitting}>
+                {saving ? 'Đang lưu...' : 'Lưu'}
+              </Button>
+              <Button type="button" variant="outline" onClick={handleSubmit} disabled={saving || submitting}>
+                {submitting ? 'Đang gửi...' : 'Gửi duyệt'}
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </>
   );
 }
