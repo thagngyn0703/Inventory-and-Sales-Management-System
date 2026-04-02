@@ -37,31 +37,29 @@ async function requireAuth(req, res, next) {
   }
 }
 
+/**
+ * Map mọi role cũ (warehouse_staff, sales_staff, warehouse, sales) về 'staff'
+ * để đảm bảo backward compat với dữ liệu user đã có trong DB.
+ */
+function normalizeRoleToThreeTier(role) {
+  const r = String(role || '').toLowerCase().trim();
+  if (r === 'warehouse_staff' || r === 'warehouse staff' || r === 'warehouse') return 'staff';
+  if (r === 'sales_staff' || r === 'sales staff' || r === 'sales') return 'staff';
+  return r;
+}
+
 function requireRole(allowedRoles, options = {}) {
-  const baseAllowed = (allowedRoles || []).map((r) => String(r).toLowerCase());
-  const allowed = [...baseAllowed];
+  const allowed = (allowedRoles || []).map((r) => String(r).toLowerCase());
   const allowManagerWithoutStore = Boolean(options.allowManagerWithoutStore);
-  if (baseAllowed.includes('warehouse')) {
-    allowed.push('warehouse_staff', 'staff');
-  }
-  if (baseAllowed.includes('sales')) {
-    allowed.push('sales_staff', 'staff');
-  }
-  const normalizeRole = (role) => {
-    const r = String(role || '').toLowerCase();
-    if (r === 'warehouse_staff' || r === 'warehouse staff') return 'warehouse';
-    if (r === 'sales_staff' || r === 'sales staff') return 'sales';
-    return r;
-  };
+
   return (req, res, next) => {
     const raw = String(req.user?.role || '').toLowerCase();
-    const role = normalizeRole(req.user?.role) || raw;
+    // Chuẩn hóa về 3 tier: admin / manager / staff
+    const role = normalizeRoleToThreeTier(raw);
+
     const isManagerAllowed = allowed.includes('manager');
     const missingManagerStore = role === 'manager' && isManagerAllowed && !req.user?.storeId;
-    const isStoreScopedRole =
-      ['manager', 'warehouse', 'sales'].includes(role) ||
-      raw === 'staff' ||
-      ['manager', 'warehouse_staff', 'sales_staff'].includes(raw);
+    const isStoreScopedRole = ['manager', 'staff'].includes(role);
     const isWrite = !['GET', 'HEAD', 'OPTIONS'].includes(String(req.method || '').toUpperCase());
 
     if (missingManagerStore && !allowManagerWithoutStore) {
@@ -79,14 +77,13 @@ function requireRole(allowedRoles, options = {}) {
     }
 
     if (allowed.includes(role)) return next();
-    if (allowed.includes(raw)) return next();
     return res.status(403).json({ message: 'Forbidden' });
   };
 }
 
 function blockStoreLockedWrite(req, res, next) {
-  const role = String(req.user?.role || '').toLowerCase();
-  const isStoreScopedRole = ['manager', 'warehouse_staff', 'sales_staff', 'staff'].includes(role);
+  const role = normalizeRoleToThreeTier(req.user?.role);
+  const isStoreScopedRole = ['manager', 'staff'].includes(role);
   const isWrite = !['GET', 'HEAD', 'OPTIONS'].includes(String(req.method || '').toUpperCase());
   if (isStoreScopedRole && isWrite && req.user?.storeStatus === 'inactive') {
     return res.status(403).json({

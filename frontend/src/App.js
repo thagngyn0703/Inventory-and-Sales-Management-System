@@ -18,8 +18,6 @@ import ManagerInvoicesList from "./pages/ManagerDashboard/ManagerInvoicesList";
 import ManagerInvoiceDetail from "./pages/ManagerDashboard/ManagerInvoiceDetail";
 import ManagerInvoiceView from "./pages/ManagerDashboard/ManagerInvoiceView";
 import RequireRole from "./components/RequireRole";
-import WarehouseDashboard from "./pages/WarehouseDashboard/WarehouseDashboard.jsx";
-import WarehouseHome from "./pages/WarehouseDashboard/WarehouseHome.jsx";
 import WarehouseStocktakingCreate from "./pages/WarehouseDashboard/WarehouseStocktakingCreate.jsx";
 import WarehouseStocktakingList from "./pages/WarehouseDashboard/WarehouseStocktakingList.jsx";
 import WarehouseStocktakingDetail from "./pages/WarehouseDashboard/WarehouseStocktakingDetail.jsx";
@@ -48,6 +46,7 @@ import ManagerReceiptDetail from "./pages/ManagerDashboard/ManagerReceiptDetail"
 import ManagerProductRequests from "./pages/ManagerDashboard/ManagerProductRequests";
 import ManagerStoreRegister from "./pages/ManagerDashboard/ManagerStoreRegister";
 import ManagerNotifications from "./pages/ManagerDashboard/ManagerNotifications";
+import ManagerPriceChangeReport from "./pages/ManagerDashboard/ManagerPriceChangeReport";
 import RequireManagerStore from "./components/RequireManagerStore";
 import RequireStaffStore from "./components/RequireStaffStore";
 
@@ -136,32 +135,22 @@ function App() {
       <Route path="/manager/staff/new" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerCreateStaff /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/staff/manage" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerStaffManage /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/notifications" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerNotifications /></RequireManagerStore></RequireRole></RequireAuth>} />
+      <Route path="/manager/reports" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerPriceChangeReport /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route
         path="/warehouse"
-        element={
-          <RequireAuth>
-            <RequireRole allowedRoles={['warehouse', 'staff', 'manager', 'admin']}>
-              <RequireStaffStore>
-                <WarehouseDashboard />
-              </RequireStaffStore>
-            </RequireRole>
-          </RequireAuth>
-        }
-      >
-        <Route index element={<WarehouseHome />} />
-        <Route path="stocktakes" element={<WarehouseStocktakingList />} />
-        <Route path="stocktakes/new" element={<WarehouseStocktakingDetail />} />
-        <Route path="stocktakes/:id" element={<WarehouseStocktakingDetail />} />
-        <Route path="receipts" element={<WarehouseGoodsReceiptList />} />
-        <Route path="receipts/new" element={<WarehouseGoodsReceiptCreate />} />
-        <Route path="receipts/:id" element={<WarehouseGoodsReceiptDetail />} />
-      </Route>
+        element={<Navigate to="/staff" replace />}
+      />
 
       <Route
-        path="/sales"
+        path="/sales/*"
+        element={<Navigate to="/staff" replace />}
+      />
+
+      <Route
+        path="/staff"
         element={
           <RequireAuth>
-            <RequireRole allowedRoles={['sales', 'staff', 'manager', 'admin']}>
+            <RequireRole allowedRoles={['staff', 'manager', 'admin']}>
               <SalesDashboard />
             </RequireRole>
           </RequireAuth>
@@ -175,6 +164,13 @@ function App() {
         <Route path="customers" element={<SalesCustomerPage />} />
         <Route path="invoices/:id" element={<SalesInvoiceView />} />
         <Route path=":id" element={<SalesInvoiceView />} />
+        {/* Warehouse sub-routes accessible from staff dashboard */}
+        <Route path="receipts" element={<WarehouseGoodsReceiptList />} />
+        <Route path="receipts/new" element={<WarehouseGoodsReceiptCreate />} />
+        <Route path="receipts/:id" element={<WarehouseGoodsReceiptDetail />} />
+        <Route path="stocktakes" element={<WarehouseStocktakingList />} />
+        <Route path="stocktakes/new" element={<WarehouseStocktakingCreate />} />
+        <Route path="stocktakes/:id" element={<WarehouseStocktakingDetail />} />
       </Route>
     </Routes>
   );

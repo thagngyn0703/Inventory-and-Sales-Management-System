@@ -130,15 +130,15 @@ export default function SalesHome() {
         <div className="sales-quick-actions" style={{ flex: 1, marginBottom: 0 }}>
             <h3>Truy cập nhanh</h3>
             <div className="quick-actions-grid" style={{ flexDirection: 'column' }}>
-            <button className="q-btn" onClick={() => navigate('/sales/invoices/new')}>
+            <button className="q-btn" onClick={() => navigate('/staff/invoices/new')}>
                 <i className="fa-solid fa-plus-circle" />
                 Tạo đơn mới
             </button>
-            <button className="q-btn" onClick={() => navigate('/sales/invoices/new?type=return')}>
+            <button className="q-btn" onClick={() => navigate('/staff/invoices/new?type=return')}>
                 <i className="fa-solid fa-arrow-rotate-left" />
                 Trả hàng
             </button>
-            <button className="q-btn" onClick={() => navigate('/sales/invoices')}>
+            <button className="q-btn" onClick={() => navigate('/staff/invoices')}>
                 <i className="fa-solid fa-clock-rotate-left" />
                 Lịch sử
             </button>
@@ -171,7 +171,7 @@ export default function SalesHome() {
                     </span>
                   </td>
                   <td>
-                    <button onClick={() => navigate(`/sales/${inv._id}`)}>Chi tiết</button>
+                    <button onClick={() => navigate(`/staff/${inv._id}`)}>Chi tiết</button>
                   </td>
                 </tr>
               ))}

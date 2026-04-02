@@ -454,7 +454,8 @@
 
 /* ----- Chi tiết điều chỉnh tồn ----- */
 .adjustment-detail-content {
-    max-width: 960px;
+    max-width: none;
+    width: 100%;
     padding-top: 8px;
     padding-bottom: 32px;
 }

@@ -1,8 +1,10 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useWarehouseBase } from '../../utils/useWarehouseBase';
 
 export default function WarehouseHome() {
   const navigate = useNavigate();
+  const warehouseBase = useWarehouseBase();
 
   return (
     <>
@@ -18,14 +20,14 @@ export default function WarehouseHome() {
           <button
             type="button"
             className="warehouse-btn warehouse-btn-primary"
-            onClick={() => navigate('/warehouse/stocktakes/new')}
+            onClick={() => navigate(`${warehouseBase}/stocktakes/new`)}
           >
             Tạo phiếu kiểm kê
           </button>
           <button
             type="button"
             className="warehouse-btn warehouse-btn-secondary"
-            onClick={() => navigate('/warehouse/stocktakes')}
+            onClick={() => navigate(`${warehouseBase}/stocktakes`)}
           >
             Danh sách phiếu kiểm kê
           </button>

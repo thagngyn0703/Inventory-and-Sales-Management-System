@@ -1,7 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { Platform } from 'react-bits/lib/modules/Platform';
 import ManagerSidebar from './ManagerSidebar';
-import { getAdjustment } from '../../services/adjustmentsApi';
+import { getAdjustment, revertAdjustment } from '../../services/adjustmentsApi';
+import { Button } from '../../components/ui/button';
+import { Card, CardContent } from '../../components/ui/card';
+import { Badge } from '../../components/ui/badge';
 import './ManagerDashboard.css';
 import '../WarehouseDashboard/WarehouseDashboard.css';
 
@@ -11,6 +15,13 @@ export default function ManagerAdjustmentDetail() {
   const [adjustment, setAdjustment] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
+  const [revertLoading, setRevertLoading] = useState(false);
+  const [revertModalOpen, setRevertModalOpen] = useState(false);
+  const [revertConfirmOpen, setRevertConfirmOpen] = useState(false);
+  const [revertReason, setRevertReason] = useState('');
+  const [toast, setToast] = useState(null);
+  const toastTimerRef = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -39,6 +50,29 @@ export default function ManagerAdjustmentDetail() {
       return '—';
     }
   };
+
+  useEffect(() => () => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+  }, []);
+
+  const showToast = (type, message) => {
+    if (!message) return;
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToast({ type, message });
+    toastTimerRef.current = setTimeout(() => setToast(null), 3200);
+  };
+
+  useEffect(() => {
+    if (!successMessage) return;
+    showToast('success', successMessage);
+    setSuccessMessage('');
+  }, [successMessage]);
+
+  useEffect(() => {
+    if (!error || !adjustment) return;
+    showToast('error', error);
+    setError('');
+  }, [error, adjustment]);
 
   if (loading) {
     return (
@@ -71,11 +105,31 @@ export default function ManagerAdjustmentDetail() {
 
   const items = adjustment.items || [];
   const stocktakeItems = adjustment.stocktake_id?.items || [];
+  const canRevert = Boolean(adjustment.stocktake_id && !adjustment.is_reverted && ['approved', 'rejected'].includes(adjustment.status));
   const reasonByProductId = {};
   stocktakeItems.forEach((it) => {
     const pid = it.product_id?._id ?? it.product_id;
     if (pid) reasonByProductId[String(pid)] = it.reason || '';
   });
+
+  const handleRevert = async () => {
+    if (!id) return;
+    setRevertLoading(true);
+    setError('');
+    setSuccessMessage('');
+    try {
+      const resp = await revertAdjustment(id, { reason: revertReason.trim() });
+      setAdjustment(resp.adjustment);
+      setSuccessMessage(resp.message || 'Hoàn tác thành công.');
+      setRevertModalOpen(false);
+      setRevertConfirmOpen(false);
+      setRevertReason('');
+    } catch (e) {
+      setError(e.message || 'Không thể hoàn tác phiếu điều chỉnh.');
+    } finally {
+      setRevertLoading(false);
+    }
+  };
 
   return (
     <div className="manager-page-with-sidebar">
@@ -89,87 +143,191 @@ export default function ManagerAdjustmentDetail() {
             </div>
           </div>
         </header>
-        <div className="manager-content adjustment-detail-content">
-          <h1 className="manager-page-title adjustment-detail-title">Chi tiết điều chỉnh tồn</h1>
-
-          <div className="adjustment-detail-box adjustment-detail-info">
-            <h3 className="adjustment-detail-box-title">Thông tin phiếu</h3>
-            <div className="adjustment-detail-info-grid">
-              <div className="adjustment-detail-info-item">
-                <span className="adjustment-detail-info-label">Duyệt lúc</span>
-                <span className="adjustment-detail-info-value">{formatDate(adjustment.approved_at)}</span>
-              </div>
-              <div className="adjustment-detail-info-item">
-                <span className="adjustment-detail-info-label">Người duyệt</span>
-                <span className="adjustment-detail-info-value">{adjustment.approved_by?.email ?? '—'}</span>
-              </div>
-              <div className="adjustment-detail-info-item">
-                <span className="adjustment-detail-info-label">Trạng thái</span>
-                <span className={`adjustment-detail-status adjustment-detail-status--${adjustment.status === 'approved' ? 'approved' : adjustment.status === 'rejected' ? 'rejected' : 'pending'}`}>
-                  {adjustment.status === 'approved' ? 'Đã duyệt' : adjustment.status === 'rejected' ? 'Đã từ chối' : adjustment.status}
-                </span>
+        <div className="manager-content adjustment-detail-content bg-slate-50">
+          {revertModalOpen && (
+            <div
+              className="manager-reason-modal-overlay"
+              onClick={(e) => e.target === e.currentTarget && setRevertModalOpen(false)}
+              role="dialog"
+              aria-modal="true"
+            >
+              <div className="manager-reason-modal-box" style={{ border: '1px solid #fbbf24' }}>
+                <h2 className="manager-reason-modal-title" style={{ color: '#b45309' }}>Xác nhận hoàn tác</h2>
+                <p className="manager-reason-modal-hint">
+                  Hệ thống sẽ hoàn tác phiếu này và đưa phiếu kiểm kê liên quan về trạng thái chờ duyệt.
+                </p>
+                <textarea
+                  className="manager-reason-modal-input"
+                  value={revertReason}
+                  onChange={(e) => setRevertReason(e.target.value)}
+                  rows={3}
+                  placeholder="Lý do hoàn tác (tùy chọn)"
+                  autoFocus
+                />
+                <div className="manager-reason-modal-actions">
+                  <button type="button" className="warehouse-btn warehouse-btn-secondary" onClick={() => setRevertModalOpen(false)} disabled={revertLoading}>
+                    Hủy
+                  </button>
+                  <button
+                    type="button"
+                    className="warehouse-btn warehouse-btn-primary"
+                    onClick={() => {
+                      setRevertModalOpen(false);
+                      setRevertConfirmOpen(true);
+                    }}
+                    disabled={revertLoading}
+                  >
+                    Tiếp tục
+                  </button>
+                </div>
               </div>
             </div>
-            <div className="adjustment-detail-reason-inline">
-              <span className="adjustment-detail-info-label">Lý do điều chỉnh</span>
-              <p className="adjustment-detail-reason-text">
-                {adjustment.reason && adjustment.reason.trim() ? adjustment.reason : '— Không có —'}
+          )}
+
+          {revertConfirmOpen && (
+            <div
+              className="manager-reason-modal-overlay"
+              onClick={(e) => e.target === e.currentTarget && setRevertConfirmOpen(false)}
+              role="dialog"
+              aria-modal="true"
+            >
+              <div className="manager-reason-modal-box" style={{ border: '1px solid #f59e0b' }}>
+                <h2 className="manager-reason-modal-title" style={{ color: '#b45309' }}>Xác nhận lớp 2</h2>
+                <p className="manager-reason-modal-hint">
+                  Bạn có chắc chắn muốn hoàn tác phiếu này? Hành động sẽ đảo lại tồn kho và mở lại phiếu kiểm kê chờ duyệt.
+                </p>
+                <div className="manager-reason-modal-actions">
+                  <button type="button" className="warehouse-btn warehouse-btn-secondary" onClick={() => setRevertConfirmOpen(false)} disabled={revertLoading}>
+                    Quay lại
+                  </button>
+                  <button
+                    type="button"
+                    className="warehouse-btn"
+                    style={{ background: '#b45309', color: '#fff' }}
+                    onClick={handleRevert}
+                    disabled={revertLoading}
+                  >
+                    {revertLoading ? 'Đang hoàn tác...' : 'Xác nhận hoàn tác'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h1 className="text-2xl font-bold text-slate-900">Chi tiết điều chỉnh tồn</h1>
+              <p className="text-sm text-slate-500">Theo dõi lý do và từng dòng điều chỉnh để kiểm soát tồn kho.</p>
+              <p className="text-xs text-slate-400">
+                {Platform.select({ web: 'Manager có thể hoàn tác nhanh khi phát hiện thao tác duyệt/từ chối nhầm.', default: 'Có thể hoàn tác khi thao tác nhầm.' })}
               </p>
-              {adjustment.status === 'approved' && (!adjustment.reason || adjustment.reason.trim() === 'Duyệt từ phiếu kiểm kê') && (
-                <p className="adjustment-detail-reason-hint">Lý do từng dòng xem ở bảng bên dưới.</p>
+            </div>
+            <div className="flex items-center gap-2">
+              {adjustment.is_reverted ? (
+                <Badge className="bg-violet-100 text-violet-700 border border-violet-200">Đã hoàn tác</Badge>
+              ) : (
+                <Badge className={adjustment.status === 'approved' ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : adjustment.status === 'rejected' ? 'bg-red-100 text-red-700 border border-red-200' : 'bg-amber-100 text-amber-700 border border-amber-200'}>
+                  {adjustment.status === 'approved' ? 'Đã duyệt' : adjustment.status === 'rejected' ? 'Đã từ chối' : adjustment.status}
+                </Badge>
               )}
+              <Button type="button" variant="outline" onClick={() => navigate('/manager/adjustments')}>
+                Quay lại
+              </Button>
             </div>
           </div>
 
-          <div className="adjustment-detail-box adjustment-detail-table-box">
-            <h3 className="adjustment-detail-box-title">Chi tiết dòng điều chỉnh</h3>
-            <div className="warehouse-table-wrap">
-              <table className="warehouse-table manager-table">
-                <thead>
-                  <tr>
-                    <th>Sản phẩm</th>
-                    <th>SKU</th>
-                    <th>Đơn vị</th>
-                    <th style={{ textAlign: 'right' }}>Số điều chỉnh (+/-)</th>
-                    <th>Lý do (từ phiếu kiểm kê)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {items.map((item, idx) => {
-                    const product = item.product_id;
-                    const pid = product?._id ?? item.product_id;
-                    const name = product?.name ?? '—';
-                    const sku = product?.sku ?? '—';
-                    const unit = product?.base_unit ?? 'Cái';
-                    const qty = item.adjusted_qty ?? 0;
-                    const lineReason = pid ? reasonByProductId[String(pid)] : '';
-                    return (
-                      <tr key={item.product_id?._id ?? idx}>
-                        <td>{name}</td>
-                        <td>{sku}</td>
-                        <td>{unit}</td>
-                        <td style={{ textAlign: 'right', color: qty !== 0 ? (qty > 0 ? '#166534' : '#b91c1c') : undefined }}>
-                          {qty > 0 ? '+' : ''}{Number(qty).toLocaleString('vi-VN')}
-                        </td>
-                        <td className="adjustment-detail-cell-reason">{lineReason && lineReason.trim() ? lineReason : '—'}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-            {items.length === 0 && (
-              <p className="adjustment-detail-empty">Không có dòng nào.</p>
-            )}
-          </div>
+          <Card className="mb-4">
+            <CardContent className="p-4">
+              <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+                <div className="rounded-lg border border-slate-200 bg-white p-3">
+                  <p className="text-xs text-slate-500">Duyệt lúc</p>
+                  <p className="text-sm font-semibold text-slate-800">{formatDate(adjustment.approved_at)}</p>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-white p-3">
+                  <p className="text-xs text-slate-500">Người duyệt</p>
+                  <p className="text-sm font-semibold text-slate-800">{adjustment.approved_by?.email ?? '—'}</p>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-white p-3">
+                  <p className="text-xs text-slate-500">Lý do điều chỉnh</p>
+                  <p className="text-sm font-semibold text-slate-800">{adjustment.reason && adjustment.reason.trim() ? adjustment.reason : '— Không có —'}</p>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-white p-3">
+                  <p className="text-xs text-slate-500">Trạng thái hoàn tác</p>
+                  <p className="text-sm font-semibold text-slate-800">
+                    {adjustment.is_reverted ? `Đã hoàn tác (${formatDate(adjustment.reverted_at)})` : 'Chưa hoàn tác'}
+                  </p>
+                </div>
+              </div>
+              {adjustment.is_reverted && (
+                <p className="mt-3 text-xs text-violet-700">
+                  Lý do hoàn tác: {adjustment.revert_reason || '—'} — Người hoàn tác: {adjustment.reverted_by?.email ?? '—'}
+                </p>
+              )}
+              {canRevert && (
+                <div className="mt-4">
+                  <Button type="button" variant="outline" className="border-amber-300 text-amber-700 hover:bg-amber-50" onClick={() => setRevertModalOpen(true)} disabled={revertLoading}>
+                    Hoàn tác phiếu này
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
-          <div className="adjustment-detail-footer">
-            <button type="button" className="warehouse-btn warehouse-btn-secondary" onClick={() => navigate('/manager/adjustments')}>
-              ← Quay lại
-            </button>
-          </div>
+          <Card>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-slate-100 text-slate-600">
+                    <tr>
+                      <th className="px-4 py-3 text-left font-semibold">Sản phẩm</th>
+                      <th className="px-4 py-3 text-left font-semibold">SKU</th>
+                      <th className="px-4 py-3 text-left font-semibold">Đơn vị</th>
+                      <th className="px-4 py-3 text-right font-semibold">Số điều chỉnh (+/-)</th>
+                      <th className="px-4 py-3 text-left font-semibold">Lý do (từ phiếu kiểm kê)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items.map((item, idx) => {
+                      const product = item.product_id;
+                      const pid = product?._id ?? item.product_id;
+                      const name = product?.name ?? '—';
+                      const sku = product?.sku ?? '—';
+                      const unit = product?.base_unit ?? 'Cái';
+                      const qty = item.adjusted_qty ?? 0;
+                      const lineReason = pid ? reasonByProductId[String(pid)] : '';
+                      return (
+                        <tr key={item.product_id?._id ?? idx} className="border-t border-slate-100">
+                          <td className="px-4 py-3">{name}</td>
+                          <td className="px-4 py-3">{sku}</td>
+                          <td className="px-4 py-3">{unit}</td>
+                          <td className={`px-4 py-3 text-right ${qty > 0 ? 'text-emerald-700 font-semibold' : qty < 0 ? 'text-red-600 font-semibold' : ''}`}>
+                            {qty > 0 ? '+' : ''}{Number(qty).toLocaleString('vi-VN')}
+                          </td>
+                          <td className="px-4 py-3">{lineReason && lineReason.trim() ? lineReason : '—'}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              {items.length === 0 && (
+                <p className="p-8 text-center text-slate-500">Không có dòng nào.</p>
+              )}
+            </CardContent>
+          </Card>
         </div>
       </div>
+      {toast && (
+        <div className="fixed right-4 top-4 z-[2500]">
+          <div className={`rounded-lg border px-4 py-3 text-sm font-medium shadow-lg ${
+            toast.type === 'success'
+              ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+              : 'border-red-200 bg-red-50 text-red-700'
+          }`}>
+            {toast.message}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
