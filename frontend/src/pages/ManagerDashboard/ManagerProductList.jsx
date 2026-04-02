@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Platform } from 'react-bits/lib/modules/Platform';
-import { Search } from 'lucide-react';
+import { Search, X } from 'lucide-react';
 import ManagerSidebar from './ManagerSidebar';
 import ManagerNotificationBell from '../../components/ManagerNotificationBell';
 import {
@@ -84,11 +84,14 @@ export default function ManagerProductList() {
         if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     }, []);
 
-    const handleSearchSubmit = (e) => {
-        e.preventDefault();
-        setSearch(searchInput.trim());
-        setPage(1);
-    };
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            const next = searchInput.trim();
+            setSearch((prev) => (prev === next ? prev : next));
+            setPage(1);
+        }, 250);
+        return () => clearTimeout(timer);
+    }, [searchInput]);
 
     const handleToggleStatus = async (p) => {
         if (togglingId) return;
@@ -108,6 +111,26 @@ export default function ManagerProductList() {
     const formatMoney = (n) => {
         if (n == null || isNaN(n)) return '0';
         return Number(n).toLocaleString('vi-VN') + '₫';
+    };
+
+    const highlightMatch = (text, query) => {
+        const raw = String(text || '');
+        const q = String(query || '').trim();
+        if (!q) return raw;
+        const lowerRaw = raw.toLowerCase();
+        const lowerQ = q.toLowerCase();
+        const idx = lowerRaw.indexOf(lowerQ);
+        if (idx < 0) return raw;
+        const before = raw.slice(0, idx);
+        const match = raw.slice(idx, idx + q.length);
+        const after = raw.slice(idx + q.length);
+        return (
+            <>
+                {before}
+                <mark className="rounded bg-amber-200 px-0.5 text-slate-900">{match}</mark>
+                {after}
+            </>
+        );
     };
 
     const thStyle = { padding: '6px 10px', textAlign: 'left', fontWeight: 600, whiteSpace: 'nowrap' };
@@ -209,19 +232,28 @@ export default function ManagerProductList() {
             <ManagerSidebar />
             <div className="manager-main">
                 <header className="manager-topbar">
-                    <form onSubmit={handleSearchSubmit} className="manager-topbar-search-wrap">
+                    <div className="manager-topbar-search-wrap">
                         <div className="relative w-full">
                             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                             <input
-                                type="search"
-                                className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
+                                type="text"
+                                className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-10 text-sm outline-none ring-sky-200 transition focus:ring-2"
                                 placeholder="Tìm kiếm theo tên, SKU, barcode..."
                                 value={searchInput}
                                 onChange={(e) => setSearchInput(e.target.value)}
                             />
+                            {searchInput.trim() && (
+                                <button
+                                    type="button"
+                                    onClick={() => setSearchInput('')}
+                                    className="absolute right-2 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                                    title="Xóa tìm kiếm"
+                                >
+                                    <X className="h-4 w-4" />
+                                </button>
+                            )}
                         </div>
-                        <Button type="submit" variant="outline" aria-label="Tìm kiếm">Tìm</Button>
-                    </form>
+                    </div>
                     <div className="manager-topbar-actions">
                         <ManagerNotificationBell />
                         <div className="manager-user-badge">
@@ -319,7 +351,7 @@ export default function ManagerProductList() {
                                                                 className="manager-product-name-link"
                                                                 onClick={() => navigate(`/manager/products/${p._id}`)}
                                                             >
-                                                                {p.name || '—'}
+                                                                {highlightMatch(p.name || '—', search)}
                                                             </button>
                                                         </td>
                                                         <td>{p.barcode || '—'}</td>

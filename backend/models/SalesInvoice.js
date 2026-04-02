@@ -56,6 +56,10 @@ const salesInvoiceSchema = new Schema(
         },
         items: [
             {
+                line_id: {
+                    type: String,
+                    trim: true,
+                },
                 product_id: {
                     type: Schema.Types.ObjectId,
                     ref: 'Product',
@@ -70,6 +74,10 @@ const salesInvoiceSchema = new Schema(
                     type: Number,
                     required: true,
                 },
+                cost_price: {
+                    type: Number,
+                    default: 0,
+                },
                 discount: {
                     type: Number,
                     default: 0,
@@ -77,6 +85,14 @@ const salesInvoiceSchema = new Schema(
                 line_total: {
                     type: Number,
                     required: true,
+                },
+                line_profit: {
+                    type: Number,
+                    default: 0,
+                },
+                line_updated_at: {
+                    type: Date,
+                    default: null,
                 },
             },
         ],
