@@ -132,7 +132,14 @@ router.post('/:id/pay-debt', requireAuth, requireRole(['sales', 'manager', 'admi
             const SalesInvoice = require('../models/SalesInvoice');
             const updatedInvoices = await SalesInvoice.updateMany(
                 { customer_id: id, status: 'pending', payment_method: 'debt' },
-                { $set: { status: 'confirmed', updated_at: new Date() } }
+                { 
+                  $set: { 
+                    status: 'confirmed', 
+                    payment_status: 'paid',
+                    paid_at: new Date(),
+                    updated_at: new Date() 
+                  } 
+                }
             );
             console.log(`[pay-debt] Updated ${updatedInvoices.modifiedCount} pending invoices to confirmed for customer ${id}`);
         } catch (invoiceErr) {

@@ -86,7 +86,7 @@ async function adjustInventory(items, direction = -1) {
 async function syncInventory(invoice, nextStatus, nextItems = null) {
     const isNew = invoice.isNew || !invoice._id;
     const oldStatus = isNew ? 'new' : invoice.status;
-    const saleStatuses = ['confirmed'];
+    const saleStatuses = ['confirmed', 'pending'];
 
     const isOldSale = saleStatuses.includes(oldStatus);
     const isNextSale = saleStatuses.includes(nextStatus);
@@ -145,9 +145,13 @@ function generatePaymentRef() {
 // POST /api/invoices — create a confirmed outbound invoice
 router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
-        const { customer_id, items: reqItems, payment_method, recipient_name } = req.body || {};
+        const { customer_id, items: reqItems, payment_method, recipient_name, previous_debt_paid } = req.body || {};
         if (!Array.isArray(reqItems) || reqItems.length === 0) {
             return res.status(400).json({ message: 'items (array) is required' });
+        }
+
+        if (payment_method === 'debt' && !customer_id) {
+            return res.status(400).json({ message: 'Khách hàng không được để trống khi ghi nợ' });
         }
 
         const { totalAmount, items: normalizedItems } = calculateInvoiceTotals(reqItems);
@@ -156,13 +160,17 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
             return res.status(400).json({ message: 'Mỗi dòng phải có sản phẩm hợp lệ' });
         }
 
-        const status = (req.body.status === 'cancelled') ? 'cancelled' : 'confirmed';
+        let status = (req.body.status === 'cancelled') ? 'cancelled' : 'confirmed';
         const method = payment_method || 'cash';
+
+        if (method === 'debt' && status === 'confirmed') {
+            status = 'pending';
+        }
 
         // Với chuyển khoản: sinh payment_ref để nhúng vào nội dung QR, trạng thái chờ xác nhận
         // Với tiền mặt: coi là đã thanh toán ngay
         const paymentRef = method === 'bank_transfer' ? generatePaymentRef() : null;
-        const paymentStatus = method === 'cash' ? 'paid' : 'unpaid';
+        let paymentStatus = method === 'cash' ? 'paid' : 'unpaid';
 
         const invoice = new SalesInvoice({
             store_id: req.user.storeId || null,
@@ -176,12 +184,37 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
             paid_at: method === 'cash' ? new Date() : null,
             items: normalizedItems,
             total_amount: totalAmount,
+            previous_debt_paid: Number(previous_debt_paid) || 0,
         });
 
         // Use syncInventory to handle deduction if created as confirmed
         try {
             await syncInventory(invoice, status, normalizedItems);
             await invoice.save();
+
+            if (method === 'debt' && customer_id && (status === 'confirmed' || status === 'pending')) {
+                await mongoose.model('Customer').findByIdAndUpdate(customer_id, {
+                    $inc: { debt_account: totalAmount }
+                });
+            }
+
+            if (Number(previous_debt_paid) > 0 && customer_id && (status === 'confirmed' || status === 'pending')) {
+                await mongoose.model('Customer').findByIdAndUpdate(customer_id, {
+                    $inc: { debt_account: -Math.abs(previous_debt_paid) }
+                });
+                
+                await SalesInvoice.updateMany(
+                    { customer_id, status: 'pending', payment_method: 'debt' },
+                    { 
+                      $set: { 
+                        status: 'confirmed', 
+                        payment_status: 'paid',
+                        paid_at: new Date(),
+                        updated_at: new Date() 
+                      } 
+                    }
+                );
+            }
         } catch (err) {
             if (err.status) return res.status(err.status).json({ message: err.message, problems: err.problems });
             throw err;
@@ -214,7 +247,7 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
 // GET /api/invoices?page=&limit=&status=
 router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
-        const { page = '1', limit = '20', status, dateFrom, dateTo, searchKey } = req.query;
+        const { page = '1', limit = '20', status, dateFrom, dateTo, searchKey, customer_id, payment_method } = req.query;
         const pageNum = Math.max(1, parseInt(page, 10) || 1);
         const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
         const filter = {};
@@ -223,8 +256,16 @@ router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (
         if (req.user.storeId && userRole !== 'admin') {
             filter.store_id = req.user.storeId;
         }
-        if (status && ['confirmed', 'cancelled'].includes(status)) {
+        if (status) {
             filter.status = status;
+        }
+        
+        if (customer_id) {
+            filter.customer_id = customer_id;
+        }
+        
+        if (payment_method) {
+            filter.payment_method = payment_method;
         }
 
         // Apply Date Filters

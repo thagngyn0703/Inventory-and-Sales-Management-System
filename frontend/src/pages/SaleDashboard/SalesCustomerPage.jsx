@@ -601,7 +601,7 @@ export default function SalesCustomerPage() {
                                             </td>
                                             <td style={{ padding: '12px', textAlign: 'center' }}>
                                                 <button 
-                                                    onClick={() => navigate(`/sales/invoices/${inv._id}`)}
+                                                    onClick={() => navigate(`/staff/invoices/${inv._id}`)}
                                                     style={{ background: '#f1f5f9', border: '1px solid #e2e8f0', padding: '4px 8px', borderRadius: 4, cursor: 'pointer', fontSize: 11, fontWeight: 600, color: '#475569' }}
                                                 >
                                                     Chi tiết
