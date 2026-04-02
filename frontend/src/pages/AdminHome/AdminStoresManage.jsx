@@ -1,82 +1,70 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import Sidebar from '../../components/Sidebar';
-import {
-  createAdminStore,
-  getAdminStores,
-  setAdminStoreStatus,
-  updateAdminStore,
-  getRbacUsers,
-} from '../../services/adminApi';
+import { getAdminStores, setAdminStoreStatus } from '../../services/adminApi';
 import '../ManagerDashboard/ManagerDashboard.css';
 import '../ManagerDashboard/ManagerProducts.css';
+import './AdminUserList.css';
 
-const initialForm = { name: '', phone: '', address: '', managerId: '', status: 'active' };
+const PAGE_SIZE = 10;
 
 export default function AdminStoresManage() {
   const [stores, setStores] = useState([]);
-  const [managers, setManagers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [form, setForm] = useState(initialForm);
-  const [editingId, setEditingId] = useState('');
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const [storeData, userData] = await Promise.all([getAdminStores({ page: 1, limit: 200 }), getRbacUsers()]);
+      const storeData = await getAdminStores({
+        page,
+        limit: PAGE_SIZE,
+        status: 'all',
+      });
       setStores(storeData.stores || []);
-      setManagers((userData.users || []).filter((u) => u.role === 'manager'));
+      setTotal(Number(storeData.total) || 0);
+      setTotalPages(Math.max(1, Number(storeData.totalPages) || 1));
     } catch (e) {
       setError(e.message || 'Không thể tải dữ liệu');
       setStores([]);
-      setManagers([]);
+      setTotal(0);
+      setTotalPages(1);
     } finally {
       setLoading(false);
     }
-  };
+  }, [page]);
 
   useEffect(() => {
     load();
-  }, []);
+  }, [load]);
 
-  const onSubmit = async (e) => {
-    e.preventDefault();
-    setError('');
-    try {
-      if (editingId) {
-        await updateAdminStore(editingId, form);
-      } else {
-        await createAdminStore(form);
-      }
-      setForm(initialForm);
-      setEditingId('');
-      await load();
-    } catch (err) {
-      setError(err.message || 'Không thể lưu cửa hàng');
+  useEffect(() => {
+    if (totalPages >= 1 && page > totalPages) {
+      setPage(totalPages);
     }
-  };
-
-  const onEdit = (s) => {
-    setEditingId(s._id);
-    setForm({
-      name: s.name || '',
-      phone: s.phone || '',
-      address: s.address || '',
-      managerId: s.managerId?._id || '',
-      status: s.status === 'inactive' ? 'inactive' : 'active',
-    });
-  };
+  }, [totalPages, page]);
 
   const onToggleStatus = async (s) => {
     try {
       const status = s.status === 'active' ? 'inactive' : 'active';
+      const confirmed = window.confirm(
+        status === 'inactive'
+          ? `Bạn có chắc muốn ngừng hoạt động cửa hàng "${s.name}"?`
+          : `Bạn có chắc muốn cho hoạt động lại cửa hàng "${s.name}"?`
+      );
+      if (!confirmed) return;
       await setAdminStoreStatus(s._id, status);
       await load();
     } catch (err) {
       setError(err.message || 'Không thể cập nhật trạng thái');
     }
   };
+
+  const startItem = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const endItem = Math.min(page * PAGE_SIZE, total);
 
   return (
     <div className="manager-page-with-sidebar">
@@ -95,101 +83,99 @@ export default function AdminStoresManage() {
           <div className="manager-products-header">
             <div>
               <h1 className="manager-page-title">Quản lý cửa hàng</h1>
-              <p className="manager-page-subtitle">Xem, tạo, cập nhật và khóa/mở hoạt động cửa hàng.</p>
+              <p className="manager-page-subtitle">
+                Danh sách cửa hàng theo trang; ngừng hoạt động hoặc cho hoạt động lại khi cần.
+              </p>
             </div>
           </div>
           {error && <div className="manager-products-error">{error}</div>}
 
-          <div className="manager-panel-card manager-product-form-card" style={{ marginBottom: 16 }}>
-            <form onSubmit={onSubmit} className="manager-product-form">
-              <div className="manager-form-row manager-form-row--2">
-                <div className="manager-form-group">
-                  <label>Tên cửa hàng *</label>
-                  <input value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} required />
-                </div>
-                <div className="manager-form-group">
-                  <label>Manager *</label>
-                  <select value={form.managerId} onChange={(e) => setForm((p) => ({ ...p, managerId: e.target.value }))} required>
-                    <option value="">-- Chọn manager --</option>
-                    {managers.map((m) => (
-                      <option key={m._id} value={m._id}>
-                        {m.fullName} - {m.email}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              <div className="manager-form-row manager-form-row--2">
-                <div className="manager-form-group">
-                  <label>Số điện thoại</label>
-                  <input value={form.phone} onChange={(e) => setForm((p) => ({ ...p, phone: e.target.value }))} />
-                </div>
-                <div className="manager-form-group">
-                  <label>Trạng thái</label>
-                  <select value={form.status} onChange={(e) => setForm((p) => ({ ...p, status: e.target.value }))}>
-                    <option value="active">Hoạt động</option>
-                    <option value="inactive">Ngừng</option>
-                  </select>
-                </div>
-              </div>
-              <div className="manager-form-row manager-form-row--2">
-                <div className="manager-form-group manager-form-group--full">
-                  <label>Địa chỉ</label>
-                  <input value={form.address} onChange={(e) => setForm((p) => ({ ...p, address: e.target.value }))} />
-                </div>
-              </div>
-              <div className="manager-form-actions">
-                {editingId && (
-                  <button type="button" className="manager-btn-secondary" onClick={() => { setEditingId(''); setForm(initialForm); }}>
-                    Hủy sửa
-                  </button>
-                )}
-                <button type="submit" className="manager-btn-primary">
-                  {editingId ? 'Lưu cập nhật' : 'Tạo cửa hàng'}
-                </button>
-              </div>
-            </form>
-          </div>
+          <p className="admin-users-count-hint" style={{ marginBottom: 12 }}>
+            {loading
+              ? 'Đang tải…'
+              : total === 0
+                ? 'Không có cửa hàng'
+                : `Hiển thị ${startItem}-${endItem} / ${total} cửa hàng`}
+          </p>
 
           <div className="manager-panel-card manager-products-card">
             {loading ? (
               <p className="manager-products-loading">Đang tải...</p>
             ) : (
-              <div className="manager-products-table-wrap">
-                <table className="manager-products-table">
-                  <thead>
-                    <tr>
-                      <th>Tên cửa hàng</th>
-                      <th>Chủ cửa hàng</th>
-                      <th>SĐT</th>
-                      <th>Địa chỉ</th>
-                      <th>Ngày tạo</th>
-                      <th>Trạng thái</th>
-                      <th>Thao tác</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {stores.map((s) => (
-                      <tr key={s._id}>
-                        <td>{s.name}</td>
-                        <td>{s.managerId?.fullName || s.managerId?.email || '—'}</td>
-                        <td>{s.phone || '—'}</td>
-                        <td>{s.address || '—'}</td>
-                        <td>{s.createdAt ? new Date(s.createdAt).toLocaleDateString('vi-VN') : '—'}</td>
-                        <td>{s.status === 'inactive' ? 'Ngừng' : 'Hoạt động'}</td>
-                        <td>
-                          <button type="button" className="manager-btn-icon" onClick={() => onEdit(s)} title="Sửa">
-                            <i className="fa-solid fa-pen" />
-                          </button>
-                          <button type="button" className="manager-btn-icon" onClick={() => onToggleStatus(s)} title="Đổi trạng thái">
-                            <i className={`fa-solid ${s.status === 'active' ? 'fa-pause' : 'fa-play'}`} />
-                          </button>
-                        </td>
+              <>
+                <div className="manager-products-table-wrap">
+                  <table className="manager-products-table">
+                    <thead>
+                      <tr>
+                        <th>Tên cửa hàng</th>
+                        <th>Chủ cửa hàng</th>
+                        <th>SĐT</th>
+                        <th>Địa chỉ</th>
+                        <th>Ngày tạo</th>
+                        <th>Trạng thái</th>
+                        <th>Thao tác</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {stores.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} style={{ textAlign: 'center', padding: '1.5rem', color: '#64748b' }}>
+                            Chưa có cửa hàng nào trong hệ thống.
+                          </td>
+                        </tr>
+                      ) : (
+                        stores.map((s) => (
+                          <tr key={s._id}>
+                            <td>{s.name}</td>
+                            <td>{s.managerId?.fullName || s.managerId?.email || '—'}</td>
+                            <td>{s.phone || '—'}</td>
+                            <td>{s.address || '—'}</td>
+                            <td>{s.createdAt ? new Date(s.createdAt).toLocaleDateString('vi-VN') : '—'}</td>
+                            <td>{s.status === 'inactive' ? 'Ngừng hoạt động' : 'Hoạt động'}</td>
+                            <td>
+                              <button
+                                type="button"
+                                className="manager-btn-icon"
+                                onClick={() => onToggleStatus(s)}
+                                title={s.status === 'active' ? 'Ngừng hoạt động' : 'Cho hoạt động lại'}
+                              >
+                                <i className={`fa-solid ${s.status === 'active' ? 'fa-pause' : 'fa-play'}`} />
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                {total > 0 && (
+                  <div className="admin-users-pagination">
+                    <div className="admin-users-pagination-text">
+                      Trang <strong>{page}</strong> / <strong>{totalPages}</strong>
+                    </div>
+                    <div className="admin-users-pagination-controls">
+                      <button
+                        type="button"
+                        className="au-page-btn"
+                        disabled={page <= 1}
+                        onClick={() => setPage((p) => Math.max(1, p - 1))}
+                        aria-label="Trang trước"
+                      >
+                        <i className="fas fa-chevron-left" />
+                      </button>
+                      <button
+                        type="button"
+                        className="au-page-btn"
+                        disabled={page >= totalPages}
+                        onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                        aria-label="Trang sau"
+                      >
+                        <i className="fas fa-chevron-right" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -197,4 +183,3 @@ export default function AdminStoresManage() {
     </div>
   );
 }
-
