@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import SalesSidebar from './SalesSidebar';
 import './SalesDashboard.css';
 
 export default function SalesDashboard() {
+  const location = useLocation();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [currentUser, setCurrentUser] = useState(() => {
     try { return JSON.parse(localStorage.getItem('user') || 'null'); }
@@ -30,14 +31,16 @@ export default function SalesDashboard() {
   const storeName = currentUser?.storeName || '';
   const displayName = currentUser?.fullName || currentUser?.email || roleLabel;
   const toggleSidebar = () => setSidebarCollapsed((c) => !c);
+  const isPosRoute = location.pathname.startsWith('/staff/invoices');
 
   return (
-    <div className={`sales-layout${sidebarCollapsed ? ' sidebar-collapsed' : ''}`}>
+    <div className={`sales-layout${sidebarCollapsed ? ' sidebar-collapsed' : ''}${isPosRoute ? ' pos-mode' : ''}`}>
       <SalesSidebar
         collapsed={sidebarCollapsed}
         onToggle={toggleSidebar}
       />
-      <main className="sales-main">
+      <main className={`sales-main${isPosRoute ? ' pos-mode' : ''}`}>
+        {!isPosRoute && (
         <header className="sales-header">
           {/* Nút toggle sidebar */}
           <button
@@ -63,8 +66,9 @@ export default function SalesDashboard() {
             <span style={{ fontSize: '11px', opacity: 0.6 }}>({roleLabel})</span>
           </div>
         </header>
+        )}
 
-        <div className="sales-content">
+        <div className={`sales-content${isPosRoute ? ' pos-mode' : ''}`}>
           <Outlet context={{ sidebarCollapsed, toggleSidebar }} />
         </div>
       </main>

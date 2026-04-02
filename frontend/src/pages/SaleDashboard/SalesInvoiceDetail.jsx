@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useOutletContext, useParams } from 'react-router-dom';
 import { getInvoice, createInvoice, updateInvoice, getPaymentStatus } from '../../services/invoicesApi';
 import { getProducts } from '../../services/productsApi';
 import PaymentWaitModal from '../../components/payment/PaymentWaitModal';
@@ -29,6 +29,9 @@ const createDefaultTab = (index = 1) => ({
 export default function SalesInvoiceDetail() {
   const { id = '' } = useParams();
   const navigate = useNavigate();
+  const outletContext = useOutletContext() || {};
+  const toggleSidebar = outletContext.toggleSidebar;
+  const sidebarCollapsed = Boolean(outletContext.sidebarCollapsed);
   const isNew = id === 'new' || !id || id === 'undefined' || id === 'null';
 
  
@@ -361,6 +364,7 @@ export default function SalesInvoiceDetail() {
     (activeTab.paymentMethod === 'debt' || isPaymentSufficient);
 
   const QUICK_PAID_VALUES = [10000, 20000, 50000, 100000, 200000, 500000];
+  const hasItems = activeTab.items.length > 0;
 
   const handlePrintInvoice = (invoice, tab) => {
     const printWindow = window.open('', '_blank');
@@ -524,9 +528,15 @@ export default function SalesInvoiceDetail() {
 
   return (
     <div className="pos-container">
-      {/* Center Area: Active Order with Tabs */}
-      <div className="pos-center-area">
-        <div className="pos-search-toolbar">
+      <div className="pos-search-toolbar">
+          <button
+            type="button"
+            className="pos-sidebar-toggle-btn"
+            title={sidebarCollapsed ? 'Mở menu' : 'Thu nhỏ menu'}
+            onClick={() => typeof toggleSidebar === 'function' && toggleSidebar()}
+          >
+            <i className="fa-solid fa-bars" />
+          </button>
           <div className="pos-toolbar-left">
             <div className="pos-search-dropdown-wrap" ref={searchWrapRef}>
               <input
@@ -601,12 +611,15 @@ export default function SalesInvoiceDetail() {
                 />
               </div>
             ))}
-            <Button type="button" variant="outline" className="my-1 h-8 border-white/40 bg-transparent text-white hover:bg-white/10 hover:text-white" onClick={handleAddTab}>
+            <Button type="button" variant="outline" className="pos-add-tab-btn" onClick={handleAddTab}>
               <i className="fa-solid fa-plus" />
             </Button>
           </div>
-        </div>
-        
+      </div>
+
+      <div className="pos-body">
+      {/* Center Area: Active Order with Tabs */}
+      <div className="pos-center-area">
         <div className="pos-cart-container">
           {activeTab.error && <div className="warehouse-alert warehouse-alert-error">{activeTab.error}</div>}
           {activeTab.successMessage && <div className="warehouse-alert warehouse-alert-success">{activeTab.successMessage}</div>}
@@ -650,7 +663,7 @@ export default function SalesInvoiceDetail() {
               ))}
               {activeTab.items.length === 0 && (
                 <tr>
-                  <td colSpan="7" style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>
+                  <td colSpan="7" className="pos-cart-empty-cell">
                     Chưa có hàng hóa nào trong đơn
                   </td>
                 </tr>
@@ -659,10 +672,10 @@ export default function SalesInvoiceDetail() {
           </table>
         </div>
         <div className="pos-bottom-bar">
-             <div style={{ flex: 1, display: 'flex', gap: 20 }}>
+             <div className="pos-bottom-left">
                   <div className="pos-mode-btn" onClick={() => navigate('/staff/invoices')}><i className="fa-solid fa-clock" /> Lịch sử Hóa đơn</div>
              </div>
-             <div style={{ color: '#64748b', fontSize: 13, fontWeight: 600 }}>
+             <div className="pos-bottom-meta">
                 Tổng số dòng: {activeTab.items.length}
              </div>
         </div>
@@ -671,9 +684,9 @@ export default function SalesInvoiceDetail() {
       {/* Right Sidebar: Summary */}
       <div className="pos-right-sidebar">
         <div className="pos-customer-section">
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
-            <span style={{ fontWeight: 700, color: '#1e293b' }}>Khách hàng</span>
-            <i className="fa-solid fa-user-pen" style={{ color: '#0081ff', cursor: 'pointer' }} />
+          <div className="pos-section-head">
+            <span>Khách hàng</span>
+            <i className="fa-solid fa-user-pen" />
           </div>
           <div className="pos-customer-search">
              <input 
@@ -683,7 +696,7 @@ export default function SalesInvoiceDetail() {
                 value={activeTab.recipientName}
                 onChange={(e) => updateActiveTab({ recipientName: e.target.value })}
              />
-             <button className="warehouse-btn warehouse-btn-secondary" style={{ padding: '0 12px' }}>+</button>
+             <button className="pos-customer-add-btn">+</button>
           </div>
         </div>
 
@@ -692,12 +705,12 @@ export default function SalesInvoiceDetail() {
             <span>Tổng tiền hàng</span>
             <span>{formatMoney(totalAmount)}</span>
           </div>
-          <div className="pos-summary-row" style={{ marginBottom: 10 }}>
+          <div className="pos-summary-row pos-discount-row">
             <span>Giảm giá</span>
             <input 
                type="text" 
                placeholder="0" 
-               style={{ width: 80, textAlign: 'right', border: 'none', borderBottom: '1px solid #cbd5e1', outline: 'none', fontWeight: 600, color: '#f59e0b' }}
+               className="pos-discount-input"
             />
           </div>
           <div className="pos-total-row">
@@ -706,18 +719,18 @@ export default function SalesInvoiceDetail() {
           </div>
           
           {/* Detailed Payment Inputs */}
-          <div style={{ marginTop: 20, background: '#f8fafc', padding: 12, borderRadius: 8, border: '1px solid #e2e8f0' }}>
+          <div className="pos-payment-box">
 
               {/* Mixed payment toggles or summary */}
-              <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+              <div className="pos-payment-methods">
                   <button 
-                     style={{ flex: 1, padding: '8px', borderRadius: 6, border: activeTab.paymentMethod === 'cash' ? '1px solid #0081ff' : '1px solid #cbd5e1', background: activeTab.paymentMethod === 'cash' ? '#eff6ff' : 'white', cursor: 'pointer', fontWeight: 600, color: activeTab.paymentMethod === 'cash' ? '#0081ff' : '#64748b' }}
+                     className={`pos-method-btn ${activeTab.paymentMethod === 'cash' ? 'active' : ''}`}
                      onClick={() => updateActiveTab({ paymentMethod: 'cash' })}
                   >
                      <i className="fa-solid fa-money-bill" style={{ marginRight: 6 }}/> Tiền mặt
                   </button>
                   <button 
-                     style={{ flex: 1, padding: '8px', borderRadius: 6, border: activeTab.paymentMethod === 'bank_transfer' ? '1px solid #0081ff' : '1px solid #cbd5e1', background: activeTab.paymentMethod === 'bank_transfer' ? '#eff6ff' : 'white', cursor: 'pointer', fontWeight: 600, color: activeTab.paymentMethod === 'bank_transfer' ? '#0081ff' : '#64748b' }}
+                     className={`pos-method-btn ${activeTab.paymentMethod === 'bank_transfer' ? 'active' : ''}`}
                      onClick={() => updateActiveTab({ paymentMethod: 'bank_transfer' })}
                   >
                      <i className="fa-solid fa-building-columns" style={{ marginRight: 6 }}/> Chuyển khoản
@@ -726,49 +739,39 @@ export default function SalesInvoiceDetail() {
 
               {activeTab.paymentMethod === 'cash' && (
                 <>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                     <span style={{ fontSize: 14, fontWeight: 600, color: '#334155' }}>Khách thanh toán</span>
+                  <div className="pos-customer-pay-row">
+                     <span>Khách thanh toán</span>
                      <input 
                        type="number"
                        value={activeTab.customerPaid}
                        onChange={(e) => updateActiveTab({ customerPaid: e.target.value })}
                        placeholder="0"
-                       className="pos-search-input"
-                       style={{ width: 120, height: 32, textAlign: 'right', fontWeight: 600 }}
+                       className="pos-customer-pay-input"
                      />
                   </div>
-                  {activeTab.items.length > 0 && String(activeTab.customerPaid).length > 0 && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, marginTop: 12 }}>
+                  {hasItems && String(activeTab.customerPaid).length > 0 && (
+                    <div className="pos-money-state-row">
                        {missingAmount > 0 ? (
                           <>
-                             <span style={{ color: '#ef4444' }}>Còn thiếu</span>
-                             <span style={{ fontWeight: 600, color: '#ef4444' }}>{formatMoney(missingAmount)}</span>
+                             <span className="missing">Còn thiếu</span>
+                             <span className="missing">{formatMoney(missingAmount)}</span>
                           </>
                        ) : (
                           <>
-                             <span style={{ color: '#64748b' }}>Tiền thừa trả khách</span>
-                             <span style={{ fontWeight: 600 }}>{formatMoney(changeAmount)}</span>
+                             <span>Tiền thừa trả khách</span>
+                             <span className="change">{formatMoney(changeAmount)}</span>
                           </>
                        )}
                     </div>
                   )}
-                  {activeTab.items.length > 0 && (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, marginTop: 12 }}>
+                  {hasItems && (
+                    <div className="pos-quick-paid-grid">
                       {QUICK_PAID_VALUES.map((amount) => (
                         <button
                           key={amount}
                           type="button"
                           onClick={() => updateActiveTab({ customerPaid: String(amount) })}
-                          style={{
-                            border: '1px solid #cbd5e1',
-                            borderRadius: 999,
-                            background: '#fff',
-                            color: '#334155',
-                            fontSize: 12,
-                            fontWeight: 600,
-                            padding: '6px 8px',
-                            cursor: 'pointer',
-                          }}
+                          className="pos-quick-paid-btn"
                         >
                           {amount.toLocaleString('vi-VN')}
                         </button>
@@ -779,30 +782,30 @@ export default function SalesInvoiceDetail() {
               )}
 
               {activeTab.paymentMethod === 'bank_transfer' && totalAmount > 0 && (
-                <div style={{ marginTop: 12, textAlign: 'center', background: 'white', padding: 12, borderRadius: 8, border: '1px solid #0081ff' }}>
-                  <p style={{ margin: '0 0 8px', fontSize: 12, color: '#0081ff', fontWeight: 600 }}>
+                <div className="pos-bank-note">
+                  <p className="pos-bank-note-title">
                     Nhấn THANH TOÁN để tạo mã QR chính xác
                   </p>
-                  <div style={{ fontSize: 12, color: '#64748b', padding: '8px 0' }}>
-                    <i className="fa-solid fa-qrcode" style={{ fontSize: 40, color: '#cbd5e1', display: 'block', marginBottom: 6 }} />
+                  <div className="pos-bank-note-body">
+                    <i className="fa-solid fa-qrcode" />
                     Mã QR sẽ hiển thị sau khi xác nhận đơn
                   </div>
                 </div>
               )}
           </div>
           
-          <div style={{ marginTop: 24 }}>
+          <div className="pos-submit-wrap">
             <button 
               className="pos-pay-button" 
               onClick={handleSubmit}
               disabled={!canSubmit}
-              style={{ opacity: canSubmit ? 1 : 0.7 }}
             >
               {activeTab.saving ? 'ĐANG XỬ LÝ...' : 'THANH TOÁN'}
             </button>
           </div>
         </div>
 
+      </div>
       </div>
       
       {/* Toast Notification */}
