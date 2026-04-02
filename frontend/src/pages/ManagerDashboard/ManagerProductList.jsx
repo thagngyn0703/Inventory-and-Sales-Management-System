@@ -31,6 +31,7 @@ export default function ManagerProductList() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [successMessage, setSuccessMessage] = useState('');
+    const [toast, setToast] = useState(null);
     const [togglingId, setTogglingId] = useState(null);
 
     const [importOpen, setImportOpen] = useState(false);
@@ -40,6 +41,7 @@ export default function ManagerProductList() {
     const [importError, setImportError] = useState('');
     const [priceChangeConfirmed, setPriceChangeConfirmed] = useState(false);
     const fileInputRef = useRef(null);
+    const toastTimerRef = useRef(null);
 
     const fetchList = useCallback(async () => {
         setLoading(true);
@@ -69,6 +71,18 @@ export default function ManagerProductList() {
             window.history.replaceState({}, document.title, location.pathname + location.search);
         }
     }, [location.state]);
+
+    useEffect(() => {
+        if (!successMessage) return;
+        if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+        setToast({ type: 'success', message: successMessage });
+        setSuccessMessage('');
+        toastTimerRef.current = setTimeout(() => setToast(null), 2800);
+    }, [successMessage]);
+
+    useEffect(() => () => {
+        if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    }, []);
 
     const handleSearchSubmit = (e) => {
         e.preventDefault();
@@ -245,9 +259,6 @@ export default function ManagerProductList() {
                         </div>
                     </div>
 
-                    {successMessage && (
-                        <div className="manager-products-success">{successMessage}</div>
-                    )}
                     {error && <div className="manager-products-error">{error}</div>}
 
                     <Card className="manager-products-card">
@@ -613,6 +624,13 @@ export default function ManagerProductList() {
                     )}
                 </div>
             </div>
+            {toast && (
+                <div className="fixed right-4 top-4 z-[2500]">
+                    <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700 shadow-lg">
+                        {toast.message}
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

@@ -43,6 +43,7 @@ export default function SalesInvoiceDetail() {
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
+  const [scanMode, setScanMode] = useState(false);
   
   // Tab Management State
   const [tabs, setTabs] = useState([createDefaultTab(1)]);
@@ -54,6 +55,8 @@ export default function SalesInvoiceDetail() {
   const [pendingPayment, setPendingPayment] = useState(null); // { paymentRef, totalAmount, invoice }
   const pollingRef = useRef(null);
   const searchWrapRef = useRef(null);
+  const scanBufferRef = useRef('');
+  const scanTimerRef = useRef(null);
 
   const activeTab = tabs.find(t => t.tabId === activeTabId) || tabs[0];
   const getNextTabNumber = useCallback((tabList) => {
@@ -168,6 +171,10 @@ export default function SalesInvoiceDetail() {
     return () => document.removeEventListener('mousedown', handleOutside);
   }, []);
 
+  useEffect(() => () => {
+    if (scanTimerRef.current) clearTimeout(scanTimerRef.current);
+  }, []);
+
   const loadInvoice = useCallback(async () => {
     if (!id || isNew) return;
     setLoading(true);
@@ -246,33 +253,84 @@ export default function SalesInvoiceDetail() {
 
   // Cart Actions (affecting active tab)
   const handleAddProduct = (product) => {
-    const existingIdx = activeTab.items.findIndex(it => it.product_id === product._id);
-    let newItems = [...activeTab.items];
-    
-    if (existingIdx >= 0) {
-      const it = newItems[existingIdx];
-      const newQty = it.quantity + 1;
-      newItems[existingIdx] = { 
-        ...it, 
-        quantity: newQty, 
-        line_total: newQty * it.unit_price - it.discount 
-      };
-    } else {
-      newItems.push({
-        product_id: product._id,
-        name: product.name,
-        sku: product.sku,
-        quantity: 1,
-        unit_price: product.sale_price || 0,
-        discount: 0,
-        line_total: product.sale_price || 0,
-        stock_qty: product.stock_qty
-      });
-    }
-    updateActiveTab({ items: newItems });
+    setTabs((prev) =>
+      prev.map((tab) => {
+        if (tab.tabId !== activeTabId) return tab;
+        const existingIdx = tab.items.findIndex((it) => it.product_id === product._id);
+        const newItems = [...tab.items];
+        if (existingIdx >= 0) {
+          const it = newItems[existingIdx];
+          const newQty = Number(it.quantity || 0) + 1;
+          newItems[existingIdx] = {
+            ...it,
+            quantity: newQty,
+            line_total: Math.max(0, newQty * Number(it.unit_price || 0) - Number(it.discount || 0)),
+          };
+        } else {
+          newItems.push({
+            product_id: product._id,
+            name: product.name,
+            sku: product.sku,
+            quantity: 1,
+            unit_price: product.sale_price || 0,
+            discount: 0,
+            line_total: product.sale_price || 0,
+            stock_qty: product.stock_qty,
+          });
+        }
+        return { ...tab, items: newItems };
+      })
+    );
     setSearchTerm('');
     setShowSearchDropdown(false);
   };
+
+  const handleScanSubmit = (rawCode) => {
+    const code = String(rawCode || '').trim();
+    if (!code) return;
+    const normalized = code.toLowerCase();
+    const found = products.find((p) => (
+      String(p.barcode || '').toLowerCase() === normalized ||
+      String(p.sku || '').toLowerCase() === normalized
+    ));
+    if (!found) {
+      setToastMessage(`Không tìm thấy sản phẩm với mã: ${code}`);
+      setTimeout(() => setToastMessage(''), 2500);
+      return;
+    }
+    handleAddProduct(found);
+    setToastMessage(`Đã thêm: ${found.name}`);
+    setTimeout(() => setToastMessage(''), 1800);
+  };
+
+  useEffect(() => {
+    if (!scanMode) return;
+    const onKeyDown = (e) => {
+      if (['Shift', 'Alt', 'Control', 'Meta', 'CapsLock', 'Tab', 'Escape'].includes(e.key)) return;
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        e.stopPropagation();
+        const code = scanBufferRef.current;
+        scanBufferRef.current = '';
+        if (scanTimerRef.current) {
+          clearTimeout(scanTimerRef.current);
+          scanTimerRef.current = null;
+        }
+        handleScanSubmit(code);
+        return;
+      }
+      if (e.key.length === 1) {
+        scanBufferRef.current += e.key;
+        if (scanTimerRef.current) clearTimeout(scanTimerRef.current);
+        scanTimerRef.current = setTimeout(() => {
+          scanBufferRef.current = '';
+          scanTimerRef.current = null;
+        }, 600);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [scanMode, products, activeTabId]);
 
   const updateLine = (idx, changes) => {
     const newItems = [...activeTab.items];
@@ -509,6 +567,23 @@ export default function SalesInvoiceDetail() {
                 </div>
               )}
             </div>
+            <button
+              type="button"
+              className={`pos-scan-btn${scanMode ? ' active' : ''}`}
+              title={scanMode ? 'Tắt chế độ quét mã' : 'Bật chế độ quét mã'}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                setScanMode((v) => !v);
+                scanBufferRef.current = '';
+                if (scanTimerRef.current) {
+                  clearTimeout(scanTimerRef.current);
+                  scanTimerRef.current = null;
+                }
+              }}
+            >
+              <i className="fa-solid fa-barcode" />
+            </button>
+            {scanMode && <span className="pos-scan-mode-tag">Đang quét mã</span>}
           </div>
 
           <div className="pos-tabs pos-tabs-inline">

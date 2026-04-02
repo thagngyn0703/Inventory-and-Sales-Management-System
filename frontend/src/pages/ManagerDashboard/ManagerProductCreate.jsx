@@ -1,11 +1,18 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Platform } from 'react-bits/lib/modules/Platform';
-import { Search, Plus, X } from 'lucide-react';
+import { Search, Plus, X, Barcode } from 'lucide-react';
 import ManagerSidebar from './ManagerSidebar';
 import ManagerNotificationBell from '../../components/ManagerNotificationBell';
-import { createProduct, getProducts, uploadProductImages } from '../../services/productsApi';
+import { createProduct, getProducts, updateProduct, uploadProductImages } from '../../services/productsApi';
 import { minExpiryDateString, isExpiryDateNotInPast } from '../../utils/dateInput';
+import {
+    trimString,
+    validateBarcode,
+    validateNoSpecialText,
+    validateNonNegativeNumber,
+    validateSku,
+} from '../../utils/productValidation';
 import { getSuppliers } from '../../services/suppliersApi';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
@@ -43,6 +50,13 @@ export default function ManagerProductCreate() {
     const [selectedImages, setSelectedImages] = useState([]);
     const [imagePreviews, setImagePreviews] = useState([]);
     const [quickSearch, setQuickSearch] = useState('');
+    const [scanMode, setScanMode] = useState(false);
+    const [scanConfirmOpen, setScanConfirmOpen] = useState(false);
+    const [pendingScanCode, setPendingScanCode] = useState('');
+    const [toast, setToast] = useState(null);
+    const scanBufferRef = useRef('');
+    const scanTimerRef = useRef(null);
+    const toastTimerRef = useRef(null);
 
     useEffect(() => {
         let cancelled = false;
@@ -63,10 +77,62 @@ export default function ManagerProductCreate() {
     useEffect(() => {
         return () => {
             imagePreviews.forEach((url) => URL.revokeObjectURL(url));
+            if (scanTimerRef.current) clearTimeout(scanTimerRef.current);
+            if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
         };
     }, [imagePreviews]);
 
-    const costNum = useMemo(() => Number(form.cost_price) || 0, [form.cost_price]);
+    const showToast = (type, message) => {
+        if (!message) return;
+        if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+        setToast({ type, message });
+        toastTimerRef.current = setTimeout(() => setToast(null), 2800);
+    };
+
+    useEffect(() => {
+        if (!scanMode) return;
+        const flushScanBuffer = () => {
+            const raw = scanBufferRef.current;
+            scanBufferRef.current = '';
+            if (scanTimerRef.current) {
+                clearTimeout(scanTimerRef.current);
+                scanTimerRef.current = null;
+            }
+            const code = String(raw || '').trim();
+            if (!code) return;
+            setScanMode(false);
+            const found = existingProducts.find(
+                (p) => String(p.barcode || '').trim().toLowerCase() === code.toLowerCase()
+            );
+            if (found) {
+                fillFromExisting(found._id);
+                setError('');
+                showToast('success', `Da dien nhanh: ${found.name}`);
+                return;
+            }
+            setPendingScanCode(code);
+            setScanConfirmOpen(true);
+        };
+        const onKeyDown = (e) => {
+            if (['Shift', 'Alt', 'Control', 'Meta', 'CapsLock', 'Escape'].includes(e.key)) return;
+            if (e.key === 'Enter' || e.key === 'Tab') {
+                e.preventDefault();
+                e.stopPropagation();
+                flushScanBuffer();
+                return;
+            }
+            if (e.key.length === 1) {
+                scanBufferRef.current += e.key;
+                if (scanTimerRef.current) clearTimeout(scanTimerRef.current);
+                scanTimerRef.current = setTimeout(() => {
+                    flushScanBuffer();
+                }, 180);
+            }
+        };
+        window.addEventListener('keydown', onKeyDown, true);
+        return () => window.removeEventListener('keydown', onKeyDown, true);
+    }, [scanMode, existingProducts]);
+
     const filteredExistingProducts = useMemo(() => {
         const term = String(quickSearch || '').trim().toLowerCase();
         if (!term) return existingProducts;
@@ -82,9 +148,6 @@ export default function ManagerProductCreate() {
     });
 
     const update = (field, value) => {
-        if (selectedExistingId && ['name', 'sku', 'barcode'].includes(field)) {
-            setSelectedExistingId('');
-        }
         setForm((prev) => {
             const next = { ...prev, [field]: value };
             if (field === 'base_unit') {
@@ -141,21 +204,36 @@ export default function ManagerProductCreate() {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        if (!form.name.trim()) {
-            setError('Vui lòng nhập tên sản phẩm.');
-            return;
+        const nameCheck = validateNoSpecialText(form.name, 'Tên sản phẩm', { required: true });
+        if (!nameCheck.ok) return setError(nameCheck.message);
+        const skuCheck = validateSku(form.sku);
+        if (!skuCheck.ok) return setError(skuCheck.message);
+        const barcodeCheck = validateBarcode(form.barcode);
+        if (!barcodeCheck.ok) return setError(barcodeCheck.message);
+        const baseUnitCheck = validateNoSpecialText(form.base_unit, 'Đơn vị tồn kho', { required: true });
+        if (!baseUnitCheck.ok) return setError(baseUnitCheck.message);
+        const costCheck = validateNonNegativeNumber(form.cost_price, 'Giá vốn');
+        if (!costCheck.ok) return setError(costCheck.message);
+        const stockCheck = validateNonNegativeNumber(form.stock_qty, 'Tồn kho');
+        if (!stockCheck.ok) return setError(stockCheck.message);
+        const reorderCheck = validateNonNegativeNumber(form.reorder_level, 'Mức tồn tối thiểu');
+        if (!reorderCheck.ok) return setError(reorderCheck.message);
+        const units = [];
+        for (const u of form.selling_units) {
+            const nameUnitCheck = validateNoSpecialText(u.name, 'Tên đơn vị bán', { required: true });
+            if (!nameUnitCheck.ok) return setError(nameUnitCheck.message);
+            const ratioCheck = validateNonNegativeNumber(u.ratio, 'Tỉ lệ đơn vị bán', { required: true });
+            if (!ratioCheck.ok || ratioCheck.value <= 0) {
+                return setError('Tỉ lệ đơn vị bán phải lớn hơn 0.');
+            }
+            const salePriceCheck = validateNonNegativeNumber(u.sale_price, 'Giá bán đơn vị', { required: true });
+            if (!salePriceCheck.ok) return setError(salePriceCheck.message);
+            units.push({
+                name: nameUnitCheck.value,
+                ratio: ratioCheck.value,
+                sale_price: salePriceCheck.value,
+            });
         }
-        if (!form.sku.trim()) {
-            setError('Vui lòng nhập SKU.');
-            return;
-        }
-        const units = form.selling_units
-            .filter((u) => u.name && String(u.ratio).trim() !== '' && String(u.sale_price).trim() !== '')
-            .map((u) => ({
-                name: String(u.name).trim(),
-                ratio: Number(u.ratio) > 0 ? Number(u.ratio) : 1,
-                sale_price: Number(u.sale_price) >= 0 ? Number(u.sale_price) : 0,
-            }));
         if (units.length === 0) {
             setError('Vui lòng thêm ít nhất một đơn vị bán với giá.');
             return;
@@ -181,23 +259,39 @@ export default function ManagerProductCreate() {
             if (selectedImages.length > 0) {
                 uploadedImageUrls = await uploadProductImages(selectedImages);
             }
-            await createProduct({
-                name: form.name.trim(),
-                sku: form.sku.trim(),
-                barcode: form.barcode ? String(form.barcode).trim() : undefined,
-                supplier_id: form.supplier_id && form.supplier_id.trim() ? form.supplier_id.trim() : undefined,
-                cost_price: costNum,
-                stock_qty: Number(form.stock_qty) || 0,
-                reorder_level: Number(form.reorder_level) || 0,
+            const payload = {
+                name: nameCheck.value,
+                sku: skuCheck.value,
+                barcode: barcodeCheck.value || undefined,
+                supplier_id: trimString(form.supplier_id) || undefined,
+                cost_price: costCheck.value,
+                stock_qty: stockCheck.value,
+                reorder_level: reorderCheck.value,
                 expiry_date: form.expiry_date || undefined,
-                base_unit: form.base_unit || 'Cái',
+                base_unit: baseUnitCheck.value,
                 selling_units: units,
                 image_urls: uploadedImageUrls,
                 status: form.status === 'inactive' ? 'inactive' : 'active',
-            });
+            };
+
+            if (selectedExistingId) {
+                const existing = existingProducts.find((x) => x._id === selectedExistingId);
+                const currentStock = Number(existing?.stock_qty) || 0;
+                const incomingQty = Number(form.stock_qty) || 0;
+                await updateProduct(selectedExistingId, {
+                    ...payload,
+                    stock_qty: currentStock + incomingQty,
+                });
+                navigate('/manager/products', { state: { success: 'Da cap nhat san pham hien co va cong don ton kho.' } });
+                return;
+            }
+
+            await createProduct(payload);
             navigate('/manager/products', { state: { success: 'Thêm sản phẩm thành công.' } });
         } catch (err) {
-            setError(err.message || 'Không thể tạo sản phẩm.');
+            const msg = err.message || 'Không thể tạo sản phẩm.';
+            setError(msg);
+            showToast('error', msg);
         } finally {
             setLoading(false);
         }
@@ -293,12 +387,6 @@ export default function ManagerProductCreate() {
                         </Button>
                     </div>
 
-                    {error && (
-                        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-600">
-                            {error}
-                        </div>
-                    )}
-
                     <form onSubmit={handleSubmit} className="space-y-4">
                         <div className="grid gap-4 xl:grid-cols-12">
                             <Card className="xl:col-span-12">
@@ -362,13 +450,32 @@ export default function ManagerProductCreate() {
                                         </div>
                                         <div>
                                             <label className="mb-1 block text-sm font-medium text-slate-600">Barcode</label>
-                                            <input
-                                                type="text"
-                                                value={form.barcode}
-                                                onChange={(e) => update('barcode', e.target.value)}
-                                                placeholder="Mã vạch (tùy chọn)"
-                                                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
-                                            />
+                                            <div className="relative">
+                                                <input
+                                                    type="text"
+                                                    value={form.barcode}
+                                                    onChange={(e) => update('barcode', e.target.value)}
+                                                    placeholder="Mã vạch (tùy chọn)"
+                                                    className="h-10 w-full rounded-lg border border-slate-200 px-3 pr-11 text-sm outline-none ring-sky-200 transition focus:ring-2"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    title={scanMode ? 'Tắt quét mã' : 'Bật quét mã'}
+                                                    onMouseDown={(e) => e.preventDefault()}
+                                                    onClick={() => {
+                                                        setScanMode((v) => !v);
+                                                        scanBufferRef.current = '';
+                                                    }}
+                                                    className={`absolute right-1 top-1 inline-flex h-8 w-8 items-center justify-center rounded-md border transition ${
+                                                        scanMode
+                                                            ? 'border-sky-300 bg-sky-100 text-sky-700'
+                                                            : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50'
+                                                    }`}
+                                                >
+                                                    <Barcode className="h-4 w-4" />
+                                                </button>
+                                            </div>
+                                            {scanMode && <p className="mt-1 text-xs font-semibold text-sky-700">Dang bat che do quet ma.</p>}
                                         </div>
                                         <div>
                                             <label className="mb-1 block text-sm font-medium text-slate-600">Nhà cung cấp</label>
@@ -424,7 +531,7 @@ export default function ManagerProductCreate() {
                                                             <input
                                                                 type="number"
                                                                 min="1"
-                                                                step="1"
+                                                step="any"
                                                                 value={u.ratio}
                                                                 onChange={(e) => updateSellingUnit(i, 'ratio', e.target.value)}
                                                                 placeholder="1"
@@ -435,7 +542,7 @@ export default function ManagerProductCreate() {
                                                             <input
                                                                 type="number"
                                                                 min="0"
-                                                                step="1000"
+                                                step="any"
                                                                 value={u.sale_price}
                                                                 onChange={(e) => updateSellingUnit(i, 'sale_price', e.target.value)}
                                                                 placeholder="0"
@@ -482,7 +589,7 @@ export default function ManagerProductCreate() {
                                             <input
                                                 type="number"
                                                 min="0"
-                                                step="1000"
+                                                step="any"
                                                 value={form.cost_price}
                                                 onChange={(e) => setForm((prev) => ({ ...prev, cost_price: e.target.value }))}
                                                 placeholder="0"
@@ -578,6 +685,51 @@ export default function ManagerProductCreate() {
                     </form>
                 </div>
             </div>
+            {toast && (
+                <div className="fixed right-4 top-4 z-[2500]">
+                    <div className={`rounded-lg border px-4 py-3 text-sm font-medium shadow-lg ${
+                        toast.type === 'success'
+                            ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                            : 'border-red-200 bg-red-50 text-red-700'
+                    }`}>
+                        {toast.message}
+                    </div>
+                </div>
+            )}
+            {scanConfirmOpen && (
+                <div className="fixed inset-0 z-[2600] flex items-center justify-center bg-black/30 p-4">
+                    <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-4 shadow-xl">
+                        <h3 className="text-base font-semibold text-slate-900">Mã chưa có trong hệ thống</h3>
+                        <p className="mt-2 text-sm text-slate-600">
+                            Barcode <span className="font-semibold text-slate-900">{pendingScanCode}</span> chưa tồn tại.
+                            Bạn có muốn dùng mã này cho sản phẩm mới không?
+                        </p>
+                        <div className="mt-4 flex justify-end gap-2">
+                            <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => {
+                                    setScanConfirmOpen(false);
+                                    setPendingScanCode('');
+                                }}
+                            >
+                                Hủy
+                            </Button>
+                            <Button
+                                type="button"
+                                onClick={() => {
+                                    update('barcode', pendingScanCode);
+                                    setScanConfirmOpen(false);
+                                    setPendingScanCode('');
+                                    showToast('success', 'Da dien barcode tu ma quet.');
+                                }}
+                            >
+                                Đồng ý
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

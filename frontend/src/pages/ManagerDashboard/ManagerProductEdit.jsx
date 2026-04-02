@@ -1,11 +1,18 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Platform } from 'react-bits/lib/modules/Platform';
-import { Plus, X } from 'lucide-react';
+import { Plus, X, Barcode } from 'lucide-react';
 import ManagerSidebar from './ManagerSidebar';
 import ManagerNotificationBell from '../../components/ManagerNotificationBell';
 import { getProduct, updateProduct, uploadProductImages } from '../../services/productsApi';
 import { minExpiryDateString, isExpiryDateNotInPast } from '../../utils/dateInput';
+import {
+    trimString,
+    validateBarcode,
+    validateNoSpecialText,
+    validateNonNegativeNumber,
+    validateSku,
+} from '../../utils/productValidation';
 import { getSuppliers } from '../../services/suppliersApi';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
@@ -41,6 +48,9 @@ export default function ManagerProductEdit() {
     const [error, setError] = useState('');
     const [selectedImages, setSelectedImages] = useState([]);
     const [imagePreviews, setImagePreviews] = useState([]);
+    const [scanMode, setScanMode] = useState(false);
+    const scanBufferRef = useRef('');
+    const scanTimerRef = useRef(null);
 
     useEffect(() => {
         let cancelled = false;
@@ -49,8 +59,6 @@ export default function ManagerProductEdit() {
             .catch(() => { if (!cancelled) setSuppliers([]); });
         return () => { cancelled = true; };
     }, []);
-
-    const costNum = useMemo(() => Number(form.cost_price) || 0, [form.cost_price]);
 
     useEffect(() => {
         if (!id) return;
@@ -94,8 +102,44 @@ export default function ManagerProductEdit() {
     useEffect(() => {
         return () => {
             imagePreviews.forEach((url) => URL.revokeObjectURL(url));
+            if (scanTimerRef.current) clearTimeout(scanTimerRef.current);
         };
     }, [imagePreviews]);
+
+    useEffect(() => {
+        if (!scanMode) return;
+        const flushScanBuffer = () => {
+            const raw = scanBufferRef.current;
+            scanBufferRef.current = '';
+            if (scanTimerRef.current) {
+                clearTimeout(scanTimerRef.current);
+                scanTimerRef.current = null;
+            }
+            const code = String(raw || '').trim();
+            if (!code) return;
+            setScanMode(false);
+            setForm((prev) => ({ ...prev, barcode: code }));
+            setError('');
+        };
+        const onKeyDown = (e) => {
+            if (['Shift', 'Alt', 'Control', 'Meta', 'CapsLock', 'Escape'].includes(e.key)) return;
+            if (e.key === 'Enter' || e.key === 'Tab') {
+                e.preventDefault();
+                e.stopPropagation();
+                flushScanBuffer();
+                return;
+            }
+            if (e.key.length === 1) {
+                scanBufferRef.current += e.key;
+                if (scanTimerRef.current) clearTimeout(scanTimerRef.current);
+                scanTimerRef.current = setTimeout(() => {
+                    flushScanBuffer();
+                }, 180);
+            }
+        };
+        window.addEventListener('keydown', onKeyDown, true);
+        return () => window.removeEventListener('keydown', onKeyDown, true);
+    }, [scanMode]);
 
     const update = (field, value) => {
         setForm((prev) => {
@@ -169,21 +213,36 @@ export default function ManagerProductEdit() {
     const handleSubmit = async (e) => {
         e.preventDefault();
         if (!id) return;
-        if (!form.name.trim()) {
-            setError('Vui lòng nhập tên sản phẩm.');
-            return;
+        const nameCheck = validateNoSpecialText(form.name, 'Tên sản phẩm', { required: true });
+        if (!nameCheck.ok) return setError(nameCheck.message);
+        const skuCheck = validateSku(form.sku);
+        if (!skuCheck.ok) return setError(skuCheck.message);
+        const barcodeCheck = validateBarcode(form.barcode);
+        if (!barcodeCheck.ok) return setError(barcodeCheck.message);
+        const baseUnitCheck = validateNoSpecialText(form.base_unit, 'Đơn vị tồn kho', { required: true });
+        if (!baseUnitCheck.ok) return setError(baseUnitCheck.message);
+        const costCheck = validateNonNegativeNumber(form.cost_price, 'Giá vốn');
+        if (!costCheck.ok) return setError(costCheck.message);
+        const stockCheck = validateNonNegativeNumber(form.stock_qty, 'Tồn kho');
+        if (!stockCheck.ok) return setError(stockCheck.message);
+        const reorderCheck = validateNonNegativeNumber(form.reorder_level, 'Mức tồn tối thiểu');
+        if (!reorderCheck.ok) return setError(reorderCheck.message);
+        const units = [];
+        for (const u of form.selling_units) {
+            const nameUnitCheck = validateNoSpecialText(u.name, 'Tên đơn vị bán', { required: true });
+            if (!nameUnitCheck.ok) return setError(nameUnitCheck.message);
+            const ratioCheck = validateNonNegativeNumber(u.ratio, 'Tỉ lệ đơn vị bán', { required: true });
+            if (!ratioCheck.ok || ratioCheck.value <= 0) {
+                return setError('Tỉ lệ đơn vị bán phải lớn hơn 0.');
+            }
+            const salePriceCheck = validateNonNegativeNumber(u.sale_price, 'Giá bán đơn vị', { required: true });
+            if (!salePriceCheck.ok) return setError(salePriceCheck.message);
+            units.push({
+                name: nameUnitCheck.value,
+                ratio: ratioCheck.value,
+                sale_price: salePriceCheck.value,
+            });
         }
-        if (!form.sku.trim()) {
-            setError('Vui lòng nhập SKU.');
-            return;
-        }
-        const units = form.selling_units
-            .filter((u) => u.name && String(u.ratio).trim() !== '' && String(u.sale_price).trim() !== '')
-            .map((u) => ({
-                name: String(u.name).trim(),
-                ratio: Number(u.ratio) > 0 ? Number(u.ratio) : 1,
-                sale_price: Number(u.sale_price) >= 0 ? Number(u.sale_price) : 0,
-            }));
         if (units.length === 0) {
             setError('Vui lòng thêm ít nhất một đơn vị bán với giá.');
             return;
@@ -211,15 +270,15 @@ export default function ManagerProductEdit() {
                 finalImageUrls = [...existingImages, ...uploaded].slice(0, 3);
             }
             await updateProduct(id, {
-                name: form.name.trim(),
-                sku: form.sku.trim(),
-                barcode: form.barcode ? String(form.barcode).trim() : undefined,
-                supplier_id: form.supplier_id && form.supplier_id.trim() ? form.supplier_id.trim() : undefined,
-                cost_price: costNum,
-                stock_qty: Number(form.stock_qty) || 0,
-                reorder_level: Number(form.reorder_level) || 0,
+                name: nameCheck.value,
+                sku: skuCheck.value,
+                barcode: barcodeCheck.value || undefined,
+                supplier_id: trimString(form.supplier_id) || undefined,
+                cost_price: costCheck.value,
+                stock_qty: stockCheck.value,
+                reorder_level: reorderCheck.value,
                 expiry_date: form.expiry_date ? form.expiry_date : null,
-                base_unit: form.base_unit || 'Cái',
+                base_unit: baseUnitCheck.value,
                 selling_units: units,
                 image_urls: finalImageUrls,
                 status: form.status === 'inactive' ? 'inactive' : 'active',
@@ -290,7 +349,26 @@ export default function ManagerProductEdit() {
                                         </div>
                                         <div>
                                             <label className="mb-1 block text-sm font-medium text-slate-600">Barcode</label>
-                                            <input type="text" value={form.barcode} onChange={(e) => update('barcode', e.target.value)} placeholder="Mã vạch (tùy chọn)" className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2" />
+                                            <div className="relative">
+                                                <input type="text" value={form.barcode} onChange={(e) => update('barcode', e.target.value)} placeholder="Mã vạch (tùy chọn)" className="h-10 w-full rounded-lg border border-slate-200 px-3 pr-11 text-sm outline-none ring-sky-200 transition focus:ring-2" />
+                                                <button
+                                                    type="button"
+                                                    title={scanMode ? 'Tắt quét mã' : 'Bật quét mã'}
+                                                    onMouseDown={(e) => e.preventDefault()}
+                                                    onClick={() => {
+                                                        setScanMode((v) => !v);
+                                                        scanBufferRef.current = '';
+                                                    }}
+                                                    className={`absolute right-1 top-1 inline-flex h-8 w-8 items-center justify-center rounded-md border transition ${
+                                                        scanMode
+                                                            ? 'border-sky-300 bg-sky-100 text-sky-700'
+                                                            : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50'
+                                                    }`}
+                                                >
+                                                    <Barcode className="h-4 w-4" />
+                                                </button>
+                                            </div>
+                                            {scanMode && <p className="mt-1 text-xs font-semibold text-sky-700">Dang bat che do quet ma.</p>}
                                         </div>
                                         <div>
                                             <label className="mb-1 block text-sm font-medium text-slate-600">Nhà cung cấp</label>
@@ -313,8 +391,8 @@ export default function ManagerProductEdit() {
                                         {form.selling_units.map((u, i) => (
                                             <div key={i} className="grid grid-cols-[1fr_90px_1fr_36px] gap-2">
                                                 <input type="text" value={u.name} onChange={(e) => updateSellingUnit(i, 'name', e.target.value)} placeholder="Đơn vị" className="h-10 rounded-lg border border-slate-200 px-2 text-sm outline-none ring-sky-200 transition focus:ring-2" />
-                                                <input type="number" min="1" step="1" value={u.ratio} onChange={(e) => updateSellingUnit(i, 'ratio', e.target.value)} placeholder="Tỉ lệ" className="h-10 rounded-lg border border-slate-200 px-2 text-sm outline-none ring-sky-200 transition focus:ring-2" />
-                                                <input type="number" min="0" step="1000" value={u.sale_price} onChange={(e) => updateSellingUnit(i, 'sale_price', e.target.value)} placeholder="Giá bán" className="h-10 rounded-lg border border-slate-200 px-2 text-sm outline-none ring-sky-200 transition focus:ring-2" />
+                                                <input type="number" min="1" step="any" value={u.ratio} onChange={(e) => updateSellingUnit(i, 'ratio', e.target.value)} placeholder="Tỉ lệ" className="h-10 rounded-lg border border-slate-200 px-2 text-sm outline-none ring-sky-200 transition focus:ring-2" />
+                                                <input type="number" min="0" step="any" value={u.sale_price} onChange={(e) => updateSellingUnit(i, 'sale_price', e.target.value)} placeholder="Giá bán" className="h-10 rounded-lg border border-slate-200 px-2 text-sm outline-none ring-sky-200 transition focus:ring-2" />
                                                 <button type="button" onClick={() => removeSellingUnit(i)} disabled={form.selling_units.length <= 1} className="inline-flex h-10 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40">
                                                     <X className="h-4 w-4" />
                                                 </button>
@@ -336,7 +414,7 @@ export default function ManagerProductEdit() {
                                         </div>
                                         <div>
                                             <label className="mb-1 block text-sm font-medium text-slate-600">Giá vốn (₫) / 1 đơn vị gốc</label>
-                                            <input type="number" min="0" step="1000" value={form.cost_price} onChange={(e) => setForm((prev) => ({ ...prev, cost_price: e.target.value }))} placeholder="0" className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2" />
+                                            <input type="number" min="0" step="any" value={form.cost_price} onChange={(e) => setForm((prev) => ({ ...prev, cost_price: e.target.value }))} placeholder="0" className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2" />
                                         </div>
                                         <div>
                                             <label className="mb-1 block text-sm font-medium text-slate-600">Tồn kho hiện tại</label>

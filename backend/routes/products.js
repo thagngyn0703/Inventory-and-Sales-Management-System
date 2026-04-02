@@ -55,6 +55,25 @@ function parseOptionalDate(value) {
   return Number.isNaN(d.getTime()) ? undefined : d;
 }
 
+const TEXT_NO_SPECIAL_REGEX = /^[\p{L}\p{N}\s]+$/u;
+const ALNUM_NO_SPACE_REGEX = /^[\p{L}\p{N}]+$/u;
+const DIGITS_ONLY_REGEX = /^\d+$/;
+
+function trimText(value) {
+  return String(value || '').trim();
+}
+
+function isValidNoSpecialText(value) {
+  return TEXT_NO_SPECIAL_REGEX.test(trimText(value));
+}
+
+function parseNonNegativeNumber(value) {
+  if (value === undefined || value === null || value === '') return 0;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return n;
+}
+
 function normalizeImageUrls(value) {
   if (!Array.isArray(value)) return [];
   return value
@@ -283,21 +302,56 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
     const role = String(req.user?.role || '').toLowerCase();
     const requesterStoreId = req.user?.storeId ? String(req.user.storeId) : null;
 
-    if (!name || !String(name).trim()) {
-      return res.status(400).json({ message: 'name is required' });
-    }
-    if (!sku || !String(sku).trim()) {
-      return res.status(400).json({ message: 'sku is required' });
-    }
+    const nameTrim = trimText(name);
+    const skuTrim = trimText(sku);
+    const barcodeTrim = trimText(barcode);
+    const base = base_unit ? trimText(base_unit) : 'Cái';
+    const costNum = parseNonNegativeNumber(cost_price);
+    const stockNum = parseNonNegativeNumber(stock_qty);
+    const reorderNum = parseNonNegativeNumber(reorder_level);
 
-    const base = base_unit ? String(base_unit).trim() : 'Cái';
+    if (!nameTrim) return res.status(400).json({ message: 'Tên sản phẩm không được để trống.' });
+    if (!isValidNoSpecialText(nameTrim)) {
+      return res.status(400).json({ message: 'Tên sản phẩm không được chứa ký tự đặc biệt.' });
+    }
+    if (!skuTrim) return res.status(400).json({ message: 'SKU không được để trống.' });
+    if (!ALNUM_NO_SPACE_REGEX.test(skuTrim)) {
+      return res.status(400).json({ message: 'SKU chỉ được gồm chữ và số, không ký tự đặc biệt.' });
+    }
+    if (barcodeTrim && !DIGITS_ONLY_REGEX.test(barcodeTrim)) {
+      return res.status(400).json({ message: 'Barcode chỉ được nhập số, không chữ hoặc ký tự đặc biệt.' });
+    }
+    if (!isValidNoSpecialText(base)) {
+      return res.status(400).json({ message: 'Đơn vị tồn kho không được chứa ký tự đặc biệt.' });
+    }
+    if (costNum == null) return res.status(400).json({ message: 'Giá vốn không hợp lệ.' });
+    if (stockNum == null) return res.status(400).json({ message: 'Tồn kho không hợp lệ.' });
+    if (reorderNum == null) return res.status(400).json({ message: 'Mức tồn tối thiểu không hợp lệ.' });
+
     let selling_units = Array.isArray(bodyUnits) && bodyUnits.length > 0
-      ? bodyUnits.map((u) => ({
-          name: String(u.name || '').trim() || base,
-          ratio: Number(u.ratio) > 0 ? Number(u.ratio) : 1,
-          sale_price: Number(u.sale_price) >= 0 ? Number(u.sale_price) : 0,
-        }))
-      : [{ name: base, ratio: 1, sale_price: Number(sale_price) >= 0 ? Number(sale_price) : 0 }];
+      ? bodyUnits.map((u) => {
+          const unitName = trimText(u.name) || base;
+          const ratioNum = parseNonNegativeNumber(u.ratio);
+          const saleNum = parseNonNegativeNumber(u.sale_price);
+          return {
+            name: unitName,
+            ratio: ratioNum != null && ratioNum > 0 ? ratioNum : 1,
+            sale_price: saleNum != null ? saleNum : 0,
+          };
+        })
+      : [{ name: base, ratio: 1, sale_price: parseNonNegativeNumber(sale_price) ?? 0 }];
+
+    for (const u of selling_units) {
+      if (!isValidNoSpecialText(u.name)) {
+        return res.status(400).json({ message: 'Tên đơn vị bán không được chứa ký tự đặc biệt.' });
+      }
+      if (!Number.isFinite(Number(u.ratio)) || Number(u.ratio) <= 0) {
+        return res.status(400).json({ message: 'Tỉ lệ đơn vị bán phải lớn hơn 0.' });
+      }
+      if (!Number.isFinite(Number(u.sale_price)) || Number(u.sale_price) < 0) {
+        return res.status(400).json({ message: 'Giá bán đơn vị không hợp lệ.' });
+      }
+    }
 
     const hasBase = selling_units.some((u) => u.ratio === 1);
     if (!hasBase) {
@@ -327,7 +381,6 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
       return res.status(400).json({ message: expCheck.message });
     }
 
-    const barcodeTrim = barcode ? String(barcode).trim() : '';
     if (barcodeTrim) {
       const dupBc = await findBarcodeDuplicate({ barcode: barcodeTrim, storeId: resolvedStoreId });
       if (dupBc) {
@@ -344,13 +397,13 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
       category_id: category_id && mongoose.isValidObjectId(category_id) ? category_id : undefined,
       supplier_id: supplier_id && mongoose.isValidObjectId(supplier_id) ? supplier_id : undefined,
       storeId: resolvedStoreId,
-      name: String(name).trim(),
-      sku: String(sku).trim(),
+      name: nameTrim,
+      sku: skuTrim,
       barcode: barcodeTrim || undefined,
-      cost_price: Number(cost_price || 0),
+      cost_price: costNum,
       sale_price: baseUnitPrice,
-      stock_qty: Number(stock_qty || 0),
-      reorder_level: Number(reorder_level || 0),
+      stock_qty: stockNum,
+      reorder_level: reorderNum,
       expiry_date: expCheck.date,
       base_unit: base,
       selling_units,
@@ -788,8 +841,28 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
       product.expiry_date = expCheck.date != null ? expCheck.date : null;
     }
 
+    if (name !== undefined) {
+      const nameTrim = trimText(name);
+      if (!nameTrim) return res.status(400).json({ message: 'Tên sản phẩm không được để trống.' });
+      if (!isValidNoSpecialText(nameTrim)) {
+        return res.status(400).json({ message: 'Tên sản phẩm không được chứa ký tự đặc biệt.' });
+      }
+      product.name = nameTrim;
+    }
+    if (sku !== undefined) {
+      const skuTrim = trimText(sku);
+      if (!skuTrim) return res.status(400).json({ message: 'SKU không được để trống.' });
+      if (!ALNUM_NO_SPACE_REGEX.test(skuTrim)) {
+        return res.status(400).json({ message: 'SKU chỉ được gồm chữ và số, không ký tự đặc biệt.' });
+      }
+      product.sku = skuTrim;
+    }
+
     if (barcode !== undefined) {
-      const bc = barcode ? String(barcode).trim() : '';
+      const bc = trimText(barcode);
+      if (bc && !DIGITS_ONLY_REGEX.test(bc)) {
+        return res.status(400).json({ message: 'Barcode chỉ được nhập số, không chữ hoặc ký tự đặc biệt.' });
+      }
       if (bc) {
         const dupB = await findBarcodeDuplicate({ barcode: bc, storeId: product.storeId, excludeId: id });
         if (dupB) {
@@ -799,12 +872,28 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
       product.barcode = bc || undefined;
     }
 
-    if (name !== undefined) product.name = String(name).trim();
-    if (sku !== undefined) product.sku = String(sku).trim();
-    if (cost_price !== undefined) product.cost_price = Number(cost_price) || 0;
-    if (stock_qty !== undefined) product.stock_qty = Number(stock_qty) || 0;
-    if (reorder_level !== undefined) product.reorder_level = Number(reorder_level) || 0;
-    if (base_unit !== undefined) product.base_unit = base_unit ? String(base_unit).trim() : 'Cái';
+    if (cost_price !== undefined) {
+      const n = parseNonNegativeNumber(cost_price);
+      if (n == null) return res.status(400).json({ message: 'Giá vốn không hợp lệ.' });
+      product.cost_price = n;
+    }
+    if (stock_qty !== undefined) {
+      const n = parseNonNegativeNumber(stock_qty);
+      if (n == null) return res.status(400).json({ message: 'Tồn kho không hợp lệ.' });
+      product.stock_qty = n;
+    }
+    if (reorder_level !== undefined) {
+      const n = parseNonNegativeNumber(reorder_level);
+      if (n == null) return res.status(400).json({ message: 'Mức tồn tối thiểu không hợp lệ.' });
+      product.reorder_level = n;
+    }
+    if (base_unit !== undefined) {
+      const base = base_unit ? trimText(base_unit) : 'Cái';
+      if (!isValidNoSpecialText(base)) {
+        return res.status(400).json({ message: 'Đơn vị tồn kho không được chứa ký tự đặc biệt.' });
+      }
+      product.base_unit = base;
+    }
     if (status !== undefined) product.status = status === 'inactive' ? 'inactive' : 'active';
     if (category_id !== undefined) {
       product.category_id = category_id && mongoose.isValidObjectId(category_id) ? category_id : null;
@@ -827,17 +916,35 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
 
     if (Array.isArray(bodyUnits) && bodyUnits.length > 0) {
       const base = product.base_unit || 'Cái';
-      const units = bodyUnits.map((u) => ({
-        name: String(u.name || '').trim() || base,
-        ratio: Number(u.ratio) > 0 ? Number(u.ratio) : 1,
-        sale_price: Number(u.sale_price) >= 0 ? Number(u.sale_price) : 0,
-      }));
+      const units = bodyUnits.map((u) => {
+        const unitName = trimText(u.name) || base;
+        const ratioNum = parseNonNegativeNumber(u.ratio);
+        const saleNum = parseNonNegativeNumber(u.sale_price);
+        return {
+          name: unitName,
+          ratio: ratioNum != null && ratioNum > 0 ? ratioNum : 1,
+          sale_price: saleNum != null ? saleNum : 0,
+        };
+      });
+      for (const u of units) {
+        if (!isValidNoSpecialText(u.name)) {
+          return res.status(400).json({ message: 'Tên đơn vị bán không được chứa ký tự đặc biệt.' });
+        }
+        if (!Number.isFinite(Number(u.ratio)) || Number(u.ratio) <= 0) {
+          return res.status(400).json({ message: 'Tỉ lệ đơn vị bán phải lớn hơn 0.' });
+        }
+        if (!Number.isFinite(Number(u.sale_price)) || Number(u.sale_price) < 0) {
+          return res.status(400).json({ message: 'Giá bán đơn vị không hợp lệ.' });
+        }
+      }
       const hasBase = units.some((u) => u.ratio === 1);
       product.selling_units = hasBase ? units : [{ name: base, ratio: 1, sale_price: units[0]?.sale_price ?? 0 }, ...units];
       const baseUnitPrice = product.selling_units.find((u) => u.ratio === 1)?.sale_price ?? 0;
       product.sale_price = baseUnitPrice;
     } else if (sale_price !== undefined) {
-      product.sale_price = Number(sale_price) || 0;
+      const saleNum = parseNonNegativeNumber(sale_price);
+      if (saleNum == null) return res.status(400).json({ message: 'Giá bán không hợp lệ.' });
+      product.sale_price = saleNum;
       product.selling_units = [{ name: product.base_unit || 'Cái', ratio: 1, sale_price: product.sale_price }];
     }
     product.updated_at = new Date();
