@@ -31,6 +31,7 @@ export default function ManagerSidebar() {
 
     const overviewItems = [
         { label: 'Tổng quan', path: '/manager', icon: 'fa-house' },
+        { label: 'Trợ lý AI', path: '/manager/ai-assistant', icon: 'fa-wand-magic-sparkles' },
         { label: 'Đơn hàng', path: '/manager/orders', icon: 'fa-file-lines' },
         { label: 'Sản phẩm', path: '/manager/products', icon: 'fa-cart-shopping' },
         { label: 'Danh mục', path: '/manager/categories', icon: 'fa-list' },

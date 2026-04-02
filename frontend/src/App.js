@@ -47,6 +47,7 @@ import ManagerProductRequests from "./pages/ManagerDashboard/ManagerProductReque
 import ManagerStoreRegister from "./pages/ManagerDashboard/ManagerStoreRegister";
 import ManagerNotifications from "./pages/ManagerDashboard/ManagerNotifications";
 import ManagerPriceChangeReport from "./pages/ManagerDashboard/ManagerPriceChangeReport";
+import ManagerAIAssistant from "./pages/ManagerDashboard/ManagerAIAssistant";
 import RequireManagerStore from "./components/RequireManagerStore";
 import RequireStaffStore from "./components/RequireStaffStore";
 
@@ -84,6 +85,18 @@ function App() {
             <RequireRole allowedRoles={["manager"]}>
               <RequireManagerStore>
                 <ManagerDashboard />
+              </RequireManagerStore>
+            </RequireRole>
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/manager/ai-assistant"
+        element={
+          <RequireAuth>
+            <RequireRole allowedRoles={["manager"]}>
+              <RequireManagerStore>
+                <ManagerAIAssistant />
               </RequireManagerStore>
             </RequireRole>
           </RequireAuth>
