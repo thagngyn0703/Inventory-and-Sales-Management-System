@@ -5,11 +5,17 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
-// GET /api/customers - List/Search customers
+// GET /api/customers - List/Search customers (Scoped by Store)
 router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
         const { searchKey, status, is_regular, limit = 50 } = req.query;
         const filter = {};
+
+        // Only admins see all; others filtered by store
+        const userRole = String(req.user?.role || '').toLowerCase();
+        if (req.user.storeId && userRole !== 'admin') {
+            filter.store_id = req.user.storeId;
+        }
 
         if (status) filter.status = status;
         if (is_regular !== undefined) filter.is_regular = is_regular === 'true';
@@ -34,7 +40,7 @@ router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (
     }
 });
 
-// POST /api/customers - Create a new customer
+// POST /api/customers - Create a new customer (Attach Store ID)
 router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
         const { full_name, phone, email, address, is_regular, credit_limit } = req.body;
@@ -48,6 +54,15 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
             return res.status(400).json({ message: 'Số điện thoại phải có 10 hoặc 11 chữ số' });
         }
 
+        // Check uniqueness within the same store
+        const userStoreId = req.user.storeId || null;
+        if (tel) {
+            const existing = await Customer.findOne({ phone: tel, store_id: userStoreId });
+            if (existing) {
+                return res.status(400).json({ message: 'Số điện thoại này đã tồn tại trong cửa hàng của bạn' });
+            }
+        }
+
         const customer = new Customer({
             full_name: full_name.trim(),
             phone: tel,
@@ -55,14 +70,12 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
             address: address ? address.trim() : '',
             is_regular: Boolean(is_regular),
             credit_limit: Number(credit_limit) || 0,
+            store_id: userStoreId
         });
         
         await customer.save();
         res.status(201).json({ customer });
     } catch (err) {
-        if (err.code === 11000) {
-            return res.status(400).json({ message: 'Số điện thoại này đã tồn tại trong hệ thống' });
-        }
         console.error(err);
         res.status(500).json({ message: 'Lỗi server khi tạo khách hàng' });
     }
@@ -74,12 +87,24 @@ router.patch('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), as
         const { id } = req.params;
         const { full_name, phone, email, address, is_regular, debt_account } = req.body;
 
+        const findQuery = { _id: id };
+        // Role-based scoping
+        const userRole = String(req.user?.role || '').toLowerCase();
+        if (req.user.storeId && userRole !== 'admin') {
+            findQuery.store_id = req.user.storeId;
+        }
+
         const updateData = {};
         if (full_name) updateData.full_name = full_name.trim();
         if (phone !== undefined) {
             const tel = phone.trim().replace(/\s/g, '');
             if (tel && (tel.length < 10 || tel.length > 11)) {
                 return res.status(400).json({ message: 'Số điện thoại phải có 10 hoặc 11 chữ số' });
+            }
+            // Ensure unique in same store when updating phone
+            const duplicate = await Customer.findOne({ phone: tel, store_id: req.user.storeId, _id: { $ne: id } });
+            if (duplicate) {
+                return res.status(400).json({ message: 'Số điện thoại này đã tồn tại trong cửa hàng của bạn' });
             }
             updateData.phone = tel;
         }
@@ -92,14 +117,11 @@ router.patch('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), as
 
         updateData.updated_at = new Date();
         
-        const customer = await Customer.findByIdAndUpdate(id, { $set: updateData }, { new: true });
-        if (!customer) return res.status(404).json({ message: 'Không tìm thấy khách hàng' });
+        const customer = await Customer.findOneAndUpdate(findQuery, { $set: updateData }, { new: true });
+        if (!customer) return res.status(404).json({ message: 'Không tìm thấy khách hàng trong phạm vi cửa hàng của bạn' });
 
         res.json({ message: 'Cập nhật thành công', customer });
     } catch (err) {
-        if (err.code === 11000) {
-            return res.status(400).json({ message: 'Số điện thoại này đã tồn tại trong hệ thống' });
-        }
         console.error(err);
         res.status(500).json({ message: 'Lỗi server' });
     }
@@ -114,15 +136,21 @@ router.post('/:id/pay-debt', requireAuth, requireRole(['staff', 'manager', 'admi
         if (!mongoose.isValidObjectId(id)) {
             return res.status(400).json({ message: 'ID khách hàng không hợp lệ' });
         }
+
+        const findQuery = { _id: id };
+        const userRole = String(req.user?.role || '').toLowerCase();
+        if (req.user.storeId && userRole !== 'admin') {
+            findQuery.store_id = req.user.storeId;
+        }
+
+        const customer = await Customer.findOne(findQuery);
+        if (!customer) {
+            return res.status(404).json({ message: 'Không tìm thấy khách hàng trong phạm vi cửa hàng của bạn' });
+        }
         
         const payAmount = Number(amount) || 0;
         if (payAmount <= 0) {
             return res.status(400).json({ message: 'Số tiền thanh toán phải lớn hơn 0' });
-        }
-        
-        const customer = await Customer.findById(id);
-        if (!customer) {
-            return res.status(404).json({ message: 'Không tìm thấy khách hàng' });
         }
         
         const previousDebt = customer.debt_account || 0;
@@ -130,13 +158,14 @@ router.post('/:id/pay-debt', requireAuth, requireRole(['staff', 'manager', 'admi
         customer.updated_at = new Date();
         await customer.save();
 
-        // FIFO settlement: Match payment with pending debt invoices
+        // FIFO settlement: Match payment with pending debt invoices (also scoped by store)
         try {
             const SalesInvoice = require('../models/SalesInvoice');
             const pendingInvoices = await SalesInvoice.find({ 
               customer_id: id, 
               status: 'pending', 
-              payment_method: 'debt' 
+              payment_method: 'debt',
+              store_id: req.user.storeId 
             }).sort({ created_at: 1 }); // Oldest first
 
             let unallocated = payAmount;
@@ -151,10 +180,6 @@ router.post('/:id/pay-debt', requireAuth, requireRole(['staff', 'manager', 'admi
                 await invoice.save();
                 unallocated -= invoice.total_amount;
               } else {
-                // Partial payment for the remaining unallocated amount? 
-                // We don't have a partial payment state per invoice, so we stop here.
-                // Or maybe we just mark it confirmed but unpaid if it's partial? 
-                // Currently, we only mark as paid if fully covered.
                 break;
               }
             }
@@ -170,6 +195,7 @@ router.post('/:id/pay-debt', requireAuth, requireRole(['staff', 'manager', 'admi
                 action: `Thu nợ khách hàng ${customer.full_name}: ${payAmount.toLocaleString('vi-VN')}₫ (${payment_method === 'cash' ? 'Tiền mặt' : 'Chuyển khoản'})`,
                 entity: 'Customer',
                 entity_id: customer._id,
+                store_id: req.user.storeId,
                 ip_address: req.ip
             });
         } catch (auditErr) {
