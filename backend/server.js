@@ -19,6 +19,8 @@ const notificationRoutes = require('./routes/notifications');
 const analyticsRoutes = require('./routes/analytics');
 const customerRoutes = require('./routes/customers');
 const adminStoreRoutes = require('./routes/adminStores');
+const adminDashboardRoutes = require('./routes/adminDashboard');
+const userRoutes = require('./routes/users');
 const rbacRoutes = require('./routes/rbac');
 const paymentRoutes = require('./routes/payments');
 const { hasSmtpConfig } = require('./services/emailService');
@@ -62,6 +64,8 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/customers', customerRoutes);
 app.use('/api/admin/stores', adminStoreRoutes);
+app.use('/api/admin/dashboard', adminDashboardRoutes);
+app.use('/api/users', userRoutes);
 app.use('/api/admin/rbac', rbacRoutes);
 app.use('/api/payments', paymentRoutes);
 

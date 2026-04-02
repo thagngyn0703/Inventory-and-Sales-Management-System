@@ -9,7 +9,7 @@ export default function Sidebar() {
     const menuItems = [
         { label: '🏠 Dashboard', path: '/admin', platformOnly: true },
         { label: '🏬 Quản lý cửa hàng', path: '/admin/stores', platformOnly: true },
-        { label: '🔐 Role & Permission', path: '/admin/rbac', platformOnly: true },
+        { label: '👤 Quản lý tài khoản', path: '/admin/users', platformOnly: true },
         { label: '🏠 Dashboard', path: '/home', roles: ['user', 'staff'] },
         { label: '📦 Sản phẩm', path: '/manager/products', roles: ['manager', 'staff'] },
         { label: '📂 Danh mục', path: '/manager/categories', roles: ['manager', 'staff'] },

@@ -73,6 +73,16 @@
     flex: 1;
 }
 
+.admin-users-banner-error {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    color: #b91c1c;
+    padding: 12px 16px;
+    border-radius: 10px;
+    margin-bottom: 16px;
+    font-size: 14px;
+}
+
 .admin-users-page-header {
     margin-bottom: 24px;
 }
@@ -160,6 +170,13 @@
 }
 
 /* ── Toolbar ── */
+.admin-users-count-hint {
+    margin: 0;
+    font-size: 13px;
+    color: #64748b;
+    align-self: center;
+}
+
 .admin-users-toolbar {
     display: flex;
     align-items: center;
@@ -404,8 +421,8 @@
         grid-template-columns: 1fr;
     }
 
-    .au-table th:nth-child(5),
-    .au-table td:nth-child(5) {
+    .au-table th:nth-child(6),
+    .au-table td:nth-child(6) {
         display: none;
     }
 }
@@ -480,4 +497,72 @@
 
 .au-modal-btn--confirm:hover {
     background: #2563eb;
+}
+
+.au-store-cell {
+    font-size: 14px;
+    color: #334155;
+    max-width: 220px;
+    line-height: 1.4;
+}
+
+.au-actions-cell {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.au-assign-btn {
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 1px solid #cbd5e1;
+    background: #f8fafc;
+    color: #0f172a;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s;
+}
+
+.au-assign-btn:hover:not(:disabled) {
+    background: #e2e8f0;
+    border-color: #94a3b8;
+}
+
+.au-assign-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.au-modal-content--assign {
+    text-align: left;
+    max-width: 440px;
+    width: 92%;
+}
+
+.au-modal-content--assign h3 {
+    text-align: center;
+}
+
+.au-assign-select-wrap {
+    margin-bottom: 20px;
+    text-align: left;
+}
+
+.au-assign-select-wrap label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    color: #374151;
+    margin-bottom: 8px;
+}
+
+.au-assign-select {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid #e5e7eb;
+    font-size: 14px;
+    background: #fff;
 }

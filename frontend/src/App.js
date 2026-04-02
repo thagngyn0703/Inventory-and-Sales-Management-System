@@ -5,7 +5,7 @@ import NoStoreAssignedPage from "./pages/AuthPage/NoStoreAssignedPage";
 import Home from "./pages/HomePageUser/Home";
 import AdminDashboard from "./pages/AdminHome/AdminDashBoard";
 import AdminStoresManage from "./pages/AdminHome/AdminStoresManage";
-import AdminRbacManage from "./pages/AdminHome/AdminRbacManage";
+import AdminUserList from "./pages/AdminHome/AdminUserList";
 import ManagerDashboard from "./pages/ManagerDashboard/ManagerDashboard";
 import ManagerProductList from "./pages/ManagerDashboard/ManagerProductList";
 import ManagerProductCreate from "./pages/ManagerDashboard/ManagerProductCreate";
@@ -66,7 +66,7 @@ function App() {
       <Route path="/home" element={<Home />} />
       <Route path="/admin" element={<RequireAuth><RequireRole allowedRoles={["admin"]}><AdminDashboard /></RequireRole></RequireAuth>} />
       <Route path="/admin/stores" element={<RequireAuth><RequireRole allowedRoles={["admin"]}><AdminStoresManage /></RequireRole></RequireAuth>} />
-      <Route path="/admin/rbac" element={<RequireAuth><RequireRole allowedRoles={["admin"]}><AdminRbacManage /></RequireRole></RequireAuth>} />
+      <Route path="/admin/users" element={<RequireAuth><RequireRole allowedRoles={["admin"]}><AdminUserList /></RequireRole></RequireAuth>} />
       <Route
         path="/manager/store/register"
         element={
