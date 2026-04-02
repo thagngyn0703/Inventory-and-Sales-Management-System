@@ -148,14 +148,26 @@ router.patch('/:id/status', requireAuth, requireRole(['manager', 'admin']), asyn
         if (gr.status === status) return res.json({ goodsReceipt: gr.toObject() });
 
         if (status === 'approved') {
-            // update product stocks
+            // Cập nhật tồn kho và giá vốn bình quân gia quyền (Weighted Average Cost)
+            // Công thức: giá_vốn_mới = (tồn_hiện_tại * giá_vốn_cũ + số_lượng_nhập * đơn_giá_nhập) / (tồn_hiện_tại + số_lượng_nhập)
             for (const it of gr.items) {
                 const product = await Product.findById(it.product_id);
                 if (!product) {
                     return res.status(404).json({ message: `Product not found: ${String(it.product_id)}` });
                 }
                 const addQty = Number(it.quantity) * (Number(it.ratio) || 1);
-                product.stock_qty = (Number(product.stock_qty) || 0) + addQty;
+                const unitCost = Number(it.unit_cost) || 0;
+                const currentQty = Number(product.stock_qty) || 0;
+                const currentCost = Number(product.cost_price) || 0;
+
+                const newQty = currentQty + addQty;
+                // Weighted Average: tính giá vốn bình quân gia quyền
+                const newCostPrice = newQty > 0
+                    ? (currentQty * currentCost + addQty * unitCost) / newQty
+                    : unitCost;
+
+                product.stock_qty = newQty;
+                product.cost_price = Math.round(newCostPrice * 100) / 100;
                 product.updated_at = new Date();
                 await product.save();
             }

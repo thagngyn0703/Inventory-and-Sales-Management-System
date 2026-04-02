@@ -158,20 +158,50 @@ router.get(
 
       const storeIdObj = req.user?.storeId ? new mongoose.Types.ObjectId(req.user.storeId) : null;
 
-      // Doanh thu + số đơn
-      const [invoiceAgg, returnAgg, grAgg, todayAgg, yesterdayAgg] = await Promise.all([
+      const invoiceMatchPeriod = storeIdObj
+        ? { store_id: storeIdObj, status: 'confirmed', invoice_at: { $gte: from, $lte: to } }
+        : { status: 'confirmed', invoice_at: { $gte: from, $lte: to } };
+
+      const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+      const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999);
+      const yStart = new Date(); yStart.setDate(yStart.getDate() - 1); yStart.setHours(0, 0, 0, 0);
+      const yEnd = new Date(); yEnd.setDate(yEnd.getDate() - 1); yEnd.setHours(23, 59, 59, 999);
+
+      // Doanh thu + số đơn + lợi nhuận gộp thực (từ cost_price snapshot trên từng dòng hóa đơn)
+      const [invoiceAgg, invoiceProfitAgg, returnAgg, grAgg, todayAgg, yesterdayAgg] = await Promise.all([
+        // Aggregate 1: đếm số hóa đơn, tổng doanh thu, tổng đã thu
         SalesInvoice.aggregate([
-          {
-            $match: storeIdObj
-              ? { store_id: storeIdObj, status: 'confirmed', invoice_at: { $gte: from, $lte: to } }
-              : { status: 'confirmed', invoice_at: { $gte: from, $lte: to } },
-          },
+          { $match: invoiceMatchPeriod },
           {
             $group: {
               _id: null,
               total_revenue: { $sum: '$total_amount' },
               order_count: { $sum: 1 },
               total_paid: { $sum: '$paid_amount' },
+            },
+          },
+        ]),
+
+        // Aggregate 2: tính lợi nhuận gộp thực từ cost_price snapshot trên từng dòng hóa đơn
+        SalesInvoice.aggregate([
+          { $match: invoiceMatchPeriod },
+          { $unwind: '$items' },
+          {
+            $group: {
+              _id: null,
+              gross_profit: {
+                $sum: {
+                  $ifNull: [
+                    '$items.line_profit',
+                    {
+                      $subtract: [
+                        '$items.line_total',
+                        { $multiply: [{ $ifNull: ['$items.cost_price', 0] }, '$items.quantity'] },
+                      ],
+                    },
+                  ],
+                },
+              },
             },
           },
         ]),
@@ -186,7 +216,7 @@ router.get(
           { $group: { _id: null, return_count: { $sum: 1 } } },
         ]),
 
-        // Chi phí nhập hàng trong kỳ (phiếu đã duyệt)
+        // Chi phí nhập hàng trong kỳ (phiếu đã duyệt) — giữ để tham khảo
         GoodsReceipt.aggregate([
           {
             $match: storeIdObj
@@ -199,13 +229,9 @@ router.get(
         // Doanh thu hôm nay
         SalesInvoice.aggregate([
           {
-            $match: (() => {
-              const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
-              const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999);
-              return storeIdObj
-                ? { store_id: storeIdObj, status: 'confirmed', invoice_at: { $gte: todayStart, $lte: todayEnd } }
-                : { status: 'confirmed', invoice_at: { $gte: todayStart, $lte: todayEnd } };
-            })(),
+            $match: storeIdObj
+              ? { store_id: storeIdObj, status: 'confirmed', invoice_at: { $gte: todayStart, $lte: todayEnd } }
+              : { status: 'confirmed', invoice_at: { $gte: todayStart, $lte: todayEnd } },
           },
           { $group: { _id: null, revenue: { $sum: '$total_amount' }, count: { $sum: 1 } } },
         ]),
@@ -213,13 +239,9 @@ router.get(
         // Doanh thu hôm qua (để tính % thay đổi)
         SalesInvoice.aggregate([
           {
-            $match: (() => {
-              const yStart = new Date(); yStart.setDate(yStart.getDate() - 1); yStart.setHours(0, 0, 0, 0);
-              const yEnd = new Date(); yEnd.setDate(yEnd.getDate() - 1); yEnd.setHours(23, 59, 59, 999);
-              return storeIdObj
-                ? { store_id: storeIdObj, status: 'confirmed', invoice_at: { $gte: yStart, $lte: yEnd } }
-                : { status: 'confirmed', invoice_at: { $gte: yStart, $lte: yEnd } };
-            })(),
+            $match: storeIdObj
+              ? { store_id: storeIdObj, status: 'confirmed', invoice_at: { $gte: yStart, $lte: yEnd } }
+              : { status: 'confirmed', invoice_at: { $gte: yStart, $lte: yEnd } },
           },
           { $group: { _id: null, revenue: { $sum: '$total_amount' }, count: { $sum: 1 } } },
         ]),
@@ -229,6 +251,9 @@ router.get(
       const orderCount = invoiceAgg[0]?.order_count ?? 0;
       const returnCount = returnAgg[0]?.return_count ?? 0;
       const incomingCost = grAgg[0]?.incoming_cost ?? 0;
+      // Lợi nhuận gộp thực: tính từ cost_price snapshot trên từng dòng hóa đơn
+      const grossProfit = invoiceProfitAgg[0]?.gross_profit ?? 0;
+      // Giữ lại gross_profit_estimate (dựa GoodsReceipt) để tham khảo
       const grossProfitEstimate = revenue - incomingCost;
       const returnRate = orderCount > 0 ? Math.round((returnCount / orderCount) * 10000) / 100 : 0;
       const avgOrderValue = orderCount > 0 ? Math.round(revenue / orderCount) : 0;
@@ -251,6 +276,9 @@ router.get(
         return_count: returnCount,
         return_rate: returnRate,
         incoming_cost: incomingCost,
+        // Lợi nhuận gộp thực: tính từ cost_price snapshot trên từng dòng hóa đơn (chính xác)
+        gross_profit: grossProfit,
+        // Lợi nhuận ước tính cũ (doanh thu - tiền nhập kỳ): giữ để tham khảo, không dùng cho báo cáo chính
         gross_profit_estimate: grossProfitEstimate,
         today: {
           revenue: todayRevenue,
@@ -596,12 +624,29 @@ router.get(
               qty: { $sum: '$items.quantity' },
               revenue: { $sum: '$items.line_total' },
               orders: { $sum: 1 },
+              // Lợi nhuận thực: dùng cost_price đã snapshot trên từng dòng hóa đơn
+              actual_profit: {
+                $sum: {
+                  $ifNull: [
+                    '$items.line_profit',
+                    {
+                      $subtract: [
+                        '$items.line_total',
+                        { $multiply: [{ $ifNull: ['$items.cost_price', 0] }, '$items.quantity'] },
+                      ],
+                    },
+                  ],
+                },
+              },
             },
           },
         ]);
 
         const qty = salesAgg[0]?.qty ?? 0;
         const revenue = salesAgg[0]?.revenue ?? 0;
+        // Lợi nhuận thực từ cost_price snapshot (chính xác)
+        const actualProfit = salesAgg[0]?.actual_profit ?? 0;
+        // Giữ lại estimated dựa new_cost_price để so sánh (tham khảo)
         const estimatedCost = qty * (Number(h.new_cost_price) || 0);
         const estimatedProfit = revenue - estimatedCost;
 
@@ -625,6 +670,9 @@ router.get(
           impact: {
             qty_sold: qty,
             revenue,
+            // Lợi nhuận thực: tính từ cost_price snapshot trên từng dòng hóa đơn (chính xác)
+            actual_profit: actualProfit,
+            // Lợi nhuận ước tính cũ (dựa new_cost_price): giữ để tham khảo
             estimated_cost: estimatedCost,
             estimated_profit: estimatedProfit,
             order_lines: salesAgg[0]?.orders ?? 0,
@@ -636,11 +684,12 @@ router.get(
         (acc, e) => {
           acc.total_events += 1;
           acc.total_revenue += e.impact.revenue;
+          acc.actual_profit += e.impact.actual_profit;
           acc.estimated_profit += e.impact.estimated_profit;
           acc.total_qty += e.impact.qty_sold;
           return acc;
         },
-        { total_events: 0, total_revenue: 0, estimated_profit: 0, total_qty: 0 }
+        { total_events: 0, total_revenue: 0, actual_profit: 0, estimated_profit: 0, total_qty: 0 }
       );
 
       return res.json({

@@ -591,7 +591,10 @@ router.post('/import/commit', requireAuth, requireRole(['manager', 'admin']), as
       });
     }
 
-    // Kiểm tra thay đổi giá — nếu có mà chưa xác nhận thì chặn lại
+    // Kiểm tra thay đổi giá bán — nếu có mà chưa xác nhận thì chặn lại
+    // Lưu ý: import Excel CHỈ cập nhật giá bán (sale_price) và thông tin catalog.
+    // Giá vốn (cost_price) KHÔNG bị thay đổi qua import — phải đi qua phiếu nhập hàng (GoodsReceipt).
+    // Số lượng tồn kho KHÔNG cộng thêm qua import — phải đi qua phiếu nhập hàng (GoodsReceipt).
     if (!confirmPriceChanges) {
       const pendingChanges = [];
       for (const raw of rows) {
@@ -602,16 +605,12 @@ router.post('/import/commit', requireAuth, requireRole(['manager', 'admin']), as
           storeId: resolvedStoreId,
         });
         if (!existing) continue;
-        const oldCost = Number(existing.cost_price) || 0;
         const oldSale = Number(existing.sale_price) || 0;
-        const newCost = Number(raw.cost_price) || 0;
         const newSale = Number(raw.sale_price) || 0;
-        if (oldCost !== newCost || oldSale !== newSale) {
+        if (oldSale !== newSale) {
           pendingChanges.push({
             name: existing.name,
             sku: existing.sku,
-            old_cost_price: oldCost,
-            new_cost_price: newCost,
             old_sale_price: oldSale,
             new_sale_price: newSale,
           });
@@ -620,7 +619,7 @@ router.post('/import/commit', requireAuth, requireRole(['manager', 'admin']), as
       if (pendingChanges.length > 0) {
         return res.status(409).json({
           code: 'PRICE_CHANGE_CONFIRMATION_REQUIRED',
-          message: `Có ${pendingChanges.length} sản phẩm bị thay đổi giá. Vui lòng xác nhận trước khi import.`,
+          message: `Có ${pendingChanges.length} sản phẩm bị thay đổi giá bán. Vui lòng xác nhận trước khi import.`,
           price_changes: pendingChanges,
         });
       }
@@ -662,7 +661,9 @@ router.post('/import/commit', requireAuth, requireRole(['manager', 'admin']), as
         });
 
         if (existing) {
-          const oldCost = Number(existing.cost_price) || 0;
+          // Import Excel chỉ cập nhật thông tin catalog và giá bán.
+          // Giá vốn (cost_price) KHÔNG thay đổi — phải đi qua phiếu nhập hàng để đảm bảo tính chính xác báo cáo lợi nhuận.
+          // Số lượng tồn kho KHÔNG cộng thêm — phải đi qua phiếu nhập hàng (GoodsReceipt).
           const oldSale = Number(existing.sale_price) || 0;
           if (barcodeIn) {
             const dupBc = await findBarcodeDuplicate({
@@ -678,9 +679,7 @@ router.post('/import/commit', requireAuth, requireRole(['manager', 'admin']), as
               continue;
             }
           }
-          const prevQty = Number(existing.stock_qty) || 0;
-          existing.stock_qty = prevQty + stock_qty;
-          existing.cost_price = cost_price;
+          // Chỉ cập nhật giá bán và thông tin catalog, giữ nguyên cost_price và stock_qty
           existing.sale_price = sale_price;
           existing.base_unit = base_unit || base;
           existing.selling_units = [{ name: base_unit || base, ratio: 1, sale_price }];
@@ -694,14 +693,15 @@ router.post('/import/commit', requireAuth, requireRole(['manager', 'admin']), as
             storeId: existing.storeId || resolvedStoreId || null,
             changedBy: req.user?.id,
             source: 'import_excel',
-            oldCost,
-            newCost: existing.cost_price,
+            oldCost: Number(existing.cost_price) || 0,
+            newCost: Number(existing.cost_price) || 0,
             oldSale,
             newSale: existing.sale_price,
           });
           updated.push({
             row: rowLabel,
             action: 'updated',
+            note: 'Chỉ cập nhật giá bán và thông tin catalog. Để nhập thêm hàng, vui lòng tạo phiếu nhập hàng (GoodsReceipt).',
             product: normalizeProduct(existing.toObject()),
           });
           continue;
