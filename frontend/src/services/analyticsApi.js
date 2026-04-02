@@ -66,15 +66,16 @@ export async function getRevenueChart({ period = '7d' } = {}) {
 }
 
 /**
- * Top sản phẩm bán chạy.
- * @param {Object} params - { from, to, limit }
- * @returns {{ period, data: [{ product_name, sku, total_qty, total_revenue, order_count, current_stock }] }}
+ * Top sản phẩm bán chạy hoặc lãi nhất.
+ * @param {Object} params - { from, to, limit, sort: 'qty'|'profit' }
+ * @returns {{ period, sort, data: [{ product_name, sku, total_qty, total_revenue, total_profit, order_count, current_stock }] }}
  */
-export async function getTopProducts({ from, to, limit = 10 } = {}) {
+export async function getTopProducts({ from, to, limit = 10, sort } = {}) {
   const url = new URL(`${API_BASE}/analytics/top-products`);
   if (from) url.searchParams.set('from', from);
   if (to) url.searchParams.set('to', to);
   url.searchParams.set('limit', String(limit));
+  if (sort) url.searchParams.set('sort', sort);
   const res = await fetch(url.toString(), { headers: authHeaders() });
   return parseResponse(res, 'Không thể tải top sản phẩm bán chạy');
 }
