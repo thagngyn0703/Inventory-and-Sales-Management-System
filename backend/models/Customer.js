@@ -39,6 +39,12 @@ const customerSchema = new Schema(
             type: Boolean,
             default: false,
         },
+        store_id: {
+            type: Schema.Types.ObjectId,
+            ref: 'Store',
+            default: null,
+            index: true,
+        },
         created_at: {
             type: Date,
             default: Date.now,
