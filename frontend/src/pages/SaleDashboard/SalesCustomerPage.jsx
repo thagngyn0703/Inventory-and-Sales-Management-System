@@ -22,7 +22,12 @@ export default function SalesCustomerPage() {
     const [isPayingDebt, setIsPayingDebt] = useState(false);
     
     // Edit Customer Modal
-    const [editCustomerModal, setEditCustomerModal] = useState({ show: false, customer: null, saving: false, error: '' });
+    const [editCustomerModal, setEditCustomerModal] = useState({ 
+        show: false, 
+        customer: { full_name: '', phone: '', email: '', address: '', debt_account: 0 }, 
+        saving: false, 
+        error: '' 
+    });
     
     // History Modal
     const [historyModal, setHistoryModal] = useState({ show: false, customer: null, invoices: [], loading: false });
@@ -287,7 +292,17 @@ export default function SalesCustomerPage() {
                                                         Lịch sử nợ
                                                     </button>
                                                     <button 
-                                                        onClick={() => setEditCustomerModal({ show: true, customer: { ...c }, saving: false })}
+                                                        onClick={() => setEditCustomerModal({ 
+                                                            show: true, 
+                                                            customer: { 
+                                                                ...c, 
+                                                                email: c.email || '', 
+                                                                address: c.address || '',
+                                                                debt_account: c.debt_account || 0
+                                                            }, 
+                                                            saving: false, 
+                                                            error: '' 
+                                                        })}
                                                         style={{ background: '#f1f5f9', color: '#64748b', border: '1px solid #e2e8f0', padding: '4px 8px', borderRadius: 4, cursor: 'pointer', fontSize: 11, fontWeight: 600, marginRight: 4 }}
                                                     >
                                                         Sửa
@@ -472,35 +487,25 @@ export default function SalesCustomerPage() {
                         
                         {editCustomerModal.error && <div className="warehouse-alert warehouse-alert-error" style={{ marginBottom: 16 }}>{editCustomerModal.error}</div>}
 
-                        <div style={{ marginBottom: '16px' }}>
-                            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>Tên khách hàng</label>
-                            <input 
-                                type="text" 
-                                value={editCustomerModal.customer?.full_name || ''}
-                                onChange={e => setEditCustomerModal({ ...editCustomerModal, customer: { ...editCustomerModal.customer, full_name: e.target.value } })}
-                                style={{ width: '100%', padding: '12px', borderRadius: 8, border: '1px solid #cbd5e1', outline: 'none', boxSizing: 'border-box' }}
-                            />
-                        </div>
-
-                        <div style={{ marginBottom: '16px' }}>
-                            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>Số điện thoại</label>
-                            <input 
-                                type="text" 
-                                value={editCustomerModal.customer?.phone || ''}
-                                onChange={e => setEditCustomerModal({ ...editCustomerModal, customer: { ...editCustomerModal.customer, phone: e.target.value } })}
-                                style={{ width: '100%', padding: '12px', borderRadius: 8, border: '1px solid #cbd5e1', outline: 'none', boxSizing: 'border-box' }}
-                            />
-                        </div>
-
-                        <div style={{ marginBottom: '24px' }}>
-                            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>Điều chỉnh nợ (VNĐ)</label>
-                            <input 
-                                type="number" 
-                                value={editCustomerModal.customer?.debt_account || 0}
-                                onChange={e => setEditCustomerModal({ ...editCustomerModal, customer: { ...editCustomerModal.customer, debt_account: e.target.value } })}
-                                style={{ width: '100%', padding: '12px', borderRadius: 8, border: '1px solid #cbd5e1', outline: 'none', boxSizing: 'border-box', fontWeight: 700, color: '#ef4444' }}
-                            />
-                            <p style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>* Lưu ý: Thay đổi này sẽ cập nhật trực tiếp số dư nợ của khách hàng.</p>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
+                            <div>
+                                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>Tên khách hàng</label>
+                                <input 
+                                    type="text" 
+                                    value={editCustomerModal.customer?.full_name || ''}
+                                    onChange={e => setEditCustomerModal({ ...editCustomerModal, customer: { ...editCustomerModal.customer, full_name: e.target.value } })}
+                                    style={{ width: '100%', padding: '10px', borderRadius: 8, border: '1px solid #cbd5e1', outline: 'none', boxSizing: 'border-box' }}
+                                />
+                            </div>
+                            <div>
+                                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>Số điện thoại</label>
+                                <input 
+                                    type="text" 
+                                    value={editCustomerModal.customer?.phone || ''}
+                                    onChange={e => setEditCustomerModal({ ...editCustomerModal, customer: { ...editCustomerModal.customer, phone: e.target.value } })}
+                                    style={{ width: '100%', padding: '10px', borderRadius: 8, border: '1px solid #cbd5e1', outline: 'none', boxSizing: 'border-box' }}
+                                />
+                            </div>
                         </div>
 
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
@@ -522,8 +527,7 @@ export default function SalesCustomerPage() {
                                     try {
                                         await updateCustomer(editCustomerModal.customer._id, {
                                             full_name: editCustomerModal.customer.full_name,
-                                            phone: cleanPhone,
-                                            debt_account: Number(editCustomerModal.customer.debt_account)
+                                            phone: cleanPhone
                                         });
                                         setToastMessage('Cập nhật khách hàng thành công!');
                                         setTimeout(() => setToastMessage(''), 3000);
@@ -601,7 +605,7 @@ export default function SalesCustomerPage() {
                                             </td>
                                             <td style={{ padding: '12px', textAlign: 'center' }}>
                                                 <button 
-                                                    onClick={() => navigate(`/sales/invoices/${inv._id}`)}
+                                                    onClick={() => navigate(`/staff/invoices/${inv._id}`)}
                                                     style={{ background: '#f1f5f9', border: '1px solid #e2e8f0', padding: '4px 8px', borderRadius: 4, cursor: 'pointer', fontSize: 11, fontWeight: 600, color: '#475569' }}
                                                 >
                                                     Chi tiết

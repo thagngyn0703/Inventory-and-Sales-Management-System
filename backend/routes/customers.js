@@ -69,29 +69,32 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
 });
 
 // PATCH /api/customers/:id - Update customer info
-router.patch('/:id', requireAuth, requireRole(['sales', 'manager', 'admin']), async (req, res) => {
+router.patch('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
         const { id } = req.params;
         const { full_name, phone, email, address, is_regular, debt_account } = req.body;
 
-        const customer = await Customer.findById(id);
-        if (!customer) return res.status(404).json({ message: 'Không tìm thấy khách hàng' });
-
-        if (full_name) customer.full_name = full_name.trim();
+        const updateData = {};
+        if (full_name) updateData.full_name = full_name.trim();
         if (phone !== undefined) {
             const tel = phone.trim().replace(/\s/g, '');
             if (tel && (tel.length < 10 || tel.length > 11)) {
                 return res.status(400).json({ message: 'Số điện thoại phải có 10 hoặc 11 chữ số' });
             }
-            customer.phone = tel;
+            updateData.phone = tel;
         }
-        if (email !== undefined) customer.email = email.trim();
-        if (address !== undefined) customer.address = address.trim();
-        if (is_regular !== undefined) customer.is_regular = Boolean(is_regular);
-        if (debt_account !== undefined) customer.debt_account = Number(debt_account);
+        if (email !== undefined) updateData.email = email.trim();
+        if (address !== undefined) updateData.address = address.trim();
+        if (is_regular !== undefined) updateData.is_regular = Boolean(is_regular);
+        if (debt_account !== undefined && !isNaN(Number(debt_account))) {
+            updateData.debt_account = Number(debt_account);
+        }
 
-        customer.updated_at = new Date();
-        await customer.save();
+        updateData.updated_at = new Date();
+        
+        const customer = await Customer.findByIdAndUpdate(id, { $set: updateData }, { new: true });
+        if (!customer) return res.status(404).json({ message: 'Không tìm thấy khách hàng' });
+
         res.json({ message: 'Cập nhật thành công', customer });
     } catch (err) {
         if (err.code === 11000) {
@@ -103,7 +106,7 @@ router.patch('/:id', requireAuth, requireRole(['sales', 'manager', 'admin']), as
 });
 
 // POST /api/customers/:id/pay-debt - Pay customer debt
-router.post('/:id/pay-debt', requireAuth, requireRole(['sales', 'manager', 'admin']), async (req, res) => {
+router.post('/:id/pay-debt', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
         const { id } = req.params;
         const { amount, payment_method = 'cash' } = req.body;
@@ -127,14 +130,34 @@ router.post('/:id/pay-debt', requireAuth, requireRole(['sales', 'manager', 'admi
         customer.updated_at = new Date();
         await customer.save();
 
-        // When debt is fully (or partially) paid, update pending invoices to confirmed
+        // FIFO settlement: Match payment with pending debt invoices
         try {
             const SalesInvoice = require('../models/SalesInvoice');
-            const updatedInvoices = await SalesInvoice.updateMany(
-                { customer_id: id, status: 'pending', payment_method: 'debt' },
-                { $set: { status: 'confirmed', updated_at: new Date() } }
-            );
-            console.log(`[pay-debt] Updated ${updatedInvoices.modifiedCount} pending invoices to confirmed for customer ${id}`);
+            const pendingInvoices = await SalesInvoice.find({ 
+              customer_id: id, 
+              status: 'pending', 
+              payment_method: 'debt' 
+            }).sort({ created_at: 1 }); // Oldest first
+
+            let unallocated = payAmount;
+            for (const invoice of pendingInvoices) {
+              if (unallocated <= 0) break;
+              
+              if (unallocated >= invoice.total_amount) {
+                // Fully pay this invoice
+                invoice.status = 'confirmed';
+                invoice.payment_status = 'paid';
+                invoice.paid_at = new Date();
+                await invoice.save();
+                unallocated -= invoice.total_amount;
+              } else {
+                // Partial payment for the remaining unallocated amount? 
+                // We don't have a partial payment state per invoice, so we stop here.
+                // Or maybe we just mark it confirmed but unpaid if it's partial? 
+                // Currently, we only mark as paid if fully covered.
+                break;
+              }
+            }
         } catch (invoiceErr) {
             console.error('Invoice status update error:', invoiceErr);
         }
