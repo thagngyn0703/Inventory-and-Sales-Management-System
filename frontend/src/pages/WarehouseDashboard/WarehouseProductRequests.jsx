@@ -16,12 +16,14 @@ export default function WarehouseProductRequests() {
 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    const [sortBy, setSortBy] = useState('created_at');
+    const [order, setOrder] = useState('desc');
 
     const fetchList = useCallback(async () => {
         setLoading(true);
         setError('');
         try {
-            const data = await getProductRequests(page, LIMIT, search, statusFilter);
+            const data = await getProductRequests(page, LIMIT, search, statusFilter, { sortBy, order });
             setRequests(data.productRequests || []);
             setTotal(data.total ?? 0);
             setTotalPages(data.totalPages ?? 1);
@@ -31,7 +33,7 @@ export default function WarehouseProductRequests() {
         } finally {
             setLoading(false);
         }
-    }, [page, search, statusFilter]);
+    }, [page, search, statusFilter, sortBy, order]);
 
     useEffect(() => {
         fetchList();
@@ -45,6 +47,15 @@ export default function WarehouseProductRequests() {
 
     const handleFilterChange = (e) => {
         setStatusFilter(e.target.value);
+        setPage(1);
+    };
+
+    const handleSortChange = (e) => {
+        const val = e.target.value;
+        if (val === 'newest') { setSortBy('created_at'); setOrder('desc'); }
+        else if (val === 'oldest') { setSortBy('created_at'); setOrder('asc'); }
+        else if (val === 'price_desc') { setSortBy('cost_price'); setOrder('desc'); }
+        else if (val === 'price_asc') { setSortBy('cost_price'); setOrder('asc'); }
         setPage(1);
     };
 
@@ -65,16 +76,42 @@ export default function WarehouseProductRequests() {
                 </div>
             </div>
 
-            <div style={{ marginBottom: 16, display: 'flex', gap: 16 }}>
+            <div style={{ marginBottom: 16, display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'center' }}>
+                <form onSubmit={handleSearchSubmit} className="manager-topbar-search-wrap" style={{ margin: 0, width: 300 }}>
+                    <input
+                        type="search"
+                        className="manager-search"
+                        placeholder="Tìm theo tên, SKU..."
+                        value={searchInput}
+                        onChange={(e) => setSearchInput(e.target.value)}
+                        style={{ background: 'white' }}
+                    />
+                    <button type="submit" className="manager-icon-btn">
+                        <i className="fa-solid fa-search" />
+                    </button>
+                </form>
+
                 <select
                     className="manager-select"
                     value={statusFilter}
                     onChange={handleFilterChange}
+                    style={{ minWidth: 160 }}
                 >
                     <option value="">Tất cả trạng thái</option>
                     <option value="pending">Chờ duyệt</option>
                     <option value="approved">Đã duyệt</option>
                     <option value="rejected">Đã từ chối</option>
+                </select>
+
+                <select
+                    className="manager-select"
+                    onChange={handleSortChange}
+                    style={{ minWidth: 160 }}
+                >
+                    <option value="newest">Mới nhất</option>
+                    <option value="oldest">Cũ nhất</option>
+                    <option value="price_desc">Giá vốn (Cao nhất)</option>
+                    <option value="price_asc">Giá vốn (Thấp nhất)</option>
                 </select>
             </div>
 

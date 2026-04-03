@@ -117,7 +117,7 @@ router.post('/', requireAuth, requireRole(['warehouse', 'manager', 'sales', 'adm
 // GET /api/product-requests (manager, admin, warehouse, sales)
 router.get('/', requireAuth, requireRole(['manager', 'admin', 'warehouse', 'sales']), async (req, res) => {
   try {
-    const { q = '', page = '1', limit = '20', status } = req.query;
+    const { q = '', page = '1', limit = '20', status, sortBy = 'created_at', order = 'desc' } = req.query;
     const query = String(q || '').trim();
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
@@ -137,12 +137,17 @@ router.get('/', requireAuth, requireRole(['manager', 'admin', 'warehouse', 'sale
       filter.$or = [{ name: re }, { sku: re }, { barcode: re }];
     }
 
+    // Build sort object
+    const sortObj = {};
+    const sortField = ['created_at', 'cost_price', 'sale_price', 'name'].includes(sortBy) ? sortBy : 'created_at';
+    sortObj[sortField] = order === 'asc' ? 1 : -1;
+
     const total = await ProductRequest.countDocuments(filter);
     const skip = (pageNum - 1) * limitNum;
     const requests = await ProductRequest.find(filter)
       .populate('requested_by', 'fullName email role')
       .populate('approved_by', 'fullName email role')
-      .sort({ created_at: -1 })
+      .sort(sortObj)
       .skip(skip)
       .limit(limitNum)
       .lean();

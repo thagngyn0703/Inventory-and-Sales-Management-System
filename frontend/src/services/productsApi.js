@@ -163,13 +163,15 @@ export async function createProductRequest(body) {
     return data.productRequest;
 }
 
-export async function getProductRequests(page = 1, limit = 20, query = '', status) {
+export async function getProductRequests(page = 1, limit = 20, query = '', status, options = {}) {
     const token = getToken();
     const url = new URL(`${API_BASE}/product-requests`);
     url.searchParams.set('page', String(page));
     url.searchParams.set('limit', String(limit));
     if (query && String(query).trim()) url.searchParams.set('q', String(query).trim());
     if (status) url.searchParams.set('status', status);
+    if (options.sortBy) url.searchParams.set('sortBy', options.sortBy);
+    if (options.order) url.searchParams.set('order', options.order);
 
     const res = await fetch(url.toString(), {
         headers: { Authorization: `Bearer ${token}` },

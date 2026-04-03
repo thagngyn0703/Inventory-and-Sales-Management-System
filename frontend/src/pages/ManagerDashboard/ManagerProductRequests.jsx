@@ -19,6 +19,8 @@ export default function ManagerProductRequests() {
 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    const [sortBy, setSortBy] = useState('created_at');
+    const [order, setOrder] = useState('desc');
     const [successMessage, setSuccessMessage] = useState('');
     const [processingId, setProcessingId] = useState(null);
     const [confirmModal, setConfirmModal] = useState({ show: false, action: null, id: null, title: '', message: '' });
@@ -27,7 +29,7 @@ export default function ManagerProductRequests() {
         setLoading(true);
         setError('');
         try {
-            const data = await getProductRequests(page, LIMIT, search, statusFilter);
+            const data = await getProductRequests(page, LIMIT, search, statusFilter, { sortBy, order });
             setRequests(data.productRequests || []);
             setTotal(data.total ?? 0);
             setTotalPages(data.totalPages ?? 1);
@@ -37,7 +39,7 @@ export default function ManagerProductRequests() {
         } finally {
             setLoading(false);
         }
-    }, [page, search, statusFilter]);
+    }, [page, search, statusFilter, sortBy, order]);
 
     useEffect(() => {
         fetchList();
@@ -52,6 +54,23 @@ export default function ManagerProductRequests() {
     const handleFilterChange = (e) => {
         setStatusFilter(e.target.value);
         setPage(1);
+    };
+
+    const toggleSort = (field) => {
+        if (sortBy === field) {
+            setOrder(order === 'asc' ? 'desc' : 'asc');
+        } else {
+            setSortBy(field);
+            setOrder('desc');
+        }
+        setPage(1);
+    };
+
+    const renderSortIcon = (field) => {
+        if (sortBy !== field) return <i className="fa-solid fa-sort" style={{ marginLeft: 8, opacity: 0.3 }} />;
+        return order === 'asc' 
+            ? <i className="fa-solid fa-sort-up" style={{ marginLeft: 8, color: '#2563eb' }} />
+            : <i className="fa-solid fa-sort-down" style={{ marginLeft: 8, color: '#2563eb' }} />;
     };
 
     const openConfirm = (action, id, title, message) => {
@@ -108,18 +127,9 @@ export default function ManagerProductRequests() {
             <ManagerSidebar />
             <div className="manager-main">
                 <header className="manager-topbar">
-                    <form onSubmit={handleSearchSubmit} className="manager-topbar-search-wrap">
-                        <input
-                            type="search"
-                            className="manager-search"
-                            placeholder="Tìm kiếm theo tên, SKU, barcode..."
-                            value={searchInput}
-                            onChange={(e) => setSearchInput(e.target.value)}
-                        />
-                        <button type="submit" className="manager-icon-btn" aria-label="Tìm kiếm">
-                            <i className="fa-solid fa-search" />
-                        </button>
-                    </form>
+                    <div className="manager-topbar-search-wrap">
+                        {/* Search moved to main content area */}
+                    </div>
                     <div className="manager-topbar-actions">
                         <div className="manager-user-badge">
                             <i className="fa-solid fa-circle-user" />
@@ -136,17 +146,77 @@ export default function ManagerProductRequests() {
                         </div>
                     </div>
 
-                    <div style={{ marginBottom: 16, display: 'flex', gap: 16 }}>
-                        <select
-                            value={statusFilter}
-                            onChange={handleFilterChange}
-                            style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #e5e7eb' }}
-                        >
-                            <option value="">Tất cả trạng thái</option>
-                            <option value="pending">Chờ duyệt</option>
-                            <option value="approved">Đã duyệt</option>
-                            <option value="rejected">Đã từ chối</option>
-                        </select>
+                    <div style={{ backgroundColor: 'white', padding: 16, borderRadius: 8, boxShadow: '0 1px 3px rgba(0,0,0,0.1)', marginBottom: 20 }}>
+                        <div style={{ display: 'flex', gap: 16, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                            <div style={{ flex: 1, maxWidth: 350 }}>
+                                <label style={{ display: 'block', fontSize: 13, color: '#6b7280', marginBottom: 4 }}>Tìm kiếm</label>
+                                <form onSubmit={handleSearchSubmit} style={{ position: 'relative', margin: 0 }}>
+                                    <i className="fa-solid fa-search" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }}></i>
+                                    <input
+                                        type="search"
+                                        placeholder="Tìm theo tên, SKU..."
+                                        style={{ width: '100%', padding: '8px 12px 8px 36px', border: '1px solid #d1d5db', borderRadius: 6, boxSizing: 'border-box', outline: 'none' }}
+                                        value={searchInput}
+                                        onChange={(e) => setSearchInput(e.target.value)}
+                                    />
+                                </form>
+                            </div>
+
+                            <div style={{ width: 200 }}>
+                                <label style={{ display: 'block', fontSize: 13, color: '#6b7280', marginBottom: 4 }}>Trạng thái</label>
+                                <select
+                                    className="manager-select"
+                                    value={statusFilter}
+                                    onChange={handleFilterChange}
+                                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 6, height: 38 }}
+                                >
+                                    <option value="">Tất cả</option>
+                                    <option value="pending">Chờ duyệt</option>
+                                    <option value="approved">Đã duyệt</option>
+                                    <option value="rejected">Đã từ chối</option>
+                                </select>
+                            </div>
+
+                            <div style={{ width: 220 }}>
+                                <label style={{ display: 'block', fontSize: 13, color: '#6b7280', marginBottom: 4 }}>Sắp xếp giá trị</label>
+                                <button
+                                    type="button"
+                                    onClick={() => { 
+                                        if (sortBy === 'created_at') {
+                                            setSortBy('cost_price');
+                                            setOrder('desc');
+                                        } else if (sortBy === 'cost_price' && order === 'desc') {
+                                            setSortBy('cost_price');
+                                            setOrder('asc');
+                                        } else {
+                                            setSortBy('created_at');
+                                            setOrder('desc');
+                                        }
+                                        setPage(1); 
+                                    }}
+                                    style={{
+                                        width: '100%',
+                                        height: 38,
+                                        padding: '0 12px',
+                                        border: '1px solid #d1d5db',
+                                        borderRadius: 6,
+                                        backgroundColor: 'white',
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'space-between',
+                                        fontSize: 14,
+                                        color: '#374151'
+                                    }}
+                                >
+                                    <span>
+                                        {sortBy === 'created_at' ? 'Mặc định (Mới nhất)' : 
+                                         (order === 'desc' ? 'Giá vốn (Cao nhất)' : 'Giá vốn (Thấp nhất)')}
+                                    </span>
+                                    <i className={`fa-solid ${sortBy === 'created_at' ? 'fa-calendar-days' : (order === 'desc' ? 'fa-arrow-down-wide-short' : 'fa-arrow-up-wide-short')}`} style={{ color: '#6b7280' }} />
+                                </button>
+                            </div>
+                        </div>
                     </div>
 
                     {successMessage && (
