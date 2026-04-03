@@ -1048,14 +1048,3 @@ router.get('/:id/batches', requireAuth, requireRole(['manager', 'admin', 'staff'
 });
 
 module.exports = router;
-
-product: normalizeProduct(product)
-    });
-  } catch (err) {
-  console.error('Update batch error:', err);
-  return res.status(500).json({ message: 'Lỗi server: ' + err.message });
-}
-});
-
-module.exports = router;
-
