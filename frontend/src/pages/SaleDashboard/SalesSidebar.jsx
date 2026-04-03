@@ -46,10 +46,12 @@ export default function SalesSidebar({ collapsed, onToggle }) {
 
   // Nhóm Kho hàng (chuyển từ Warehouse Dashboard)
   const warehouseItems = [
+    { to: '/staff/products', icon: 'fa-box-open', label: 'Sản phẩm', end: true },
     { to: '/staff/receipts/new', icon: 'fa-box', label: 'Nhập hàng', end: true },
     { to: '/staff/receipts', icon: 'fa-list', label: 'Phiếu nhập kho', end: true },
     { to: '/staff/stocktakes', icon: 'fa-clipboard-list', label: 'Danh sách kiểm kê', end: true },
     { to: '/staff/stocktakes/new', icon: 'fa-clipboard-check', label: 'Tạo phiếu kiểm kê', end: true },
+    { to: '/staff/product-requests', icon: 'fa-file-invoice', label: 'Phiếu đăng ký SP mới', end: true },
   ];
 
   return (

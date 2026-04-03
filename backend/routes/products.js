@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const Product = require('../models/Product');
+const StockBatch = require('../models/StockBatch');
 const ProductPriceHistory = require('../models/ProductPriceHistory');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { ensureCloudinaryConfigured, hasCloudinaryConfig } = require('../services/cloudinary');
@@ -330,15 +331,15 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
 
     let selling_units = Array.isArray(bodyUnits) && bodyUnits.length > 0
       ? bodyUnits.map((u) => {
-          const unitName = trimText(u.name) || base;
-          const ratioNum = parseNonNegativeNumber(u.ratio);
-          const saleNum = parseNonNegativeNumber(u.sale_price);
-          return {
-            name: unitName,
-            ratio: ratioNum != null && ratioNum > 0 ? ratioNum : 1,
-            sale_price: saleNum != null ? saleNum : 0,
-          };
-        })
+        const unitName = trimText(u.name) || base;
+        const ratioNum = parseNonNegativeNumber(u.ratio);
+        const saleNum = parseNonNegativeNumber(u.sale_price);
+        return {
+          name: unitName,
+          ratio: ratioNum != null && ratioNum > 0 ? ratioNum : 1,
+          sale_price: saleNum != null ? saleNum : 0,
+        };
+      })
       : [{ name: base, ratio: 1, sale_price: parseNonNegativeNumber(sale_price) ?? 0 }];
 
     for (const u of selling_units) {
@@ -1000,6 +1001,60 @@ router.patch('/:id/status', requireAuth, requireRole(['manager', 'admin']), asyn
   } catch (err) {
     return res.status(500).json({ message: 'Server error' });
   }
+});
+
+// GET /api/products/:id/batches — Lấy danh sách lô hàng (FIFO) của sản phẩm
+router.get('/:id/batches', requireAuth, requireRole(['manager', 'admin', 'staff']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ message: 'Invalid product id' });
+    }
+    const storeFilter = getRoleStoreFilter(req);
+    if (storeFilter == null) {
+      return res.status(403).json({
+        message: 'Tài khoản chưa được gán cửa hàng.',
+        code: 'STORE_REQUIRED',
+      });
+    }
+
+    let batches = await StockBatch.find({ productId: id, ...storeFilter, remaining_qty: { $gt: 0 } })
+      .sort({ received_at: 1 }) // FIFO: lô cũ nhất lên trước
+      .lean();
+
+    // Self-healing: Nếu sản phẩm có tồn kho thực tế nhưng chưa có lô hàng nào trong DB
+    // (do dữ liệu cũ hoặc lỗi đồng bộ), tạo một lô "Legacy" để hệ thống FIFO tiếp tục chạy đúng.
+    if (batches.length === 0) {
+      const product = await Product.findOne({ _id: id, ...storeFilter }).lean();
+      if (product && product.stock_qty > 0) {
+        const legacyBatch = await StockBatch.create({
+          productId: id,
+          storeId: storeFilter.storeId,
+          initial_qty: product.stock_qty,
+          remaining_qty: product.stock_qty,
+          unit_cost: product.cost_price || 0,
+          received_at: product.created_at || new Date(),
+          note: 'Hàng tồn kho ban đầu (Legacy)',
+        });
+        batches = [legacyBatch.toObject()];
+      }
+    }
+
+    return res.json({ batches });
+  } catch (err) {
+    console.error('Get batches error:', err);
+    return res.status(500).json({ message: 'Server error' });
+  }
+});
+
+module.exports = router;
+
+product: normalizeProduct(product)
+    });
+  } catch (err) {
+  console.error('Update batch error:', err);
+  return res.status(500).json({ message: 'Lỗi server: ' + err.message });
+}
 });
 
 module.exports = router;

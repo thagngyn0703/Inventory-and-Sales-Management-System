@@ -44,6 +44,8 @@ import ManagerStaffManage from "./pages/ManagerDashboard/ManagerStaffManage";
 import ManagerReceiptList from "./pages/ManagerDashboard/ManagerReceiptList";
 import ManagerReceiptDetail from "./pages/ManagerDashboard/ManagerReceiptDetail";
 import ManagerProductRequests from "./pages/ManagerDashboard/ManagerProductRequests";
+import WarehouseProductRequests from "./pages/WarehouseDashboard/WarehouseProductRequests";
+import SalesProductList from "./pages/SaleDashboard/SalesProductList";
 import ManagerStoreRegister from "./pages/ManagerDashboard/ManagerStoreRegister";
 import ManagerNotifications from "./pages/ManagerDashboard/ManagerNotifications";
 import ManagerPriceChangeReport from "./pages/ManagerDashboard/ManagerPriceChangeReport";
@@ -184,6 +186,9 @@ function App() {
         <Route path="stocktakes" element={<WarehouseStocktakingList />} />
         <Route path="stocktakes/new" element={<WarehouseStocktakingCreate />} />
         <Route path="stocktakes/:id" element={<WarehouseStocktakingDetail />} />
+        <Route path="product-requests" element={<WarehouseProductRequests />} />
+        <Route path="products" element={<SalesProductList />} />
+        <Route path="products/:id" element={<ManagerProductDetail />} />
       </Route>
     </Routes>
   );

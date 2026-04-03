@@ -2,6 +2,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const GoodsReceipt = require('../models/GoodsReceipt');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const { adjustStockFIFO } = require('../utils/inventoryUtils');
 
 const router = express.Router();
 
@@ -110,6 +111,7 @@ router.post('/', requireAuth, requireRole(['staff', 'manager']), async (req, res
         const doc = await GoodsReceipt.create({
             po_id: po_id && mongoose.isValidObjectId(po_id) ? po_id : undefined,
             supplier_id,
+            storeId: req.user.storeId,
             received_by: req.user.id,
             status: ['draft', 'pending', 'approved', 'rejected'].includes(status) ? status : 'draft',
             received_at: received_at ? new Date(received_at) : new Date(),
@@ -161,12 +163,20 @@ router.patch('/:id/status', requireAuth, requireRole(['manager', 'admin']), asyn
                 const currentCost = Number(product.cost_price) || 0;
 
                 const newQty = currentQty + addQty;
-                // Weighted Average: tính giá vốn bình quân gia quyền
+                // Weighted Average: tính giá vốn bình quân gia quyền vẫn giữ để hiển thị trên Product
                 const newCostPrice = newQty > 0
                     ? (currentQty * currentCost + addQty * unitCost) / newQty
                     : unitCost;
 
-                product.stock_qty = newQty;
+                // Cập nhật lô hàng tập trung (FIFO)
+                await adjustStockFIFO(it.product_id, gr.storeId || req.user.storeId, addQty, {
+                  unitCost,
+                  receivedAt: gr.received_at,
+                  receiptId: gr._id,
+                  note: `Nhập hàng (Phiếu #${id.substring(id.length - 6).toUpperCase()})`
+                });
+
+                // Cập nhật giá vốn bình quân cho Product model
                 product.cost_price = Math.round(newCostPrice * 100) / 100;
                 product.updated_at = new Date();
                 await product.save();
