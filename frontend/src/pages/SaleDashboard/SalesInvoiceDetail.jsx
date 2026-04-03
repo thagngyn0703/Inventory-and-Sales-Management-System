@@ -36,6 +36,10 @@ export default function SalesInvoiceDetail() {
   const outletContext = useOutletContext() || {};
   const toggleSidebar = outletContext.toggleSidebar;
   const sidebarCollapsed = Boolean(outletContext.sidebarCollapsed);
+  const storeDisplayName =
+    (typeof outletContext.storeName === 'string' && outletContext.storeName.trim()) ||
+    String(process.env.REACT_APP_STORE_NAME || '').trim() ||
+    'Cửa hàng';
   const isNew = id === 'new' || !id || id === 'undefined' || id === 'null';
 
  
@@ -461,7 +465,7 @@ export default function SalesInvoiceDetail() {
           </style>
         </head>
         <body>
-          <h2>CỬA HÀNG VẬT TƯ</h2>
+          <h2>${storeDisplayName.toUpperCase()}</h2>
           <div class="header-info">
             HÓA ĐƠN BÁN HÀNG<br/>
             Mã Đơn: ${invoice._id}<br/>
@@ -1016,25 +1020,49 @@ export default function SalesInvoiceDetail() {
                               Khách hàng đang còn nợ: <span style={{ fontWeight: 800 }}>{formatMoney(activeTab.customerData.debt_account)}</span>
                           </div>
                           
-                          <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'white', padding: '8px 12px', borderRadius: 8, border: '1px solid #fdba74' }}>
+                          <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, background: 'white', padding: '8px 12px', borderRadius: 8, border: '1px solid #fdba74' }}>
                               <span style={{ fontSize: 12, fontWeight: 600, color: '#9a3412' }}>Thanh toán cùng đơn này?</span>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                  <button 
-                                     onClick={() => {
-                                        const nextPayOld = !activeTab.payOldDebt;
-                                        const updates = { payOldDebt: nextPayOld };
-                                        if (nextPayOld && activeTab.paymentMethod === 'debt') {
-                                           updates.paymentMethod = 'cash';
-                                        }
-                                        updateActiveTab(updates);
-                                     }}
-                                     style={{ 
-                                         background: activeTab.payOldDebt ? '#ea580c' : '#f1f5f9',
-                                         color: activeTab.payOldDebt ? 'white' : '#64748b',
-                                         border: 'none', padding: '4px 12px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer'
-                                     }}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const updates = { payOldDebt: false };
+                                      updateActiveTab(updates);
+                                    }}
+                                    style={{
+                                      background: !activeTab.payOldDebt ? '#ea580c' : '#f1f5f9',
+                                      color: !activeTab.payOldDebt ? 'white' : '#64748b',
+                                      border: 'none',
+                                      padding: '6px 14px',
+                                      borderRadius: 6,
+                                      fontSize: 11,
+                                      fontWeight: 700,
+                                      cursor: 'pointer',
+                                    }}
                                   >
-                                     {activeTab.payOldDebt ? 'TRẢ LUÔN' : 'CHƯA TRẢ'}
+                                    Chưa trả
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const updates = { payOldDebt: true };
+                                      if (activeTab.paymentMethod === 'debt') {
+                                        updates.paymentMethod = 'cash';
+                                      }
+                                      updateActiveTab(updates);
+                                    }}
+                                    style={{
+                                      background: activeTab.payOldDebt ? '#ea580c' : '#f1f5f9',
+                                      color: activeTab.payOldDebt ? 'white' : '#64748b',
+                                      border: 'none',
+                                      padding: '6px 14px',
+                                      borderRadius: 6,
+                                      fontSize: 11,
+                                      fontWeight: 700,
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    Trả luôn
                                   </button>
                               </div>
                           </div>
@@ -1075,7 +1103,7 @@ export default function SalesInvoiceDetail() {
         pendingPayment={pendingPayment}
         bankCode={bankCode}
         bankAccountNumber={bankAccountNumber}
-        storeName={process.env.REACT_APP_STORE_NAME || 'Cua hang IMS'}
+        storeName={storeDisplayName}
         onCancel={() => {
           stopPolling();
           setPendingPayment(null);

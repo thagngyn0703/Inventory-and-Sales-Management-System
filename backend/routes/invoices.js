@@ -5,6 +5,7 @@ const SalesInvoice = require('../models/SalesInvoice');
 const Product = require('../models/Product');
 const User = require('../models/User');
 const { adjustStockFIFO } = require('../utils/inventoryUtils');
+const { applyCustomerDebtAfterNewInvoice } = require('../utils/customerDebt');
 const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
@@ -340,17 +341,14 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
             await syncInventory(invoice, status, normalizedItems);
             await invoice.save();
 
-            if (method === 'debt' && customer_id && (status === 'confirmed' || status === 'pending')) {
-                await mongoose.model('Customer').findByIdAndUpdate(customer_id, {
-                    $inc: { debt_account: totalAmount }
-                });
+            const addDebt = method === 'debt' ? totalAmount : 0;
+            const payOldDebt =
+                Number(previous_debt_paid) > 0 ? Math.abs(Number(previous_debt_paid)) : 0;
+            if (customer_id && (status === 'confirmed' || status === 'pending') && (addDebt > 0 || payOldDebt > 0)) {
+                await applyCustomerDebtAfterNewInvoice(customer_id, { addDebt, payOldDebt });
             }
 
-            if (Number(previous_debt_paid) > 0 && customer_id && (status === 'confirmed' || status === 'pending')) {
-                await mongoose.model('Customer').findByIdAndUpdate(customer_id, {
-                    $inc: { debt_account: -Math.abs(previous_debt_paid) }
-                });
-                
+            if (payOldDebt > 0 && customer_id && (status === 'confirmed' || status === 'pending')) {
                 await SalesInvoice.updateMany(
                     { customer_id, status: 'pending', payment_method: 'debt' },
                     { 

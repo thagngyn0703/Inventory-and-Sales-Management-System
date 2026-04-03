@@ -69,7 +69,7 @@ export default function SalesDashboard() {
         )}
 
         <div className={`sales-content${isPosRoute ? ' pos-mode' : ''}`}>
-          <Outlet context={{ sidebarCollapsed, toggleSidebar }} />
+          <Outlet context={{ sidebarCollapsed, toggleSidebar, storeName }} />
         </div>
       </main>
     </div>

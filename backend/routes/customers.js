@@ -112,7 +112,7 @@ router.patch('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), as
         if (address !== undefined) updateData.address = address.trim();
         if (is_regular !== undefined) updateData.is_regular = Boolean(is_regular);
         if (debt_account !== undefined && !isNaN(Number(debt_account))) {
-            updateData.debt_account = Number(debt_account);
+            updateData.debt_account = Math.max(0, Number(debt_account));
         }
 
         updateData.updated_at = new Date();

@@ -100,12 +100,16 @@ export default function SalesReturnPage() {
           unit_price: it.unit_price || 0,
         };
       });
-      await createReturn({
+      const { message } = await createReturn({
         invoice_id: invoice._id,
         items,
         reason: reason || 'Khách trả hàng',
       });
-      showToast(`Trả hàng thành công! Đã hoàn trả ${items.length} sản phẩm, tổng tiền: ${formatMoney(totalRefund)}`, 'success');
+      showToast(
+        message ||
+          `Trả hàng thành công! Đã hoàn trả ${items.length} sản phẩm, tổng tiền: ${formatMoney(totalRefund)}`,
+        'success'
+      );
       setInvoice(null);
       setInvoiceInput('');
       setReturnQty({});
@@ -274,6 +278,7 @@ export default function SalesReturnPage() {
               Hủy
             </button>
             <button
+              type="button"
               onClick={handleSubmit}
               disabled={submitting || selectedItems.length === 0}
               style={{

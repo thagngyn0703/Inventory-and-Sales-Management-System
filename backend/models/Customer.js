@@ -30,6 +30,7 @@ const customerSchema = new Schema(
         debt_account: {
             type: Number,
             default: 0,
+            min: 0,
         },
         credit_limit: {
             type: Number,
@@ -58,5 +59,12 @@ const customerSchema = new Schema(
         timestamps: false,
     }
 );
+
+customerSchema.pre('save', function customerDebtClamp(next) {
+    if (this.isModified('debt_account') && this.debt_account != null && this.debt_account < 0) {
+        this.debt_account = 0;
+    }
+    next();
+});
 
 module.exports = model('Customer', customerSchema);
