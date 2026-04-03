@@ -8,7 +8,9 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default: 'bg-sky-500 text-white hover:bg-sky-600',
+        auth: 'bg-blue-600 text-white hover:bg-blue-700 focus-visible:ring-blue-500',
         outline: 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50',
+        ghost: 'text-slate-500 hover:bg-slate-100 hover:text-slate-800',
         warning: 'bg-amber-500 text-white hover:bg-amber-600',
         premium:
           'bg-gradient-to-r from-violet-600 via-fuchsia-600 to-violet-600 text-white shadow-md shadow-violet-500/30 hover:from-violet-500 hover:via-fuchsia-500 hover:to-violet-500',
@@ -16,6 +18,7 @@ const buttonVariants = cva(
       size: {
         default: 'h-10 px-4 py-2',
         lg: 'h-11 px-6 text-base',
+        pill: 'h-12 rounded-full px-10 text-base',
       },
     },
     defaultVariants: {
@@ -28,7 +31,7 @@ const buttonVariants = cva(
 export function Button({ className, variant, size, ...props }) {
   return (
     <button
-      className={cn(buttonVariants({ variant, size, className }))}
+      className={cn(buttonVariants({ variant, size }), className)}
       {...props}
     />
   );
