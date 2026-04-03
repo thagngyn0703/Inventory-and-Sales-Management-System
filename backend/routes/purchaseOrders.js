@@ -6,7 +6,7 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 const router = express.Router();
 
 // GET /api/purchase-orders?page=&limit=&status=&supplier_id=
-router.get('/', requireAuth, requireRole(['manager', 'warehouse', 'admin']), async (req, res) => {
+router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
         const { page = '1', limit = '20', status, supplier_id } = req.query;
         const pageNum = Math.max(1, parseInt(page, 10) || 1);
@@ -44,7 +44,7 @@ router.get('/', requireAuth, requireRole(['manager', 'warehouse', 'admin']), asy
 });
 
 // GET /api/purchase-orders/:id
-router.get('/:id', requireAuth, requireRole(['manager', 'warehouse', 'admin']), async (req, res) => {
+router.get('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
         const { id } = req.params;
         if (!mongoose.isValidObjectId(id)) {

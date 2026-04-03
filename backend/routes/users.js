@@ -1,6 +1,7 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const User = require('../models/User');
+const Store = require('../models/Store');
 const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
@@ -9,10 +10,11 @@ function escapeRegex(s) {
     return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-// GET /api/users?q=&page=1&limit=20&status=  (quản trị nền tảng)
+// GET /api/users?q=&page=1&limit=20&status=&all=true
 router.get('/', requireAuth, requireRole(['admin']), async (req, res) => {
     try {
-        const { q = '', page = '1', limit = '20', status = '' } = req.query;
+        const { q = '', page = '1', limit = '20', status = '', all = 'false' } = req.query;
+        const shouldGetAll = String(all).toLowerCase() === 'true';
         const query = String(q || '').trim();
         const pageNum = Math.max(1, parseInt(page, 10) || 1);
         const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
@@ -29,13 +31,12 @@ router.get('/', requireAuth, requireRole(['admin']), async (req, res) => {
         }
 
         const total = await User.countDocuments(filter);
-        const skip = (pageNum - 1) * limitNum;
-        const users = await User.find(filter)
-            .select('-password')
-            .sort({ createdAt: -1 })
-            .skip(skip)
-            .limit(limitNum)
-            .lean();
+        let userQuery = User.find(filter).select('-password').sort({ createdAt: -1 }).populate('storeId', 'name status');
+        if (!shouldGetAll) {
+            const skip = (pageNum - 1) * limitNum;
+            userQuery = userQuery.skip(skip).limit(limitNum);
+        }
+        const users = await userQuery.lean();
 
         // Counts for summary cards
         const totalAll = await User.countDocuments({});
@@ -46,9 +47,9 @@ router.get('/', requireAuth, requireRole(['admin']), async (req, res) => {
         return res.json({
             users,
             total,
-            page: pageNum,
-            limit: limitNum,
-            totalPages: Math.ceil(total / limitNum) || 1,
+            page: shouldGetAll ? 1 : pageNum,
+            limit: shouldGetAll ? total || 0 : limitNum,
+            totalPages: shouldGetAll ? 1 : Math.ceil(total / limitNum) || 1,
             summary: {
                 totalAll,
                 totalActive,
@@ -71,7 +72,7 @@ router.patch('/:id/status', requireAuth, requireRole(['admin']), async (req, res
         }
 
         // Admin cannot deactivate themselves
-        if (id === req.user.id) {
+        if (String(id) === String(req.user.id)) {
             return res.status(400).json({ message: 'Không thể thay đổi trạng thái tài khoản của chính mình' });
         }
 
@@ -86,6 +87,50 @@ router.patch('/:id/status', requireAuth, requireRole(['admin']), async (req, res
 
         if (!user) return res.status(404).json({ message: 'User not found' });
         return res.json({ user });
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({ message: 'Server error' });
+    }
+});
+
+// PATCH /api/users/:id/store — gán nhân viên (staff) chưa có cửa hàng vào một cửa hàng
+router.patch('/:id/store', requireAuth, requireRole(['admin']), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { storeId } = req.body || {};
+        if (!mongoose.isValidObjectId(id)) {
+            return res.status(400).json({ message: 'ID người dùng không hợp lệ' });
+        }
+        if (!mongoose.isValidObjectId(storeId)) {
+            return res.status(400).json({ message: 'ID cửa hàng không hợp lệ' });
+        }
+
+        const user = await User.findById(id);
+        if (!user) return res.status(404).json({ message: 'Không tìm thấy người dùng' });
+
+        if (user.storeId) {
+            return res.status(400).json({ message: 'Tài khoản đã thuộc một cửa hàng' });
+        }
+        if (user.role === 'admin') {
+            return res.status(400).json({ message: 'Không gán cửa hàng cho tài khoản quản trị' });
+        }
+        if (user.role === 'manager') {
+            return res.status(400).json({
+                message: 'Quản lý cần đăng ký cửa hàng qua luồng đăng ký của Manager, không gán thủ công',
+            });
+        }
+        if (user.role !== 'staff') {
+            return res.status(400).json({ message: 'Chỉ có thể gán cửa hàng cho tài khoản nhân viên (staff)' });
+        }
+
+        const store = await Store.findById(storeId);
+        if (!store) return res.status(404).json({ message: 'Không tìm thấy cửa hàng' });
+
+        user.storeId = store._id;
+        await user.save();
+
+        const updated = await User.findById(id).select('-password').populate('storeId', 'name status').lean();
+        return res.json({ user: updated });
     } catch (err) {
         console.error(err);
         return res.status(500).json({ message: 'Server error' });

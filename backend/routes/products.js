@@ -1,9 +1,13 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+const crypto = require('crypto');
 const Product = require('../models/Product');
-const StockBatch = require('../models/StockBatch');
+const ProductPriceHistory = require('../models/ProductPriceHistory');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const { ensureCloudinaryConfigured, hasCloudinaryConfig } = require('../services/cloudinary');
 const {
   parseExcelToMatrix,
   mapRowsFromMatrix,
@@ -28,6 +32,19 @@ const upload = multer({
   },
 });
 
+const uploadProductImages = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 4 * 1024 * 1024,
+    files: 3,
+  },
+  fileFilter: (req, file, cb) => {
+    const ok = String(file.mimetype || '').startsWith('image/');
+    if (ok) cb(null, true);
+    else cb(new Error('Chỉ chấp nhận file ảnh'));
+  },
+});
+
 function escapeRegex(s) {
   return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -36,6 +53,77 @@ function parseOptionalDate(value) {
   if (!value) return undefined;
   const d = new Date(value);
   return Number.isNaN(d.getTime()) ? undefined : d;
+}
+
+const TEXT_NO_SPECIAL_REGEX = /^[\p{L}\p{N}\s]+$/u;
+const ALNUM_NO_SPACE_REGEX = /^[\p{L}\p{N}]+$/u;
+const DIGITS_ONLY_REGEX = /^\d+$/;
+
+function trimText(value) {
+  return String(value || '').trim();
+}
+
+function isValidNoSpecialText(value) {
+  return TEXT_NO_SPECIAL_REGEX.test(trimText(value));
+}
+
+function parseNonNegativeNumber(value) {
+  if (value === undefined || value === null || value === '') return 0;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return n;
+}
+
+function normalizeImageUrls(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((x) => String(x || '').trim())
+    .filter(Boolean)
+    .slice(0, 3);
+}
+
+function uploadBufferToCloudinary(buffer, folder = 'ims/products') {
+  const cloud = ensureCloudinaryConfigured();
+  return new Promise((resolve, reject) => {
+    const stream = cloud.uploader.upload_stream(
+      { folder, resource_type: 'image' },
+      (err, result) => {
+        if (err) return reject(err);
+        resolve(result);
+      }
+    );
+    stream.end(buffer);
+  });
+}
+
+const LOCAL_PRODUCT_UPLOAD_DIR = path.join(__dirname, '..', 'uploads', 'products');
+
+async function ensureLocalUploadDir() {
+  await fs.promises.mkdir(LOCAL_PRODUCT_UPLOAD_DIR, { recursive: true });
+}
+
+function extensionFromMimetype(mimetype) {
+  const map = {
+    'image/jpeg': '.jpg',
+    'image/jpg': '.jpg',
+    'image/png': '.png',
+    'image/webp': '.webp',
+    'image/gif': '.gif',
+  };
+  return map[String(mimetype || '').toLowerCase()] || '.jpg';
+}
+
+async function uploadBufferToLocal(file, req) {
+  await ensureLocalUploadDir();
+  const ext = extensionFromMimetype(file.mimetype);
+  const fileName = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}${ext}`;
+  const fullPath = path.join(LOCAL_PRODUCT_UPLOAD_DIR, fileName);
+  await fs.promises.writeFile(fullPath, file.buffer);
+  const origin = `${req.protocol}://${req.get('host')}`;
+  return {
+    secure_url: `${origin}/uploads/products/${fileName}`,
+    public_id: `local/products/${fileName}`,
+  };
 }
 
 function startOfDay(d) {
@@ -73,11 +161,17 @@ async function findBarcodeDuplicate({ barcode, storeId, excludeId }) {
 function normalizeProduct(p) {
   if (!p) return p;
   const base = p.base_unit || 'Cái';
+  const imageUrls = normalizeImageUrls(p.image_urls);
   const units = p.selling_units && p.selling_units.length > 0
     ? p.selling_units
     : [{ name: base, ratio: 1, sale_price: p.sale_price != null ? p.sale_price : 0 }];
   const baseUnit = units.find((u) => u.ratio === 1) || units[0];
-  return { ...p, selling_units: units, sale_price: baseUnit ? baseUnit.sale_price : (p.sale_price || 0) };
+  return {
+    ...p,
+    image_urls: imageUrls,
+    selling_units: units,
+    sale_price: baseUnit ? baseUnit.sale_price : (p.sale_price || 0),
+  };
 }
 
 async function findSkuDuplicate({ sku, storeId, excludeId }) {
@@ -110,17 +204,81 @@ async function findExistingProductForImport({ sku, name, storeId }) {
   return null;
 }
 
+async function logPriceChange({
+  productId,
+  storeId,
+  changedBy,
+  source,
+  oldCost,
+  newCost,
+  oldSale,
+  newSale,
+}) {
+  if (Number(oldCost) === Number(newCost) && Number(oldSale) === Number(newSale)) return;
+  await ProductPriceHistory.create({
+    product_id: productId,
+    storeId: storeId || null,
+    changed_by: changedBy,
+    source,
+    old_cost_price: Number(oldCost) || 0,
+    new_cost_price: Number(newCost) || 0,
+    old_sale_price: Number(oldSale) || 0,
+    new_sale_price: Number(newSale) || 0,
+    changed_at: new Date(),
+  });
+}
+
 function getRoleStoreFilter(req) {
   const role = String(req.user?.role || '').toLowerCase();
-  const storeId = req.user?.storeId ? String(req.user.storeId) : null;
-  if (String(req.user?.role || '').toLowerCase() === 'admin') {
-    return {};
-  }
-  const isStoreScopedRole = ['manager', 'warehouse_staff', 'sales_staff', 'staff'].includes(role);
+  if (role === 'admin') return {};
+  const isStoreScopedRole = ['manager', 'staff'].includes(role);
   if (!isStoreScopedRole) return {};
+  const storeId = req.user?.storeId ? String(req.user.storeId) : null;
   if (!storeId) return null;
   return { storeId };
 }
+
+// POST /api/products/upload-images (manager, admin) - tối đa 3 ảnh
+router.post(
+  '/upload-images',
+  requireAuth,
+  requireRole(['manager', 'admin']),
+  (req, res, next) => {
+    uploadProductImages.array('images', 3)(req, res, (err) => {
+      if (err) return res.status(400).json({ message: err.message || 'Lỗi upload ảnh' });
+      next();
+    });
+  },
+  async (req, res) => {
+    try {
+      const files = req.files || [];
+      if (!files.length) {
+        return res.status(400).json({ message: 'Vui lòng chọn ít nhất 1 ảnh' });
+      }
+      if (files.length > 3) {
+        return res.status(400).json({ message: 'Chỉ được upload tối đa 3 ảnh cho mỗi sản phẩm' });
+      }
+
+      const uploaded = [];
+      for (const file of files) {
+        let result;
+        if (hasCloudinaryConfig()) {
+          result = await uploadBufferToCloudinary(file.buffer);
+        } else {
+          result = await uploadBufferToLocal(file, req);
+        }
+        uploaded.push({
+          url: result.secure_url,
+          public_id: result.public_id,
+        });
+      }
+      return res.json({ images: uploaded, image_urls: uploaded.map((x) => x.url) });
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ message: err.message || 'Không thể upload ảnh' });
+    }
+  }
+);
 
 // POST /api/products  (manager, admin)
 router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
@@ -138,26 +296,62 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
       expiry_date,
       base_unit,
       selling_units: bodyUnits,
+      image_urls,
       status,
     } = req.body || {};
     const role = String(req.user?.role || '').toLowerCase();
     const requesterStoreId = req.user?.storeId ? String(req.user.storeId) : null;
 
-    if (!name || !String(name).trim()) {
-      return res.status(400).json({ message: 'name is required' });
-    }
-    if (!sku || !String(sku).trim()) {
-      return res.status(400).json({ message: 'sku is required' });
-    }
+    const nameTrim = trimText(name);
+    const skuTrim = trimText(sku);
+    const barcodeTrim = trimText(barcode);
+    const base = base_unit ? trimText(base_unit) : 'Cái';
+    const costNum = parseNonNegativeNumber(cost_price);
+    const stockNum = parseNonNegativeNumber(stock_qty);
+    const reorderNum = parseNonNegativeNumber(reorder_level);
 
-    const base = base_unit ? String(base_unit).trim() : 'Cái';
+    if (!nameTrim) return res.status(400).json({ message: 'Tên sản phẩm không được để trống.' });
+    if (!isValidNoSpecialText(nameTrim)) {
+      return res.status(400).json({ message: 'Tên sản phẩm không được chứa ký tự đặc biệt.' });
+    }
+    if (!skuTrim) return res.status(400).json({ message: 'SKU không được để trống.' });
+    if (!ALNUM_NO_SPACE_REGEX.test(skuTrim)) {
+      return res.status(400).json({ message: 'SKU chỉ được gồm chữ và số, không ký tự đặc biệt.' });
+    }
+    if (barcodeTrim && !DIGITS_ONLY_REGEX.test(barcodeTrim)) {
+      return res.status(400).json({ message: 'Barcode chỉ được nhập số, không chữ hoặc ký tự đặc biệt.' });
+    }
+    if (!isValidNoSpecialText(base)) {
+      return res.status(400).json({ message: 'Đơn vị tồn kho không được chứa ký tự đặc biệt.' });
+    }
+    if (costNum == null) return res.status(400).json({ message: 'Giá vốn không hợp lệ.' });
+    if (stockNum == null) return res.status(400).json({ message: 'Tồn kho không hợp lệ.' });
+    if (reorderNum == null) return res.status(400).json({ message: 'Mức tồn tối thiểu không hợp lệ.' });
+
     let selling_units = Array.isArray(bodyUnits) && bodyUnits.length > 0
-      ? bodyUnits.map((u) => ({
-          name: String(u.name || '').trim() || base,
-          ratio: Number(u.ratio) > 0 ? Number(u.ratio) : 1,
-          sale_price: Number(u.sale_price) >= 0 ? Number(u.sale_price) : 0,
-        }))
-      : [{ name: base, ratio: 1, sale_price: Number(sale_price) >= 0 ? Number(sale_price) : 0 }];
+      ? bodyUnits.map((u) => {
+          const unitName = trimText(u.name) || base;
+          const ratioNum = parseNonNegativeNumber(u.ratio);
+          const saleNum = parseNonNegativeNumber(u.sale_price);
+          return {
+            name: unitName,
+            ratio: ratioNum != null && ratioNum > 0 ? ratioNum : 1,
+            sale_price: saleNum != null ? saleNum : 0,
+          };
+        })
+      : [{ name: base, ratio: 1, sale_price: parseNonNegativeNumber(sale_price) ?? 0 }];
+
+    for (const u of selling_units) {
+      if (!isValidNoSpecialText(u.name)) {
+        return res.status(400).json({ message: 'Tên đơn vị bán không được chứa ký tự đặc biệt.' });
+      }
+      if (!Number.isFinite(Number(u.ratio)) || Number(u.ratio) <= 0) {
+        return res.status(400).json({ message: 'Tỉ lệ đơn vị bán phải lớn hơn 0.' });
+      }
+      if (!Number.isFinite(Number(u.sale_price)) || Number(u.sale_price) < 0) {
+        return res.status(400).json({ message: 'Giá bán đơn vị không hợp lệ.' });
+      }
+    }
 
     const hasBase = selling_units.some((u) => u.ratio === 1);
     if (!hasBase) {
@@ -187,7 +381,6 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
       return res.status(400).json({ message: expCheck.message });
     }
 
-    const barcodeTrim = barcode ? String(barcode).trim() : '';
     if (barcodeTrim) {
       const dupBc = await findBarcodeDuplicate({ barcode: barcodeTrim, storeId: resolvedStoreId });
       if (dupBc) {
@@ -195,20 +388,26 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
       }
     }
 
+    const safeImageUrls = normalizeImageUrls(image_urls);
+    if (Array.isArray(image_urls) && image_urls.length > 3) {
+      return res.status(400).json({ message: 'Chỉ được lưu tối đa 3 ảnh cho mỗi sản phẩm' });
+    }
+
     const doc = await Product.create({
       category_id: category_id && mongoose.isValidObjectId(category_id) ? category_id : undefined,
       supplier_id: supplier_id && mongoose.isValidObjectId(supplier_id) ? supplier_id : undefined,
       storeId: resolvedStoreId,
-      name: String(name).trim(),
-      sku: String(sku).trim(),
+      name: nameTrim,
+      sku: skuTrim,
       barcode: barcodeTrim || undefined,
-      cost_price: Number(cost_price || 0),
+      cost_price: costNum,
       sale_price: baseUnitPrice,
-      stock_qty: Number(stock_qty || 0),
-      reorder_level: Number(reorder_level || 0),
+      stock_qty: stockNum,
+      reorder_level: reorderNum,
       expiry_date: expCheck.date,
       base_unit: base,
       selling_units,
+      image_urls: safeImageUrls,
       status: status === 'inactive' ? 'inactive' : 'active',
     });
 
@@ -225,8 +424,8 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
   }
 });
 
-// GET /api/products?q=...&page=1&limit=20  (manager, warehouse, sales, admin)
-router.get('/', requireAuth, requireRole(['manager', 'warehouse', 'sales', 'admin']), async (req, res) => {
+// GET /api/products?q=...&page=1&limit=20  (staff, manager, admin)
+router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
   try {
     const { q = '', page = '1', limit = '20' } = req.query;
     const query = String(q || '').trim();
@@ -305,6 +504,10 @@ router.post(
       const mapped = mapRowsFromMatrix(parsed.rows);
       if (mapped.error) return res.status(400).json({ message: mapped.error });
 
+      const role = String(req.user?.role || '').toLowerCase();
+      const requesterStoreId = req.user?.storeId ? String(req.user.storeId) : null;
+      const resolvedStoreId = role === 'admin' ? undefined : requesterStoreId;
+
       const rows = mapped.mapped.map((r) => ({
         row: r.row,
         name: r.name,
@@ -318,11 +521,42 @@ router.post(
         errors: r.errors,
       }));
 
+      // So sánh giá với sản phẩm đang có trong DB để cảnh báo thay đổi giá
+      const price_changes = [];
+      for (const r of rows) {
+        if (!r.valid) continue;
+        const existing = await findExistingProductForImport({
+          sku: r.sku,
+          name: r.name,
+          storeId: resolvedStoreId,
+        });
+        if (!existing) continue;
+        const oldCost = Number(existing.cost_price) || 0;
+        const oldSale = Number(existing.sale_price) || 0;
+        const newCost = Number(r.cost_price) || 0;
+        const newSale = Number(r.sale_price) || 0;
+        if (oldCost !== newCost || oldSale !== newSale) {
+          price_changes.push({
+            row: r.row,
+            name: existing.name,
+            sku: existing.sku,
+            old_cost_price: oldCost,
+            new_cost_price: newCost,
+            old_sale_price: oldSale,
+            new_sale_price: newSale,
+            cost_changed: oldCost !== newCost,
+            sale_changed: oldSale !== newSale,
+          });
+        }
+      }
+
       return res.json({
         rows,
         totalRows: rows.length,
         validCount: rows.filter((x) => x.valid).length,
         invalidCount: rows.filter((x) => !x.valid).length,
+        price_changes,
+        has_price_changes: price_changes.length > 0,
       });
     } catch (err) {
       console.error(err);
@@ -331,10 +565,10 @@ router.post(
   }
 );
 
-// POST /api/products/import/commit — body: { rows: [...], storeId? } (manager, admin)
+// POST /api/products/import/commit — body: { rows: [...], storeId?, confirmPriceChanges?: boolean }
 router.post('/import/commit', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
   try {
-    const { rows } = req.body || {};
+    const { rows, confirmPriceChanges } = req.body || {};
     if (!Array.isArray(rows) || rows.length === 0) {
       return res.status(400).json({ message: 'Không có dữ liệu để import.' });
     }
@@ -355,6 +589,40 @@ router.post('/import/commit', requireAuth, requireRole(['manager', 'admin']), as
         message: 'Manager chưa có cửa hàng. Vui lòng đăng ký cửa hàng trước khi import.',
         code: 'STORE_REQUIRED',
       });
+    }
+
+    // Kiểm tra thay đổi giá bán — nếu có mà chưa xác nhận thì chặn lại
+    // Lưu ý: import Excel CHỈ cập nhật giá bán (sale_price) và thông tin catalog.
+    // Giá vốn (cost_price) KHÔNG bị thay đổi qua import — phải đi qua phiếu nhập hàng (GoodsReceipt).
+    // Số lượng tồn kho KHÔNG cộng thêm qua import — phải đi qua phiếu nhập hàng (GoodsReceipt).
+    if (!confirmPriceChanges) {
+      const pendingChanges = [];
+      for (const raw of rows) {
+        const name = String(raw.name || '').trim();
+        const existing = await findExistingProductForImport({
+          sku: raw.sku != null ? String(raw.sku).trim() : '',
+          name,
+          storeId: resolvedStoreId,
+        });
+        if (!existing) continue;
+        const oldSale = Number(existing.sale_price) || 0;
+        const newSale = Number(raw.sale_price) || 0;
+        if (oldSale !== newSale) {
+          pendingChanges.push({
+            name: existing.name,
+            sku: existing.sku,
+            old_sale_price: oldSale,
+            new_sale_price: newSale,
+          });
+        }
+      }
+      if (pendingChanges.length > 0) {
+        return res.status(409).json({
+          code: 'PRICE_CHANGE_CONFIRMATION_REQUIRED',
+          message: `Có ${pendingChanges.length} sản phẩm bị thay đổi giá bán. Vui lòng xác nhận trước khi import.`,
+          price_changes: pendingChanges,
+        });
+      }
     }
 
     const base = 'Cái';
@@ -393,6 +661,10 @@ router.post('/import/commit', requireAuth, requireRole(['manager', 'admin']), as
         });
 
         if (existing) {
+          // Import Excel chỉ cập nhật thông tin catalog và giá bán.
+          // Giá vốn (cost_price) KHÔNG thay đổi — phải đi qua phiếu nhập hàng để đảm bảo tính chính xác báo cáo lợi nhuận.
+          // Số lượng tồn kho KHÔNG cộng thêm — phải đi qua phiếu nhập hàng (GoodsReceipt).
+          const oldSale = Number(existing.sale_price) || 0;
           if (barcodeIn) {
             const dupBc = await findBarcodeDuplicate({
               barcode: barcodeIn,
@@ -407,9 +679,7 @@ router.post('/import/commit', requireAuth, requireRole(['manager', 'admin']), as
               continue;
             }
           }
-          const prevQty = Number(existing.stock_qty) || 0;
-          existing.stock_qty = prevQty + stock_qty;
-          existing.cost_price = cost_price;
+          // Chỉ cập nhật giá bán và thông tin catalog, giữ nguyên cost_price và stock_qty
           existing.sale_price = sale_price;
           existing.base_unit = base_unit || base;
           existing.selling_units = [{ name: base_unit || base, ratio: 1, sale_price }];
@@ -418,9 +688,20 @@ router.post('/import/commit', requireAuth, requireRole(['manager', 'admin']), as
           }
           existing.updated_at = new Date();
           await existing.save();
+          await logPriceChange({
+            productId: existing._id,
+            storeId: existing.storeId || resolvedStoreId || null,
+            changedBy: req.user?.id,
+            source: 'import_excel',
+            oldCost: Number(existing.cost_price) || 0,
+            newCost: Number(existing.cost_price) || 0,
+            oldSale,
+            newSale: existing.sale_price,
+          });
           updated.push({
             row: rowLabel,
             action: 'updated',
+            note: 'Chỉ cập nhật giá bán và thông tin catalog. Để nhập thêm hàng, vui lòng tạo phiếu nhập hàng (GoodsReceipt).',
             product: normalizeProduct(existing.toObject()),
           });
           continue;
@@ -492,8 +773,8 @@ router.post('/import/commit', requireAuth, requireRole(['manager', 'admin']), as
   }
 });
 
-// GET /api/products/:id  (manager, warehouse, sales, admin)
-router.get('/:id', requireAuth, requireRole(['manager', 'warehouse', 'sales', 'admin']), async (req, res) => {
+// GET /api/products/:id  (staff, manager, admin)
+router.get('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
   try {
     const { id } = req.params;
     if (!mongoose.isValidObjectId(id)) {
@@ -536,6 +817,7 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
       expiry_date,
       base_unit,
       selling_units: bodyUnits,
+      image_urls,
       status,
     } = req.body || {};
 
@@ -548,6 +830,8 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
     }
     const product = await Product.findOne({ _id: id, ...storeFilter });
     if (!product) return res.status(404).json({ message: 'Product not found' });
+    const oldCost = Number(product.cost_price) || 0;
+    const oldSale = Number(product.sale_price) || 0;
 
     if (expiry_date !== undefined) {
       const expCheck = validateExpiryDateForWrite(expiry_date);
@@ -557,8 +841,28 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
       product.expiry_date = expCheck.date != null ? expCheck.date : null;
     }
 
+    if (name !== undefined) {
+      const nameTrim = trimText(name);
+      if (!nameTrim) return res.status(400).json({ message: 'Tên sản phẩm không được để trống.' });
+      if (!isValidNoSpecialText(nameTrim)) {
+        return res.status(400).json({ message: 'Tên sản phẩm không được chứa ký tự đặc biệt.' });
+      }
+      product.name = nameTrim;
+    }
+    if (sku !== undefined) {
+      const skuTrim = trimText(sku);
+      if (!skuTrim) return res.status(400).json({ message: 'SKU không được để trống.' });
+      if (!ALNUM_NO_SPACE_REGEX.test(skuTrim)) {
+        return res.status(400).json({ message: 'SKU chỉ được gồm chữ và số, không ký tự đặc biệt.' });
+      }
+      product.sku = skuTrim;
+    }
+
     if (barcode !== undefined) {
-      const bc = barcode ? String(barcode).trim() : '';
+      const bc = trimText(barcode);
+      if (bc && !DIGITS_ONLY_REGEX.test(bc)) {
+        return res.status(400).json({ message: 'Barcode chỉ được nhập số, không chữ hoặc ký tự đặc biệt.' });
+      }
       if (bc) {
         const dupB = await findBarcodeDuplicate({ barcode: bc, storeId: product.storeId, excludeId: id });
         if (dupB) {
@@ -568,18 +872,40 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
       product.barcode = bc || undefined;
     }
 
-    if (name !== undefined) product.name = String(name).trim();
-    if (sku !== undefined) product.sku = String(sku).trim();
-    if (cost_price !== undefined) product.cost_price = Number(cost_price) || 0;
-    if (stock_qty !== undefined) product.stock_qty = Number(stock_qty) || 0;
-    if (reorder_level !== undefined) product.reorder_level = Number(reorder_level) || 0;
-    if (base_unit !== undefined) product.base_unit = base_unit ? String(base_unit).trim() : 'Cái';
+    if (cost_price !== undefined) {
+      const n = parseNonNegativeNumber(cost_price);
+      if (n == null) return res.status(400).json({ message: 'Giá vốn không hợp lệ.' });
+      product.cost_price = n;
+    }
+    if (stock_qty !== undefined) {
+      const n = parseNonNegativeNumber(stock_qty);
+      if (n == null) return res.status(400).json({ message: 'Tồn kho không hợp lệ.' });
+      product.stock_qty = n;
+    }
+    if (reorder_level !== undefined) {
+      const n = parseNonNegativeNumber(reorder_level);
+      if (n == null) return res.status(400).json({ message: 'Mức tồn tối thiểu không hợp lệ.' });
+      product.reorder_level = n;
+    }
+    if (base_unit !== undefined) {
+      const base = base_unit ? trimText(base_unit) : 'Cái';
+      if (!isValidNoSpecialText(base)) {
+        return res.status(400).json({ message: 'Đơn vị tồn kho không được chứa ký tự đặc biệt.' });
+      }
+      product.base_unit = base;
+    }
     if (status !== undefined) product.status = status === 'inactive' ? 'inactive' : 'active';
     if (category_id !== undefined) {
       product.category_id = category_id && mongoose.isValidObjectId(category_id) ? category_id : null;
     }
     if (supplier_id !== undefined) {
       product.supplier_id = supplier_id && mongoose.isValidObjectId(supplier_id) ? supplier_id : null;
+    }
+    if (image_urls !== undefined) {
+      if (Array.isArray(image_urls) && image_urls.length > 3) {
+        return res.status(400).json({ message: 'Chỉ được lưu tối đa 3 ảnh cho mỗi sản phẩm' });
+      }
+      product.image_urls = normalizeImageUrls(image_urls);
     }
     if (sku !== undefined) {
       const duplicate = await findSkuDuplicate({ sku, storeId: product.storeId, excludeId: id });
@@ -590,21 +916,49 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
 
     if (Array.isArray(bodyUnits) && bodyUnits.length > 0) {
       const base = product.base_unit || 'Cái';
-      const units = bodyUnits.map((u) => ({
-        name: String(u.name || '').trim() || base,
-        ratio: Number(u.ratio) > 0 ? Number(u.ratio) : 1,
-        sale_price: Number(u.sale_price) >= 0 ? Number(u.sale_price) : 0,
-      }));
+      const units = bodyUnits.map((u) => {
+        const unitName = trimText(u.name) || base;
+        const ratioNum = parseNonNegativeNumber(u.ratio);
+        const saleNum = parseNonNegativeNumber(u.sale_price);
+        return {
+          name: unitName,
+          ratio: ratioNum != null && ratioNum > 0 ? ratioNum : 1,
+          sale_price: saleNum != null ? saleNum : 0,
+        };
+      });
+      for (const u of units) {
+        if (!isValidNoSpecialText(u.name)) {
+          return res.status(400).json({ message: 'Tên đơn vị bán không được chứa ký tự đặc biệt.' });
+        }
+        if (!Number.isFinite(Number(u.ratio)) || Number(u.ratio) <= 0) {
+          return res.status(400).json({ message: 'Tỉ lệ đơn vị bán phải lớn hơn 0.' });
+        }
+        if (!Number.isFinite(Number(u.sale_price)) || Number(u.sale_price) < 0) {
+          return res.status(400).json({ message: 'Giá bán đơn vị không hợp lệ.' });
+        }
+      }
       const hasBase = units.some((u) => u.ratio === 1);
       product.selling_units = hasBase ? units : [{ name: base, ratio: 1, sale_price: units[0]?.sale_price ?? 0 }, ...units];
       const baseUnitPrice = product.selling_units.find((u) => u.ratio === 1)?.sale_price ?? 0;
       product.sale_price = baseUnitPrice;
     } else if (sale_price !== undefined) {
-      product.sale_price = Number(sale_price) || 0;
+      const saleNum = parseNonNegativeNumber(sale_price);
+      if (saleNum == null) return res.status(400).json({ message: 'Giá bán không hợp lệ.' });
+      product.sale_price = saleNum;
       product.selling_units = [{ name: product.base_unit || 'Cái', ratio: 1, sale_price: product.sale_price }];
     }
     product.updated_at = new Date();
     await product.save();
+    await logPriceChange({
+      productId: product._id,
+      storeId: product.storeId || null,
+      changedBy: req.user?.id,
+      source: 'manual_update',
+      oldCost,
+      newCost: product.cost_price,
+      oldSale,
+      newSale: product.sale_price,
+    });
 
     return res.json({ product: normalizeProduct(product.toObject()) });
   } catch (err) {
@@ -644,56 +998,6 @@ router.patch('/:id/status', requireAuth, requireRole(['manager', 'admin']), asyn
     if (!product) return res.status(404).json({ message: 'Product not found' });
     return res.json({ product: normalizeProduct(product) });
   } catch (err) {
-    return res.status(500).json({ message: 'Server error' });
-  }
-});
-
-// GET /api/products/:id/batches (manager, warehouse, sales, admin)
-router.get('/:id/batches', requireAuth, requireRole(['manager', 'warehouse', 'sales', 'admin']), async (req, res) => {
-  try {
-    const { id } = req.params;
-    console.log(`[GET_BATCHES] ProductID: ${id}, User: ${req.user.email}, Role: ${req.user.role}`);
-    
-    if (!mongoose.isValidObjectId(id)) {
-      return res.status(400).json({ message: 'Invalid product id' });
-    }
-    const storeFilter = getRoleStoreFilter(req);
-    console.log(`[GET_BATCHES] Filter:`, JSON.stringify(storeFilter));
-    
-    if (storeFilter == null) {
-      return res.status(403).json({
-        message: 'Tài khoản chưa được gán cửa hàng.',
-        code: 'STORE_REQUIRED',
-      });
-    }
-
-    let batches = await StockBatch.find({ 
-      productId: new mongoose.Types.ObjectId(id), 
-      ...storeFilter, 
-      remaining_qty: { $gt: 0 } 
-    }).sort({ received_at: 1 }).lean();
-
-    if (batches.length === 0) {
-      const product = await Product.findOne({ _id: id, ...storeFilter }).lean();
-      if (product && product.stock_qty > 0) {
-        console.log(`[GET_BATCHES] No batches found for positive stock (${product.stock_qty}). Creating legacy batch.`);
-        const legacyBatch = await StockBatch.create({
-          productId: product._id,
-          storeId: product.storeId,
-          initial_qty: product.stock_qty,
-          remaining_qty: product.stock_qty,
-          unit_cost: product.cost_price || 0,
-          received_at: product.created_at || new Date(),
-          note: 'Hàng tồn kho ban đầu (Legacy)',
-        });
-        batches = [legacyBatch.toObject()];
-      }
-    }
-    
-    console.log(`[GET_BATCHES] Found ${batches.length} batches`);
-    return res.json({ batches });
-  } catch (err) {
-    console.error(`[GET_BATCHES] Error:`, err);
     return res.status(500).json({ message: 'Server error' });
   }
 });

@@ -107,9 +107,15 @@ export default function ManagerInvoiceView() {
                   <span style={{ fontWeight: 500, color: '#1e293b' }}>{invoice.recipient_name || 'Khách lẻ'}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: '#64748b' }}>Trạng thái:</span>
-                  <span style={{ fontWeight: 600, color: invoice.status === 'confirmed' ? '#10b981' : '#f59e0b', background: invoice.status === 'confirmed' ? '#d1fae5' : '#fef3c7', padding: '2px 8px', borderRadius: 4 }}>
-                    {invoice.status === 'confirmed' ? 'Đã hoàn thành' : 'Đã hủy'}
+                  <span style={{ color: '#64748b' }}>Trạng thái nợ:</span>
+                  <span style={{
+                    fontWeight: 700,
+                    color: invoice.status === 'confirmed' ? '#065f46' : invoice.status === 'pending' ? '#92400e' : '#991b1b',
+                    background: invoice.status === 'confirmed' ? '#d1fae5' : invoice.status === 'pending' ? '#fef3c7' : '#fee2e2',
+                    border: `1px solid ${invoice.status === 'confirmed' ? '#6ee7b7' : invoice.status === 'pending' ? '#fde68a' : '#fecaca'}`,
+                    padding: '3px 10px', borderRadius: 6, fontSize: 13
+                  }}>
+                    {invoice.status === 'confirmed' ? 'Đã thanh toán' : invoice.status === 'pending' ? 'Nợ' : 'Trả hàng'}
                   </span>
                 </div>
               </div>
@@ -119,10 +125,6 @@ export default function ManagerInvoiceView() {
               <h3 style={{ margin: '0 0 16px', color: '#334155', fontSize: 16 }}>Thanh toán</h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12, fontSize: 14 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: '#64748b' }}>Phương thức:</span>
-                  <span style={{ fontWeight: 500, color: '#1e293b' }}>{paymentMethodMap[invoice.payment_method] || invoice.payment_method}</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ color: '#64748b' }}>Tổng tiền hàng ({invoice.items?.length || 0} món):</span>
                   <span style={{ fontWeight: 500, color: '#1e293b' }}>{formatMoney(invoice.total_amount)}</span>
                 </div>
@@ -130,9 +132,19 @@ export default function ManagerInvoiceView() {
                 <div style={{ borderTop: '1px solid #f1f5f9', margin: '8px 0' }}></div>
                 
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ color: '#334155', fontWeight: 600 }}>Khách đã trả:</span>
-                  <span style={{ fontWeight: 700, fontSize: 20, color: '#0081ff' }}>{formatMoney(invoice.total_amount)}</span>
+                  <span style={{ color: '#334155', fontWeight: 600 }}>
+                    {invoice.status === 'pending' ? 'Số tiền ghi nợ:' : 'Khách đã trả:'}
+                  </span>
+                  <span style={{ fontWeight: 700, fontSize: 20, color: invoice.status === 'pending' ? '#d97706' : '#0081ff' }}>
+                    {formatMoney(invoice.total_amount)}
+                  </span>
                 </div>
+                {invoice.status === 'pending' && (
+                  <div style={{ marginTop: 10, padding: '10px 14px', background: '#fef3c7', borderRadius: 8, border: '1px solid #fde68a', fontSize: 13, color: '#92400e', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <i className="fa-solid fa-triangle-exclamation" />
+                    Đơn hàng đang <strong>chờ thu nợ</strong>. Sẽ tự chuyển thành "Đã thanh toán" sau khi thu nợ.
+                  </div>
+                )}
               </div>
             </div>
           </div>

@@ -44,7 +44,8 @@ export default function SalesInvoiceView() {
     'cash': 'Tiền mặt',
     'bank_transfer': 'Chuyển khoản',
     'credit': 'Thẻ tín dụng',
-    'card': 'Quẹt thẻ'
+    'card': 'Quẹt thẻ',
+    'debt': 'Ghi nợ'
   };
 
   return (
@@ -105,8 +106,14 @@ export default function SalesInvoiceView() {
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ color: '#64748b' }}>Trạng thái:</span>
-                <span style={{ fontWeight: 600, color: invoice.status === 'confirmed' ? '#10b981' : '#f59e0b', background: invoice.status === 'confirmed' ? '#d1fae5' : '#fef3c7', padding: '2px 8px', borderRadius: 4 }}>
-                  {invoice.status === 'confirmed' ? 'Đã hoàn thành' : 'Đã hủy'}
+                <span style={{ 
+                  fontWeight: 600, 
+                  color: invoice.status === 'confirmed' ? '#10b981' : invoice.status === 'pending' ? '#92400e' : '#ef4444', 
+                  background: invoice.status === 'confirmed' ? '#d1fae5' : invoice.status === 'pending' ? '#fde68a' : '#fee2e2', 
+                  padding: '2px 8px', 
+                  borderRadius: 4 
+                }}>
+                  {invoice.status === 'confirmed' ? 'Đã hoàn thành' : invoice.status === 'pending' ? 'Nợ' : 'Đã hủy'}
                 </span>
               </div>
             </div>
@@ -127,8 +134,8 @@ export default function SalesInvoiceView() {
               <div style={{ borderTop: '1px solid #f1f5f9', margin: '8px 0' }}></div>
               
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ color: '#334155', fontWeight: 600 }}>Khách đã trả:</span>
-                <span style={{ fontWeight: 700, fontSize: 20, color: '#0081ff' }}>{formatMoney(invoice.total_amount)}</span>
+                <span style={{ color: '#334155', fontWeight: 600 }}>{invoice.status === 'pending' ? 'Khách còn nợ:' : 'Khách đã trả:'}</span>
+                <span style={{ fontWeight: 700, fontSize: 20, color: invoice.status === 'pending' ? '#f59e0b' : '#0081ff' }}>{formatMoney(invoice.total_amount)}</span>
               </div>
             </div>
           </div>

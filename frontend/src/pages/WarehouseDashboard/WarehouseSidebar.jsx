@@ -30,11 +30,10 @@ export default function WarehouseSidebar() {
   const storeTitle = currentUser?.storeName || (currentUser?.storeId ? `Store: ${String(currentUser.storeId).slice(-6)}` : 'Chưa có cửa hàng');
 
   const navItems = [
-    { label: 'Tổng quan', path: '/warehouse', icon: 'fa-house' },
-    { label: 'Kiểm kê kho', path: '/warehouse/stocktakes', icon: 'fa-clipboard-list' },
-    { label: 'Danh sách phiếu nhập', path: '/warehouse/receipts', icon: 'fa-list' },
-    { label: 'Nhập hàng', path: '/warehouse/receipts/new', icon: 'fa-box' },
-    { label: 'Yêu cầu tạo sản phẩm', path: '/warehouse/product-requests', icon: 'fa-file-circle-plus' },
+    { label: 'Tổng quan', path: '/staff', icon: 'fa-house' },
+    { label: 'Kiểm kê kho', path: '/staff/stocktakes', icon: 'fa-clipboard-list' },
+    { label: 'Danh sách phiếu nhập', path: '/staff/receipts', icon: 'fa-list' },
+    { label: 'Nhập hàng', path: '/staff/receipts/new', icon: 'fa-box' },
   ];
 
   const isActive = (path) => location.pathname === path;

@@ -10,6 +10,8 @@ const customerSchema = new Schema(
         phone: {
             type: String,
             trim: true,
+            unique: true,
+            sparse: true,
         },
         email: {
             type: String,
@@ -36,6 +38,12 @@ const customerSchema = new Schema(
         is_regular: {
             type: Boolean,
             default: false,
+        },
+        store_id: {
+            type: Schema.Types.ObjectId,
+            ref: 'Store',
+            default: null,
+            index: true,
         },
         created_at: {
             type: Date,

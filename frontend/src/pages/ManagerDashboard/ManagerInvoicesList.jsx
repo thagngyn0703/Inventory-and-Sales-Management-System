@@ -7,6 +7,7 @@ import './ManagerProducts.css';
 
 const STATUS_LABEL = {
   confirmed: 'Đã thanh toán',
+  pending: 'Chờ thanh toán',
   cancelled: 'Trả hàng',
 };
 
@@ -15,6 +16,7 @@ const PAYMENT_LABEL = {
   bank_transfer: 'Chuyển khoản',
   credit: 'Công nợ',
   card: 'Thẻ',
+  debt: 'Ghi nợ',
 };
 
 export default function ManagerInvoicesList() {
@@ -200,6 +202,7 @@ export default function ManagerInvoicesList() {
               >
                 <option value="">Tất cả</option>
                 <option value="confirmed">Đã thanh toán</option>
+                <option value="pending">Chờ thanh toán</option>
                 <option value="cancelled">Trả hàng</option>
               </select>
             </div>

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import StoreLockedNotice from '../../components/StoreLockedNotice';
 import './ManagerSidebar.css';
 
@@ -31,6 +31,7 @@ export default function ManagerSidebar() {
 
     const overviewItems = [
         { label: 'Tổng quan', path: '/manager', icon: 'fa-house' },
+        { label: 'Trợ lý AI', path: '/manager/ai-assistant', icon: 'fa-wand-magic-sparkles' },
         { label: 'Đơn hàng', path: '/manager/orders', icon: 'fa-file-lines' },
         { label: 'Sản phẩm', path: '/manager/products', icon: 'fa-cart-shopping' },
         { label: 'Danh mục', path: '/manager/categories', icon: 'fa-list' },
@@ -53,16 +54,21 @@ export default function ManagerSidebar() {
         { label: 'Cài đặt', path: '/manager/settings', icon: 'fa-gear' },
     ];
 
-    const isActive = (path) => location.pathname === path || (path === '/manager' && location.pathname === '/manager');
-    const isItemActive = (item) => {
-        if (item.path === '/manager/adjustments') return location.pathname === '/manager/adjustments' || location.pathname.startsWith('/manager/adjustments/');
-        if (item.path === '/manager/incoming-transactions') return location.pathname === '/manager/incoming-transactions';
-        if (item.path === '/manager/suppliers') return location.pathname === '/manager/suppliers' || location.pathname.startsWith('/manager/suppliers/');
-        if (item.path === '/manager/suppliers/new') return location.pathname === '/manager/suppliers/new';
-        if (item.path === '/manager/staff/new') return location.pathname === '/manager/staff/new' || location.pathname.startsWith('/manager/staff/');
-        if (item.path === '/manager/stocktakes/pending') return location.pathname === '/manager/stocktakes/pending' || location.pathname.startsWith('/manager/stocktakes/');
-        if (item.path === '/manager/notifications') return location.pathname === '/manager/notifications' || location.pathname.startsWith('/manager/notifications/');
-        return isActive(item.path);
+    const getActivePath = (pathname) => {
+        // Most specific routes first to ensure only one menu item is active.
+        if (pathname === '/manager/suppliers/new') return '/manager/suppliers/new';
+        if (pathname.startsWith('/manager/staff/manage')) return '/manager/staff/manage';
+        if (pathname.startsWith('/manager/staff/new')) return '/manager/staff/new';
+        if (pathname.startsWith('/manager/stocktakes/')) return '/manager/stocktakes/pending';
+        if (pathname.startsWith('/manager/adjustments/')) return '/manager/adjustments';
+        if (pathname.startsWith('/manager/notifications/')) return '/manager/notifications';
+        if (pathname.startsWith('/manager/suppliers/')) return '/manager/suppliers';
+        return pathname;
+    };
+    const activePath = getActivePath(location.pathname);
+    const isItemActive = (itemPath) => activePath === itemPath;
+    const preventSameRouteNavigation = (e, itemPath) => {
+        if (location.pathname === itemPath) e.preventDefault();
     };
 
     return (
@@ -80,33 +86,36 @@ export default function ManagerSidebar() {
             <nav className="manager-sidebar-nav">
                 <div className="manager-nav-section">
                     {overviewItems.map((item) => (
-                        <button
+                        <Link
                             key={item.path}
-                            className={`manager-sidebar-item ${isActive(item.path) ? 'active' : ''}`}
-                            onClick={() => navigate(item.path)}
+                            to={item.path}
+                            onClick={(e) => preventSameRouteNavigation(e, item.path)}
+                            className={`manager-sidebar-item ${isItemActive(item.path) ? 'active' : ''}`}
                         >
                             <i className={`fa-solid ${item.icon} manager-item-icon`} />
                             {item.label}
-                        </button>
+                        </Link>
                     ))}
                 </div>
                 <div className="manager-nav-section">
                     <p className="manager-nav-group-label">QUẢN LÝ</p>
                     {manageItems.map((item) => (
-                        <button
+                        <Link
                             key={item.path}
-                            className={`manager-sidebar-item ${isItemActive(item) ? 'active' : ''}`}
-                            onClick={() => navigate(item.path)}
+                            to={item.path}
+                            onClick={(e) => preventSameRouteNavigation(e, item.path)}
+                            className={`manager-sidebar-item ${isItemActive(item.path) ? 'active' : ''}`}
                         >
                             <i className={`fa-solid ${item.icon} manager-item-icon`} />
                             {item.label}
-                        </button>
+                        </Link>
                     ))}
                 </div>
             </nav>
 
             <div className="manager-sidebar-footer">
                 <button
+                    type="button"
                     className="manager-logout-btn"
                     onClick={() => {
                         localStorage.clear();

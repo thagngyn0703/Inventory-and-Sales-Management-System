@@ -10,11 +10,17 @@ export function isLoggedIn() {
   return Boolean(localStorage.getItem("token"));
 }
 
+/**
+ * Chuẩn hóa role về 3 tier: admin / manager / staff.
+ * Backward compat: warehouse_staff, sales_staff, warehouse, sales → staff
+ */
 export function normalizeRole(role) {
   const r = String(role || "").trim().toLowerCase();
   if (!r) return "";
-  if (r === "warehouse staff" || r === "warehouse_staff") return "staff";
-  if (r === "sales staff" || r === "sale staff" || r === "sales_staff") return "staff";
+  if (
+    r === "warehouse_staff" || r === "warehouse staff" || r === "warehouse" ||
+    r === "sales_staff" || r === "sales staff" || r === "sale staff" || r === "sales"
+  ) return "staff";
   return r;
 }
 

@@ -54,6 +54,28 @@ export async function createProduct(body) {
     return data.product;
 }
 
+export async function uploadProductImages(files) {
+    const token = getToken();
+    const form = new FormData();
+    files.forEach((file) => form.append('images', file));
+    const res = await fetch(`${API_BASE}/products/upload-images`, {
+        method: 'POST',
+        headers: {
+            Authorization: `Bearer ${token}`,
+        },
+        body: form,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (data?.code === 'CLOUDINARY_NOT_CONFIGURED') {
+        throw new Error('Chức năng upload ảnh đang tạm thời chưa sẵn sàng. Vui lòng báo admin cấu hình Cloudinary.');
+    }
+    if (String(data?.message || '').toLowerCase().includes('cloudinary')) {
+        throw new Error('Chức năng upload ảnh đang tạm thời chưa sẵn sàng. Vui lòng báo admin cấu hình Cloudinary.');
+    }
+    if (!res.ok) throw new Error(data.message || 'Không thể upload ảnh sản phẩm');
+    return data.image_urls || [];
+}
+
 export async function updateProduct(id, body) {
     const token = getToken();
     const res = await fetch(`${API_BASE}/products/${id}`, {
@@ -126,9 +148,10 @@ export async function previewProductImport(file) {
 }
 
 /**
- * @param {Array<{ row: number, name: string, cost_price: number, sale_price: number, sku?: string, stock_qty: number, base_unit: string }>} rows
+ * @param {Array} rows
+ * @param {boolean} confirmPriceChanges - true nếu manager đã xác nhận thay đổi giá
  */
-export async function commitProductImport(rows) {
+export async function commitProductImport(rows, confirmPriceChanges = false) {
     const token = getToken();
     const res = await fetch(`${API_BASE}/products/import/commit`, {
         method: 'POST',
@@ -136,9 +159,13 @@ export async function commitProductImport(rows) {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ rows }),
+        body: JSON.stringify({ rows, confirmPriceChanges }),
     });
     const data = await res.json().catch(() => ({}));
+    // 409 = cần xác nhận thay đổi giá — trả về data thay vì throw để FE xử lý
+    if (res.status === 409 && data.code === 'PRICE_CHANGE_CONFIRMATION_REQUIRED') {
+        return { needsConfirmation: true, price_changes: data.price_changes, message: data.message };
+    }
     if (!res.ok) throw new Error(data.message || 'Import thất bại');
     return data;
 }

@@ -26,7 +26,7 @@ const salesInvoiceSchema = new Schema(
         },
         status: {
             type: String,
-            enum: ['confirmed', 'cancelled'],
+            enum: ['confirmed', 'cancelled', 'pending'],
             default: 'confirmed',
         },
         invoice_at: {
@@ -35,11 +35,31 @@ const salesInvoiceSchema = new Schema(
         },
         payment_method: {
             type: String,
-            enum: ['cash', 'bank_transfer', 'credit', 'card'],
+            enum: ['cash', 'bank_transfer', 'credit', 'card', 'debt'],
             default: 'cash',
+        },
+        payment_status: {
+            type: String,
+            enum: ['unpaid', 'partial', 'paid'],
+            default: 'unpaid',
+            index: true,
+        },
+        payment_ref: {
+            type: String,
+            trim: true,
+            index: true,
+            sparse: true,
+        },
+        paid_at: {
+            type: Date,
+            default: null,
         },
         items: [
             {
+                line_id: {
+                    type: String,
+                    trim: true,
+                },
                 product_id: {
                     type: Schema.Types.ObjectId,
                     ref: 'Product',
@@ -54,6 +74,10 @@ const salesInvoiceSchema = new Schema(
                     type: Number,
                     required: true,
                 },
+                cost_price: {
+                    type: Number,
+                    default: 0,
+                },
                 discount: {
                     type: Number,
                     default: 0,
@@ -62,6 +86,14 @@ const salesInvoiceSchema = new Schema(
                     type: Number,
                     required: true,
                 },
+                line_profit: {
+                    type: Number,
+                    default: 0,
+                },
+                line_updated_at: {
+                    type: Date,
+                    default: null,
+                },
             },
         ],
         total_amount: {
@@ -69,6 +101,10 @@ const salesInvoiceSchema = new Schema(
             default: 0,
         },
         paid_amount: {
+            type: Number,
+            default: 0,
+        },
+        previous_debt_paid: {
             type: Number,
             default: 0,
         },

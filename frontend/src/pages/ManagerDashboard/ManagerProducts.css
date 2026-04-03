@@ -458,6 +458,11 @@
     max-width: 1000px;
 }
 
+.manager-product-create-fullwidth {
+    width: 100%;
+    max-width: none;
+}
+
 .manager-detail-sections-row {
     display: grid;
     grid-template-columns: 1fr 1fr;

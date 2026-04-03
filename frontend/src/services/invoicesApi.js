@@ -16,7 +16,7 @@ function parseResponse(res, defaultMessage) {
     });
 }
 
-export async function getInvoices({ page = 1, limit = 20, status, dateFrom, dateTo, searchKey } = {}) {
+export async function getInvoices({ page = 1, limit = 20, status, dateFrom, dateTo, searchKey, customer_id, payment_method } = {}) {
   const token = getToken();
   const url = new URL(`${API_BASE}/invoices`);
   url.searchParams.set('page', String(page));
@@ -25,6 +25,8 @@ export async function getInvoices({ page = 1, limit = 20, status, dateFrom, date
   if (dateFrom) url.searchParams.set('dateFrom', dateFrom);
   if (dateTo) url.searchParams.set('dateTo', dateTo);
   if (searchKey) url.searchParams.set('searchKey', searchKey);
+  if (customer_id) url.searchParams.set('customer_id', customer_id);
+  if (payment_method) url.searchParams.set('payment_method', payment_method);
   const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${token}` } });
   const data = await parseResponse(res, 'Không thể tải danh sách hóa đơn');
   return data;
@@ -50,7 +52,25 @@ export async function createInvoice(body) {
     body: JSON.stringify(body),
   });
   const data = await parseResponse(res, 'Không thể tạo hóa đơn');
-  return data.invoice;
+  // Trả về cả invoice và payment_ref để POS dùng cho QR + polling
+  return { invoice: data.invoice, payment_ref: data.payment_ref, payment_status: data.payment_status };
+}
+
+export async function getPaymentStatus(paymentRef) {
+  const token = getToken();
+  const url = new URL(`${API_BASE}/payments/status/${paymentRef}`);
+  // Bust cache để tránh 304 khi polling liên tục
+  url.searchParams.set('_ts', String(Date.now()));
+  const res = await fetch(url.toString(), {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Cache-Control': 'no-cache',
+      Pragma: 'no-cache',
+    },
+    cache: 'no-store',
+  });
+  const data = await parseResponse(res, 'Không thể kiểm tra trạng thái thanh toán');
+  return data;
 }
 
 export async function updateInvoice(id, body) {

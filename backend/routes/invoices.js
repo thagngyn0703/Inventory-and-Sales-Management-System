@@ -1,4 +1,5 @@
 const express = require('express');
+const crypto = require('crypto');
 const mongoose = require('mongoose');
 const SalesInvoice = require('../models/SalesInvoice');
 const Product = require('../models/Product');
@@ -7,6 +8,17 @@ const { adjustStockFIFO } = require('../utils/inventoryUtils');
 const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
+
+function newLineId() {
+    if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+    return crypto.randomBytes(16).toString('hex');
+}
+
+function computeLineProfit(line_total, quantity, cost_price) {
+    const lt = Number(line_total) || 0;
+    const cogs = (Number(quantity) || 0) * (Number(cost_price) || 0);
+    return Math.round((lt - cogs) * 100) / 100;
+}
 
 function computeLineTotal({ quantity, unit_price, discount }) {
     const qty = Number(quantity) || 0;
@@ -17,7 +29,8 @@ function computeLineTotal({ quantity, unit_price, discount }) {
     return total;
 }
 
-function calculateInvoiceTotals(items = []) {
+function calculateInvoiceTotals(items = [], costMap = new Map()) {
+    const now = new Date();
     let totalAmount = 0;
     const normalizedItems = (items || []).map((item) => {
         const product_id = normalizeId(item.product_id);
@@ -25,10 +38,129 @@ function calculateInvoiceTotals(items = []) {
         const unit_price = Number(item.unit_price) || 0;
         const discount = Number(item.discount) || 0;
         const line_total = computeLineTotal({ quantity, unit_price, discount });
+        // Giá vốn chỉ lấy từ DB (Product.cost_price) tại thời điểm bán — không tin cost_price từ client
+        const cost_price =
+            product_id && costMap.has(product_id) ? costMap.get(product_id) : 0;
+        const line_id = newLineId();
+        const line_profit = computeLineProfit(line_total, quantity, cost_price);
         totalAmount += line_total;
-        return { product_id, quantity, unit_price, discount, line_total };
+        return {
+            line_id,
+            product_id,
+            quantity,
+            unit_price,
+            cost_price,
+            discount,
+            line_total,
+            line_profit,
+            line_updated_at: now,
+        };
     });
     return { totalAmount, items: normalizedItems };
+}
+
+/** Mọi dòng có product_id phải có trong costMap (sản phẩm tồn tại trong DB) */
+function getProductIdsMissingFromCostMap(normalizedItems, costMap) {
+    const missing = [];
+    for (const it of normalizedItems || []) {
+        if (!it.product_id) continue;
+        if (!costMap.has(it.product_id)) missing.push(it.product_id);
+    }
+    return missing;
+}
+
+/**
+ * PATCH items — lõi nghiệp vụ: không rewrite lịch sử giá vốn khi Product.cost_price thay đổi sau này.
+ * 1) Khớp line_id + product_id với dòng cũ → giữ cost_price snapshot.
+ * 2) Không khớp line_id → FIFO theo thứ tự dòng cũ cùng product_id (hóa đơn cũ chưa có line_id).
+ * 3) Không còn dòng cũ tương ứng → giá vốn lấy từ Product.cost_price hiện tại (dòng mới).
+ * Mỗi dòng output có line_profit = line_total − quantity × cost_price (lưu DB phục vụ báo cáo).
+ */
+function calculatePatchInvoiceTotals(reqItems = [], costMap = new Map(), oldItems = []) {
+    const old = Array.isArray(oldItems) ? oldItems : [];
+    const consumed = old.map(() => false);
+    const now = new Date();
+    let totalAmount = 0;
+
+    const normalizedItems = (reqItems || []).map((item) => {
+        const product_id = normalizeId(item.product_id);
+        const quantity = Number(item.quantity) || 0;
+        const unit_price = Number(item.unit_price) || 0;
+        const discount = Number(item.discount) || 0;
+        const line_total = computeLineTotal({ quantity, unit_price, discount });
+        const lid = item.line_id != null ? String(item.line_id).trim() : '';
+
+        let cost_price = 0;
+        let line_id_out;
+
+        if (product_id) {
+            if (lid) {
+                const idx = old.findIndex(
+                    (o, i) =>
+                        !consumed[i] &&
+                        String(o.line_id || '').trim() === lid &&
+                        normalizeId(o.product_id) === product_id
+                );
+                if (idx >= 0) {
+                    consumed[idx] = true;
+                    const n = Number(old[idx].cost_price);
+                    cost_price = Number.isFinite(n)
+                        ? n
+                        : costMap.has(product_id)
+                          ? costMap.get(product_id)
+                          : 0;
+                    line_id_out = lid;
+                }
+            }
+            if (line_id_out == null) {
+                const idx2 = old.findIndex(
+                    (o, i) => !consumed[i] && normalizeId(o.product_id) === product_id
+                );
+                if (idx2 >= 0) {
+                    consumed[idx2] = true;
+                    const n = Number(old[idx2].cost_price);
+                    cost_price = Number.isFinite(n)
+                        ? n
+                        : costMap.has(product_id)
+                          ? costMap.get(product_id)
+                          : 0;
+                    line_id_out = String(old[idx2].line_id || '').trim() || newLineId();
+                }
+            }
+        }
+
+        if (line_id_out == null) {
+            line_id_out = lid || newLineId();
+            if (product_id) {
+                cost_price = costMap.has(product_id) ? costMap.get(product_id) : 0;
+            }
+        }
+
+        const line_profit = computeLineProfit(line_total, quantity, cost_price);
+        totalAmount += line_total;
+        return {
+            line_id: line_id_out,
+            product_id,
+            quantity,
+            unit_price,
+            cost_price,
+            discount,
+            line_total,
+            line_profit,
+            line_updated_at: now,
+        };
+    });
+
+    return { totalAmount, items: normalizedItems };
+}
+
+async function buildCostMap(items) {
+    const productIds = (items || [])
+        .map((item) => normalizeId(item.product_id))
+        .filter(Boolean);
+    if (productIds.length === 0) return new Map();
+    const products = await Product.find({ _id: { $in: productIds } }).select('_id cost_price').lean();
+    return new Map(products.map((p) => [String(p._id), Number(p.cost_price) || 0]));
 }
 
 function normalizeId(val) {
@@ -82,7 +214,7 @@ async function adjustInventory(items, direction = -1, storeId = null) {
 async function syncInventory(invoice, nextStatus, nextItems = null) {
     const isNew = invoice.isNew || !invoice._id;
     const oldStatus = isNew ? 'new' : invoice.status;
-    const saleStatuses = ['confirmed'];
+    const saleStatuses = ['confirmed', 'pending'];
 
     const isOldSale = saleStatuses.includes(oldStatus);
     const isNextSale = saleStatuses.includes(nextStatus);
@@ -128,22 +260,65 @@ function buildStockAvailability(items, productsById) {
     });
 }
 
+/** FE/demo: đã thanh toán đủ hoặc đơn hủy → không được PATCH items (server cũng chặn 409). */
+function attachInvoiceEditFlags(invoice) {
+    if (!invoice || typeof invoice !== 'object') return invoice;
+    const paid = String(invoice.payment_status) === 'paid';
+    const cancelled = String(invoice.status) === 'cancelled';
+    return {
+        ...invoice,
+        can_edit_items: !paid && !cancelled,
+    };
+}
+
+
+/**
+ * Sinh mã tham chiếu thanh toán dạng IMS-XXXXXX (6 ký tự hex in hoa).
+ * Nhúng vào nội dung chuyển khoản để SePay webhook tự động đối soát.
+ */
+function generatePaymentRef() {
+    const hex = require('crypto').randomBytes(3).toString('hex').toUpperCase();
+    return `IMS-${hex}`;
+}
 
 // POST /api/invoices — create a confirmed outbound invoice
-router.post('/', requireAuth, requireRole(['sales', 'warehouse', 'manager', 'admin']), async (req, res) => {
+router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
-        const { customer_id, items: reqItems, payment_method, recipient_name } = req.body || {};
+        const { customer_id, items: reqItems, payment_method, recipient_name, previous_debt_paid } = req.body || {};
         if (!Array.isArray(reqItems) || reqItems.length === 0) {
             return res.status(400).json({ message: 'items (array) is required' });
         }
 
-        const { totalAmount, items: normalizedItems } = calculateInvoiceTotals(reqItems);
+        if (payment_method === 'debt' && !customer_id) {
+            return res.status(400).json({ message: 'Khách hàng không được để trống khi ghi nợ' });
+        }
+
+        const costMap = await buildCostMap(reqItems);
+        const { totalAmount, items: normalizedItems } = calculateInvoiceTotals(reqItems, costMap);
         const invalidLine = normalizedItems.find((it) => !it.product_id);
         if (invalidLine) {
             return res.status(400).json({ message: 'Mỗi dòng phải có sản phẩm hợp lệ' });
         }
+        const missingCost = getProductIdsMissingFromCostMap(normalizedItems, costMap);
+        if (missingCost.length > 0) {
+            return res.status(400).json({
+                message:
+                    'Không xác định được giá vốn: một hoặc nhiều sản phẩm không tồn tại hoặc mã không hợp lệ. Giá vốn do hệ thống lấy từ sản phẩm, không nhập từ client.',
+                product_ids: missingCost,
+            });
+        }
 
-        const status = (req.body.status === 'cancelled') ? 'cancelled' : 'confirmed';
+        let status = (req.body.status === 'cancelled') ? 'cancelled' : 'confirmed';
+        const method = payment_method || 'cash';
+
+        if (method === 'debt' && status === 'confirmed') {
+            status = 'pending';
+        }
+
+        // Với chuyển khoản: sinh payment_ref để nhúng vào nội dung QR, trạng thái chờ xác nhận
+        // Với tiền mặt: coi là đã thanh toán ngay
+        const paymentRef = method === 'bank_transfer' ? generatePaymentRef() : null;
+        let paymentStatus = method === 'cash' ? 'paid' : 'unpaid';
 
         const invoice = new SalesInvoice({
             store_id: req.user.storeId || null,
@@ -151,15 +326,43 @@ router.post('/', requireAuth, requireRole(['sales', 'warehouse', 'manager', 'adm
             recipient_name,
             created_by: req.user.id,
             status,
-            payment_method: payment_method || 'cash',
+            payment_method: method,
+            payment_ref: paymentRef,
+            payment_status: paymentStatus,
+            paid_at: method === 'cash' ? new Date() : null,
             items: normalizedItems,
             total_amount: totalAmount,
+            previous_debt_paid: Number(previous_debt_paid) || 0,
         });
 
         // Use syncInventory to handle deduction if created as confirmed
         try {
             await syncInventory(invoice, status, normalizedItems);
             await invoice.save();
+
+            if (method === 'debt' && customer_id && (status === 'confirmed' || status === 'pending')) {
+                await mongoose.model('Customer').findByIdAndUpdate(customer_id, {
+                    $inc: { debt_account: totalAmount }
+                });
+            }
+
+            if (Number(previous_debt_paid) > 0 && customer_id && (status === 'confirmed' || status === 'pending')) {
+                await mongoose.model('Customer').findByIdAndUpdate(customer_id, {
+                    $inc: { debt_account: -Math.abs(previous_debt_paid) }
+                });
+                
+                await SalesInvoice.updateMany(
+                    { customer_id, status: 'pending', payment_method: 'debt' },
+                    { 
+                      $set: { 
+                        status: 'confirmed', 
+                        payment_status: 'paid',
+                        paid_at: new Date(),
+                        updated_at: new Date() 
+                      } 
+                    }
+                );
+            }
         } catch (err) {
             if (err.status) return res.status(err.status).json({ message: err.message, problems: err.problems });
             throw err;
@@ -178,7 +381,11 @@ router.post('/', requireAuth, requireRole(['sales', 'warehouse', 'manager', 'adm
         const productsById = new Map(products.map((p) => [String(p._id), p]));
         populated.items = buildStockAvailability(populated.items, productsById);
 
-        return res.status(201).json({ invoice: populated });
+        return res.status(201).json({
+            invoice: attachInvoiceEditFlags(populated),
+            payment_ref: paymentRef,
+            payment_status: paymentStatus,
+        });
     } catch (err) {
         console.error(err);
         return res.status(500).json({ message: err.message || 'Server error' });
@@ -186,9 +393,9 @@ router.post('/', requireAuth, requireRole(['sales', 'warehouse', 'manager', 'adm
 });
 
 // GET /api/invoices?page=&limit=&status=
-router.get('/', requireAuth, requireRole(['sales', 'warehouse', 'manager', 'admin']), async (req, res) => {
+router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
-        const { page = '1', limit = '20', status, dateFrom, dateTo, searchKey } = req.query;
+        const { page = '1', limit = '20', status, dateFrom, dateTo, searchKey, customer_id, payment_method } = req.query;
         const pageNum = Math.max(1, parseInt(page, 10) || 1);
         const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
         const filter = {};
@@ -197,8 +404,16 @@ router.get('/', requireAuth, requireRole(['sales', 'warehouse', 'manager', 'admi
         if (req.user.storeId && userRole !== 'admin') {
             filter.store_id = req.user.storeId;
         }
-        if (status && ['confirmed', 'cancelled'].includes(status)) {
+        if (status) {
             filter.status = status;
+        }
+        
+        if (customer_id) {
+            filter.customer_id = customer_id;
+        }
+        
+        if (payment_method) {
+            filter.payment_method = payment_method;
         }
 
         // Apply Date Filters
@@ -254,10 +469,12 @@ router.get('/', requireAuth, requireRole(['sales', 'warehouse', 'manager', 'admi
         const products = await Product.find({ _id: { $in: Array.from(productIds) } }).lean();
         const productsById = new Map(products.map((p) => [String(p._id), p]));
 
-        const invoicesWithStock = list.map((inv) => ({
-            ...inv,
-            items: buildStockAvailability(inv.items, productsById),
-        }));
+        const invoicesWithStock = list.map((inv) =>
+            attachInvoiceEditFlags({
+                ...inv,
+                items: buildStockAvailability(inv.items, productsById),
+            })
+        );
 
         return res.json({
             invoices: invoicesWithStock,
@@ -272,8 +489,49 @@ router.get('/', requireAuth, requireRole(['sales', 'warehouse', 'manager', 'admi
     }
 });
 
+// GET /api/invoices/stats/daily-sales — phải khai báo trước /:id để không bị nuốt bởi param "stats"
+router.get('/stats/daily-sales', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
+    try {
+        const days = 7;
+        const result = [];
+        const now = new Date();
+
+        for (let i = days - 1; i >= 0; i--) {
+            const date = new Date(now);
+            date.setDate(date.getDate() - i);
+            const start = new Date(date.setHours(0, 0, 0, 0));
+            const end = new Date(date.setHours(23, 59, 59, 999));
+
+            const dailyTotal = await SalesInvoice.aggregate([
+                {
+                    $match: {
+                        status: 'confirmed',
+                        invoice_at: { $gte: start, $lte: end },
+                    },
+                },
+                {
+                    $group: {
+                        _id: null,
+                        total: { $sum: '$total_amount' },
+                    },
+                },
+            ]);
+
+            result.push({
+                date: start.toISOString().split('T')[0],
+                total: dailyTotal.length > 0 ? dailyTotal[0].total : 0,
+            });
+        }
+
+        return res.json({ stats: result });
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({ message: 'Server error' });
+    }
+});
+
 // GET /api/invoices/:id
-router.get('/:id', requireAuth, requireRole(['sales', 'warehouse', 'manager', 'admin']), async (req, res) => {
+router.get('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
         const { id } = req.params;
         if (!mongoose.isValidObjectId(id)) {
@@ -298,15 +556,15 @@ router.get('/:id', requireAuth, requireRole(['sales', 'warehouse', 'manager', 'a
         const productsById = new Map(products.map((p) => [String(p._id), p]));
         invoice.items = buildStockAvailability(invoice.items, productsById);
 
-        return res.json({ invoice });
+        return res.json({ invoice: attachInvoiceEditFlags(invoice) });
     } catch (err) {
         console.error(err);
         return res.status(500).json({ message: err.message || 'Server error' });
     }
 });
 
-// PATCH /api/invoices/:id — update invoice (warehouse, manager)
-router.patch('/:id', requireAuth, requireRole(['warehouse', 'manager', 'admin']), async (req, res) => {
+// PATCH /api/invoices/:id — update invoice (staff, manager)
+router.patch('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
         const { id } = req.params;
         if (!mongoose.isValidObjectId(id)) {
@@ -330,13 +588,44 @@ router.patch('/:id', requireAuth, requireRole(['warehouse', 'manager', 'admin'])
         }
 
         let nextItems = null;
+        let patchItemsTotalAmount = null;
         if (Array.isArray(reqItems) && reqItems.length > 0) {
-            const { totalAmount, items: normalizedItems } = calculateInvoiceTotals(reqItems);
+            if (String(invoice.payment_status) === 'paid') {
+                return res.status(409).json({
+                    code: 'INVOICE_PAID_ITEMS_LOCKED',
+                    message:
+                        'Hóa đơn đã thanh toán đủ: không được sửa danh sách mặt hàng. Vui lòng dùng nghiệp vụ trả hàng hoặc hủy/điều chỉnh theo quy định cửa hàng.',
+                });
+            }
+            if (String(invoice.status) === 'cancelled') {
+                return res.status(409).json({
+                    code: 'INVOICE_CANCELLED_ITEMS_LOCKED',
+                    message: 'Hóa đơn đã hủy: không được sửa danh sách mặt hàng.',
+                });
+            }
+            const costMap = await buildCostMap(reqItems);
+            const oldItems = Array.isArray(invoice.items)
+                ? invoice.items.map((it) => (typeof it.toObject === 'function' ? it.toObject() : it))
+                : [];
+            const { totalAmount: patchTotal, items: normalizedItems } = calculatePatchInvoiceTotals(
+                reqItems,
+                costMap,
+                oldItems
+            );
             const invalidLine = normalizedItems.find((it) => !it.product_id);
             if (invalidLine) {
                 return res.status(400).json({ message: 'Mỗi dòng phải có sản phẩm hợp lệ' });
             }
+            const missingCostPatch = getProductIdsMissingFromCostMap(normalizedItems, costMap);
+            if (missingCostPatch.length > 0) {
+                return res.status(400).json({
+                    message:
+                        'Không xác định được giá vốn: một hoặc nhiều sản phẩm không tồn tại hoặc mã không hợp lệ. Giá vốn do hệ thống lấy từ sản phẩm, không nhập từ client.',
+                    product_ids: missingCostPatch,
+                });
+            }
             nextItems = normalizedItems;
+            patchItemsTotalAmount = patchTotal;
             // Note: Don't update invoice.items/total_amount yet, syncInventory needs the old items
         }
 
@@ -353,8 +642,10 @@ router.patch('/:id', requireAuth, requireRole(['warehouse', 'manager', 'admin'])
 
             if (nextItems) {
                 invoice.items = nextItems;
-                const { totalAmount } = calculateInvoiceTotals(nextItems);
-                invoice.total_amount = totalAmount;
+                invoice.total_amount =
+                    patchItemsTotalAmount != null
+                        ? patchItemsTotalAmount
+                        : nextItems.reduce((s, it) => s + (Number(it.line_total) || 0), 0);
             }
             invoice.status = nextStatus;
         } catch (err) {
@@ -378,56 +669,15 @@ router.patch('/:id', requireAuth, requireRole(['warehouse', 'manager', 'admin'])
         const productsById = new Map(products.map((p) => [String(p._id), p]));
         populated.items = buildStockAvailability(populated.items, productsById);
 
-        return res.json({ invoice: populated });
+        return res.json({ invoice: attachInvoiceEditFlags(populated) });
     } catch (err) {
         console.error(err);
         return res.status(500).json({ message: err.message || 'Server error' });
     }
 });
 
-// GET /api/invoices/stats/daily-sales — 7-day sales stats for dashboard
-router.get('/stats/daily-sales', requireAuth, requireRole(['sales', 'warehouse', 'manager', 'admin']), async (req, res) => {
-    try {
-        const days = 7;
-        const result = [];
-        const now = new Date();
-        
-        for (let i = days - 1; i >= 0; i--) {
-            const date = new Date(now);
-            date.setDate(date.getDate() - i);
-            const start = new Date(date.setHours(0, 0, 0, 0));
-            const end = new Date(date.setHours(23, 59, 59, 999));
-
-            const dailyTotal = await SalesInvoice.aggregate([
-                {
-                    $match: {
-                        status: 'confirmed',
-                        invoice_at: { $gte: start, $lte: end }
-                    }
-                },
-                {
-                    $group: {
-                        _id: null,
-                        total: { $sum: '$total_amount' }
-                    }
-                }
-            ]);
-
-            result.push({
-                date: start.toISOString().split('T')[0],
-                total: dailyTotal.length > 0 ? dailyTotal[0].total : 0
-            });
-        }
-
-        return res.json({ stats: result });
-    } catch (err) {
-        console.error(err);
-        return res.status(500).json({ message: 'Server error' });
-    }
-});
-
 // POST /api/invoices/:id/cancel — Simplify cancel
-router.post('/:id/cancel', requireAuth, requireRole(['sales', 'warehouse', 'manager', 'admin']), async (req, res) => {
+router.post('/:id/cancel', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
         const { id } = req.params;
         const invoice = await SalesInvoice.findById(id);
@@ -443,7 +693,9 @@ router.post('/:id/cancel', requireAuth, requireRole(['sales', 'warehouse', 'mana
             invoice.status = 'cancelled';
             invoice.updated_at = new Date();
             await invoice.save();
-            return res.json({ invoice });
+            return res.json({
+                invoice: attachInvoiceEditFlags(invoice.toObject ? invoice.toObject() : invoice),
+            });
         } catch (err) {
             if (err.status) return res.status(err.status).json({ message: err.message });
             throw err;

@@ -7,10 +7,9 @@ const router = express.Router();
 
 const Product = require('../models/Product');
 const Supplier = require('../models/Supplier');
-const { adjustStockFIFO } = require('../utils/inventoryUtils');
 
 // GET /api/goods-receipts?page=&limit=&status=&supplier_id=
-router.get('/', requireAuth, requireRole(['manager', 'warehouse', 'admin']), async (req, res) => {
+router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
         const { page = '1', limit = '20', status, supplier_id } = req.query;
         const pageNum = Math.max(1, parseInt(page, 10) || 1);
@@ -50,7 +49,7 @@ router.get('/', requireAuth, requireRole(['manager', 'warehouse', 'admin']), asy
 });
 
 // GET /api/goods-receipts/:id
-router.get('/:id', requireAuth, requireRole(['manager', 'warehouse', 'admin']), async (req, res) => {
+router.get('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
         const { id } = req.params;
         if (!mongoose.isValidObjectId(id)) {
@@ -71,8 +70,8 @@ router.get('/:id', requireAuth, requireRole(['manager', 'warehouse', 'admin']), 
     }
 });
 
-// POST /api/goods-receipts  (warehouse, manager, admin)
-router.post('/', requireAuth, requireRole(['warehouse', 'manager']), async (req, res) => {
+// POST /api/goods-receipts  (staff, manager)
+router.post('/', requireAuth, requireRole(['staff', 'manager']), async (req, res) => {
     try {
         const {
             po_id,
@@ -111,7 +110,6 @@ router.post('/', requireAuth, requireRole(['warehouse', 'manager']), async (req,
         const doc = await GoodsReceipt.create({
             po_id: po_id && mongoose.isValidObjectId(po_id) ? po_id : undefined,
             supplier_id,
-            storeId: req.user.storeId,
             received_by: req.user.id,
             status: ['draft', 'pending', 'approved', 'rejected'].includes(status) ? status : 'draft',
             received_at: received_at ? new Date(received_at) : new Date(),
@@ -150,15 +148,28 @@ router.patch('/:id/status', requireAuth, requireRole(['manager', 'admin']), asyn
         if (gr.status === status) return res.json({ goodsReceipt: gr.toObject() });
 
         if (status === 'approved') {
-            // update product stocks
+            // Cập nhật tồn kho và giá vốn bình quân gia quyền (Weighted Average Cost)
+            // Công thức: giá_vốn_mới = (tồn_hiện_tại * giá_vốn_cũ + số_lượng_nhập * đơn_giá_nhập) / (tồn_hiện_tại + số_lượng_nhập)
             for (const it of gr.items) {
+                const product = await Product.findById(it.product_id);
+                if (!product) {
+                    return res.status(404).json({ message: `Product not found: ${String(it.product_id)}` });
+                }
                 const addQty = Number(it.quantity) * (Number(it.ratio) || 1);
-                await adjustStockFIFO(it.product_id, gr.storeId || req.user.storeId, addQty, {
-                    unitCost: Number(it.unit_cost) || 0,
-                    receivedAt: gr.received_at || new Date(),
-                    receiptId: gr._id,
-                    note: 'Duyệt phiếu nhập kho'
-                });
+                const unitCost = Number(it.unit_cost) || 0;
+                const currentQty = Number(product.stock_qty) || 0;
+                const currentCost = Number(product.cost_price) || 0;
+
+                const newQty = currentQty + addQty;
+                // Weighted Average: tính giá vốn bình quân gia quyền
+                const newCostPrice = newQty > 0
+                    ? (currentQty * currentCost + addQty * unitCost) / newQty
+                    : unitCost;
+
+                product.stock_qty = newQty;
+                product.cost_price = Math.round(newCostPrice * 100) / 100;
+                product.updated_at = new Date();
+                await product.save();
             }
             gr.approved_by = req.user.id;
             gr.status = 'approved';

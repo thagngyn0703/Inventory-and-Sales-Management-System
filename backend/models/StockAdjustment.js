@@ -56,6 +56,22 @@ const stockAdjustmentSchema = new Schema(
         approved_at: {
             type: Date,
         },
+        is_reverted: {
+            type: Boolean,
+            default: false,
+        },
+        reverted_at: {
+            type: Date,
+        },
+        reverted_by: {
+            type: Schema.Types.ObjectId,
+            ref: 'User',
+        },
+        revert_reason: {
+            type: String,
+            trim: true,
+            default: '',
+        },
     },
     {
         timestamps: false,

@@ -1,11 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Platform } from 'react-bits/lib/modules/Platform';
 import ManagerSidebar from './ManagerSidebar';
 import { getAdjustments } from '../../services/adjustmentsApi';
+import { Button } from '../../components/ui/button';
+import { Card, CardContent } from '../../components/ui/card';
+import { Badge } from '../../components/ui/badge';
 import './ManagerDashboard.css';
-import '../WarehouseDashboard/WarehouseDashboard.css';
 
-const LIMIT = 10;
+const LIMIT = 5;
 
 const STATUS_LABEL = { pending: 'Chờ xử lý', approved: 'Đã duyệt', rejected: 'Đã từ chối' };
 
@@ -62,107 +65,97 @@ export default function ManagerAdjustmentList() {
             </div>
           </div>
         </header>
-        <div className="manager-content">
-          <h1 className="manager-page-title">Lịch sử điều chỉnh tồn</h1>
-          <p className="manager-page-subtitle">
-            Xem các phiếu điều chỉnh tồn kho đã duyệt từ kiểm kê.
-          </p>
+        <div className="manager-content bg-slate-50">
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h1 className="text-2xl font-bold text-slate-900">Lịch sử điều chỉnh tồn</h1>
+              <p className="text-sm text-slate-500">Theo dõi các phiếu duyệt/từ chối kiểm kê và trạng thái hoàn tác.</p>
+              <p className="text-xs text-slate-400">
+                {Platform.select({ web: 'Phân trang cố định 5 phiếu mỗi trang theo yêu cầu nghiệp vụ.', default: '5 phiếu mỗi trang.' })}
+              </p>
+            </div>
+            <Badge className="bg-indigo-100 text-indigo-700 border border-indigo-200">Tổng: {total} phiếu</Badge>
+          </div>
 
           {error && (
-            <div className="warehouse-alert warehouse-alert-error" style={{ marginBottom: 16 }}>
+            <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-600">
               {error}
             </div>
           )}
 
-          <div className="manager-panel-card">
-            <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-              <label style={{ fontSize: 14, color: '#374151' }}>
-                Trạng thái:
+          <Card>
+            <CardContent className="p-4">
+              <div className="mb-4 flex items-center gap-2">
+                <span className="text-sm text-slate-600">Trạng thái:</span>
                 <select
                   value={statusFilter}
                   onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
-                  style={{ marginLeft: 8, padding: '6px 10px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 14 }}
+                  className="h-9 rounded-md border border-slate-300 bg-white px-3 text-sm"
                 >
                   <option value="">Tất cả</option>
                   <option value="pending">Chờ xử lý</option>
                   <option value="approved">Đã duyệt</option>
                   <option value="rejected">Đã từ chối</option>
                 </select>
-              </label>
-            </div>
+              </div>
 
-            {loading ? (
-              <p style={{ padding: 24, textAlign: 'center', color: '#6b7280' }}>Đang tải...</p>
-            ) : adjustments.length === 0 ? (
-              <p style={{ padding: 24, textAlign: 'center', color: '#6b7280' }}>
-                Chưa có phiếu điều chỉnh nào.
-              </p>
-            ) : (
-              <>
-                <div className="warehouse-table-wrap" style={{ overflowX: 'auto' }}>
-                  <table className="warehouse-table manager-table">
-                    <thead>
+              {loading ? (
+                <p className="py-8 text-center text-slate-500">Đang tải...</p>
+              ) : adjustments.length === 0 ? (
+                <p className="py-8 text-center text-slate-500">Chưa có phiếu điều chỉnh nào.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-slate-100 text-slate-600">
                       <tr>
-                        <th>Thời gian duyệt</th>
-                        <th>Người duyệt</th>
-                        <th>Phiếu kiểm kê</th>
-                        <th>Số dòng</th>
-                        <th>Trạng thái</th>
-                        <th></th>
+                        <th className="px-4 py-3 text-left font-semibold">Thời gian duyệt</th>
+                        <th className="px-4 py-3 text-left font-semibold">Người duyệt</th>
+                        <th className="px-4 py-3 text-left font-semibold">Phiếu kiểm kê</th>
+                        <th className="px-4 py-3 text-right font-semibold">Số dòng</th>
+                        <th className="px-4 py-3 text-left font-semibold">Trạng thái</th>
+                        <th className="px-4 py-3 text-right font-semibold">Thao tác</th>
                       </tr>
                     </thead>
                     <tbody>
                       {adjustments.map((adj) => (
-                        <tr key={adj._id}>
-                          <td>{formatDate(adj.approved_at || adj.created_at)}</td>
-                          <td>{adj.approved_by?.email ?? '—'}</td>
-                          <td>{adj.stocktake_id ? formatDate(adj.stocktake_id.snapshot_at || adj.stocktake_id.created_at) : '—'}</td>
-                          <td>{Array.isArray(adj.items) ? adj.items.length : 0}</td>
-                          <td>
-                            <span className={`warehouse-status-badge warehouse-status-${adj.status === 'approved' ? 'completed' : adj.status === 'rejected' ? 'cancelled' : 'draft'}`}>
-                              {STATUS_LABEL[adj.status] ?? adj.status}
-                            </span>
+                        <tr key={adj._id} className="border-t border-slate-100">
+                          <td className="px-4 py-3">{formatDate(adj.approved_at || adj.created_at)}</td>
+                          <td className="px-4 py-3">{adj.approved_by?.email ?? '—'}</td>
+                          <td className="px-4 py-3">{adj.stocktake_id ? formatDate(adj.stocktake_id.snapshot_at || adj.stocktake_id.created_at) : '—'}</td>
+                          <td className="px-4 py-3 text-right">{Array.isArray(adj.items) ? adj.items.length : 0}</td>
+                          <td className="px-4 py-3">
+                            {adj.is_reverted ? (
+                              <Badge className="bg-violet-100 text-violet-700 border border-violet-200">Đã hoàn tác</Badge>
+                            ) : (
+                              <Badge className={adj.status === 'approved' ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : adj.status === 'rejected' ? 'bg-red-100 text-red-700 border border-red-200' : 'bg-amber-100 text-amber-700 border border-amber-200'}>
+                                {STATUS_LABEL[adj.status] ?? adj.status}
+                              </Badge>
+                            )}
                           </td>
-                          <td>
-                            <button
-                              type="button"
-                              className="warehouse-btn warehouse-btn-secondary"
-                              style={{ padding: '6px 12px', fontSize: 13 }}
-                              onClick={() => navigate(`/manager/adjustments/${adj._id}`)}
-                            >
+                          <td className="px-4 py-3 text-right">
+                            <Button type="button" variant="outline" onClick={() => navigate(`/manager/adjustments/${adj._id}`)}>
                               Xem
-                            </button>
+                            </Button>
                           </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
-                <div style={{ marginTop: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-                  <p style={{ margin: 0, fontSize: 13, color: '#6b7280' }}>
-                    Trang {page} / {totalPages} — Tổng {total} phiếu
-                  </p>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button
-                      type="button"
-                      className="warehouse-btn warehouse-btn-secondary"
-                      disabled={page <= 1}
-                      onClick={() => setPage((p) => Math.max(1, p - 1))}
-                    >
-                      Trước
-                    </button>
-                    <button
-                      type="button"
-                      className="warehouse-btn warehouse-btn-secondary"
-                      disabled={page >= totalPages}
-                      onClick={() => setPage((p) => p + 1)}
-                    >
-                      Sau
-                    </button>
-                  </div>
-                </div>
-              </>
-            )}
+              )}
+            </CardContent>
+          </Card>
+
+          <div className="mt-4 flex items-center justify-between gap-3">
+            <p className="text-sm text-slate-500">Trang {page} / {totalPages}</p>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+                Trước
+              </Button>
+              <Button type="button" variant="outline" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
+                Sau
+              </Button>
+            </div>
           </div>
         </div>
       </div>
