@@ -39,5 +39,5 @@ export async function createReturn(body) {
     body: JSON.stringify(body),
   });
   const data = await parseResponse(res, 'Không thể thực hiện trả hàng');
-  return data.salesReturn;
+  return { salesReturn: data.salesReturn, message: data.message };
 }

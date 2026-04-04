@@ -1,12 +1,16 @@
-import React, { useMemo, useState } from "react";
-// import "./AuthPage.css";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { X, Eye, EyeOff, CheckCircle2, Sparkles } from "lucide-react";
+import { motion } from "framer-motion";
 import { normalizeRole } from "../../utils/auth";
-
-
-
+import { Button } from "../../components/ui/button";
+import { Input } from "../../components/ui/input";
+import { Label } from "../../components/ui/label";
 
 const API_BASE = "http://localhost:8000/api";
+
+const BANNER_BG =
+    "https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?auto=format&fit=crop&w=1600&q=80";
 
 const isEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 
@@ -22,31 +26,57 @@ function getPostLoginPath(user) {
 
 export default function AuthPage() {
     const navigate = useNavigate();
-    const [mode, setMode] = useState("login"); // "login" | "register" | "verify"
+    const [mode, setMode] = useState("login");
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
 
-    // form state
     const [fullName, setFullName] = useState("");
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [confirmPassword, setConfirmPassword] = useState("");
 
-    // Sau khi đăng ký thành công, chuyển sang bước nhập mã (giữ email)
     const [pendingVerifyEmail, setPendingVerifyEmail] = useState("");
     const [verificationToken, setVerificationToken] = useState("");
 
     const [showPw, setShowPw] = useState(false);
     const [showConfirmPw, setShowConfirmPw] = useState(false);
 
+    const [verifySuccessUser, setVerifySuccessUser] = useState(null);
+    const verifyRedirectTimerRef = useRef(null);
+
+    const completeEmailVerification = useCallback(
+        (user) => {
+            if (verifyRedirectTimerRef.current) {
+                clearTimeout(verifyRedirectTimerRef.current);
+                verifyRedirectTimerRef.current = null;
+            }
+            setVerifySuccessUser(null);
+            navigate(getPostLoginPath(user), { replace: true });
+        },
+        [navigate]
+    );
+
+    useEffect(() => {
+        if (!verifySuccessUser) return;
+        if (verifyRedirectTimerRef.current) clearTimeout(verifyRedirectTimerRef.current);
+        verifyRedirectTimerRef.current = setTimeout(() => {
+            verifyRedirectTimerRef.current = null;
+            completeEmailVerification(verifySuccessUser);
+        }, 2600);
+        return () => {
+            if (verifyRedirectTimerRef.current) {
+                clearTimeout(verifyRedirectTimerRef.current);
+                verifyRedirectTimerRef.current = null;
+            }
+        };
+    }, [verifySuccessUser, completeEmailVerification]);
+
     const title =
         mode === "login"
-            ? "Login"
+            ? "Đăng nhập tài khoản"
             : mode === "register"
-                ? "Create account"
+                ? "Tạo tài khoản"
                 : "Xác minh email";
-    const switchText =
-        mode === "login" ? "Chưa có tài khoản? Đăng ký" : "Đã có tài khoản? Đăng nhập";
 
     const canSubmit = useMemo(() => {
         if (mode === "verify") {
@@ -105,8 +135,7 @@ export default function AuthPage() {
                 }
                 if (data.token) localStorage.setItem("token", data.token);
                 if (data.user) localStorage.setItem("user", JSON.stringify(data.user));
-                alert("Xác minh thành công!");
-                navigate(getPostLoginPath(data.user), { replace: true });
+                setVerifySuccessUser(data.user || {});
                 return;
             }
 
@@ -131,13 +160,8 @@ export default function AuthPage() {
             if (mode === "login") {
                 if (data.token) localStorage.setItem("token", data.token);
                 if (data.user) localStorage.setItem("user", JSON.stringify(data.user));
-
                 navigate(getPostLoginPath(data.user), { replace: true });
-                console.log("USER LOGIN:", data.user);
-                console.log("ROLE:", data.user?.role, typeof data.user?.role);
-
-            }
-            else {
+            } else {
                 setPendingVerifyEmail(data.email || email.trim());
                 setVerificationToken("");
                 setMode("verify");
@@ -177,226 +201,311 @@ export default function AuthPage() {
     const showVerifyForm = mode === "verify";
 
     return (
-        <div style={styles.page}>
-            <div style={styles.card}>
-                <div style={styles.header}>
-                    <h2 style={{ margin: 0 }}>{title}</h2>
-                    <p style={styles.subtitle}>
-                        {mode === "login" && "Đăng nhập để tiếp tục"}
-                        {mode === "register" && "Tạo tài khoản mới để bắt đầu"}
-                        {mode === "verify" &&
-                            "Nhập mã 6 số đã gửi đến email của bạn để kích hoạt tài khoản"}
-                    </p>
+        <>
+        <div className="flex min-h-screen w-full bg-white">
+            <aside
+                className="relative hidden w-[42%] min-w-[320px] flex-col justify-center overflow-hidden lg:flex"
+                aria-hidden
+            >
+                <div
+                    className="absolute inset-0 bg-cover bg-center"
+                    style={{ backgroundImage: `url(${BANNER_BG})` }}
+                />
+                <div className="absolute inset-0 bg-gradient-to-b from-blue-900/85 via-blue-800/88 to-blue-950/90" />
+                <div className="relative z-10 flex flex-col items-center justify-center px-10 py-16 text-center text-white">
+                    <motion.div
+                        initial={{ opacity: 0, y: 28, filter: "blur(8px)" }}
+                        animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                        transition={{ duration: 0.75, ease: [0.22, 1, 0.36, 1] }}
+                    >
+                        <h1 className="text-3xl font-extrabold leading-tight tracking-tight md:text-4xl">
+                            Quản lý dễ dàng
+                            <br />
+                            Vận hành đơn giản
+                        </h1>
+                        <p className="mt-6 max-w-sm text-sm font-medium text-blue-100/95 md:text-base">
+                            ISMS — hệ thống quản lý kho &amp; bán hàng cho cửa hàng của bạn.
+                        </p>
+                        <p className="mt-4 text-xs text-blue-200/90 md:text-sm">Hỗ trợ: liên hệ quản trị hệ thống</p>
+                    </motion.div>
+                </div>
+            </aside>
+
+            <main className="relative flex min-h-screen flex-1 flex-col bg-sky-50/90">
+                <div className="absolute right-4 top-4 z-20 md:right-6 md:top-6">
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="default"
+                        className="h-9 w-9 rounded-full p-0 text-slate-500 hover:text-slate-800"
+                        onClick={() => navigate("/home")}
+                        aria-label="Đóng"
+                    >
+                        <X className="h-5 w-5" />
+                    </Button>
                 </div>
 
-                {showVerifyForm ? (
-                    <form onSubmit={handleSubmit} style={styles.form}>
-                        <div style={styles.field}>
-                            <label style={styles.label}>Email</label>
-                            <input
-                                style={{ ...styles.input, background: "#f5f5f5", color: "#555" }}
-                                value={pendingVerifyEmail}
-                                readOnly
-                            />
+                <div className="flex flex-1 items-center justify-center px-4 py-10 sm:px-8">
+                    <div className="w-full max-w-md">
+                        <div className="mb-8 text-center lg:text-left">
+                            <h2 className="text-xl font-bold text-slate-900 sm:text-2xl">{title}</h2>
+                            <p className="mt-2 text-sm text-slate-600">
+                                {mode === "login" && "Đăng nhập để tiếp tục làm việc."}
+                                {mode === "register" && "Tạo tài khoản mới để bắt đầu."}
+                                {mode === "verify" &&
+                                    "Nhập mã đã gửi đến email của bạn để kích hoạt tài khoản."}
+                            </p>
                         </div>
-                        <div style={styles.field}>
-                            <label style={styles.label}>Mã xác minh</label>
-                            <input
-                                style={styles.input}
-                                value={verificationToken}
-                                onChange={(e) => setVerificationToken(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                                placeholder="123456"
-                                inputMode="numeric"
-                                maxLength={6}
-                                autoComplete="one-time-code"
-                            />
-                            <small style={styles.hint}>Mã có hiệu lực 24 giờ.</small>
-                        </div>
-                        {error && <div style={styles.errorBox}>{error}</div>}
-                        <button
-                            type="submit"
-                            style={{
-                                ...styles.submitBtn,
-                                opacity: canSubmit && !loading ? 1 : 0.6,
-                                cursor: canSubmit && !loading ? "pointer" : "not-allowed",
-                            }}
-                            disabled={!canSubmit || loading}
-                        >
-                            {loading ? "Đang xử lý..." : "Xác minh"}
-                        </button>
-                        <button type="button" onClick={backToRegister} style={styles.switchBtn}>
-                            Quay lại đăng ký
-                        </button>
-                    </form>
-                ) : (
-                    <>
-                        <form onSubmit={handleSubmit} style={styles.form}>
-                            {mode === "register" && (
-                                <div style={styles.field}>
-                                    <label style={styles.label}>Họ tên</label>
-                                    <input
-                                        style={styles.input}
-                                        value={fullName}
-                                        onChange={(e) => setFullName(e.target.value)}
-                                        placeholder="Nguyễn Văn A"
-                                        autoComplete="name"
+
+                        {showVerifyForm ? (
+                            <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+                                <div className="space-y-2">
+                                    <Label htmlFor="verify-email">Email</Label>
+                                    <Input
+                                        id="verify-email"
+                                        value={pendingVerifyEmail}
+                                        readOnly
+                                        className="border-slate-200 bg-slate-100 text-slate-600"
                                     />
                                 </div>
-                            )}
-
-                            <div style={styles.field}>
-                                <label style={styles.label}>Email</label>
-                                <input
-                                    style={styles.input}
-                                    value={email}
-                                    onChange={(e) => setEmail(e.target.value)}
-                                    placeholder="you@example.com"
-                                    autoComplete="email"
-                                    inputMode="email"
-                                />
-                            </div>
-
-                            <div style={styles.field}>
-                                <label style={styles.label}>Mật khẩu</label>
-                                <div style={styles.passwordRow}>
-                                    <input
-                                        style={{ ...styles.input, margin: 0, flex: 1 }}
-                                        type={showPw ? "text" : "password"}
-                                        value={password}
-                                        onChange={(e) => setPassword(e.target.value)}
-                                        placeholder="******"
-                                        autoComplete={mode === "login" ? "current-password" : "new-password"}
+                                <div className="space-y-2">
+                                    <Label htmlFor="verify-token">Mã xác minh</Label>
+                                    <Input
+                                        id="verify-token"
+                                        value={verificationToken}
+                                        onChange={(e) =>
+                                            setVerificationToken(e.target.value.replace(/\D/g, "").slice(0, 6))
+                                        }
+                                        placeholder="123456"
+                                        inputMode="numeric"
+                                        maxLength={6}
+                                        autoComplete="one-time-code"
                                     />
-                                    <button
-                                        type="button"
-                                        style={styles.eyeBtn}
-                                        onClick={() => setShowPw((s) => !s)}
-                                        aria-label="Toggle password"
+                                    <p className="text-xs text-slate-500">Mã có hiệu lực 24 giờ.</p>
+                                </div>
+                                {error && (
+                                    <div
+                                        className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"
+                                        role="alert"
                                     >
-                                        {showPw ? "Ẩn" : "Hiện"}
-                                    </button>
-                                </div>
-                                <small style={styles.hint}>Tối thiểu 6 ký tự.</small>
-                            </div>
-
-                            {mode === "register" && (
-                                <div style={styles.field}>
-                                    <label style={styles.label}>Nhập lại mật khẩu</label>
-                                    <div style={styles.passwordRow}>
-                                        <input
-                                            style={{ ...styles.input, margin: 0, flex: 1 }}
-                                            type={showConfirmPw ? "text" : "password"}
-                                            value={confirmPassword}
-                                            onChange={(e) => setConfirmPassword(e.target.value)}
-                                            placeholder="******"
-                                            autoComplete="new-password"
-                                        />
-                                        <button
-                                            type="button"
-                                            style={styles.eyeBtn}
-                                            onClick={() => setShowConfirmPw((s) => !s)}
-                                            aria-label="Toggle confirm password"
-                                        >
-                                            {showConfirmPw ? "Ẩn" : "Hiện"}
-                                        </button>
+                                        {error}
                                     </div>
+                                )}
+                                <div className="flex flex-col gap-3 pt-2 sm:flex-row sm:justify-end">
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        onClick={backToRegister}
+                                        className="order-2 sm:order-1"
+                                    >
+                                        Quay lại đăng ký
+                                    </Button>
+                                    <Button
+                                        type="submit"
+                                        variant="auth"
+                                        size="pill"
+                                        className="order-1 min-w-[140px] sm:order-2"
+                                        disabled={!canSubmit || loading}
+                                    >
+                                        {loading ? "Đang xử lý..." : "Xác minh"}
+                                    </Button>
                                 </div>
-                            )}
+                            </form>
+                        ) : (
+                            <>
+                                <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+                                    {mode === "register" && (
+                                        <div className="space-y-2">
+                                            <Label htmlFor="fullName">Họ tên</Label>
+                                            <Input
+                                                id="fullName"
+                                                value={fullName}
+                                                onChange={(e) => setFullName(e.target.value)}
+                                                placeholder="Nguyễn Văn A"
+                                                autoComplete="name"
+                                            />
+                                        </div>
+                                    )}
 
-                            {error && <div style={styles.errorBox}>{error}</div>}
+                                    <div className="space-y-2">
+                                        <Label htmlFor="email">Email</Label>
+                                        <Input
+                                            id="email"
+                                            value={email}
+                                            onChange={(e) => setEmail(e.target.value)}
+                                            placeholder="you@example.com"
+                                            autoComplete="email"
+                                            inputMode="email"
+                                        />
+                                    </div>
 
-                            <button
-                                type="submit"
-                                style={{
-                                    ...styles.submitBtn,
-                                    opacity: canSubmit && !loading ? 1 : 0.6,
-                                    cursor: canSubmit && !loading ? "pointer" : "not-allowed",
-                                }}
-                                disabled={!canSubmit || loading}
-                            >
-                                {loading ? "Đang xử lý..." : mode === "login" ? "Đăng nhập" : "Đăng ký"}
-                            </button>
-                        </form>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="password">Mật khẩu</Label>
+                                        <div className="relative flex gap-2">
+                                            <Input
+                                                id="password"
+                                                className="pr-11"
+                                                type={showPw ? "text" : "password"}
+                                                value={password}
+                                                onChange={(e) => setPassword(e.target.value)}
+                                                placeholder="••••••"
+                                                autoComplete={mode === "login" ? "current-password" : "new-password"}
+                                            />
+                                            <button
+                                                type="button"
+                                                className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                                                onClick={() => setShowPw((s) => !s)}
+                                                aria-label={showPw ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
+                                            >
+                                                {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                            </button>
+                                        </div>
+                                        <p className="text-xs text-slate-500">Tối thiểu 6 ký tự.</p>
+                                    </div>
 
-                        <button type="button" onClick={switchMode} style={styles.switchBtn}>
-                            {switchText}
-                        </button>
-                    </>
-                )}
-            </div>
+                                    {mode === "register" && (
+                                        <div className="space-y-2">
+                                            <Label htmlFor="confirm">Nhập lại mật khẩu</Label>
+                                            <div className="relative">
+                                                <Input
+                                                    id="confirm"
+                                                    className="pr-11"
+                                                    type={showConfirmPw ? "text" : "password"}
+                                                    value={confirmPassword}
+                                                    onChange={(e) => setConfirmPassword(e.target.value)}
+                                                    placeholder="••••••"
+                                                    autoComplete="new-password"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                                                    onClick={() => setShowConfirmPw((s) => !s)}
+                                                    aria-label={showConfirmPw ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
+                                                >
+                                                    {showConfirmPw ? (
+                                                        <EyeOff className="h-4 w-4" />
+                                                    ) : (
+                                                        <Eye className="h-4 w-4" />
+                                                    )}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {error && (
+                                        <div
+                                            className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"
+                                            role="alert"
+                                        >
+                                            {error}
+                                        </div>
+                                    )}
+
+                                    <div className="flex justify-end pt-2">
+                                        <Button
+                                            type="submit"
+                                            variant="auth"
+                                            size="pill"
+                                            className="min-w-[160px]"
+                                            disabled={!canSubmit || loading}
+                                        >
+                                            {loading
+                                                ? "Đang xử lý..."
+                                                : mode === "login"
+                                                    ? "Đăng nhập"
+                                                    : "Đăng ký"}
+                                        </Button>
+                                    </div>
+                                </form>
+
+                                <button
+                                    type="button"
+                                    onClick={switchMode}
+                                    className="mt-6 w-full text-center text-sm font-semibold text-blue-600 hover:underline"
+                                >
+                                    {mode === "login" ? "Chưa có tài khoản? Đăng ký" : "Đã có tài khoản? Đăng nhập"}
+                                </button>
+                            </>
+                        )}
+                    </div>
+                </div>
+
+                <div
+                    className="h-36 shrink-0 bg-cover bg-center bg-no-repeat lg:hidden"
+                    style={{
+                        backgroundImage: `linear-gradient(to top, rgba(30,58,138,0.92), rgba(37,99,235,0.55)), url(${BANNER_BG})`,
+                    }}
+                />
+            </main>
         </div>
+
+        {verifySuccessUser && (
+            <div
+                className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-[2px]"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="verify-success-title"
+                aria-describedby="verify-success-desc"
+            >
+                <motion.div
+                    initial={{ opacity: 0, scale: 0.94, y: 12 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    transition={{ type: "spring", stiffness: 380, damping: 28 }}
+                    className="relative w-full max-w-[400px] overflow-hidden rounded-2xl border border-emerald-100/80 bg-white shadow-[0_25px_50px_-12px_rgba(15,23,42,0.35)]"
+                >
+                    <div className="absolute -right-8 -top-8 h-32 w-32 rounded-full bg-emerald-400/15 blur-2xl" />
+                    <div className="absolute -bottom-10 -left-10 h-36 w-36 rounded-full bg-sky-400/10 blur-2xl" />
+
+                    <div className="relative px-8 pb-8 pt-10 text-center">
+                        <motion.div
+                            initial={{ scale: 0 }}
+                            animate={{ scale: 1 }}
+                            transition={{ type: "spring", stiffness: 400, damping: 18, delay: 0.08 }}
+                            className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 shadow-lg shadow-emerald-500/30"
+                        >
+                            <CheckCircle2 className="h-9 w-9 text-white" strokeWidth={2.25} aria-hidden />
+                        </motion.div>
+
+                        <div className="mt-6 flex items-center justify-center gap-1.5 text-emerald-600">
+                            <Sparkles className="h-4 w-4" aria-hidden />
+                            <span className="text-xs font-bold uppercase tracking-wider">Hoàn tất</span>
+                            <Sparkles className="h-4 w-4" aria-hidden />
+                        </div>
+
+                        <h3
+                            id="verify-success-title"
+                            className="mt-2 text-xl font-bold tracking-tight text-slate-900 sm:text-2xl"
+                        >
+                            Xác minh email thành công
+                        </h3>
+                        <p id="verify-success-desc" className="mt-3 text-sm leading-relaxed text-slate-600">
+                            Tài khoản của bạn đã được kích hoạt. Chào mừng bạn đến với{" "}
+                            <span className="font-semibold text-slate-800">ISMS</span>.
+                        </p>
+
+                        <div className="mt-6 h-1 w-full overflow-hidden rounded-full bg-slate-100">
+                            <motion.div
+                                className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-sky-500"
+                                initial={{ width: "0%" }}
+                                animate={{ width: "100%" }}
+                                transition={{ duration: 2.5, ease: "easeInOut" }}
+                            />
+                        </div>
+                        <p className="mt-2 text-xs text-slate-500">Đang chuyển vào hệ thống…</p>
+
+                        <Button
+                            type="button"
+                            variant="auth"
+                            size="pill"
+                            className="mt-6 w-full sm:w-auto"
+                            onClick={() => completeEmailVerification(verifySuccessUser)}
+                        >
+                            Vào hệ thống ngay
+                        </Button>
+                    </div>
+                </motion.div>
+            </div>
+        )}
+        </>
     );
 }
-
-const styles = {
-    page: {
-        minHeight: "100vh",
-        display: "grid",
-        placeItems: "center",
-        background: "#f6f7fb",
-        padding: 16,
-        fontFamily:
-            "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial",
-    },
-    card: {
-        width: "100%",
-        maxWidth: 420,
-        background: "#fff",
-        borderRadius: 16,
-        padding: 20,
-        boxShadow: "0 10px 30px rgba(0,0,0,0.08)",
-        border: "1px solid #eee",
-    },
-    header: { marginBottom: 14 },
-    subtitle: { margin: "6px 0 0", color: "#666", fontSize: 14 },
-    form: { display: "grid", gap: 12 },
-    field: { display: "grid", gap: 6 },
-    label: { fontSize: 14, fontWeight: 600, color: "#222" },
-    input: {
-        height: 42,
-        borderRadius: 10,
-        border: "1px solid #ddd",
-        padding: "0 12px",
-        outline: "none",
-        fontSize: 14,
-    },
-    passwordRow: { display: "flex", gap: 8, alignItems: "center" },
-    eyeBtn: {
-        height: 42,
-        padding: "0 12px",
-        borderRadius: 10,
-        border: "1px solid #ddd",
-        background: "#fafafa",
-        cursor: "pointer",
-        fontWeight: 600,
-    },
-    hint: { color: "#777", fontSize: 12 },
-    errorBox: {
-        background: "#fff1f1",
-        color: "#b00020",
-        border: "1px solid #ffd2d2",
-        padding: 10,
-        borderRadius: 10,
-        fontSize: 13,
-    },
-    submitBtn: {
-        height: 44,
-        borderRadius: 12,
-        border: "none",
-        background: "#111827",
-        color: "#fff",
-        fontWeight: 700,
-        fontSize: 15,
-        marginTop: 6,
-    },
-    switchBtn: {
-        marginTop: 12,
-        width: "100%",
-        border: "none",
-        background: "transparent",
-        color: "#2563eb",
-        fontWeight: 700,
-        cursor: "pointer",
-        padding: 10,
-    },
-};
