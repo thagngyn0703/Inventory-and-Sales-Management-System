@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Platform } from 'react-bits/lib/modules/Platform';
-import { Plus, X, Barcode } from 'lucide-react';
-import ManagerSidebar from './ManagerSidebar';
-import ManagerNotificationBell from '../../components/ManagerNotificationBell';
+import { Plus, X, Barcode, Package } from 'lucide-react';
+import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
+import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { getProduct, updateProduct, uploadProductImages } from '../../services/productsApi';
 import { minExpiryDateString, isExpiryDateNotInPast } from '../../utils/dateInput';
 import {
@@ -293,44 +293,31 @@ export default function ManagerProductEdit() {
 
     if (loadProduct) {
         return (
-            <div className="manager-page-with-sidebar">
-                <ManagerSidebar />
-                <div className="manager-main">
-                    <div className="manager-content">
-                        <p className="manager-products-loading">Đang tải...</p>
-                    </div>
-                </div>
-            </div>
+            <ManagerPageFrame showNotificationBell>
+                <p className="manager-products-loading">Đang tải...</p>
+            </ManagerPageFrame>
         );
     }
 
     return (
-        <div className="manager-page-with-sidebar">
-            <ManagerSidebar />
-            <div className="manager-main">
-                <header className="manager-topbar">
-                    <div className="manager-topbar-search-wrap" />
-                    <div className="manager-topbar-actions">
-                        <ManagerNotificationBell />
-                        <div className="manager-user-badge">
-                            <i className="fa-solid fa-circle-user" />
-                            <span>Quản lý</span>
-                        </div>
+        <ManagerPageFrame showNotificationBell>
+            <StaffPageShell
+                eyebrow="Sản phẩm"
+                eyebrowIcon={Package}
+                title="Sửa sản phẩm"
+                subtitle="Cập nhật thông tin và hình ảnh sản phẩm."
+                headerActions={
+                    <div className="flex flex-wrap gap-2">
+                        <Button type="button" variant="outline" onClick={() => navigate(`/manager/products/${id}`)}>
+                            Xem chi tiết
+                        </Button>
+                        <Button type="button" variant="outline" onClick={() => navigate('/manager/products')}>
+                            Danh sách
+                        </Button>
                     </div>
-                </header>
-
-                <div className="manager-content manager-product-create-fullwidth bg-slate-50">
-                    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                            <h1 className="text-2xl font-bold text-slate-900">Sửa sản phẩm</h1>
-                            <p className="text-sm text-slate-500">Cập nhật thông tin và hình ảnh sản phẩm theo bố cục đồng nhất.</p>
-                        </div>
-                        <div className="flex gap-2">
-                            <Button type="button" variant="outline" onClick={() => navigate(`/manager/products/${id}`)}>Xem chi tiết</Button>
-                            <Button type="button" variant="outline" onClick={() => navigate('/manager/products')}>Danh sách</Button>
-                        </div>
-                    </div>
-
+                }
+            >
+                <div className="manager-product-create-fullwidth">
                     {error && <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-600">{error}</div>}
 
                     <form onSubmit={handleSubmit} className="space-y-4">
@@ -487,7 +474,7 @@ export default function ManagerProductEdit() {
                         </div>
                     </form>
                 </div>
-            </div>
-        </div>
+            </StaffPageShell>
+        </ManagerPageFrame>
     );
 }

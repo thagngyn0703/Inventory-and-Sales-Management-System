@@ -11,6 +11,7 @@ import {
   ClipboardList,
   FileStack,
   FileText,
+  FolderTree,
   Handshake,
   History,
   LayoutDashboard,
@@ -30,8 +31,9 @@ import {
 const overviewItems = [
   { label: 'Tổng quan', path: '/manager', icon: LayoutDashboard },
   { label: 'Trợ lý AI', path: '/manager/ai-assistant', icon: Sparkles },
-  { label: 'Đơn hàng', path: '/manager/orders', icon: FileText },
+  { label: 'Đơn hàng', path: '/manager/invoices', icon: FileText },
   { label: 'Sản phẩm', path: '/manager/products', icon: Package },
+  { label: 'Danh mục', path: '/manager/categories', icon: FolderTree },
   { label: 'Yêu cầu tạo sản phẩm', path: '/manager/product-requests', icon: FileStack },
   { label: 'Hóa đơn', path: '/manager/invoices', icon: Receipt },
   { label: 'Giao dịch đến (NCC)', path: '/manager/incoming-transactions', icon: Truck },
@@ -59,6 +61,10 @@ function getActivePath(pathname) {
   if (pathname.startsWith('/manager/adjustments/')) return '/manager/adjustments';
   if (pathname.startsWith('/manager/notifications/')) return '/manager/notifications';
   if (pathname.startsWith('/manager/suppliers/')) return '/manager/suppliers';
+  if (pathname.startsWith('/manager/categories')) return '/manager/categories';
+  if (pathname.startsWith('/manager/settings')) return '/manager/settings';
+  if (pathname.startsWith('/manager/customers')) return '/manager/customers';
+  if (pathname.startsWith('/manager/invoices')) return '/manager/invoices';
   return pathname;
 }
 

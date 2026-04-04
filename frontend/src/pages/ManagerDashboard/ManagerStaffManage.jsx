@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import ManagerSidebar from './ManagerSidebar';
-import ManagerNotificationBell from '../../components/ManagerNotificationBell';
+import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
+import { StaffPageShell } from '../../components/staff/StaffPageShell';
+import { UsersRound } from 'lucide-react';
 import { useToast } from '../../contexts/ToastContext';
 import { ConfirmDialog } from '../../components/ui/confirm-dialog';
 import './ManagerDashboard.css';
@@ -85,37 +86,22 @@ export default function ManagerStaffManage() {
     };
 
     return (
-        <div className="manager-page-with-sidebar">
-            <ManagerSidebar />
-            <div className="manager-main">
-                <header className="manager-topbar">
-                    <div className="manager-topbar-search-wrap" />
-                    <div className="manager-topbar-actions">
-                        <ManagerNotificationBell />
-                        <div className="manager-user-badge">
-                            <i className="fa-solid fa-circle-user" />
-                            <span>Quản lý</span>
-                        </div>
-                    </div>
-                </header>
-
-                <div className="manager-content">
-                    <div className="manager-products-header">
-                        <div>
-                            <h1 className="manager-page-title">Quản lý tài khoản nhân viên</h1>
-                            <p className="manager-page-subtitle">
-                                Nhân viên dùng một vai trò Staff (kho và bán hàng). Bạn có thể gỡ nhân viên khỏi cửa hàng khi cần.
-                            </p>
-                        </div>
-                        <button type="button" className="manager-btn-primary" onClick={() => navigate('/manager/staff/new')}>
-                            <i className="fa-solid fa-user-plus" /> Tạo tài khoản nhân viên
-                        </button>
-                    </div>
-
+        <ManagerPageFrame showNotificationBell>
+            <StaffPageShell
+                eyebrow="Nhân sự"
+                eyebrowIcon={UsersRound}
+                title="Quản lý tài khoản nhân viên"
+                subtitle="Nhân viên dùng vai trò Staff (kho và bán hàng). Có thể gỡ nhân viên khỏi cửa hàng khi cần."
+                headerActions={
+                    <button type="button" className="manager-btn-primary" onClick={() => navigate('/manager/staff/new')}>
+                        <i className="fa-solid fa-user-plus" /> Tạo tài khoản nhân viên
+                    </button>
+                }
+            >
                     {error ? <div className="manager-products-error">{error}</div> : null}
                     {success ? <div className="manager-products-success">{success}</div> : null}
 
-                    <div className="manager-panel-card manager-products-card">
+                    <div className="manager-panel-card manager-products-card rounded-2xl border border-slate-200/80 shadow-sm">
                         {loading ? (
                             <p className="manager-products-loading">Đang tải...</p>
                         ) : (
@@ -160,8 +146,7 @@ export default function ManagerStaffManage() {
                             </div>
                         )}
                     </div>
-                </div>
-            </div>
+            </StaffPageShell>
 
             <ConfirmDialog
                 open={!!confirmRemoveId}
@@ -175,6 +160,6 @@ export default function ManagerStaffManage() {
                 loading={!!confirmRemoveId && savingId === confirmRemoveId}
                 onConfirm={() => confirmRemoveId && removeFromStore(confirmRemoveId)}
             />
-        </div>
+        </ManagerPageFrame>
     );
 }

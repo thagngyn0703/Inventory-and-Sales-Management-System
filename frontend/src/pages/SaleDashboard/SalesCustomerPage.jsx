@@ -7,7 +7,7 @@ import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { Button } from '../../components/ui/button';
 import { Users } from 'lucide-react';
 
-export default function SalesCustomerPage() {
+export default function SalesCustomerPage({ managerMode = false }) {
     const navigate = useNavigate();
     const { toast } = useToast();
     const [customers, setCustomers] = useState([]);
@@ -228,9 +228,8 @@ export default function SalesCustomerPage() {
 
     return (
         <StaffPageShell
-            eyebrow="Bán hàng"
+            eyebrow={managerMode ? 'Quản lý cửa hàng' : 'Bán hàng'}
             eyebrowIcon={Users}
-            eyebrowTone="sky"
             title="Quản lý khách hàng"
             subtitle="Theo dõi khách hàng, công nợ và lịch sử thanh toán."
             headerActions={

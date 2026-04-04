@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import ManagerSidebar from './ManagerSidebar';
+import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
+import { StaffPageShell } from '../../components/staff/StaffPageShell';
+import { Receipt } from 'lucide-react';
 import { getInvoices } from '../../services/invoicesApi';
 import { useToast } from '../../contexts/ToastContext';
 import './ManagerDashboard.css';
@@ -145,37 +147,13 @@ export default function ManagerInvoicesList() {
   };
 
   return (
-    <div className="manager-page-with-sidebar">
-      <ManagerSidebar />
-      <div className="manager-main">
-        <header className="manager-topbar">
-          <div className="manager-topbar-search-wrap" />
-          <div className="manager-topbar-actions">
-            <div className="manager-user-badge">
-              <i className="fa-solid fa-circle-user" />
-              <span>Quản lý</span>
-            </div>
-          </div>
-        </header>
-
-        <div className="manager-content">
-          <div className="manager-invoice-header">
-            <div>
-              <h1 className="manager-page-title">Hóa đơn / Phiếu xuất</h1>
-              <p className="manager-page-subtitle">Danh sách phiếu xuất / hóa đơn và trạng thái xử lý</p>
-            </div>
-            {/* <button
-              type="button"
-              className="manager-btn-primary"
-              onClick={exportTodayIncome}
-              disabled={exporting}
-              style={{ background: 'linear-gradient(135deg,#10b981,#059669)' }}
-            >
-              <i className="fa-solid fa-file-excel" />
-              {exporting ? 'Đang xuất...' : 'Xuất excel thu nhập hôm nay'}
-            </button> */}
-          </div>
-
+    <ManagerPageFrame showNotificationBell={false}>
+      <StaffPageShell
+        eyebrow="Vận hành cửa hàng"
+        eyebrowIcon={Receipt}
+        title="Hóa đơn / Phiếu xuất"
+        subtitle="Danh sách phiếu xuất / hóa đơn và trạng thái xử lý."
+      >
           <div className="manager-filter-bar">
             <div className="manager-filter-group">
               <label className="manager-filter-label">Từ ngày</label>
@@ -232,7 +210,7 @@ export default function ManagerInvoicesList() {
 
           {error && <div className="manager-products-error">{error}</div>}
 
-          <div className="manager-panel-card manager-products-card">
+          <div className="manager-panel-card manager-products-card rounded-2xl border border-slate-200/80 shadow-sm">
             {loading ? (
               <p className="manager-products-loading">Đang tải...</p>
             ) : invoices.length === 0 ? (
@@ -293,8 +271,7 @@ export default function ManagerInvoicesList() {
               </>
             )}
           </div>
-        </div>
-      </div>
-    </div>
+      </StaffPageShell>
+    </ManagerPageFrame>
   );
 }

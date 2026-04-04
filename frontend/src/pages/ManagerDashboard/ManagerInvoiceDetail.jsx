@@ -1,6 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import ManagerSidebar from './ManagerSidebar';
+import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
+import { StaffPageShell } from '../../components/staff/StaffPageShell';
+import { Receipt } from 'lucide-react';
 import { getInvoice, createInvoice, updateInvoice } from '../../services/invoicesApi';
 import { getProducts } from '../../services/productsApi';
 import { getCurrentUser } from '../../utils/auth';
@@ -172,49 +174,44 @@ export default function ManagerInvoiceDetail() {
 
   if (loading) {
     return (
-      <div className="manager-page-with-sidebar">
-        <ManagerSidebar />
-        <div className="manager-main" style={{ padding: 24 }}>
-          <p>Đang tải...</p>
-        </div>
-      </div>
+      <ManagerPageFrame showNotificationBell={false}>
+        <p>Đang tải...</p>
+      </ManagerPageFrame>
     );
   }
 
   return (
-    <div className="manager-page-with-sidebar">
-      <ManagerSidebar />
-      <div className="manager-main">
-        <header className="manager-topbar">
-          <div className="manager-topbar-search-wrap">
-            <input
-              type="search"
-              className="manager-search"
-              placeholder="Tìm kiếm sản phẩm..."
-              disabled
-            />
-          </div>
-          <div className="manager-topbar-actions">
-            <button
-              type="button"
-              className="manager-icon-btn"
-              onClick={() => navigate('/manager/invoices')}
-            >
-              <i className="fa-solid fa-arrow-left" />
-            </button>
-            <div className="manager-user-badge">
-              <i className="fa-solid fa-circle-user" />
-              <span>Quản lý</span>
-            </div>
-          </div>
-        </header>
-
-        <div className="manager-content">
-
+    <ManagerPageFrame
+      showNotificationBell={false}
+      topBarLeft={
+        <div className="flex w-full min-w-0 max-w-2xl items-center gap-2">
+          <button
+            type="button"
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-white/40 bg-white/15 text-white transition hover:bg-white/25"
+            onClick={() => navigate('/manager/invoices')}
+            aria-label="Quay lại danh sách"
+          >
+            <i className="fa-solid fa-arrow-left" />
+          </button>
+          <input
+            type="search"
+            className="h-10 min-w-0 flex-1 cursor-not-allowed rounded-lg border border-white/35 bg-white/90 px-3 text-sm text-slate-500 opacity-80"
+            placeholder="Tìm kiếm sản phẩm..."
+            disabled
+          />
+        </div>
+      }
+    >
+      <StaffPageShell
+        eyebrow="Hóa đơn"
+        eyebrowIcon={Receipt}
+        title={isNew ? 'Tạo hóa đơn / phiếu xuất' : 'Chi tiết hóa đơn'}
+        subtitle="Chỉnh sửa phương thức thanh toán, người nhận và dòng hàng khi được phép."
+      >
           {successMessage && <div className="manager-products-success">{successMessage}</div>}
           {error && <div className="manager-products-error">{error}</div>}
 
-          <div className="manager-panel-card manager-products-card">
+          <div className="manager-panel-card manager-products-card rounded-2xl border border-slate-200/80 shadow-sm">
             <div style={{ padding: 16 }}>
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
                 <button
@@ -422,8 +419,7 @@ export default function ManagerInvoiceDetail() {
               </div>
             </div>
           </div>
-        </div>
-      </div>
-    </div>
+      </StaffPageShell>
+    </ManagerPageFrame>
   );
 }

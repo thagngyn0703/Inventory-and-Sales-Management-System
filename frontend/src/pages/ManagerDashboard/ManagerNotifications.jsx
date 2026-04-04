@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import ManagerSidebar from './ManagerSidebar';
 import {
   getNotifications,
   markAllNotificationsRead,
   markNotificationRead,
 } from '../../services/notificationsApi';
-import ManagerNotificationBell from '../../components/ManagerNotificationBell';
+import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
+import { StaffPageShell } from '../../components/staff/StaffPageShell';
+import { Bell } from 'lucide-react';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
 
@@ -51,34 +52,21 @@ export default function ManagerNotifications() {
   };
 
   return (
-    <div className="manager-page-with-sidebar">
-      <ManagerSidebar />
-      <div className="manager-main">
-        <header className="manager-topbar">
-          <div className="manager-topbar-search-wrap" />
-          <div className="manager-topbar-actions">
-            <ManagerNotificationBell />
-            <div className="manager-user-badge">
-              <i className="fa-solid fa-circle-user" />
-              <span>Quản lý</span>
-            </div>
-          </div>
-        </header>
-
-        <div className="manager-content">
-          <div className="manager-products-header">
-            <div>
-              <h1 className="manager-page-title">Thông báo</h1>
-              <p className="manager-page-subtitle">Cảnh báo hạn sử dụng sản phẩm theo cửa hàng của bạn.</p>
-            </div>
-            <button type="button" className="manager-btn-outline" onClick={onMarkAll}>
-              Đánh dấu đã đọc tất cả
-            </button>
-          </div>
-
+    <ManagerPageFrame showNotificationBell>
+      <StaffPageShell
+        eyebrow="Quản lý cửa hàng"
+        eyebrowIcon={Bell}
+        title="Thông báo"
+        subtitle="Cảnh báo hạn sử dụng sản phẩm theo cửa hàng của bạn."
+        headerActions={
+          <button type="button" className="manager-btn-outline" onClick={onMarkAll}>
+            Đánh dấu đã đọc tất cả
+          </button>
+        }
+      >
           {error && <div className="manager-products-error">{error}</div>}
 
-          <div className="manager-panel-card manager-products-card">
+          <div className="manager-panel-card manager-products-card rounded-2xl border border-slate-200/80 shadow-sm">
             {loading ? (
               <p className="manager-products-loading">Đang tải...</p>
             ) : notifications.length === 0 ? (
@@ -116,9 +104,8 @@ export default function ManagerNotifications() {
               </div>
             )}
           </div>
-        </div>
-      </div>
-    </div>
+      </StaffPageShell>
+    </ManagerPageFrame>
   );
 }
 

@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import ManagerSidebar from '../ManagerDashboard/ManagerSidebar';
+import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
+import { StaffPageShell } from '../../components/staff/StaffPageShell';
+import { FolderTree, Search } from 'lucide-react';
 import './Categories.css';
 import '../ManagerDashboard/ManagerDashboard.css';
 
@@ -219,126 +221,40 @@ const Categories = () => {
     );
 
     return (
-        <div className="manager-page-with-sidebar">
-            <ManagerSidebar />
-            <div className="manager-main">
-                <header className="manager-topbar">
-                    <form onSubmit={handleSearchSubmit} className="manager-topbar-search-wrap">
-                        <input
-                            type="search"
-                            className="manager-search"
-                            placeholder="Tìm danh mục..."
-                            value={searchInput}
-                            onChange={(e) => setSearchInput(e.target.value)}
-                        />
-                        <button type="submit" className="manager-icon-btn" aria-label="Tìm kiếm">
-                            <i className="fa-solid fa-search" />
-                        </button>
-                    </form>
-                    <div className="manager-topbar-actions">
-                        <button type="button" className="manager-icon-btn" aria-label="Thông báo">
-                            <i className="fa-solid fa-bell" />
-                        </button>
-                        <div className="manager-user-badge">
-                            <i className="fa-solid fa-circle-user" />
-                            <span>Quản lý</span>
-                        </div>
-                    </div>
-                </header>
-
-                <div className="manager-content">
-                    <div className="manager-products-header">
-                        <div>
-                            <h1 className="manager-page-title">Danh mục</h1>
-                            <p className="manager-page-subtitle">Quản lý danh mục sản phẩm</p>
-                        </div>
-                        <button
-                            type="button"
-                            className="manager-btn-primary"
-                            onClick={() => setShowCreateModal(true)}
-                            disabled={loading}
-                        >
-                            <i className="fa-solid fa-plus" /> Thêm danh mục
-                        </button>
-                    </div>
-
+        <ManagerPageFrame
+            showNotificationBell
+            topBarLeft={
+                <form onSubmit={handleSearchSubmit} className="relative w-full min-w-0 max-w-xl">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                    <input
+                        type="search"
+                        className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm text-slate-900 outline-none ring-teal-200/80 transition focus:ring-2"
+                        placeholder="Tìm danh mục..."
+                        value={searchInput}
+                        onChange={(e) => setSearchInput(e.target.value)}
+                    />
+                </form>
+            }
+        >
+            <StaffPageShell
+                eyebrow="Quản lý cửa hàng"
+                eyebrowIcon={FolderTree}
+                title="Danh mục sản phẩm"
+                subtitle="Tạo, sửa và bật/tắt danh mục dùng cho sản phẩm."
+                headerActions={
+                    <button
+                        type="button"
+                        className="manager-btn-primary"
+                        onClick={() => setShowCreateModal(true)}
+                        disabled={loading}
+                    >
+                        <i className="fa-solid fa-plus" /> Thêm danh mục
+                    </button>
+                }
+            >
                     {error && <div className="manager-products-error">{error}</div>}
 
-                    {showCreateModal && (
-                        <div className="modal-overlay" data-testid="create-modal-overlay" onClick={() => setShowCreateModal(false)}>
-                            <div className="modal-content" data-testid="create-modal-content" onClick={(e) => e.stopPropagation()}>
-                                <h2>Tạo danh mục mới</h2>
-                                <form onSubmit={handleCreate}>
-                                    <input
-                                        type="text"
-                                        value={newName}
-                                        onChange={(e) => setNewName(e.target.value)}
-                                        placeholder="Nhập tên danh mục"
-                                        autoFocus
-                                    />
-                                    <div className="modal-buttons">
-                                        <button
-                                            type="submit"
-                                            disabled={!newName.trim() || loading}
-                                            className="btn-submit"
-                                        >
-                                            Tạo
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                setShowCreateModal(false);
-                                                setNewName('');
-                                            }}
-                                            className="btn-cancel"
-                                        >
-                                            Hủy
-                                        </button>
-                                    </div>
-                                </form>
-                            </div>
-                        </div>
-                    )}
-
-                    {showEditModal && (
-                        <div className="modal-overlay" data-testid="edit-modal-overlay" onClick={cancelEdit}>
-                            <div className="modal-content" data-testid="edit-modal-content" onClick={(e) => e.stopPropagation()}>
-                                <h2>Chỉnh sửa danh mục</h2>
-                                <form
-                                    onSubmit={(e) => {
-                                        e.preventDefault();
-                                        saveEdit();
-                                    }}
-                                >
-                                    <input
-                                        type="text"
-                                        value={editingName}
-                                        onChange={(e) => setEditingName(e.target.value)}
-                                        placeholder="Nhập tên danh mục"
-                                        autoFocus
-                                    />
-                                    <div className="modal-buttons">
-                                        <button
-                                            type="submit"
-                                            disabled={!editingName.trim() || loading}
-                                            className="btn-submit"
-                                        >
-                                            Lưu
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={cancelEdit}
-                                            className="btn-cancel"
-                                        >
-                                            Hủy
-                                        </button>
-                                    </div>
-                                </form>
-                            </div>
-                        </div>
-                    )}
-
-                    <div className="manager-panel-card manager-products-card">
+                    <div className="manager-panel-card manager-products-card rounded-2xl border border-slate-200/80 shadow-sm">
                         {loading ? (
                             <p className="manager-products-loading">Đang tải...</p>
                         ) : (
@@ -390,9 +306,78 @@ const Categories = () => {
                             </div>
                         )}
                     </div>
+            </StaffPageShell>
+
+            {showCreateModal && (
+                <div className="modal-overlay" data-testid="create-modal-overlay" onClick={() => setShowCreateModal(false)}>
+                    <div className="modal-content" data-testid="create-modal-content" onClick={(e) => e.stopPropagation()}>
+                        <h2>Tạo danh mục mới</h2>
+                        <form onSubmit={handleCreate}>
+                            <input
+                                type="text"
+                                value={newName}
+                                onChange={(e) => setNewName(e.target.value)}
+                                placeholder="Nhập tên danh mục"
+                                autoFocus
+                            />
+                            <div className="modal-buttons">
+                                <button
+                                    type="submit"
+                                    disabled={!newName.trim() || loading}
+                                    className="btn-submit"
+                                >
+                                    Tạo
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setShowCreateModal(false);
+                                        setNewName('');
+                                    }}
+                                    className="btn-cancel"
+                                >
+                                    Hủy
+                                </button>
+                            </div>
+                        </form>
+                    </div>
                 </div>
-            </div>
-        </div>
+            )}
+
+            {showEditModal && (
+                <div className="modal-overlay" data-testid="edit-modal-overlay" onClick={cancelEdit}>
+                    <div className="modal-content" data-testid="edit-modal-content" onClick={(e) => e.stopPropagation()}>
+                        <h2>Chỉnh sửa danh mục</h2>
+                        <form
+                            onSubmit={(e) => {
+                                e.preventDefault();
+                                saveEdit();
+                            }}
+                        >
+                            <input
+                                type="text"
+                                value={editingName}
+                                onChange={(e) => setEditingName(e.target.value)}
+                                placeholder="Nhập tên danh mục"
+                                autoFocus
+                            />
+                            <div className="modal-buttons">
+                                <button
+                                    type="submit"
+                                    disabled={!editingName.trim() || loading}
+                                    className="btn-submit"
+                                >
+                                    Lưu
+                                </button>
+                                <button type="button" onClick={cancelEdit} className="btn-cancel">
+                                    Hủy
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+        </ManagerPageFrame>
     );
 };
 

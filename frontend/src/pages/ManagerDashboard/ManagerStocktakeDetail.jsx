@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Platform } from 'react-bits/lib/modules/Platform';
-import ManagerSidebar from './ManagerSidebar';
+import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
+import { StaffPageShell } from '../../components/staff/StaffPageShell';
+import { ClipboardCheck } from 'lucide-react';
 import { getStocktake, approveStocktake, rejectStocktake } from '../../services/stocktakesApi';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
@@ -121,30 +123,20 @@ export default function ManagerStocktakeDetail() {
 
   if (loading) {
     return (
-      <div className="manager-page-with-sidebar">
-        <ManagerSidebar />
-        <div className="manager-main">
-          <div className="manager-content">
-            <p style={{ padding: 24, color: '#6b7280' }}>Đang tải...</p>
-          </div>
-        </div>
-      </div>
+      <ManagerPageFrame showNotificationBell={false}>
+        <p style={{ padding: 24, color: '#6b7280' }}>Đang tải...</p>
+      </ManagerPageFrame>
     );
   }
 
   if (error && !stocktake) {
     return (
-      <div className="manager-page-with-sidebar">
-        <ManagerSidebar />
-        <div className="manager-main">
-          <div className="manager-content">
-            <div className="warehouse-alert warehouse-alert-error">{error}</div>
-            <button type="button" className="warehouse-btn warehouse-btn-secondary" onClick={() => navigate('/manager/stocktakes/pending')}>
-              Quay lại kiểm kê chờ duyệt
-            </button>
-          </div>
-        </div>
-      </div>
+      <ManagerPageFrame showNotificationBell={false}>
+        <div className="warehouse-alert warehouse-alert-error">{error}</div>
+        <button type="button" className="warehouse-btn warehouse-btn-secondary" onClick={() => navigate('/manager/stocktakes/pending')}>
+          Quay lại kiểm kê chờ duyệt
+        </button>
+      </ManagerPageFrame>
     );
   }
 
@@ -152,7 +144,7 @@ export default function ManagerStocktakeDetail() {
   const isPending = stocktake?.status === 'submitted';
 
   return (
-    <div className="manager-page-with-sidebar">
+    <ManagerPageFrame showNotificationBell={false}>
       {modal.open && (
         <div
           className="manager-reason-modal-overlay"
@@ -198,37 +190,28 @@ export default function ManagerStocktakeDetail() {
         </div>
       )}
 
-      <ManagerSidebar />
-      <div className="manager-main">
-        <header className="manager-topbar">
-          <div className="manager-topbar-actions" style={{ marginLeft: 'auto' }}>
-            <div className="manager-user-badge">
-              <i className="fa-solid fa-circle-user" />
-              <span>Quản lý</span>
-            </div>
+      <StaffPageShell
+        eyebrow="Kho & kiểm kê"
+        eyebrowIcon={ClipboardCheck}
+        title="Chi tiết phiếu kiểm kê"
+        subtitle={`Tạo lúc: ${formatDate(stocktake?.snapshot_at)} — Người tạo: ${stocktake?.created_by?.email ?? '—'}. ${Platform.select({ web: 'Duyệt/Từ chối: nhập lý do và xác nhận một lần.', default: 'Duyệt/Từ chối một lần.' })}`}
+        headerActions={
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge
+              className={
+                stocktake?.status === 'submitted'
+                  ? 'border border-amber-200 bg-amber-100 text-amber-800'
+                  : 'border border-slate-200 bg-slate-100 text-slate-800'
+              }
+            >
+              {STATUS_LABEL[stocktake?.status] ?? stocktake?.status}
+            </Badge>
+            <Button type="button" variant="outline" onClick={() => navigate('/manager/stocktakes/pending')}>
+              Quay lại
+            </Button>
           </div>
-        </header>
-        <div className="manager-content bg-slate-50">
-          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h1 className="text-2xl font-bold text-slate-900">Chi tiết phiếu kiểm kê</h1>
-              <p className="text-sm text-slate-500">
-                Tạo lúc: {formatDate(stocktake?.snapshot_at)} — Người tạo: {stocktake?.created_by?.email ?? '—'}
-              </p>
-              <p className="text-xs text-slate-400">
-                {Platform.select({ web: 'Duyệt/Từ chối chỉ cần nhập lý do và xác nhận một lần.', default: 'Duyệt/Từ chối xác nhận một lần.' })}
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <Badge className={stocktake?.status === 'submitted' ? 'bg-amber-100 text-amber-700 border border-amber-200' : 'bg-slate-100 text-slate-700 border border-slate-200'}>
-                {STATUS_LABEL[stocktake?.status] ?? stocktake?.status}
-              </Badge>
-              <Button type="button" variant="outline" onClick={() => navigate('/manager/stocktakes/pending')}>
-                Quay lại
-              </Button>
-            </div>
-          </div>
-
+        }
+      >
           <div className="mb-4 flex flex-wrap gap-2">
             {isPending && (
               <>
@@ -248,7 +231,7 @@ export default function ManagerStocktakeDetail() {
             </div>
           )}
 
-          <Card>
+          <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
             <CardContent className="p-0">
               <div className="overflow-x-auto">
                 <table className="min-w-full text-sm">
@@ -298,8 +281,7 @@ export default function ManagerStocktakeDetail() {
               )}
             </CardContent>
           </Card>
-        </div>
-      </div>
+      </StaffPageShell>
       {toast && (
         <div className="fixed right-4 top-4 z-[2500]">
           <div className={`rounded-lg border px-4 py-3 text-sm font-medium shadow-lg ${
@@ -311,7 +293,7 @@ export default function ManagerStocktakeDetail() {
           </div>
         </div>
       )}
-    </div>
+    </ManagerPageFrame>
   );
 }
 

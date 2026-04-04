@@ -1,7 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Platform } from 'react-bits/lib/modules/Platform';
-import ManagerSidebar from './ManagerSidebar';
+import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
+import { StaffPageShell } from '../../components/staff/StaffPageShell';
+import { History } from 'lucide-react';
 import { getAdjustment, revertAdjustment } from '../../services/adjustmentsApi';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
@@ -76,30 +78,20 @@ export default function ManagerAdjustmentDetail() {
 
   if (loading) {
     return (
-      <div className="manager-page-with-sidebar">
-        <ManagerSidebar />
-        <div className="manager-main">
-          <div className="manager-content">
-            <p style={{ padding: 24, color: '#6b7280' }}>Đang tải...</p>
-          </div>
-        </div>
-      </div>
+      <ManagerPageFrame showNotificationBell={false}>
+        <p style={{ padding: 24, color: '#6b7280' }}>Đang tải...</p>
+      </ManagerPageFrame>
     );
   }
 
   if (error || !adjustment) {
     return (
-      <div className="manager-page-with-sidebar">
-        <ManagerSidebar />
-        <div className="manager-main">
-          <div className="manager-content">
-            <div className="warehouse-alert warehouse-alert-error">{error || 'Không tìm thấy phiếu điều chỉnh.'}</div>
-            <button type="button" className="warehouse-btn warehouse-btn-secondary" onClick={() => navigate('/manager/adjustments')}>
-              Quay lại danh sách
-            </button>
-          </div>
-        </div>
-      </div>
+      <ManagerPageFrame showNotificationBell={false}>
+        <div className="warehouse-alert warehouse-alert-error">{error || 'Không tìm thấy phiếu điều chỉnh.'}</div>
+        <button type="button" className="warehouse-btn warehouse-btn-secondary" onClick={() => navigate('/manager/adjustments')}>
+          Quay lại danh sách
+        </button>
+      </ManagerPageFrame>
     );
   }
 
@@ -132,18 +124,8 @@ export default function ManagerAdjustmentDetail() {
   };
 
   return (
-    <div className="manager-page-with-sidebar">
-      <ManagerSidebar />
-      <div className="manager-main">
-        <header className="manager-topbar">
-          <div className="manager-topbar-actions" style={{ marginLeft: 'auto' }}>
-            <div className="manager-user-badge">
-              <i className="fa-solid fa-circle-user" />
-              <span>Quản lý</span>
-            </div>
-          </div>
-        </header>
-        <div className="manager-content adjustment-detail-content bg-slate-50">
+    <ManagerPageFrame showNotificationBell={false}>
+        <div className="adjustment-detail-content bg-slate-50">
           {revertModalOpen && (
             <div
               className="manager-reason-modal-overlay"
@@ -214,29 +196,35 @@ export default function ManagerAdjustmentDetail() {
             </div>
           )}
 
-          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h1 className="text-2xl font-bold text-slate-900">Chi tiết điều chỉnh tồn</h1>
-              <p className="text-sm text-slate-500">Theo dõi lý do và từng dòng điều chỉnh để kiểm soát tồn kho.</p>
-              <p className="text-xs text-slate-400">
-                {Platform.select({ web: 'Manager có thể hoàn tác nhanh khi phát hiện thao tác duyệt/từ chối nhầm.', default: 'Có thể hoàn tác khi thao tác nhầm.' })}
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              {adjustment.is_reverted ? (
-                <Badge className="bg-violet-100 text-violet-700 border border-violet-200">Đã hoàn tác</Badge>
-              ) : (
-                <Badge className={adjustment.status === 'approved' ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : adjustment.status === 'rejected' ? 'bg-red-100 text-red-700 border border-red-200' : 'bg-amber-100 text-amber-700 border border-amber-200'}>
-                  {adjustment.status === 'approved' ? 'Đã duyệt' : adjustment.status === 'rejected' ? 'Đã từ chối' : adjustment.status}
-                </Badge>
-              )}
-              <Button type="button" variant="outline" onClick={() => navigate('/manager/adjustments')}>
-                Quay lại
-              </Button>
-            </div>
+      <StaffPageShell
+        eyebrow="Điều chỉnh tồn"
+        eyebrowIcon={History}
+        title="Chi tiết điều chỉnh tồn"
+        subtitle={`Theo dõi lý do và từng dòng điều chỉnh. ${Platform.select({ web: 'Có thể hoàn tác khi duyệt/từ chối nhầm.', default: 'Có thể hoàn tác khi nhầm.' })}`}
+        headerActions={
+          <div className="flex flex-wrap items-center gap-2">
+            {adjustment.is_reverted ? (
+              <Badge className="border border-violet-200 bg-violet-100 text-violet-800">Đã hoàn tác</Badge>
+            ) : (
+              <Badge
+                className={
+                  adjustment.status === 'approved'
+                    ? 'border border-emerald-200 bg-emerald-100 text-emerald-800'
+                    : adjustment.status === 'rejected'
+                      ? 'border border-red-200 bg-red-100 text-red-800'
+                      : 'border border-amber-200 bg-amber-100 text-amber-900'
+                }
+              >
+                {adjustment.status === 'approved' ? 'Đã duyệt' : adjustment.status === 'rejected' ? 'Đã từ chối' : adjustment.status}
+              </Badge>
+            )}
+            <Button type="button" variant="outline" onClick={() => navigate('/manager/adjustments')}>
+              Quay lại
+            </Button>
           </div>
-
-          <Card className="mb-4">
+        }
+      >
+          <Card className="mb-4 rounded-2xl border border-slate-200/80 shadow-sm">
             <CardContent className="p-4">
               <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
                 <div className="rounded-lg border border-slate-200 bg-white p-3">
@@ -273,7 +261,7 @@ export default function ManagerAdjustmentDetail() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
             <CardContent className="p-0">
               <div className="overflow-x-auto">
                 <table className="min-w-full text-sm">
@@ -315,8 +303,8 @@ export default function ManagerAdjustmentDetail() {
               )}
             </CardContent>
           </Card>
+      </StaffPageShell>
         </div>
-      </div>
       {toast && (
         <div className="fixed right-4 top-4 z-[2500]">
           <div className={`rounded-lg border px-4 py-3 text-sm font-medium shadow-lg ${
@@ -328,6 +316,6 @@ export default function ManagerAdjustmentDetail() {
           </div>
         </div>
       )}
-    </div>
+    </ManagerPageFrame>
   );
 }

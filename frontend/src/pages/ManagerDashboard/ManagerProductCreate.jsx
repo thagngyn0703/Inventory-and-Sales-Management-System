@@ -1,9 +1,9 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Platform } from 'react-bits/lib/modules/Platform';
-import { Search, Plus, X, Barcode } from 'lucide-react';
-import ManagerSidebar from './ManagerSidebar';
-import ManagerNotificationBell from '../../components/ManagerNotificationBell';
+import { Search, Plus, X, Barcode, Package } from 'lucide-react';
+import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
+import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { createProduct, getProducts, updateProduct, uploadProductImages } from '../../services/productsApi';
 import { minExpiryDateString, isExpiryDateNotInPast } from '../../utils/dateInput';
 import {
@@ -362,31 +362,19 @@ export default function ManagerProductCreate() {
     };
 
     return (
-        <div className="manager-page-with-sidebar">
-            <ManagerSidebar />
-            <div className="manager-main">
-                <header className="manager-topbar">
-                    <div className="manager-topbar-search-wrap" />
-                    <div className="manager-topbar-actions">
-                        <ManagerNotificationBell />
-                        <div className="manager-user-badge">
-                            <i className="fa-solid fa-circle-user" />
-                            <span>Quản lý</span>
-                        </div>
-                    </div>
-                </header>
-
-                <div className="manager-content manager-product-create-fullwidth bg-slate-50">
-                    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                            <h1 className="text-2xl font-bold text-slate-900">Thêm sản phẩm</h1>
-                            <p className="text-sm text-slate-500">Điền nhanh từ mẫu có sẵn, sau đó chỉnh lại để tạo sản phẩm mới.</p>
-                        </div>
-                        <Button type="button" variant="outline" onClick={() => navigate('/manager/products')}>
-                            Quay lại danh sách
-                        </Button>
-                    </div>
-
+        <ManagerPageFrame showNotificationBell>
+            <StaffPageShell
+                eyebrow="Sản phẩm"
+                eyebrowIcon={Package}
+                title="Thêm sản phẩm"
+                subtitle="Điền nhanh từ mẫu có sẵn, sau đó chỉnh lại để tạo sản phẩm mới."
+                headerActions={
+                    <Button type="button" variant="outline" onClick={() => navigate('/manager/products')}>
+                        Quay lại danh sách
+                    </Button>
+                }
+            >
+                <div className="manager-product-create-fullwidth">
                     <form onSubmit={handleSubmit} className="space-y-4">
                         <div className="grid gap-4 xl:grid-cols-12">
                             <Card className="xl:col-span-12">
@@ -684,7 +672,7 @@ export default function ManagerProductCreate() {
                         </div>
                     </form>
                 </div>
-            </div>
+            </StaffPageShell>
             {toast && (
                 <div className="fixed right-4 top-4 z-[2500]">
                     <div className={`rounded-lg border px-4 py-3 text-sm font-medium shadow-lg ${
@@ -730,6 +718,6 @@ export default function ManagerProductCreate() {
                     </div>
                 </div>
             )}
-        </div>
+        </ManagerPageFrame>
     );
 }

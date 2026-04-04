@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import ManagerSidebar from './ManagerSidebar';
+import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
+import { StaffPageShell } from '../../components/staff/StaffPageShell';
+import { ClipboardList } from 'lucide-react';
 import { getGoodsReceipts, setGoodsReceiptStatus } from '../../services/goodsReceiptsApi';
 import { useToast } from '../../contexts/ToastContext';
 import { ConfirmDialog } from '../../components/ui/confirm-dialog';
@@ -110,24 +112,13 @@ export default function ManagerReceiptList() {
         : 'Mặc định (mới nhất)';
 
   return (
-    <div className="manager-page-with-sidebar">
-      <ManagerSidebar />
-      <div className="manager-main">
-        <header className="manager-topbar">
-          <div className="manager-topbar-actions" style={{ marginLeft: 'auto' }}>
-            <div className="manager-user-badge">
-              <i className="fa-solid fa-circle-user" />
-              <span>Quản lý</span>
-            </div>
-          </div>
-        </header>
-        <div className="manager-content">
-          <div className="mx-auto max-w-7xl space-y-6">
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight text-slate-900">Duyệt phiếu nhập kho</h1>
-              <p className="mt-1 text-sm text-slate-600">Phê duyệt hoặc từ chối phiếu từ nhân viên kho.</p>
-            </div>
-
+    <ManagerPageFrame showNotificationBell={false}>
+      <StaffPageShell
+        eyebrow="Kho & nhập hàng"
+        eyebrowIcon={ClipboardList}
+        title="Duyệt phiếu nhập kho"
+        subtitle="Phê duyệt hoặc từ chối phiếu từ nhân viên kho."
+      >
             {error && (
               <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>
             )}
@@ -140,7 +131,7 @@ export default function ManagerReceiptList() {
                     <input
                       type="text"
                       placeholder="Mã phiếu, NCC, người tạo..."
-                      className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-3 text-sm outline-none ring-sky-200 focus:ring-2"
+                      className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-3 text-sm outline-none ring-teal-200/80 focus:ring-2"
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
                     />
@@ -149,7 +140,7 @@ export default function ManagerReceiptList() {
                     <select
                       value={filterStatus}
                       onChange={(e) => setFilterStatus(e.target.value)}
-                      className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-sky-200 focus:ring-2"
+                      className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-teal-200/80 focus:ring-2"
                     >
                       <option value="">Tất cả trạng thái</option>
                       <option value="pending">Chờ duyệt</option>
@@ -251,9 +242,7 @@ export default function ManagerReceiptList() {
                 )}
               </CardContent>
             </Card>
-          </div>
-        </div>
-      </div>
+      </StaffPageShell>
 
       <ConfirmDialog
         open={confirmOpen}
@@ -272,6 +261,6 @@ export default function ManagerReceiptList() {
         loading={confirmLoading}
         onConfirm={runConfirmedAction}
       />
-    </div>
+    </ManagerPageFrame>
   );
 }

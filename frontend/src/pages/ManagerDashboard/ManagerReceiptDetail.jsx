@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import ManagerSidebar from './ManagerSidebar';
+import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
 import { getGoodsReceipt, setGoodsReceiptStatus } from '../../services/goodsReceiptsApi';
 import { useToast } from '../../contexts/ToastContext';
 import { ConfirmDialog } from '../../components/ui/confirm-dialog';
+import { StaffPageShell } from '../../components/staff/StaffPageShell';
+import { Button } from '../../components/ui/button';
+import { ArrowLeft, ClipboardList } from 'lucide-react';
 import './ManagerDashboard.css';
 
 export default function ManagerReceiptDetail() {
@@ -63,34 +66,39 @@ export default function ManagerReceiptDetail() {
         }
     };
 
-    if (loading) return <div style={{ padding: 24, fontSize: 16 }}>Đang tải chi tiết phiếu nhập...</div>;
-    if (error) return <div style={{ backgroundColor: '#fee2e2', color: '#b91c1c', padding: 12, borderRadius: 6, margin: 24 }}>{error}</div>;
+    if (loading) {
+        return (
+            <ManagerPageFrame showNotificationBell={false}>
+                <p className="py-12 text-center text-slate-600">Đang tải chi tiết phiếu nhập...</p>
+            </ManagerPageFrame>
+        );
+    }
+    if (error) {
+        return (
+            <ManagerPageFrame showNotificationBell={false}>
+                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800">{error}</div>
+            </ManagerPageFrame>
+        );
+    }
     if (!receipt) return null;
 
-    return (
-        <div className="manager-page-with-sidebar">
-            <ManagerSidebar />
-            <div className="manager-main">
-                <header className="manager-topbar">
-                    <div className="manager-topbar-actions" style={{ marginLeft: 'auto' }}>
-                        <div className="manager-user-badge">
-                            <i className="fa-solid fa-circle-user" />
-                            <span>Quản lý</span>
-                        </div>
-                    </div>
-                </header>
-                <div className="manager-content">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
-                        <button
-                            style={{ padding: '6px 12px', border: '1px solid #d1d5db', backgroundColor: 'white', borderRadius: 4, cursor: 'pointer', fontSize: 14 }}
-                            onClick={() => navigate(-1)}
-                        >
-                            <i className="fa-solid fa-arrow-left" style={{ marginRight: 6 }} /> Quay lại
-                        </button>
-                        <h1 style={{ margin: 0, fontSize: 24, fontWeight: 600 }}>Chi tiết xét duyệt phiếu nhập kho</h1>
-                    </div>
+    const shortId = receipt._id.substring(receipt._id.length - 6).toUpperCase();
 
-            <div style={{ backgroundColor: 'white', padding: 20, borderRadius: 8, boxShadow: '0 1px 3px rgba(0,0,0,0.1)', marginBottom: 24 }}>
+    return (
+        <ManagerPageFrame showNotificationBell={false}>
+            <StaffPageShell
+                eyebrow="Kho & nhập hàng"
+                eyebrowIcon={ClipboardList}
+                title="Chi tiết xét duyệt phiếu nhập kho"
+                subtitle={`Mã phiếu: ${shortId}`}
+                headerActions={
+                    <Button type="button" variant="outline" className="gap-2" onClick={() => navigate(-1)}>
+                        <ArrowLeft className="h-4 w-4" />
+                        Quay lại
+                    </Button>
+                }
+            >
+            <div className="mb-6 rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[0_4px_24px_-4px_rgba(15,23,42,0.08)] sm:p-6">
                 <h2 style={{ fontSize: 18, marginBottom: 16, borderBottom: '1px solid #e5e7eb', paddingBottom: 8 }}>Thông tin chung</h2>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 20 }}>
                     <div>
@@ -200,8 +208,7 @@ export default function ManagerReceiptDetail() {
                     </div>
                 )}
             </div>
-        </div>
-      </div>
+      </StaffPageShell>
 
       <ConfirmDialog
         open={confirmOpen}
@@ -220,6 +227,6 @@ export default function ManagerReceiptDetail() {
         loading={submitting}
         onConfirm={runStatusChange}
       />
-    </div>
+    </ManagerPageFrame>
     );
 }
