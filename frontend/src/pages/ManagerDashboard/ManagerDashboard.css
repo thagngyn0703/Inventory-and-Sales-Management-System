@@ -1,7 +1,7 @@
 .manager-page-with-sidebar {
     display: flex;
     min-height: 100vh;
-    background: #f4f6f8;
+    background: #f1f5f9;
     font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
 }
 
