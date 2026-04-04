@@ -38,10 +38,10 @@ export default function SalesDashboard() {
       <SalesSidebar collapsed={sidebarCollapsed} />
       <main className={`sales-main${isPosRoute ? ' pos-mode' : ''}`}>
         {!isPosRoute && (
-        <header className="sales-header flex h-12 items-center gap-2 border-b border-slate-200/80 bg-gradient-to-r from-teal-50/90 via-white to-sky-50/80 px-3 shadow-sm shadow-slate-900/[0.03] backdrop-blur-sm">
+        <header className="sales-header flex h-12 items-center gap-2 border-b border-teal-900/20 bg-[linear-gradient(120deg,#0d9488_0%,#0ea5e9_48%,#0284c7_100%)] px-3 shadow-md shadow-teal-900/15">
           <button
             type="button"
-            className="sales-toggle-btn flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200/80 bg-white/90 text-slate-600 shadow-sm transition hover:border-teal-200 hover:bg-teal-50/50 hover:text-teal-800"
+            className="sales-toggle-btn flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/35 bg-white/15 text-white shadow-sm transition hover:bg-white/25"
             onClick={toggleSidebar}
             title={sidebarCollapsed ? 'Mở menu' : 'Thu nhỏ menu'}
           >
@@ -50,18 +50,18 @@ export default function SalesDashboard() {
 
           <div className="min-w-0 flex-1" />
 
-          <div className="sales-user-badge flex max-w-[min(100%,420px)] items-center gap-2 rounded-full border border-slate-200/80 bg-white/90 py-1 pl-1 pr-3 text-[11px] font-semibold text-slate-700 shadow-sm">
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-teal-500 to-emerald-600 text-[10px] text-white shadow-inner">
+          <div className="sales-user-badge flex max-w-[min(100%,420px)] items-center gap-2 rounded-full border border-white/30 bg-white/15 py-1 pl-1 pr-3 text-[11px] font-semibold text-white shadow-sm backdrop-blur-sm">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/25 text-[10px] text-white shadow-inner ring-1 ring-white/40">
               <i className="fa-solid fa-user" />
             </span>
             {storeName && (
-              <span className="hidden max-w-[140px] truncate rounded-md border border-teal-200/80 bg-teal-50/90 px-2 py-0.5 text-[10px] font-bold text-teal-800 sm:inline">
-                <i className="fa-solid fa-store mr-1 text-[9px]" />
+              <span className="hidden max-w-[140px] truncate rounded-md border border-white/35 bg-white/15 px-2 py-0.5 text-[10px] font-bold text-white sm:inline">
+                <i className="fa-solid fa-store mr-1 text-[9px] opacity-90" />
                 {storeName}
               </span>
             )}
-            <span className="truncate">{displayName}</span>
-            <span className="shrink-0 text-[10px] font-medium text-slate-400">({roleLabel})</span>
+            <span className="truncate text-white">{displayName}</span>
+            <span className="shrink-0 text-[10px] font-medium text-white/75">({roleLabel})</span>
           </div>
         </header>
         )}

@@ -75,12 +75,12 @@ export default function SalesSidebar({ collapsed }) {
   return (
     <aside
       className={cn(
-        'sales-sidebar fixed left-0 top-0 z-[100] flex h-screen w-[250px] flex-col border-r border-slate-200/70 bg-gradient-to-b from-white via-slate-50/80 to-teal-50/30 shadow-[4px_0_24px_-8px_rgba(15,23,42,0.12)] transition-transform duration-300 ease-out',
+        'sales-sidebar fixed left-0 top-0 z-[100] flex h-screen w-[250px] flex-col border-r border-slate-200/70 bg-gradient-to-b from-white via-slate-50/90 to-sky-50/35 shadow-[4px_0_24px_-8px_rgba(15,23,42,0.12)] transition-transform duration-300 ease-out',
         collapsed && '-translate-x-full'
       )}
     >
       <div className="flex shrink-0 items-center gap-3 border-b border-slate-200/60 bg-white/60 px-5 py-5 backdrop-blur-sm">
-        <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-teal-500 via-emerald-500 to-cyan-600 text-lg font-extrabold text-white shadow-md shadow-teal-600/25">
+        <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[linear-gradient(135deg,#0d9488_0%,#0ea5e9_55%,#0284c7_100%)] text-lg font-extrabold text-white shadow-md shadow-teal-600/30">
           <LayoutGrid className="h-5 w-5" strokeWidth={2.2} />
           <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-emerald-300 ring-2 ring-white" />
         </div>
@@ -104,8 +104,8 @@ export default function SalesSidebar({ collapsed }) {
               cn(
                 'group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200',
                 isActive
-                  ? 'bg-gradient-to-r from-teal-500/15 to-cyan-500/10 text-teal-800 shadow-sm ring-1 ring-teal-200/60'
-                  : 'text-slate-600 hover:bg-white/80 hover:text-teal-800 hover:shadow-sm'
+                  ? 'bg-gradient-to-r from-teal-500/18 to-sky-500/12 text-teal-900 shadow-sm ring-1 ring-teal-200/70'
+                  : 'text-slate-600 hover:bg-white/90 hover:text-teal-800 hover:shadow-sm'
               )
             }
           >
@@ -114,7 +114,7 @@ export default function SalesSidebar({ collapsed }) {
                 {isActive && (
                   <motion.span
                     layoutId="staff-sidebar-indicator"
-                    className="absolute inset-y-1 left-0 w-1 rounded-full bg-gradient-to-b from-teal-500 to-emerald-500 shadow-[0_0_12px_rgba(20,184,166,0.35)]"
+                    className="absolute inset-y-1 left-0 w-1 rounded-full bg-gradient-to-b from-teal-500 via-sky-500 to-cyan-600 shadow-[0_0_12px_rgba(20,184,166,0.4)]"
                     transition={{ type: 'spring', stiffness: 380, damping: 32 }}
                   />
                 )}
@@ -141,8 +141,8 @@ export default function SalesSidebar({ collapsed }) {
               cn(
                 'group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200',
                 isActive
-                  ? 'bg-gradient-to-r from-violet-500/12 to-sky-500/10 text-violet-900 shadow-sm ring-1 ring-violet-200/50'
-                  : 'text-slate-600 hover:bg-white/80 hover:text-violet-900 hover:shadow-sm'
+                  ? 'bg-gradient-to-r from-teal-500/18 to-sky-500/12 text-teal-900 shadow-sm ring-1 ring-teal-200/70'
+                  : 'text-slate-600 hover:bg-white/90 hover:text-teal-800 hover:shadow-sm'
               )
             }
           >
@@ -151,14 +151,14 @@ export default function SalesSidebar({ collapsed }) {
                 {isActive && (
                   <motion.span
                     layoutId="staff-sidebar-indicator"
-                    className="absolute inset-y-1 left-0 w-1 rounded-full bg-gradient-to-b from-violet-500 to-amber-500 shadow-[0_0_12px_rgba(139,92,246,0.35)]"
+                    className="absolute inset-y-1 left-0 w-1 rounded-full bg-gradient-to-b from-teal-500 via-sky-500 to-cyan-600 shadow-[0_0_12px_rgba(14,165,233,0.35)]"
                     transition={{ type: 'spring', stiffness: 380, damping: 32 }}
                   />
                 )}
                 <item.icon
                   className={cn(
                     'relative z-[1] h-[18px] w-[18px] shrink-0 transition-transform duration-200',
-                    isActive ? 'text-violet-600' : 'text-slate-400 group-hover:scale-105 group-hover:text-violet-600'
+                    isActive ? 'text-teal-600' : 'text-slate-400 group-hover:scale-105 group-hover:text-teal-600'
                   )}
                   strokeWidth={2}
                 />

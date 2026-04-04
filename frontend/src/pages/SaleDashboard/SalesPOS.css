@@ -1,10 +1,30 @@
 :root {
-  --pos-primary: #007bff;
-  --pos-secondary: #6c757d;
-  --pos-bg: #f4f7f6;
-  --pos-border: #dee2e6;
-  --pos-text: #333;
-  --pos-shadow: 0 4px 6px rgba(0,0,0,0.1);
+  /* Đồng bộ với quầy bán hàng (teal / sky) */
+  --pos-primary: #0d9488;
+  --pos-primary-hover: #0f766e;
+  --pos-accent: #0d9488;
+  --pos-accent-hover: #0f766e;
+  --pos-accent-soft: #f0fdfa;
+  --pos-accent-ring: #5eead4;
+  --pos-sky: #0ea5e9;
+  --pos-secondary: #64748b;
+  --pos-bg: #f1f5f9;
+  --pos-border: #e2e8f0;
+  --pos-text: #0f172a;
+  --pos-shadow: 0 4px 24px -4px rgba(15, 23, 42, 0.08);
+}
+
+.pos-loading {
+  display: flex;
+  min-height: 50vh;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: var(--pos-bg);
+  color: #64748b;
+  font-size: 15px;
+  font-weight: 500;
 }
 
 .pos-container {
@@ -43,13 +63,14 @@
 }
 
 .pos-search-toolbar {
-  padding: 8px 10px 8px 10px;
-  background: #0081ff;
-  border-bottom: 1px solid #006fe0;
+  padding: 10px 12px;
+  background: linear-gradient(120deg, #0d9488 0%, #0ea5e9 48%, #0284c7 100%);
+  border-bottom: 1px solid rgba(15, 118, 110, 0.35);
+  box-shadow: 0 8px 24px -12px rgba(15, 23, 42, 0.25);
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 8px;
+  gap: 10px;
   min-width: 0;
   width: 100%;
 }
@@ -181,7 +202,7 @@
 .pos-search-option-price {
   font-size: 13px;
   font-weight: 700;
-  color: #0f4ed8;
+  color: #0f766e;
 }
 
 .pos-search-empty {
@@ -191,7 +212,7 @@
 }
 
 .pos-tabs {
-  background: #0081ff;
+  background: transparent;
   display: flex;
   padding: 0 10px;
   align-items: center;
@@ -220,9 +241,11 @@
 
 .pos-tab.active {
   background: white;
-  color: #0081ff;
-  border-radius: 8px;
+  color: #0f766e;
+  border-radius: 10px;
   margin-top: 0;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.12);
+  font-weight: 700;
 }
 
 .pos-add-tab-btn {
@@ -243,9 +266,10 @@
   width: 100%;
   border-collapse: collapse;
   background: white;
-  border-radius: 10px;
+  border-radius: 12px;
   overflow: hidden;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  border: 1px solid #e2e8f0;
+  box-shadow: var(--pos-shadow);
   table-layout: fixed;
 }
 
@@ -286,6 +310,7 @@
   width: clamp(320px, 29vw, 360px);
   background: white;
   border-left: 1px solid var(--pos-border);
+  box-shadow: -8px 0 32px -20px rgba(15, 23, 42, 0.12);
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
@@ -320,10 +345,10 @@
   justify-content: space-between;
   margin-top: 24px;
   padding-top: 16px;
-  border-top: 2px solid #f1f5f9;
+  border-top: 2px solid #e2e8f0;
   font-size: 18px;
   font-weight: 800;
-  color: #0081ff;
+  color: #0f766e;
 }
 
 .pos-section-head {
@@ -335,7 +360,7 @@
 }
 
 .pos-section-head i {
-  color: #0081ff;
+  color: var(--pos-accent);
   cursor: pointer;
 }
 
@@ -389,9 +414,10 @@
 }
 
 .pos-method-btn.active {
-  border-color: #0081ff;
-  background: #eff6ff;
-  color: #0081ff;
+  border-color: var(--pos-accent-ring);
+  background: var(--pos-accent-soft);
+  color: #0f766e;
+  box-shadow: 0 0 0 1px rgba(45, 212, 191, 0.25);
 }
 
 .pos-customer-pay-row {
@@ -454,16 +480,16 @@
 .pos-bank-note {
   margin-top: 12px;
   text-align: center;
-  background: #fff;
+  background: linear-gradient(180deg, #f0fdfa 0%, #fff 100%);
   padding: 12px;
-  border-radius: 8px;
-  border: 1px solid #0081ff;
+  border-radius: 12px;
+  border: 1px solid rgba(45, 212, 191, 0.45);
 }
 
 .pos-bank-note-title {
   margin: 0 0 8px;
   font-size: 12px;
-  color: #0081ff;
+  color: #0f766e;
   font-weight: 700;
 }
 
@@ -487,18 +513,26 @@
 .pos-pay-button {
   width: 100%;
   padding: 16px;
-  background: #0081ff;
+  background: linear-gradient(135deg, #0d9488 0%, #0ea5e9 100%);
   color: white;
   border: none;
-  border-radius: 12px;
+  border-radius: 14px;
   font-size: 18px;
   font-weight: 700;
   cursor: pointer;
-  transition: transform 0.1s, background 0.2s;
+  box-shadow: 0 4px 14px -2px rgba(13, 148, 136, 0.45);
+  transition: transform 0.1s, filter 0.2s, box-shadow 0.2s;
 }
 
-.pos-pay-button:hover {
-  background: #0069d9;
+.pos-pay-button:hover:not(:disabled) {
+  filter: brightness(1.05);
+  box-shadow: 0 6px 20px -4px rgba(13, 148, 136, 0.5);
+}
+
+.pos-pay-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
 }
 
 .pos-pay-button:active {
@@ -542,9 +576,9 @@
 }
 
 .pos-mode-btn.active {
-  color: #0081ff;
-  background: #eff6ff;
-  border-color: #bfdbfe;
+  color: #0f766e;
+  background: #f0fdfa;
+  border-color: #99f6e4;
 }
 
 @media (max-width: 1180px) {

@@ -5,6 +5,8 @@ import { getProducts } from '../../services/productsApi';
 import { getCustomers, createCustomer } from '../../services/customersApi';
 import PaymentWaitModal from '../../components/payment/PaymentWaitModal';
 import { Button } from '../../components/ui/button';
+import { useToast } from '../../contexts/ToastContext';
+import { Barcode, Loader2, Menu, Plus, Receipt, X } from 'lucide-react';
 import './SalesPOS.css';
 
 function formatMoney(n) {
@@ -33,6 +35,7 @@ const createDefaultTab = (index = 1) => ({
 export default function SalesInvoiceDetail() {
   const { id = '' } = useParams();
   const navigate = useNavigate();
+  const { toast: notify } = useToast();
   const outletContext = useOutletContext() || {};
   const toggleSidebar = outletContext.toggleSidebar;
   const sidebarCollapsed = Boolean(outletContext.sidebarCollapsed);
@@ -59,15 +62,6 @@ export default function SalesInvoiceDetail() {
   // Tab Management State
   const [tabs, setTabs] = useState([createDefaultTab(1)]);
   const [activeTabId, setActiveTabId] = useState(tabs[0].tabId);
-  const [tabCounter, setTabCounter] = useState(2); // to name new tabs Hóa đơn 2, 3...
-  
-  const [toastMessage, setToastMessage] = useState('');
-  const [toast, setToast] = useState({ message: '', type: 'success' }); // { message, type: 'success' | 'error' }
-
-  const showToast = (message, type = 'success') => {
-    setToast({ message, type });
-    setTimeout(() => setToast({ message: '', type: 'success' }), 4000);
-  };
 
   const [customerSearch, setCustomerSearch] = useState('');
   const [customerList, setCustomerList] = useState([]);
@@ -76,34 +70,7 @@ export default function SalesInvoiceDetail() {
 
   const [showCreateCustomer, setShowCreateCustomer] = useState(false);
   const [newCustomer, setNewCustomer] = useState({ full_name: '', phone: '' });
-  const [creatingCustomer, setCreatingCustomer] = useState(false);
   const [customerModalError, setCustomerModalError] = useState('');
-
-  const handleCreateCustomer = async () => {
-    if (!newCustomer.full_name || !newCustomer.phone) {
-      setCustomerModalError('Vui lòng nhập đầy đủ Tên và Số điện thoại.');
-      return;
-    }
-    const cleanPhone = newCustomer.phone.trim().replace(/\\s/g, '');
-    if (cleanPhone.length < 10 || cleanPhone.length > 11) {
-      setCustomerModalError('Số điện thoại hợp lệ phải có 10 hoặc 11 chữ số.');
-      return;
-    }
-    setCreatingCustomer(true);
-    setCustomerModalError('');
-    try {
-      const created = await createCustomer({ ...newCustomer, status: 'active', is_regular: true });
-      updateActiveTab({ customerId: created._id, customerData: created, recipientName: created.full_name, paymentMethod: 'cash' });
-      setCustomerSearch('');
-      setShowCreateCustomer(false);
-      setNewCustomer({ full_name: '', phone: '' });
-      showToast('Thêm khách hàng thành công!', 'success');
-    } catch (e) {
-      setCustomerModalError(e.message || 'Lỗi khi thêm khách hàng mới');
-    } finally {
-      setCreatingCustomer(false);
-    }
-  };
 
   const searchCustomers = (val) => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -195,9 +162,7 @@ export default function SalesInvoiceDetail() {
           // In hóa đơn
           handlePrintInvoice(invoiceData, tabSnapshot);
 
-          // Toast
-          setToastMessage('Thanh toán chuyển khoản thành công!');
-          setTimeout(() => setToastMessage(''), 4000);
+          notify('Thanh toán chuyển khoản thành công!', 'success');
 
           // Reset tab
           setTabs(prev => {
@@ -226,11 +191,10 @@ export default function SalesInvoiceDetail() {
           }
           return null;
         });
-        setToastMessage('Hết thời gian chờ thanh toán. Giao dịch đã bị hủy.');
-        setTimeout(() => setToastMessage(''), 5000);
+        notify('Hết thời gian chờ thanh toán. Giao dịch đã bị hủy.', 'error');
       }
     }, 5000);
-  }, [stopPolling, speakPayment, loadProducts]);
+  }, [stopPolling, speakPayment, loadProducts, notify]);
 
   // Dọn dẹp polling khi unmount
   useEffect(() => () => stopPolling(), [stopPolling]);
@@ -369,13 +333,11 @@ export default function SalesInvoiceDetail() {
       String(p.sku || '').toLowerCase() === normalized
     ));
     if (!found) {
-      setToastMessage(`Không tìm thấy sản phẩm với mã: ${code}`);
-      setTimeout(() => setToastMessage(''), 2500);
+      notify(`Không tìm thấy sản phẩm với mã: ${code}`, 'error');
       return;
     }
     handleAddProduct(found);
-    setToastMessage(`Đã thêm: ${found.name}`);
-    setTimeout(() => setToastMessage(''), 1800);
+    notify(`Đã thêm: ${found.name}`, 'success');
   };
 
   useEffect(() => {
@@ -405,7 +367,7 @@ export default function SalesInvoiceDetail() {
     };
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [scanMode, products, activeTabId]);
+  }, [scanMode, products, activeTabId, notify]);
 
   const updateLine = (idx, changes) => {
     const newItems = [...activeTab.items];
@@ -596,7 +558,7 @@ export default function SalesInvoiceDetail() {
              handlePrintInvoice(created, activeTab);
           }
           speakPayment();
-          showToast('Thanh toán thành công! ' + (changeAmount > 0 ? `Tiền thừa trả khách: ${formatMoney(changeAmount)}` : ''), 'success');
+          notify('Thanh toán thành công! ' + (changeAmount > 0 ? `Tiền thừa trả khách: ${formatMoney(changeAmount)}` : ''), 'success');
 
           if (tabs.length === 1) {
             const nextNumber = getNextTabNumber(tabs);
@@ -613,11 +575,11 @@ export default function SalesInvoiceDetail() {
       } else {
         await updateInvoice(activeTab.invoiceId, payload);
         updateActiveTab({ successMessage: 'Đã lưu thay đổi.', saving: false });
-        showToast('Đã lưu thay đổi hóa đơn.', 'success');
+        notify('Đã lưu thay đổi hóa đơn.', 'success');
       }
     } catch (e) {
       updateActiveTab({ error: e.message || 'Lỗi khi lưu hóa đơn', saving: false });
-      showToast(e.message || 'Lỗi khi lưu hóa đơn', 'error');
+      notify(e.message || 'Lỗi khi lưu hóa đơn', 'error');
     }
   };
 
@@ -635,7 +597,14 @@ export default function SalesInvoiceDetail() {
     processCheckout();
   };
 
-  if (loading) return <div className="pos-loading">Đang tải...</div>;
+  if (loading) {
+    return (
+      <div className="pos-loading">
+        <Loader2 className="h-10 w-10 animate-spin text-teal-500" aria-hidden />
+        <span>Đang tải dữ liệu quầy...</span>
+      </div>
+    );
+  }
 
   return (
     <div className="pos-container">
@@ -646,8 +615,17 @@ export default function SalesInvoiceDetail() {
             title={sidebarCollapsed ? 'Mở menu' : 'Thu nhỏ menu'}
             onClick={() => typeof toggleSidebar === 'function' && toggleSidebar()}
           >
-            <i className="fa-solid fa-bars" />
+            <Menu className="h-[18px] w-[18px]" strokeWidth={2.25} aria-hidden />
           </button>
+          {isNew ? (
+            <div
+              className="hidden shrink-0 select-none items-center gap-1.5 rounded-full border border-white/35 bg-white/15 px-3 py-1 text-xs font-bold tracking-tight text-white shadow-sm backdrop-blur-sm sm:flex"
+              title="Quầy bán lẻ"
+            >
+              <Receipt className="h-3.5 w-3.5 opacity-95" aria-hidden />
+              Tạo hóa đơn
+            </div>
+          ) : null}
           <div className="pos-toolbar-left">
             <div className="pos-search-dropdown-wrap" ref={searchWrapRef}>
               <input
@@ -702,7 +680,7 @@ export default function SalesInvoiceDetail() {
                 }
               }}
             >
-              <i className="fa-solid fa-barcode" />
+              <Barcode className="mx-auto h-[18px] w-[18px]" strokeWidth={2.25} aria-hidden />
             </button>
             {scanMode && <span className="pos-scan-mode-tag">Đang quét mã</span>}
           </div>
@@ -715,15 +693,16 @@ export default function SalesInvoiceDetail() {
                 onClick={() => setActiveTabId(tab.tabId)}
               >
                 {tab.name}
-                <i
-                  className="fa-solid fa-xmark"
-                  style={{ fontSize: 12, marginLeft: 8, cursor: 'pointer', padding: 2 }}
+                <X
+                  className="ml-2 h-3.5 w-3.5 shrink-0 cursor-pointer opacity-80 hover:opacity-100"
+                  strokeWidth={2.5}
+                  aria-label="Đóng tab"
                   onClick={(e) => handleCloseTab(tab.tabId, e)}
                 />
               </div>
             ))}
-            <Button type="button" variant="outline" className="pos-add-tab-btn" onClick={handleAddTab}>
-              <i className="fa-solid fa-plus" />
+            <Button type="button" variant="outline" className="pos-add-tab-btn" onClick={handleAddTab} aria-label="Thêm hóa đơn">
+              <Plus className="h-4 w-4" strokeWidth={2.25} />
             </Button>
           </div>
       </div>
@@ -732,8 +711,19 @@ export default function SalesInvoiceDetail() {
       {/* Center Area: Active Order with Tabs */}
       <div className="pos-center-area">
         <div className="pos-cart-container">
-          {activeTab.error && <div className="warehouse-alert warehouse-alert-error">{activeTab.error}</div>}
-          {activeTab.successMessage && <div className="warehouse-alert warehouse-alert-success">{activeTab.successMessage}</div>}
+          {activeTab.error && (
+            <div className="mb-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-sm font-medium text-red-800" role="alert">
+              {activeTab.error}
+            </div>
+          )}
+          {activeTab.successMessage && (
+            <div
+              className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm font-medium text-emerald-800"
+              role="status"
+            >
+              {activeTab.successMessage}
+            </div>
+          )}
           
           <table className="pos-cart-table">
             <thead>
@@ -890,7 +880,7 @@ export default function SalesInvoiceDetail() {
           </div>
           <div className="pos-total-row">
             <span>{activeTab.payOldDebt ? 'Tổng thanh toán (+Nợ)' : 'Khách cần trả'}</span>
-            <span style={{ color: '#0081ff', fontSize: 20 }}>{formatMoney(totalWithDebt)}</span>
+            <span style={{ color: '#0f766e', fontSize: 20 }}>{formatMoney(totalWithDebt)}</span>
           </div>
           
           {/* Detailed Payment Inputs */}
@@ -912,7 +902,8 @@ export default function SalesInvoiceDetail() {
                   </button>
                   {activeTab.customerId && !activeTab.payOldDebt && (
                       <button 
-                         style={{ flex: 1, padding: '8px', borderRadius: 6, border: activeTab.paymentMethod === 'debt' ? '1px solid #0081ff' : '1px solid #cbd5e1', background: activeTab.paymentMethod === 'debt' ? '#eff6ff' : 'white', cursor: 'pointer', fontWeight: 600, color: activeTab.paymentMethod === 'debt' ? '#0081ff' : '#64748b' }}
+                         type="button"
+                         style={{ flex: 1, padding: '8px', borderRadius: 8, border: activeTab.paymentMethod === 'debt' ? '1px solid #5eead4' : '1px solid #cbd5e1', background: activeTab.paymentMethod === 'debt' ? '#f0fdfa' : 'white', cursor: 'pointer', fontWeight: 600, color: activeTab.paymentMethod === 'debt' ? '#0f766e' : '#64748b' }}
                          onClick={() => updateActiveTab({ paymentMethod: 'debt' })}
                       >
                          <i className="fa-solid fa-book" style={{ marginRight: 6 }}/> Ghi nợ
@@ -1113,20 +1104,6 @@ export default function SalesInvoiceDetail() {
       </div>
       </div>
       
-      {/* Toast Notification */}
-      {toast.message && (
-        <div style={{
-          position: 'fixed', bottom: 40, right: 40, 
-          background: toast.type === 'error' ? '#ef4444' : '#10b981', 
-          color: 'white', padding: '16px 24px', 
-          borderRadius: 8, boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', zIndex: 9999, fontWeight: 600,
-          display: 'flex', alignItems: 'center', gap: 12, animation: 'slideUp 0.3s ease-out'
-        }}>
-          <i className={toast.type === 'error' ? "fa-solid fa-circle-xmark" : "fa-solid fa-circle-check"} style={{ fontSize: 20 }} />
-          {toast.message}
-        </div>
-      )}
-
       <PaymentWaitModal
         pendingPayment={pendingPayment}
         bankCode={bankCode}
@@ -1140,7 +1117,7 @@ export default function SalesInvoiceDetail() {
             loadProducts(); // Hoàn lại tồn kho sau khi hủy
           }
           setPendingPayment(null);
-          showToast('Đã hủy giao dịch chuyển khoản.', 'error');
+          notify('Đã hủy giao dịch chuyển khoản.', 'error');
         }}
       />
 

@@ -67,7 +67,7 @@ export default function SalesHome() {
         </div>
 
         <div className="sales-stat-card">
-          <div className="stat-icon-wrapper" style={{background: '#e0e7ff', color: '#3730a3'}}>
+          <div className="stat-icon-wrapper" style={{background: '#e0f2fe', color: '#0369a1'}}>
             <i className="fa-solid fa-file-invoice" />
           </div>
           <div className="stat-details">
@@ -181,9 +181,30 @@ export default function SalesHome() {
       </div>
 
       <style>{`
-        .sales-welcome { margin-bottom: 32px; }
+        .sales-welcome {
+          margin-bottom: 32px;
+          padding: 22px 24px 20px;
+          border-radius: 16px;
+          background: white;
+          border: 1px solid #e2e8f0;
+          box-shadow: 0 4px 24px -4px rgba(15, 23, 42, 0.08);
+          position: relative;
+          overflow: hidden;
+        }
+        .sales-welcome::before {
+          content: '';
+          position: absolute;
+          top: 0; left: 0; right: 0;
+          height: 4px;
+          background: linear-gradient(120deg, #0d9488 0%, #0ea5e9 48%, #0284c7 100%);
+        }
         .sales-welcome h2 { font-size: 1.8rem; font-weight: 800; color: #1e293b; margin: 0 0 8px 0; }
-        .sales-welcome h2 span { color: var(--sales-primary); }
+        .sales-welcome h2 span {
+          background: linear-gradient(105deg, #0d9488, #0ea5e9);
+          -webkit-background-clip: text;
+          background-clip: text;
+          color: transparent;
+        }
         .sales-welcome p { color: var(--sales-text-muted); font-size: 1rem; }
 
         .sales-quick-actions h3 { font-size: 1.1rem; margin-bottom: 16px; color: #334155; }
@@ -193,14 +214,30 @@ export default function SalesHome() {
           display: flex; align-items: center; justify-content: center; gap: 10px; font-weight: 600; 
           color: #475569; cursor: pointer; transition: all 0.2s;
         }
-        .q-btn:hover { background: #f1f5f9; border-color: #cbd5e1; }
-        .q-btn i { color: var(--sales-primary); font-size: 1.2rem; }
+        .q-btn:hover {
+          border-color: #99f6e4;
+          background: linear-gradient(180deg, #f0fdfa 0%, #f8fafc 100%);
+          color: #0f766e;
+        }
+        .q-btn i {
+          background: linear-gradient(135deg, #0d9488, #0ea5e9);
+          -webkit-background-clip: text;
+          background-clip: text;
+          color: transparent;
+          font-size: 1.2rem;
+        }
 
         .chart-bar:hover .chart-tooltip { opacity: 1 !important; }
         .chart-bar:hover { filter: brightness(1.1); transform: scaleX(1.1); }
         .chart-bar { transform-origin: center bottom; cursor: pointer; }
 
-        .sales-recent-card { background: white; border-radius: 16px; padding: 24px; box-shadow: var(--sales-shadow); }
+        .sales-recent-card {
+          background: white;
+          border-radius: 16px;
+          padding: 24px;
+          border: 1px solid #e2e8f0;
+          box-shadow: 0 4px 24px -4px rgba(15, 23, 42, 0.08);
+        }
         .sales-recent-card h3 { margin: 0 0 20px 0; font-size: 1.1rem; }
         .sales-table-wrapper { overflow-x: auto; }
         .sales-table { width: 100%; border-collapse: collapse; text-align: left; }
