@@ -118,6 +118,18 @@ function getManagerStoreId(req) {
 }
 
 /**
+ * Điều kiện loại trừ hóa đơn chuyển khoản chưa được xác nhận thanh toán.
+ * Hóa đơn bank_transfer chỉ được tính vào doanh thu/lợi nhuận khi payment_status = 'paid'.
+ * Các phương thức khác (cash, debt, card, credit) luôn được tính.
+ */
+const PAID_TRANSFER_FILTER = {
+  $or: [
+    { payment_method: { $ne: 'bank_transfer' } },
+    { payment_status: 'paid' },
+  ],
+};
+
+/**
  * Lãi gộp dòng = line_total − qty×unitCost, làm tròn 2 chữ số (khớp computeLineProfit trong invoices.js).
  */
 function aggLineGrossRounded(lineTotalRef, qtyRef, unitCostRef) {
@@ -281,8 +293,8 @@ router.get(
       const storeIdObj = req.user?.storeId ? new mongoose.Types.ObjectId(req.user.storeId) : null;
 
       const invoiceMatchPeriod = storeIdObj
-        ? { store_id: storeIdObj, status: 'confirmed', invoice_at: { $gte: from, $lte: to } }
-        : { status: 'confirmed', invoice_at: { $gte: from, $lte: to } };
+        ? { store_id: storeIdObj, status: 'confirmed', invoice_at: { $gte: from, $lte: to }, ...PAID_TRANSFER_FILTER }
+        : { status: 'confirmed', invoice_at: { $gte: from, $lte: to }, ...PAID_TRANSFER_FILTER };
 
       const vnToday = getVNCalendarDate();
       const todayStart = startOfVNCalendarDay(vnToday.y, vnToday.m, vnToday.day);
@@ -306,11 +318,11 @@ router.get(
       ];
 
       const todayMatchCond = storeIdObj
-        ? { store_id: storeIdObj, status: 'confirmed', invoice_at: { $gte: todayStart, $lte: todayEnd } }
-        : { status: 'confirmed', invoice_at: { $gte: todayStart, $lte: todayEnd } };
+        ? { store_id: storeIdObj, status: 'confirmed', invoice_at: { $gte: todayStart, $lte: todayEnd }, ...PAID_TRANSFER_FILTER }
+        : { status: 'confirmed', invoice_at: { $gte: todayStart, $lte: todayEnd }, ...PAID_TRANSFER_FILTER };
       const yMatchCond = storeIdObj
-        ? { store_id: storeIdObj, status: 'confirmed', invoice_at: { $gte: yStart, $lte: yEnd } }
-        : { status: 'confirmed', invoice_at: { $gte: yStart, $lte: yEnd } };
+        ? { store_id: storeIdObj, status: 'confirmed', invoice_at: { $gte: yStart, $lte: yEnd }, ...PAID_TRANSFER_FILTER }
+        : { status: 'confirmed', invoice_at: { $gte: yStart, $lte: yEnd }, ...PAID_TRANSFER_FILTER };
 
       // Doanh thu + số đơn + lợi nhuận gộp thực (từ cost_price snapshot trên từng dòng hóa đơn)
       const [invoiceAgg, invoiceProfitAgg, returnAgg, grAgg, todayAgg, yesterdayAgg, todayProfitAgg, yesterdayProfitAgg] = await Promise.all([
@@ -496,8 +508,8 @@ router.get(
         // Vốn đọng: sản phẩm có tồn > 0 nhưng không có đơn bán trong 30 ngày qua
         (async () => {
           const invoiceMatchDead = storeIdObj
-            ? { store_id: storeIdObj, status: 'confirmed', invoice_at: { $gte: thirtyDaysAgo } }
-            : { status: 'confirmed', invoice_at: { $gte: thirtyDaysAgo } };
+            ? { store_id: storeIdObj, status: 'confirmed', invoice_at: { $gte: thirtyDaysAgo }, ...PAID_TRANSFER_FILTER }
+            : { status: 'confirmed', invoice_at: { $gte: thirtyDaysAgo }, ...PAID_TRANSFER_FILTER };
 
           // Lấy danh sách product_id đã bán trong 30 ngày
           const soldProductIds = await SalesInvoice.aggregate([
@@ -614,8 +626,8 @@ router.get(
       }
 
       const matchStage = storeIdObj
-        ? { store_id: storeIdObj, status: 'confirmed', invoice_at: { $gte: matchFrom, $lte: now } }
-        : { status: 'confirmed', invoice_at: { $gte: matchFrom, $lte: now } };
+        ? { store_id: storeIdObj, status: 'confirmed', invoice_at: { $gte: matchFrom, $lte: now }, ...PAID_TRANSFER_FILTER }
+        : { status: 'confirmed', invoice_at: { $gte: matchFrom, $lte: now }, ...PAID_TRANSFER_FILTER };
 
       // Aggregate doanh thu theo bucket (khóa = chuỗi ngày/tháng theo REPORT_TZ)
       const revenueAgg = await SalesInvoice.aggregate([
@@ -712,8 +724,8 @@ router.get(
       }
 
       const matchStage = storeIdObj
-        ? { store_id: storeIdObj, status: 'confirmed', invoice_at: { $gte: from, $lte: to } }
-        : { status: 'confirmed', invoice_at: { $gte: from, $lte: to } };
+        ? { store_id: storeIdObj, status: 'confirmed', invoice_at: { $gte: from, $lte: to }, ...PAID_TRANSFER_FILTER }
+        : { status: 'confirmed', invoice_at: { $gte: from, $lte: to }, ...PAID_TRANSFER_FILTER };
 
       const agg = await SalesInvoice.aggregate([
         { $match: matchStage },
@@ -829,6 +841,7 @@ router.get(
               store_id: storeIdObj,
               status: 'confirmed',
               invoice_at: { $gte: windowStart, $lt: windowEnd },
+              ...PAID_TRANSFER_FILTER,
             },
           },
           { $unwind: '$items' },

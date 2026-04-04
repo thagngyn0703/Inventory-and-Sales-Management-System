@@ -6,7 +6,7 @@ function getToken() {
 
 /**
  * Create a new stocktaking record (draft).
- * @param {{ warehouse_id?: string, product_ids: string[] }} body
+ * @param {{ product_ids: string[] }} body
  * @returns {Promise<{ stocktake: object }>}
  */
 export async function createStocktake(body) {

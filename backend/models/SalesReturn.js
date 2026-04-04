@@ -23,11 +23,6 @@ const salesReturnSchema = new Schema(
             ref: 'User',
             required: true,
         },
-        warehouse_id: {
-            type: Schema.Types.ObjectId,
-            ref: 'Warehouse',
-            required: false,
-        },
         supplier_id: {
             type: Schema.Types.ObjectId,
             ref: 'Supplier',

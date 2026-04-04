@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useNavigate, useOutletContext, useParams } from 'react-router-dom';
-import { getInvoice, createInvoice, updateInvoice, getPaymentStatus } from '../../services/invoicesApi';
+import { getInvoice, createInvoice, updateInvoice, getPaymentStatus, cancelUnpaidBankTransferInvoice } from '../../services/invoicesApi';
 import { getProducts } from '../../services/productsApi';
 import { getCustomers, createCustomer } from '../../services/customersApi';
 import PaymentWaitModal from '../../components/payment/PaymentWaitModal';
@@ -219,8 +219,14 @@ export default function SalesInvoiceDetail() {
 
       if (attempts >= MAX_ATTEMPTS) {
         stopPolling();
-        setPendingPayment(null);
-        setToastMessage('Hết thời gian chờ thanh toán. Vui lòng kiểm tra lại.');
+        // Hết giờ: hủy hóa đơn chưa thanh toán để không làm sai thống kê
+        setPendingPayment((prev) => {
+          if (prev?.invoice?._id) {
+            cancelUnpaidBankTransferInvoice(prev.invoice._id).then(() => loadProducts());
+          }
+          return null;
+        });
+        setToastMessage('Hết thời gian chờ thanh toán. Giao dịch đã bị hủy.');
         setTimeout(() => setToastMessage(''), 5000);
       }
     }, 5000);
@@ -429,8 +435,11 @@ export default function SalesInvoiceDetail() {
   const missingAmount = Math.max(0, totalWithDebt - customerPaidNum);
   
   // Validation
+  const customerDebt = activeTab.customerData?.debt_account || 0;
+  // Nợ >= 100.000đ: bắt buộc phải chọn "Trả luôn" (payOldDebt=true) mới được thanh toán
+  const isDebtBlocked = customerDebt >= 100000 && !activeTab.payOldDebt;
   const isPaymentSufficient = activeTab.paymentMethod === 'bank_transfer' || customerPaidNum >= totalAmount;
-  const canSubmit = !activeTab.saving && activeTab.items.length > 0 && 
+  const canSubmit = !activeTab.saving && activeTab.items.length > 0 && !isDebtBlocked &&
     (activeTab.paymentMethod === 'debt' || customerPaidNum >= totalWithDebt || activeTab.paymentMethod === 'bank_transfer');
 
   const QUICK_PAID_VALUES = [10000, 20000, 50000, 100000, 200000, 500000];
@@ -576,8 +585,9 @@ export default function SalesInvoiceDetail() {
 
         if (activeTab.paymentMethod === 'bank_transfer' && payment_ref) {
           // Chuyển khoản: hiện màn hình QR chờ, bắt đầu polling
+          // Dùng totalWithDebt để QR hiện đúng số tiền thực thu (bao gồm nợ cũ nếu khách chọn trả luôn)
           const tabSnapshot = { ...activeTab, items: [...activeTab.items] };
-          setPendingPayment({ paymentRef: payment_ref, totalAmount: totalAmount, invoice: created });
+          setPendingPayment({ paymentRef: payment_ref, totalAmount: totalWithDebt, invoice: created });
           startPolling(payment_ref, created, tabSnapshot);
           updateActiveTab({ saving: false });
         } else {
@@ -1005,43 +1015,54 @@ export default function SalesInvoiceDetail() {
               <div style={{ 
                  marginTop: 16, 
                  padding: '16px', 
-                 background: '#fff7ed', 
-                 border: '1px solid #fed7aa', 
+                 background: isDebtBlocked ? '#fef2f2' : '#fff7ed', 
+                 border: isDebtBlocked ? '1px solid #fca5a5' : '1px solid #fed7aa', 
                  borderRadius: 12,
                  boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)'
               }}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-                      <div style={{ background: '#ffedd5', color: '#ea580c', width: 32, height: 32, borderRadius: '50%', display: 'flex', alignItems: 'center', flexShrink: 0, justifyContent: 'center' }}>
-                          <i className="fa-solid fa-triangle-exclamation" />
+                      <div style={{ background: isDebtBlocked ? '#fee2e2' : '#ffedd5', color: isDebtBlocked ? '#dc2626' : '#ea580c', width: 32, height: 32, borderRadius: '50%', display: 'flex', alignItems: 'center', flexShrink: 0, justifyContent: 'center' }}>
+                          <i className={isDebtBlocked ? "fa-solid fa-ban" : "fa-solid fa-triangle-exclamation"} />
                       </div>
                       <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 13, color: '#9a3412', fontWeight: 700, marginBottom: 4 }}>THÔNG BÁO NỢ CŨ</div>
-                          <div style={{ fontSize: 13, color: '#c2410c' }}>
+                          <div style={{ fontSize: 13, color: isDebtBlocked ? '#991b1b' : '#9a3412', fontWeight: 700, marginBottom: 4 }}>
+                            {isDebtBlocked ? 'BẮT BUỘC THANH TOÁN NỢ TRƯỚC' : 'THÔNG BÁO NỢ CŨ'}
+                          </div>
+                          <div style={{ fontSize: 13, color: isDebtBlocked ? '#dc2626' : '#c2410c' }}>
                               Khách hàng đang còn nợ: <span style={{ fontWeight: 800 }}>{formatMoney(activeTab.customerData.debt_account)}</span>
                           </div>
                           
-                          <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, background: 'white', padding: '8px 12px', borderRadius: 8, border: '1px solid #fdba74' }}>
-                              <span style={{ fontSize: 12, fontWeight: 600, color: '#9a3412' }}>Thanh toán cùng đơn này?</span>
+                          {isDebtBlocked && (
+                            <div style={{ marginTop: 8, fontSize: 12, color: '#991b1b', background: '#fee2e2', padding: '6px 10px', borderRadius: 6, border: '1px solid #fca5a5' }}>
+                              Số nợ ≥ 100.000₫ — khách phải thanh toán toàn bộ nợ cũ trước khi mua hàng mới. Chọn <strong>Trả luôn</strong> để tiếp tục.
+                            </div>
+                          )}
+                          
+                          <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, background: 'white', padding: '8px 12px', borderRadius: 8, border: `1px solid ${isDebtBlocked ? '#fca5a5' : '#fdba74'}` }}>
+                              <span style={{ fontSize: 12, fontWeight: 600, color: isDebtBlocked ? '#991b1b' : '#9a3412' }}>Thanh toán cùng đơn này?</span>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const updates = { payOldDebt: false };
-                                      updateActiveTab(updates);
-                                    }}
-                                    style={{
-                                      background: !activeTab.payOldDebt ? '#ea580c' : '#f1f5f9',
-                                      color: !activeTab.payOldDebt ? 'white' : '#64748b',
-                                      border: 'none',
-                                      padding: '6px 14px',
-                                      borderRadius: 6,
-                                      fontSize: 11,
-                                      fontWeight: 700,
-                                      cursor: 'pointer',
-                                    }}
-                                  >
-                                    Chưa trả
-                                  </button>
+                                  {/* Ẩn nút "Chưa trả" khi nợ >= 100.000đ vì bắt buộc phải trả */}
+                                  {!isDebtBlocked && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const updates = { payOldDebt: false };
+                                        updateActiveTab(updates);
+                                      }}
+                                      style={{
+                                        background: !activeTab.payOldDebt ? '#ea580c' : '#f1f5f9',
+                                        color: !activeTab.payOldDebt ? 'white' : '#64748b',
+                                        border: 'none',
+                                        padding: '6px 14px',
+                                        borderRadius: 6,
+                                        fontSize: 11,
+                                        fontWeight: 700,
+                                        cursor: 'pointer',
+                                      }}
+                                    >
+                                      Chưa trả
+                                    </button>
+                                  )}
                                   <button
                                     type="button"
                                     onClick={() => {
@@ -1052,8 +1073,8 @@ export default function SalesInvoiceDetail() {
                                       updateActiveTab(updates);
                                     }}
                                     style={{
-                                      background: activeTab.payOldDebt ? '#ea580c' : '#f1f5f9',
-                                      color: activeTab.payOldDebt ? 'white' : '#64748b',
+                                      background: activeTab.payOldDebt ? '#ea580c' : (isDebtBlocked ? '#dc2626' : '#f1f5f9'),
+                                      color: (activeTab.payOldDebt || isDebtBlocked) ? 'white' : '#64748b',
                                       border: 'none',
                                       padding: '6px 14px',
                                       borderRadius: 6,
@@ -1072,10 +1093,17 @@ export default function SalesInvoiceDetail() {
           )}
           
           <div className="pos-submit-wrap">
+            {isDebtBlocked && (
+              <div style={{ marginBottom: 8, fontSize: 12, color: '#dc2626', textAlign: 'center', fontWeight: 600 }}>
+                <i className="fa-solid fa-lock" style={{ marginRight: 4 }} />
+                Chọn "Trả luôn" để mở khóa thanh toán
+              </div>
+            )}
             <button 
               className="pos-pay-button" 
               onClick={handleSubmit}
               disabled={!canSubmit}
+              title={isDebtBlocked ? `Khách nợ ${formatMoney(customerDebt)} ≥ 100.000₫, phải trả nợ trước` : ''}
             >
               {activeTab.saving ? 'ĐANG XỬ LÝ...' : 'THANH TOÁN'}
             </button>
@@ -1104,9 +1132,15 @@ export default function SalesInvoiceDetail() {
         bankCode={bankCode}
         bankAccountNumber={bankAccountNumber}
         storeName={storeDisplayName}
-        onCancel={() => {
+        onCancel={async () => {
           stopPolling();
+          // Hủy hóa đơn chưa thanh toán để tránh tính vào thống kê doanh thu
+          if (pendingPayment?.invoice?._id) {
+            await cancelUnpaidBankTransferInvoice(pendingPayment.invoice._id);
+            loadProducts(); // Hoàn lại tồn kho sau khi hủy
+          }
           setPendingPayment(null);
+          showToast('Đã hủy giao dịch chuyển khoản.', 'error');
         }}
       />
 

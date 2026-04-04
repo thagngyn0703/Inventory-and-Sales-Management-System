@@ -145,7 +145,6 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
             invoice_id,
             customer_id: invoice.customer_id?._id || invoice.customer_id || req.body.customer_id,
             created_by: req.user.id,
-            warehouse_id: req.body.warehouse_id || invoice.warehouse_id || null,
             supplier_id: firstSupplierId,
             items: returnItems,
             reason: reason || 'Khách trả hàng',
