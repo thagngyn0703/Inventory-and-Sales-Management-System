@@ -35,35 +35,33 @@ export default function SalesDashboard() {
 
   return (
     <div className={`sales-layout${sidebarCollapsed ? ' sidebar-collapsed' : ''}${isPosRoute ? ' pos-mode' : ''}`}>
-      <SalesSidebar
-        collapsed={sidebarCollapsed}
-        onToggle={toggleSidebar}
-      />
+      <SalesSidebar collapsed={sidebarCollapsed} />
       <main className={`sales-main${isPosRoute ? ' pos-mode' : ''}`}>
         {!isPosRoute && (
-        <header className="sales-header">
-          {/* Nút toggle sidebar */}
+        <header className="sales-header flex h-12 items-center gap-2 border-b border-slate-200/80 bg-gradient-to-r from-teal-50/90 via-white to-sky-50/80 px-3 shadow-sm shadow-slate-900/[0.03] backdrop-blur-sm">
           <button
-            className="sales-toggle-btn"
+            type="button"
+            className="sales-toggle-btn flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200/80 bg-white/90 text-slate-600 shadow-sm transition hover:border-teal-200 hover:bg-teal-50/50 hover:text-teal-800"
             onClick={toggleSidebar}
             title={sidebarCollapsed ? 'Mở menu' : 'Thu nhỏ menu'}
           >
-            <i className="fa-solid fa-bars" />
+            <i className="fa-solid fa-bars text-sm" />
           </button>
 
-          <div style={{ flex: 1 }} />
+          <div className="min-w-0 flex-1" />
 
-          {/* User badge với tên cửa hàng */}
-          <div className="sales-user-badge">
-            <i className="fa-solid fa-circle-user" style={{ color: '#0d9488' }} />
+          <div className="sales-user-badge flex max-w-[min(100%,420px)] items-center gap-2 rounded-full border border-slate-200/80 bg-white/90 py-1 pl-1 pr-3 text-[11px] font-semibold text-slate-700 shadow-sm">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-teal-500 to-emerald-600 text-[10px] text-white shadow-inner">
+              <i className="fa-solid fa-user" />
+            </span>
             {storeName && (
-              <span className="sales-store-tag">
-                <i className="fa-solid fa-store" style={{ marginRight: 4, fontSize: 10 }} />
+              <span className="hidden max-w-[140px] truncate rounded-md border border-teal-200/80 bg-teal-50/90 px-2 py-0.5 text-[10px] font-bold text-teal-800 sm:inline">
+                <i className="fa-solid fa-store mr-1 text-[9px]" />
                 {storeName}
               </span>
             )}
-            <span>{displayName}</span>
-            <span style={{ fontSize: '11px', opacity: 0.6 }}>({roleLabel})</span>
+            <span className="truncate">{displayName}</span>
+            <span className="shrink-0 text-[10px] font-medium text-slate-400">({roleLabel})</span>
           </div>
         </header>
         )}

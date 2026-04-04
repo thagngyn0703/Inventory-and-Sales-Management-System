@@ -8,25 +8,72 @@ const router = express.Router();
 
 const Product = require('../models/Product');
 const Supplier = require('../models/Supplier');
+const User = require('../models/User');
 
-// GET /api/goods-receipts?page=&limit=&status=&supplier_id=
+function escapeRegex(s) {
+    return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// GET /api/goods-receipts?page=&limit=&status=&supplier_id=&q=&sortBy=&order=
 router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
-        const { page = '1', limit = '20', status, supplier_id } = req.query;
+        const {
+            page = '1',
+            limit = '20',
+            status,
+            supplier_id,
+            q,
+            sortBy = 'received_at',
+            order = 'desc',
+        } = req.query;
         const pageNum = Math.max(1, parseInt(page, 10) || 1);
         const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
-        const filter = {};
-        if (status && ['pending', 'approved', 'rejected'].includes(status)) {
-            filter.status = status;
+
+        const clauses = [];
+        const validStatuses = ['draft', 'pending', 'approved', 'rejected'];
+        if (status && validStatuses.includes(String(status))) {
+            clauses.push({ status: String(status) });
         }
         if (supplier_id && mongoose.isValidObjectId(supplier_id)) {
-            filter.supplier_id = new mongoose.Types.ObjectId(supplier_id);
+            clauses.push({ supplier_id: new mongoose.Types.ObjectId(supplier_id) });
         }
+
+        const qStr = q != null ? String(q).trim() : '';
+        if (qStr) {
+            const re = new RegExp(escapeRegex(qStr), 'i');
+            const [supplierIds, userIds] = await Promise.all([
+                Supplier.find({ name: re }).distinct('_id'),
+                User.find({ fullName: re }).distinct('_id'),
+            ]);
+            const idOr = [];
+            if (supplierIds.length) idOr.push({ supplier_id: { $in: supplierIds } });
+            if (userIds.length) idOr.push({ received_by: { $in: userIds } });
+            if (mongoose.isValidObjectId(qStr)) {
+                idOr.push({ _id: new mongoose.Types.ObjectId(qStr) });
+            }
+            idOr.push({
+                $expr: {
+                    $regexMatch: {
+                        input: { $toString: '$_id' },
+                        regex: escapeRegex(qStr),
+                        options: 'i',
+                    },
+                },
+            });
+            clauses.push({ $or: idOr });
+        }
+
+        const filter = clauses.length === 0 ? {} : clauses.length === 1 ? clauses[0] : { $and: clauses };
+
+        const allowedSortFields = { received_at: 1, created_at: 1, total_amount: 1 };
+        const sortField = allowedSortFields[sortBy] ? sortBy : 'received_at';
+        const sortDir = order === 'asc' ? 1 : -1;
+        const sortObj = { [sortField]: sortDir };
 
         const total = await GoodsReceipt.countDocuments(filter);
         const skip = (pageNum - 1) * limitNum;
         const list = await GoodsReceipt.find(filter)
-            .sort({ received_at: -1 })
+            .sort(sortObj)
             .skip(skip)
             .limit(limitNum)
             .populate('supplier_id', 'name phone email')
@@ -131,6 +178,43 @@ router.post('/', requireAuth, requireRole(['staff', 'manager']), async (req, res
         return res.status(201).json({ goodsReceipt: saved });
     } catch (err) {
         console.error('Create GR error:', err);
+        return res.status(500).json({ message: err.message || 'Server error' });
+    }
+});
+
+// PUT /api/goods-receipts/:id  (staff, manager) — ví dụ: gửi phiếu nháp sang chờ duyệt
+router.put('/:id', requireAuth, requireRole(['staff', 'manager']), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status } = req.body || {};
+        if (!mongoose.isValidObjectId(id)) {
+            return res.status(400).json({ message: 'Invalid goods receipt id' });
+        }
+        const gr = await GoodsReceipt.findById(id);
+        if (!gr) return res.status(404).json({ message: 'Goods receipt not found' });
+        if (req.user.role !== 'admin' && String(gr.storeId) !== String(req.user.storeId)) {
+            return res.status(403).json({ message: 'Forbidden' });
+        }
+        if (gr.status !== 'draft') {
+            return res.status(400).json({ message: 'Chỉ có thể cập nhật phiếu ở trạng thái nháp' });
+        }
+        if (status !== 'pending') {
+            return res.status(400).json({ message: 'Cập nhật không hợp lệ' });
+        }
+        gr.status = 'pending';
+        gr.updated_at = new Date();
+        await gr.save();
+
+        const updated = await GoodsReceipt.findById(id)
+            .populate('supplier_id', 'name phone email')
+            .populate('received_by', 'fullName email')
+            .populate('approved_by', 'fullName email')
+            .populate('items.product_id', 'name sku')
+            .lean();
+
+        return res.json({ goodsReceipt: updated });
+    } catch (err) {
+        console.error('Update GR error:', err);
         return res.status(500).json({ message: err.message || 'Server error' });
     }
 });

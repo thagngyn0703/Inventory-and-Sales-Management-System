@@ -2,6 +2,11 @@ import React, { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getInvoice } from '../../services/invoicesApi';
 import { createReturn } from '../../services/returnsApi';
+import { useToast } from '../../contexts/ToastContext';
+import { StaffPageShell } from '../../components/staff/StaffPageShell';
+import { Button } from '../../components/ui/button';
+import { Card, CardContent } from '../../components/ui/card';
+import { ArrowLeft, RotateCcw } from 'lucide-react';
 import './SalesPOS.css';
 
 function formatMoney(n) {
@@ -16,6 +21,7 @@ function formatDate(d) {
 
 export default function SalesReturnPage() {
   const navigate = useNavigate();
+  const { toast } = useToast();
 
   // Step 1: search invoice
   const [invoiceInput, setInvoiceInput] = useState('');
@@ -30,12 +36,6 @@ export default function SalesReturnPage() {
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
-  const [toast, setToast] = useState({ message: '', type: 'success' });
-
-  const showToast = (message, type = 'success') => {
-    setToast({ message, type });
-    setTimeout(() => setToast({ message: '', type: 'success' }), 4000);
-  };
 
   const handleLoadInvoice = useCallback(async () => {
     const id = invoiceInput.trim();
@@ -44,7 +44,6 @@ export default function SalesReturnPage() {
     setInvoiceError('');
     setInvoice(null);
     setReturnQty({});
-    setToast({ message: '', type: 'success' });
     setSubmitError('');
     try {
       const data = await getInvoice(id);
@@ -105,7 +104,7 @@ export default function SalesReturnPage() {
         items,
         reason: reason || 'Khách trả hàng',
       });
-      showToast(
+      toast(
         message ||
           `Trả hàng thành công! Đã hoàn trả ${items.length} sản phẩm, tổng tiền: ${formatMoney(totalRefund)}`,
         'success'
@@ -116,44 +115,29 @@ export default function SalesReturnPage() {
       setReason('');
     } catch (e) {
       setSubmitError(e.message || 'Lỗi khi thực hiện trả hàng');
-      showToast(e.message || 'Lỗi khi thực hiện trả hàng', 'error');
+      toast(e.message || 'Lỗi khi thực hiện trả hàng', 'error');
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <div style={{ padding: 24, maxWidth: 900, margin: '0 auto', fontFamily: 'Inter, sans-serif' }}>
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24 }}>
-        <button
-          onClick={() => navigate('/staff/invoices')}
-          style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #cbd5e1', background: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, color: '#475569' }}
-        >
-          <i className="fa-solid fa-arrow-left" /> Quay lại
-        </button>
-        <div>
-          <h2 style={{ margin: 0, color: '#1e293b', fontSize: 22 }}>Trả hàng bán</h2>
-          <p style={{ margin: 0, fontSize: 13, color: '#64748b' }}>Nhập mã hóa đơn gốc để thực hiện trả hàng</p>
-        </div>
-      </div>
-
-      {/* Status Toast */}
-      {toast.message && (
-        <div style={{
-          position: 'fixed', bottom: 40, right: 40, 
-          background: toast.type === 'error' ? '#ef4444' : '#10b981', 
-          color: 'white', padding: '16px 24px', 
-          borderRadius: 8, boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', zIndex: 9999, fontWeight: 600,
-          display: 'flex', alignItems: 'center', gap: 12, animation: 'slideUp 0.3s ease-out'
-        }}>
-          <i className={toast.type === 'error' ? "fa-solid fa-circle-xmark" : "fa-solid fa-circle-check"} style={{ fontSize: 20 }} />
-          {toast.message}
-        </div>
-      )}
-
-      {/* Step 1: Search invoice */}
-      <div style={{ background: 'white', padding: 24, borderRadius: 12, boxShadow: '0 1px 3px rgba(0,0,0,0.1)', marginBottom: 20 }}>
+    <StaffPageShell
+      eyebrow="Bán hàng"
+      eyebrowIcon={RotateCcw}
+      eyebrowTone="rose"
+      title="Trả hàng bán"
+      subtitle="Nhập mã hóa đơn gốc, chọn số lượng trả và xác nhận — đồng bộ giao diện với các màn staff khác."
+      headerActions={
+        <Button type="button" variant="outline" className="gap-2" onClick={() => navigate('/staff/invoices')}>
+          <ArrowLeft className="h-4 w-4" />
+          Quay lại
+        </Button>
+      }
+      className="max-w-4xl"
+    >
+      <Card className="border-slate-200/80 shadow-sm">
+        <CardContent className="space-y-4 p-5 sm:p-6">
         <h3 style={{ margin: '0 0 16px', fontSize: 15, color: '#334155' }}>
           <i className="fa-solid fa-magnifying-glass" style={{ marginRight: 8, color: '#0081ff' }} />
           Bước 1: Tìm hóa đơn gốc
@@ -180,11 +164,13 @@ export default function SalesReturnPage() {
         {invoiceError && (
           <div className="warehouse-alert warehouse-alert-error" style={{ marginTop: 12 }}>{invoiceError}</div>
         )}
-      </div>
+        </CardContent>
+      </Card>
 
       {/* Step 2: Show invoice & select items */}
       {invoice && (
-        <div style={{ background: 'white', padding: 24, borderRadius: 12, boxShadow: '0 1px 3px rgba(0,0,0,0.1)', marginBottom: 20 }}>
+        <Card className="border-slate-200/80 shadow-sm">
+        <CardContent className="space-y-4 p-5 sm:p-6">
           <h3 style={{ margin: '0 0 16px', fontSize: 15, color: '#334155' }}>
             <i className="fa-solid fa-box-archive" style={{ marginRight: 8, color: '#0081ff' }} />
             Bước 2: Chọn sản phẩm trả lại
@@ -250,12 +236,14 @@ export default function SalesReturnPage() {
               Hoàn tiền: {formatMoney(totalRefund)}
             </div>
           </div>
-        </div>
+        </CardContent>
+        </Card>
       )}
 
       {/* Step 3: Reason & submit */}
       {invoice && (
-        <div style={{ background: 'white', padding: 24, borderRadius: 12, boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
+        <Card className="border-slate-200/80 shadow-sm">
+        <CardContent className="space-y-4 p-5 sm:p-6">
           <h3 style={{ margin: '0 0 16px', fontSize: 15, color: '#334155' }}>
             <i className="fa-solid fa-pen-to-square" style={{ marginRight: 8, color: '#0081ff' }} />
             Bước 3: Lý do trả hàng & xác nhận
@@ -292,8 +280,9 @@ export default function SalesReturnPage() {
               {submitting ? 'Đang xử lý...' : 'Xác nhận trả hàng'}
             </button>
           </div>
-        </div>
+        </CardContent>
+        </Card>
       )}
-    </div>
+    </StaffPageShell>
   );
 }

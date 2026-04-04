@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ManagerSidebar from './ManagerSidebar';
 import ManagerNotificationBell from '../../components/ManagerNotificationBell';
+import { useToast } from '../../contexts/ToastContext';
+import { ConfirmDialog } from '../../components/ui/confirm-dialog';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
 
@@ -16,11 +18,13 @@ const roleLabel = (role) => {
 
 export default function ManagerStaffManage() {
     const navigate = useNavigate();
+    const { toast } = useToast();
     const [staff, setStaff] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
     const [savingId, setSavingId] = useState('');
+    const [confirmRemoveId, setConfirmRemoveId] = useState(null);
 
     const fetchStaff = useCallback(async () => {
         const token = localStorage.getItem('token');
@@ -51,9 +55,6 @@ export default function ManagerStaffManage() {
     }, [fetchStaff]);
 
     const removeFromStore = async (userId) => {
-        const ok = window.confirm('Gỡ nhân viên này khỏi cửa hàng? Tài khoản vẫn được giữ trong hệ thống.');
-        if (!ok) return;
-
         const token = localStorage.getItem('token');
         if (!token) {
             navigate('/login', { replace: true });
@@ -72,9 +73,12 @@ export default function ManagerStaffManage() {
                 throw new Error(data.message || 'Không thể gỡ nhân viên khỏi cửa hàng');
             }
             setStaff((prev) => prev.filter((u) => u._id !== userId));
-            setSuccess('Đã gỡ nhân viên khỏi cửa hàng.');
+            toast('Đã gỡ nhân viên khỏi cửa hàng.', 'success');
+            setConfirmRemoveId(null);
         } catch (err) {
-            setError(err.message || 'Không thể gỡ nhân viên khỏi cửa hàng');
+            const msg = err.message || 'Không thể gỡ nhân viên khỏi cửa hàng';
+            setError(msg);
+            toast(msg, 'error');
         } finally {
             setSavingId('');
         }
@@ -142,7 +146,7 @@ export default function ManagerStaffManage() {
                                                         <button
                                                             type="button"
                                                             className="manager-btn-warning manager-btn-small"
-                                                            onClick={() => removeFromStore(u._id)}
+                                                            onClick={() => setConfirmRemoveId(u._id)}
                                                             disabled={savingId === u._id}
                                                         >
                                                             Gỡ khỏi cửa hàng
@@ -158,6 +162,19 @@ export default function ManagerStaffManage() {
                     </div>
                 </div>
             </div>
+
+            <ConfirmDialog
+                open={!!confirmRemoveId}
+                onOpenChange={(open) => {
+                    if (!open) setConfirmRemoveId(null);
+                }}
+                title="Gỡ nhân viên khỏi cửa hàng?"
+                description="Nhân viên sẽ không còn thuộc cửa hàng này. Tài khoản đăng nhập vẫn được giữ trong hệ thống."
+                confirmLabel="Gỡ khỏi cửa hàng"
+                confirmVariant="destructive"
+                loading={!!confirmRemoveId && savingId === confirmRemoveId}
+                onConfirm={() => confirmRemoveId && removeFromStore(confirmRemoveId)}
+            />
         </div>
     );
 }

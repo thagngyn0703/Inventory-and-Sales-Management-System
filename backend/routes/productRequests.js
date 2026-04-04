@@ -32,12 +32,15 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
       name,
       sku,
       barcode,
+      supplier_id: bodySupplierId,
       cost_price,
       sale_price,
       stock_qty,
       reorder_level,
       base_unit,
       selling_units: bodyUnits,
+      expiry_date: bodyExpiry,
+      image_urls: bodyImageUrls,
       note
     } = req.body || {};
 
@@ -71,12 +74,30 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
     const baseUnit = selling_units.find((u) => u.ratio === 1);
     const baseUnitPrice = baseUnit ? baseUnit.sale_price : (Number(sale_price) || 0);
 
+    let image_urls = Array.isArray(bodyImageUrls)
+      ? bodyImageUrls.map((u) => String(u || '').trim()).filter(Boolean).slice(0, 3)
+      : [];
+    if (image_urls.length === 0) image_urls = undefined;
+
+    let expiry_date;
+    if (bodyExpiry) {
+      const d = new Date(bodyExpiry);
+      if (!Number.isNaN(d.getTime())) expiry_date = d;
+    }
+
+    const supplier_id = bodySupplierId && mongoose.isValidObjectId(bodySupplierId)
+      ? bodySupplierId
+      : undefined;
+
     const doc = await ProductRequest.create({
       category_id: category_id && mongoose.isValidObjectId(category_id) ? category_id : undefined,
       storeId: req.user.storeId,
       name: String(name).trim(),
       sku: String(sku).trim(),
       barcode: barcode ? String(barcode).trim() : undefined,
+      supplier_id,
+      image_urls,
+      expiry_date,
       cost_price: Number(cost_price || 0),
       sale_price: baseUnitPrice,
       stock_qty: Number(stock_qty || 0),
@@ -191,9 +212,12 @@ router.post('/:id/approve', requireAuth, requireRole(['manager', 'admin']), asyn
     const newProduct = await Product.create({
       category_id: request.category_id,
       storeId: request.storeId,
+      supplier_id: request.supplier_id,
       name: request.name,
       sku: request.sku,
       barcode: request.barcode,
+      image_urls: Array.isArray(request.image_urls) && request.image_urls.length ? request.image_urls : [],
+      expiry_date: request.expiry_date,
       cost_price: request.cost_price,
       sale_price: request.sale_price,
       stock_qty: request.stock_qty,

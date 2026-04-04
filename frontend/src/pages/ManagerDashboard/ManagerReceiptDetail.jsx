@@ -2,15 +2,20 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import ManagerSidebar from './ManagerSidebar';
 import { getGoodsReceipt, setGoodsReceiptStatus } from '../../services/goodsReceiptsApi';
+import { useToast } from '../../contexts/ToastContext';
+import { ConfirmDialog } from '../../components/ui/confirm-dialog';
 import './ManagerDashboard.css';
 
 export default function ManagerReceiptDetail() {
     const { id } = useParams();
     const navigate = useNavigate();
+    const { toast } = useToast();
     const [receipt, setReceipt] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [submitting, setSubmitting] = useState(false);
+    const [confirmOpen, setConfirmOpen] = useState(false);
+    const [confirmType, setConfirmType] = useState(null);
 
     const fetchReceipt = useCallback(async () => {
         setLoading(true);
@@ -29,29 +34,21 @@ export default function ManagerReceiptDetail() {
         fetchReceipt();
     }, [fetchReceipt]);
 
-    const handleApprove = async () => {
-        if (!window.confirm('Xác nhận duyệt phiếu nhập này? Kho hàng sẽ được tăng lên tương ứng.')) return;
+    const runStatusChange = async () => {
+        if (!confirmType) return;
         setSubmitting(true);
         try {
-            await setGoodsReceiptStatus(id, 'approved');
-            alert('Đã duyệt thành công.');
+            const status = confirmType === 'approve' ? 'approved' : 'rejected';
+            await setGoodsReceiptStatus(id, status);
+            toast(
+                status === 'approved' ? 'Đã duyệt phiếu nhập thành công.' : 'Đã từ chối phiếu nhập.',
+                'success'
+            );
+            setConfirmOpen(false);
+            setConfirmType(null);
             navigate('/manager/receipts');
         } catch (e) {
-            alert(e.message || 'Lỗi khi duyệt');
-            setSubmitting(false);
-            fetchReceipt();
-        }
-    };
-
-    const handleReject = async () => {
-        if (!window.confirm('Bạn có chắc chắn muốn từ chối phiếu nhập này?')) return;
-        setSubmitting(true);
-        try {
-            await setGoodsReceiptStatus(id, 'rejected');
-            alert('Đã từ chối phiếu nhập.');
-            navigate('/manager/receipts');
-        } catch (e) {
-            alert(e.message || 'Lỗi khi từ chối');
+            toast(e.message || 'Thao tác thất bại', 'error');
             setSubmitting(false);
             fetchReceipt();
         }
@@ -189,14 +186,14 @@ export default function ManagerReceiptDetail() {
                         <button
                             disabled={submitting}
                             style={{ padding: '10px 20px', borderRadius: 6, cursor: submitting ? 'not-allowed' : 'pointer', backgroundColor: '#ef4444', color: 'white', border: 'none', fontSize: 15, fontWeight: 500 }}
-                            onClick={handleReject}
+                            onClick={() => { setConfirmType('reject'); setConfirmOpen(true); }}
                         >
                             Từ chối phiếu nhập
                         </button>
                         <button
                             disabled={submitting}
                             style={{ padding: '10px 20px', borderRadius: 6, cursor: submitting ? 'not-allowed' : 'pointer', backgroundColor: '#10b981', color: 'white', border: 'none', fontSize: 15, fontWeight: 500 }}
-                            onClick={handleApprove}
+                            onClick={() => { setConfirmType('approve'); setConfirmOpen(true); }}
                         >
                             Duyệt phiếu nhập (Nhập kho)
                         </button>
@@ -205,6 +202,24 @@ export default function ManagerReceiptDetail() {
             </div>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmOpen}
+        onOpenChange={(open) => {
+            setConfirmOpen(open);
+            if (!open) setConfirmType(null);
+        }}
+        title={confirmType === 'approve' ? 'Duyệt phiếu nhập kho?' : 'Từ chối phiếu nhập?'}
+        description={
+            confirmType === 'approve'
+                ? 'Kho hàng sẽ được tăng theo số lượng và đơn giá trên phiếu.'
+                : 'Phiếu sẽ được đánh dấu từ chối.'
+        }
+        confirmLabel={confirmType === 'approve' ? 'Duyệt nhập kho' : 'Từ chối'}
+        confirmVariant={confirmType === 'reject' ? 'destructive' : 'default'}
+        loading={submitting}
+        onConfirm={runStatusChange}
+      />
     </div>
     );
 }

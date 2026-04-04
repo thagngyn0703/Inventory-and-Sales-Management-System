@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ManagerSidebar from './ManagerSidebar';
 import { getInvoices } from '../../services/invoicesApi';
+import { useToast } from '../../contexts/ToastContext';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
 
@@ -21,6 +22,7 @@ const PAYMENT_LABEL = {
 
 export default function ManagerInvoicesList() {
   const navigate = useNavigate();
+  const { toast } = useToast();
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -99,7 +101,7 @@ export default function ManagerInvoicesList() {
 
       const todayInvoices = resp.invoices || [];
       if (todayInvoices.length === 0) {
-        alert("Không có hóa đơn thu nhập nào trong ngày hôm nay.");
+        toast('Không có hóa đơn thu nhập nào trong ngày hôm nay.', 'info');
         setExporting(false);
         return;
       }
