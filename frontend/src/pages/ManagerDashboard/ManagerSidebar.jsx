@@ -9,6 +9,7 @@ import {
   Bell,
   ClipboardCheck,
   ClipboardList,
+  CreditCard,
   FileStack,
   FileText,
   FolderTree,
@@ -37,6 +38,7 @@ const overviewItems = [
   { label: 'Yêu cầu tạo sản phẩm', path: '/manager/product-requests', icon: FileStack },
   { label: 'Hóa đơn', path: '/manager/invoices', icon: Receipt },
   { label: 'Giao dịch đến (NCC)', path: '/manager/incoming-transactions', icon: Truck },
+  { label: 'Công nợ NCC', path: '/manager/supplier-payables', icon: CreditCard },
   { label: 'Nhà cung cấp', path: '/manager/suppliers', icon: Handshake },
   { label: 'Thêm nhà cung cấp', path: '/manager/suppliers/new', icon: Plus },
   { label: 'Khách hàng', path: '/manager/customers', icon: Users },
@@ -65,6 +67,7 @@ function getActivePath(pathname) {
   if (pathname.startsWith('/manager/settings')) return '/manager/settings';
   if (pathname.startsWith('/manager/customers')) return '/manager/customers';
   if (pathname.startsWith('/manager/invoices')) return '/manager/invoices';
+  if (pathname.startsWith('/manager/supplier-payables')) return '/manager/supplier-payables';
   return pathname;
 }
 

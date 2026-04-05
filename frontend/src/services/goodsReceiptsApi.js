@@ -102,10 +102,11 @@ export async function updateGoodsReceipt(id, body) {
  * @param {string} id
  * @param {'approved'|'rejected'} status
  * @param {string} [rejectionReason] - bắt buộc khi status === 'rejected'
+ * @param {{ payment_type?, amount_paid_at_approval?, due_date_payable? }} [approvalExtra]
  */
-export async function setGoodsReceiptStatus(id, status, rejectionReason) {
+export async function setGoodsReceiptStatus(id, status, rejectionReason, approvalExtra = {}) {
     const token = getToken();
-    const body = { status };
+    const body = { status, ...approvalExtra };
     if (status === 'rejected' && rejectionReason) {
         body.rejection_reason = rejectionReason;
     }

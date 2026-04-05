@@ -77,6 +77,19 @@ const goodsReceiptSchema = new Schema(
             type: String,
             trim: true,
         },
+        // Thông tin thanh toán NCC — ghi nhận khi duyệt
+        payment_type: {
+            type: String,
+            enum: ['cash', 'credit', 'partial'],
+        },
+        amount_paid_at_approval: {
+            type: Number,
+            default: 0,
+            min: 0,
+        },
+        due_date_payable: {
+            type: Date,
+        },
         updated_at: {
             type: Date,
         },

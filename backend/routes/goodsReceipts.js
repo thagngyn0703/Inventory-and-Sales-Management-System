@@ -3,6 +3,10 @@ const mongoose = require('mongoose');
 const GoodsReceipt = require('../models/GoodsReceipt');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { adjustStockFIFO } = require('../utils/inventoryUtils');
+const SupplierPayable = require('../models/SupplierPayable');
+const SupplierPayment = require('../models/SupplierPayment');
+const SupplierPaymentAllocation = require('../models/SupplierPaymentAllocation');
+const { recalculatePayable, refreshSupplierPayableCache } = require('../utils/supplierPayableUtils');
 
 const router = express.Router();
 
@@ -12,6 +16,32 @@ const User = require('../models/User');
 
 function escapeRegex(s) {
     return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Gắn công nợ NCC (SupplierPayable) — nguồn đúng sau các lần thanh toán sau duyệt. */
+async function attachSupplierPayablesToReceipts(list) {
+    if (!list?.length) return list;
+    const approved = list.filter((g) => g.status === 'approved');
+    if (!approved.length) {
+        return list.map((g) => ({ ...g, supplier_payable: null }));
+    }
+    const ids = approved.map((g) => g._id);
+    const payables = await SupplierPayable.find({
+        source_type: 'goods_receipt',
+        source_id: { $in: ids },
+    })
+        .select('source_id storeId paid_amount remaining_amount status due_date')
+        .lean();
+    const map = new Map();
+    for (const p of payables) {
+        map.set(String(p.source_id), p);
+    }
+    return list.map((g) => {
+        if (g.status !== 'approved') return { ...g, supplier_payable: null };
+        const p = map.get(String(g._id));
+        if (!p || String(p.storeId) !== String(g.storeId)) return { ...g, supplier_payable: null };
+        return { ...g, supplier_payable: p };
+    });
 }
 
 // GET /api/goods-receipts?page=&limit=&status=&supplier_id=&q=&sortBy=&order=
@@ -83,8 +113,10 @@ router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (
             .populate('items.product_id', 'name sku')
             .lean();
 
+        const listWithPayable = await attachSupplierPayablesToReceipts(list);
+
         return res.json({
-            goodsReceipts: list,
+            goodsReceipts: listWithPayable,
             total,
             page: pageNum,
             limit: limitNum,
@@ -111,7 +143,21 @@ router.get('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), asyn
             .populate('items.product_id', 'name sku')
             .lean();
         if (!gr) return res.status(404).json({ message: 'Goods receipt not found' });
-        return res.json({ goodsReceipt: gr });
+
+        let supplier_payable = null;
+        if (gr.status === 'approved') {
+            const pq = {
+                source_type: 'goods_receipt',
+                source_id: gr._id,
+            };
+            if (gr.storeId) pq.storeId = gr.storeId;
+            const p = await SupplierPayable.findOne(pq)
+                .select('paid_amount remaining_amount status due_date _id')
+                .lean();
+            if (p) supplier_payable = p;
+        }
+
+        return res.json({ goodsReceipt: { ...gr, supplier_payable } });
     } catch (err) {
         console.error(err);
         return res.status(500).json({ message: err.message || 'Server error' });
@@ -228,7 +274,13 @@ router.patch('/:id/status', requireAuth, requireRole(['manager', 'admin']), asyn
     const session = await mongoose.startSession();
     try {
         const { id } = req.params;
-        const { status, rejection_reason } = req.body || {};
+        const {
+            status,
+            rejection_reason,
+            payment_type,            // 'cash' | 'credit' | 'partial'
+            amount_paid_at_approval, // số tiền trả ngay (với partial/cash)
+            due_date_payable,        // hạn thanh toán (với credit/partial)
+        } = req.body || {};
         if (!mongoose.isValidObjectId(id)) return res.status(400).json({ message: 'Invalid id' });
         if (!['approved', 'rejected'].includes(status)) {
             return res.status(400).json({ message: 'Chỉ được chuyển sang approved hoặc rejected' });
@@ -293,9 +345,95 @@ router.patch('/:id/status', requireAuth, requireRole(['manager', 'admin']), asyn
             gr.approved_by = req.user.id;
             gr.status = 'approved';
             gr.updated_at = new Date();
+
+            // Ghi nhận thông tin thanh toán lên phiếu nhập
+            const safePayType = ['cash', 'credit', 'partial'].includes(payment_type) ? payment_type : 'credit';
+            const amountPaid = Math.max(0, Number(amount_paid_at_approval) || 0);
+            gr.payment_type = safePayType;
+            gr.amount_paid_at_approval = amountPaid;
+            gr.due_date_payable = due_date_payable ? new Date(due_date_payable) : undefined;
+
             await gr.save({ session });
 
+            // ── Tạo SupplierPayable (idempotent: unique index bảo vệ) ──
+            const totalAmount = Number(gr.total_amount) || 0;
+
+            // Tính due_date: từ body → default từ NCC
+            let finalDueDate = due_date_payable ? new Date(due_date_payable) : null;
+            if (!finalDueDate && safePayType !== 'cash') {
+                const supplierDoc = await Supplier.findById(gr.supplier_id).session(session);
+                const termDays = Number(supplierDoc?.default_payment_term_days) || 0;
+                if (termDays > 0) {
+                    finalDueDate = new Date(gr.received_at || new Date());
+                    finalDueDate.setDate(finalDueDate.getDate() + termDays);
+                }
+            }
+
+            // Tính paid / remaining
+            let payablePaid = 0;
+            let payableRemaining = totalAmount;
+            let payableStatus = 'open';
+
+            if (safePayType === 'cash') {
+                payablePaid = totalAmount;
+                payableRemaining = 0;
+                payableStatus = 'paid';
+            } else if (safePayType === 'partial') {
+                payablePaid = Math.min(amountPaid, totalAmount);
+                payableRemaining = Math.max(0, totalAmount - payablePaid);
+                payableStatus = payableRemaining <= 0 ? 'paid' : 'partial';
+            }
+
+            const [newPayable] = await SupplierPayable.create(
+                [
+                    {
+                        supplier_id: gr.supplier_id,
+                        storeId: gr.storeId,
+                        source_type: 'goods_receipt',
+                        source_id: gr._id,
+                        total_amount: totalAmount,
+                        paid_amount: payablePaid,
+                        remaining_amount: payableRemaining,
+                        status: payableStatus,
+                        due_date: finalDueDate || undefined,
+                        created_by: req.user.id,
+                    },
+                ],
+                { session }
+            );
+
+            // Nếu có trả tiền ngay → tạo Payment + Allocation
+            if (payablePaid > 0) {
+                const [paymentDoc] = await SupplierPayment.create(
+                    [
+                        {
+                            supplier_id: gr.supplier_id,
+                            storeId: gr.storeId,
+                            total_amount: payablePaid,
+                            payment_date: new Date(),
+                            payment_method: 'cash',
+                            note: `Thanh toán khi duyệt phiếu nhập #${id.substring(id.length - 6).toUpperCase()}`,
+                            created_by: req.user.id,
+                        },
+                    ],
+                    { session }
+                );
+                await SupplierPaymentAllocation.create(
+                    [
+                        {
+                            payment_id: paymentDoc._id,
+                            payable_id: newPayable._id,
+                            amount: payablePaid,
+                        },
+                    ],
+                    { session }
+                );
+            }
+
             await session.commitTransaction();
+
+            // Cập nhật cache Supplier.payable_account (ngoài transaction)
+            await refreshSupplierPayableCache(gr.supplier_id, gr.storeId);
         } else {
             // rejected
             gr.status = 'rejected';

@@ -1,0 +1,12 @@
+{
+  "name": "inventory-and-sales-management-system",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -n backend,frontend -c cyan,magenta \"yarn --cwd backend start\" \"yarn --cwd frontend start\"",
+    "start:backend": "yarn --cwd backend start",
+    "start:frontend": "yarn --cwd frontend start"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

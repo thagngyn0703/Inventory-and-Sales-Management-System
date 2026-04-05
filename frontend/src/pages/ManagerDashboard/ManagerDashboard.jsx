@@ -11,6 +11,7 @@ import {
   getRevenueChart,
   getTopProducts,
 } from '../../services/analyticsApi';
+import { getSupplierPayableSummary } from '../../services/supplierPayablesApi';
 import RevenueProfitChart from './RevenueProfitChart';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
@@ -157,6 +158,22 @@ export default function ManagerDashboard() {
   const [incomingLoading, setIncomingLoading] = useState(false);
   const [incomingError, setIncomingError] = useState('');
 
+  // Supplier payable summary
+  const [payableSummary, setPayableSummary] = useState(null);
+  const [payableLoading, setPayableLoading] = useState(true);
+
+  const fetchPayableSummary = useCallback(async () => {
+    setPayableLoading(true);
+    try {
+      const d = await getSupplierPayableSummary();
+      setPayableSummary(d);
+    } catch {
+      setPayableSummary(null);
+    } finally {
+      setPayableLoading(false);
+    }
+  }, []);
+
   // ── Fetchers ──
   const fetchSummary = useCallback(async () => {
     setSummaryLoading(true);
@@ -235,6 +252,7 @@ export default function ManagerDashboard() {
 
   useEffect(() => { fetchSummary(); }, [fetchSummary]);
   useEffect(() => { fetchInventory(); }, [fetchInventory]);
+  useEffect(() => { fetchPayableSummary(); }, [fetchPayableSummary]);
   useEffect(() => { fetchChart(); }, [fetchChart]);
   useEffect(() => { fetchTopProducts(); }, [fetchTopProducts]);
   useEffect(() => { fetchTopProfitProducts(); }, [fetchTopProfitProducts]);
@@ -379,6 +397,29 @@ export default function ManagerDashboard() {
                 )}
               </div>
             </div>
+
+            {/* Nợ nhà cung cấp — NEW */}
+            <Link to="/manager/supplier-payables" style={{ textDecoration: 'none', color: 'inherit' }}>
+              <div className="manager-metric-card transition-transform duration-200 hover:-translate-y-0.5" style={{ borderTop: '3px solid #dc2626', cursor: 'pointer' }}>
+                <div className="manager-metric-icon" style={{ background: '#fef2f2', color: '#dc2626' }}>
+                  <i className="fa-solid fa-file-invoice-dollar" />
+                </div>
+                <div className="manager-metric-body">
+                  <p className="manager-metric-label" style={{ color: '#991b1b', fontWeight: 600 }}>Nợ nhà cung cấp</p>
+                  {payableLoading
+                    ? <p className="manager-metric-value" style={{ fontSize: 16, color: '#9ca3af' }}>Đang tải...</p>
+                    : <p className="manager-metric-value" style={{ color: '#dc2626' }}>{fmtVND(payableSummary?.total_remaining)}</p>
+                  }
+                  {!payableLoading && payableSummary && (
+                    <p className="manager-metric-meta" style={{ color: payableSummary.overdue_remaining > 0 ? '#dc2626' : '#6b7280', fontSize: 11 }}>
+                      {payableSummary.overdue_remaining > 0
+                        ? `⚠️ Quá hạn: ${fmtVND(payableSummary.overdue_remaining)}`
+                        : `${payableSummary.open_count} khoản · ${payableSummary.supplier_count} NCC`}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </Link>
 
             {/* Vốn đọng 30 ngày — NEW */}
             <div className="manager-metric-card transition-transform duration-200 hover:-translate-y-0.5" style={{ borderTop: '3px solid #f97316' }}>

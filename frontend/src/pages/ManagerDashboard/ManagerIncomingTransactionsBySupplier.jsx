@@ -23,11 +23,55 @@ const GR_STATUS_LABEL = {
   rejected: 'Từ chối',
 };
 
-function goodsReceiptStatusPillClass(status) {
+/** Còn nợ NCC: ưu tiên SupplierPayable (sau thanh toán bổ sung), không chỉ snapshot lúc duyệt. */
+function goodsReceiptHasSupplierDebt(gr) {
+  if (gr.status !== 'approved') return false;
+  if (gr.supplier_payable != null) {
+    return Number(gr.supplier_payable.remaining_amount) > 0;
+  }
+  const pt = gr.payment_type;
+  if (pt === 'credit') return true;
+  if (pt === 'partial') {
+    const total = Number(gr.total_amount) || 0;
+    const paid = Number(gr.amount_paid_at_approval) || 0;
+    return total > paid;
+  }
+  return false;
+}
+
+/** Đã trả đủ NCC theo sổ công nợ (kể cả trả sau duyệt). */
+function goodsReceiptSupplierFullyPaid(gr) {
+  if (gr.status !== 'approved' || gr.supplier_payable == null) return false;
+  return Number(gr.supplier_payable.remaining_amount) <= 0;
+}
+
+/** Nhãn cột trạng thái — đồng bộ với màn công nợ NCC. */
+function goodsReceiptStatusDisplayLabel(gr) {
+  const base = GR_STATUS_LABEL[gr.status] ?? gr.status;
+  if (gr.status !== 'approved') return base;
+  if (goodsReceiptSupplierFullyPaid(gr)) {
+    if (gr.payment_type && gr.payment_type !== 'cash') {
+      return 'Đã duyệt (đã trả đủ NCC)';
+    }
+    return base;
+  }
+  if (gr.payment_type === 'credit') {
+    return 'Đã duyệt (ghi nợ)';
+  }
+  if (gr.payment_type === 'partial' && goodsReceiptHasSupplierDebt(gr)) {
+    return 'Đã duyệt (trả một phần, ghi nợ)';
+  }
+  return base;
+}
+
+function goodsReceiptStatusPillClass(status, gr) {
   if (status === 'pending') {
     return 'border-amber-200/90 bg-amber-100 text-amber-950 ring-1 ring-amber-200/60';
   }
   if (status === 'approved') {
+    if (gr && goodsReceiptHasSupplierDebt(gr)) {
+      return 'border-teal-200/90 bg-teal-50 text-teal-950 ring-1 ring-teal-200/70';
+    }
     return 'border-emerald-200/90 bg-emerald-100 text-emerald-950 ring-1 ring-emerald-200/60';
   }
   if (status === 'rejected') {
@@ -280,11 +324,22 @@ export default function ManagerIncomingTransactionsBySupplier() {
                             <td>
                               <span
                                 className={cn(
-                                  'inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold',
-                                  goodsReceiptStatusPillClass(gr.status)
+                                  'inline-flex max-w-[220px] flex-wrap items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold leading-snug',
+                                  goodsReceiptStatusPillClass(gr.status, gr)
                                 )}
+                                title={
+                                  gr.status === 'approved' && gr.payment_type
+                                    ? `Hình thức thanh toán khi duyệt: ${
+                                        gr.payment_type === 'cash'
+                                          ? 'Trả đủ ngay'
+                                          : gr.payment_type === 'credit'
+                                            ? 'Ghi nợ'
+                                            : 'Trả một phần'
+                                      }`
+                                    : undefined
+                                }
                               >
-                                {GR_STATUS_LABEL[gr.status] ?? gr.status}
+                                {goodsReceiptStatusDisplayLabel(gr)}
                               </span>
                             </td>
                             <td>{formatMoney(gr.total_amount)}</td>
