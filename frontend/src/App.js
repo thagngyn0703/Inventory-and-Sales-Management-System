@@ -50,6 +50,10 @@ import ManagerStoreRegister from "./pages/ManagerDashboard/ManagerStoreRegister"
 import ManagerNotifications from "./pages/ManagerDashboard/ManagerNotifications";
 import ManagerPriceChangeReport from "./pages/ManagerDashboard/ManagerPriceChangeReport";
 import ManagerAIAssistant from "./pages/ManagerDashboard/ManagerAIAssistant";
+import ManagerSupportTickets from "./pages/ManagerDashboard/ManagerSupportTickets";
+import ManagerSupportTicketDetail from "./pages/ManagerDashboard/ManagerSupportTicketDetail";
+import AdminSupportTickets from "./pages/AdminHome/AdminSupportTickets";
+import AdminSupportTicketDetail from "./pages/AdminHome/AdminSupportTicketDetail";
 import RequireManagerStore from "./components/RequireManagerStore";
 import RequireStaffStore from "./components/RequireStaffStore";
 
@@ -70,6 +74,8 @@ function App() {
       <Route path="/admin" element={<RequireAuth><RequireRole allowedRoles={["admin"]}><AdminDashboard /></RequireRole></RequireAuth>} />
       <Route path="/admin/stores" element={<RequireAuth><RequireRole allowedRoles={["admin"]}><AdminStoresManage /></RequireRole></RequireAuth>} />
       <Route path="/admin/users" element={<RequireAuth><RequireRole allowedRoles={["admin"]}><AdminUserList /></RequireRole></RequireAuth>} />
+      <Route path="/admin/support" element={<RequireAuth><RequireRole allowedRoles={["admin"]}><AdminSupportTickets /></RequireRole></RequireAuth>} />
+      <Route path="/admin/support/:id" element={<RequireAuth><RequireRole allowedRoles={["admin"]}><AdminSupportTicketDetail /></RequireRole></RequireAuth>} />
       <Route
         path="/manager/store/register"
         element={
@@ -150,6 +156,8 @@ function App() {
       <Route path="/manager/staff/new" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerCreateStaff /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/staff/manage" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerStaffManage /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/notifications" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerNotifications /></RequireManagerStore></RequireRole></RequireAuth>} />
+      <Route path="/manager/support" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerSupportTickets /></RequireManagerStore></RequireRole></RequireAuth>} />
+      <Route path="/manager/support/:id" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerSupportTicketDetail /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/reports" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerPriceChangeReport /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route
         path="/warehouse"

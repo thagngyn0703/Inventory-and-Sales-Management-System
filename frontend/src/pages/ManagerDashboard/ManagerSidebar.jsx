@@ -43,6 +43,7 @@ export default function ManagerSidebar() {
         { label: 'Khách hàng', path: '/manager/customers', icon: 'fa-users' },
         { label: 'Báo cáo', path: '/manager/reports', icon: 'fa-chart-bar' },
         { label: 'Thông báo', path: '/manager/notifications', icon: 'fa-bell' },
+        { label: 'Hỗ trợ admin', path: '/manager/support', icon: 'fa-headset' },
     ];
 
     const manageItems = [
@@ -62,6 +63,7 @@ export default function ManagerSidebar() {
         if (pathname.startsWith('/manager/stocktakes/')) return '/manager/stocktakes/pending';
         if (pathname.startsWith('/manager/adjustments/')) return '/manager/adjustments';
         if (pathname.startsWith('/manager/notifications/')) return '/manager/notifications';
+        if (pathname.startsWith('/manager/support')) return '/manager/support';
         if (pathname.startsWith('/manager/suppliers/')) return '/manager/suppliers';
         return pathname;
     };

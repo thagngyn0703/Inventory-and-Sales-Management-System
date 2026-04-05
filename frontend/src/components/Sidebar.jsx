@@ -10,6 +10,7 @@ export default function Sidebar() {
         { label: '🏠 Dashboard', path: '/admin', platformOnly: true },
         { label: '🏬 Quản lý cửa hàng', path: '/admin/stores', platformOnly: true },
         { label: '👤 Quản lý tài khoản', path: '/admin/users', platformOnly: true },
+        { label: '💬 Phiếu hỗ trợ', path: '/admin/support', platformOnly: true },
         { label: '🏠 Dashboard', path: '/home', roles: ['user', 'staff'] },
         { label: '📦 Sản phẩm', path: '/manager/products', roles: ['manager', 'staff'] },
         { label: '📂 Danh mục', path: '/manager/categories', roles: ['manager', 'staff'] },
