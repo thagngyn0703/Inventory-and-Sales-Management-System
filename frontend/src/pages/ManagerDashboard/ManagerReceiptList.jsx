@@ -32,6 +32,7 @@ export default function ManagerReceiptList() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmLoading, setConfirmLoading] = useState(false);
   const [pendingAction, setPendingAction] = useState(null);
+  const [rejectionReason, setRejectionReason] = useState('');
 
   const fetchReceipts = useCallback(async () => {
     setLoading(true);
@@ -80,22 +81,28 @@ export default function ManagerReceiptList() {
   };
 
   const openConfirm = (type, id) => {
+    setRejectionReason('');
     setPendingAction({ type, id });
     setConfirmOpen(true);
   };
 
   const runConfirmedAction = async () => {
     if (!pendingAction) return;
+    if (pendingAction.type === 'reject' && !rejectionReason.trim()) {
+      toast('Vui lòng nhập lý do từ chối', 'error');
+      return;
+    }
     setConfirmLoading(true);
     try {
       const next = pendingAction.type === 'approve' ? 'approved' : 'rejected';
-      await setGoodsReceiptStatus(pendingAction.id, next);
+      await setGoodsReceiptStatus(pendingAction.id, next, rejectionReason.trim() || undefined);
       toast(
         next === 'approved' ? 'Đã duyệt phiếu nhập kho.' : 'Đã từ chối phiếu nhập kho.',
         'success'
       );
       setConfirmOpen(false);
       setPendingAction(null);
+      setRejectionReason('');
       fetchReceipts();
     } catch (err) {
       toast(err.message || 'Thao tác thất bại', 'error');
@@ -248,15 +255,35 @@ export default function ManagerReceiptList() {
         open={confirmOpen}
         onOpenChange={(open) => {
           setConfirmOpen(open);
-          if (!open) setPendingAction(null);
+          if (!open) { setPendingAction(null); setRejectionReason(''); }
         }}
         title={pendingAction?.type === 'approve' ? 'Duyệt phiếu nhập kho?' : 'Từ chối phiếu nhập?'}
         description={
           pendingAction?.type === 'approve'
             ? 'Kho hàng sẽ được cập nhật theo số lượng và giá trên phiếu.'
-            : 'Phiếu sẽ chuyển sang trạng thái từ chối.'
+            : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <span>Vui lòng nhập lý do từ chối để nhân viên biết cần điều chỉnh gì.</span>
+                <textarea
+                  autoFocus
+                  rows={3}
+                  placeholder="VD: Sai số lượng, thiếu chứng từ, sản phẩm không hợp lệ..."
+                  value={rejectionReason}
+                  onChange={(e) => setRejectionReason(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '8px 10px',
+                    borderRadius: 8,
+                    border: '1px solid #d1d5db',
+                    fontSize: 14,
+                    resize: 'vertical',
+                    outline: 'none',
+                  }}
+                />
+              </div>
+            )
         }
-        confirmLabel={pendingAction?.type === 'approve' ? 'Duyệt nhập kho' : 'Từ chối'}
+        confirmLabel={pendingAction?.type === 'approve' ? 'Duyệt nhập kho' : 'Xác nhận từ chối'}
         confirmVariant={pendingAction?.type === 'reject' ? 'destructive' : 'default'}
         loading={confirmLoading}
         onConfirm={runConfirmedAction}

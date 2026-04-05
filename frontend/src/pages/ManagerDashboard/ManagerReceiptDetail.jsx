@@ -19,6 +19,7 @@ export default function ManagerReceiptDetail() {
     const [submitting, setSubmitting] = useState(false);
     const [confirmOpen, setConfirmOpen] = useState(false);
     const [confirmType, setConfirmType] = useState(null);
+    const [rejectionReason, setRejectionReason] = useState('');
 
     const fetchReceipt = useCallback(async () => {
         setLoading(true);
@@ -39,16 +40,21 @@ export default function ManagerReceiptDetail() {
 
     const runStatusChange = async () => {
         if (!confirmType) return;
+        if (confirmType === 'reject' && !rejectionReason.trim()) {
+            toast('Vui lòng nhập lý do từ chối', 'error');
+            return;
+        }
         setSubmitting(true);
         try {
             const status = confirmType === 'approve' ? 'approved' : 'rejected';
-            await setGoodsReceiptStatus(id, status);
+            await setGoodsReceiptStatus(id, status, rejectionReason.trim() || undefined);
             toast(
                 status === 'approved' ? 'Đã duyệt phiếu nhập thành công.' : 'Đã từ chối phiếu nhập.',
                 'success'
             );
             setConfirmOpen(false);
             setConfirmType(null);
+            setRejectionReason('');
             navigate('/manager/receipts');
         } catch (e) {
             toast(e.message || 'Thao tác thất bại', 'error');
@@ -138,10 +144,18 @@ export default function ManagerReceiptDetail() {
                              receipt.status === 'approved' ? 'Đã duyệt' : 'Từ chối'}
                         </span>
                     </div>
-                    {receipt.status === 'approved' && receipt.approved_by && (
+                    {(receipt.status === 'approved' || receipt.status === 'rejected') && receipt.approved_by && (
                         <div>
-                            <p style={{ margin: '0 0 6px 0', fontSize: 13, color: '#6b7280' }}>Người duyệt</p>
+                            <p style={{ margin: '0 0 6px 0', fontSize: 13, color: '#6b7280' }}>
+                                {receipt.status === 'approved' ? 'Người duyệt' : 'Người từ chối'}
+                            </p>
                             <p style={{ margin: 0, fontWeight: 500, fontSize: 15 }}>{receipt.approved_by?.fullName || receipt.approved_by?.email || '—'}</p>
+                        </div>
+                    )}
+                    {receipt.status === 'rejected' && receipt.rejection_reason && (
+                        <div style={{ gridColumn: '1 / -1' }}>
+                            <p style={{ margin: '0 0 6px 0', fontSize: 13, color: '#6b7280' }}>Lý do từ chối</p>
+                            <p style={{ margin: 0, fontWeight: 500, fontSize: 15, color: '#991b1b' }}>{receipt.rejection_reason}</p>
                         </div>
                     )}
                 </div>
@@ -194,7 +208,7 @@ export default function ManagerReceiptDetail() {
                         <button
                             disabled={submitting}
                             style={{ padding: '10px 20px', borderRadius: 6, cursor: submitting ? 'not-allowed' : 'pointer', backgroundColor: '#ef4444', color: 'white', border: 'none', fontSize: 15, fontWeight: 500 }}
-                            onClick={() => { setConfirmType('reject'); setConfirmOpen(true); }}
+                            onClick={() => { setRejectionReason(''); setConfirmType('reject'); setConfirmOpen(true); }}
                         >
                             Từ chối phiếu nhập
                         </button>
@@ -214,15 +228,35 @@ export default function ManagerReceiptDetail() {
         open={confirmOpen}
         onOpenChange={(open) => {
             setConfirmOpen(open);
-            if (!open) setConfirmType(null);
+            if (!open) { setConfirmType(null); setRejectionReason(''); }
         }}
         title={confirmType === 'approve' ? 'Duyệt phiếu nhập kho?' : 'Từ chối phiếu nhập?'}
         description={
             confirmType === 'approve'
                 ? 'Kho hàng sẽ được tăng theo số lượng và đơn giá trên phiếu.'
-                : 'Phiếu sẽ được đánh dấu từ chối.'
+                : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <span>Vui lòng nhập lý do từ chối để nhân viên biết cần điều chỉnh gì.</span>
+                        <textarea
+                            autoFocus
+                            rows={3}
+                            placeholder="VD: Sai số lượng, thiếu chứng từ, sản phẩm không hợp lệ..."
+                            value={rejectionReason}
+                            onChange={(e) => setRejectionReason(e.target.value)}
+                            style={{
+                                width: '100%',
+                                padding: '8px 10px',
+                                borderRadius: 8,
+                                border: '1px solid #d1d5db',
+                                fontSize: 14,
+                                resize: 'vertical',
+                                outline: 'none',
+                            }}
+                        />
+                    </div>
+                )
         }
-        confirmLabel={confirmType === 'approve' ? 'Duyệt nhập kho' : 'Từ chối'}
+        confirmLabel={confirmType === 'approve' ? 'Duyệt nhập kho' : 'Xác nhận từ chối'}
         confirmVariant={confirmType === 'reject' ? 'destructive' : 'default'}
         loading={submitting}
         onConfirm={runStatusChange}

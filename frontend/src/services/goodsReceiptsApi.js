@@ -98,15 +98,24 @@ export async function updateGoodsReceipt(id, body) {
     return data.goodsReceipt;
 }
 
-export async function setGoodsReceiptStatus(id, status) {
+/**
+ * @param {string} id
+ * @param {'approved'|'rejected'} status
+ * @param {string} [rejectionReason] - bắt buộc khi status === 'rejected'
+ */
+export async function setGoodsReceiptStatus(id, status, rejectionReason) {
     const token = getToken();
+    const body = { status };
+    if (status === 'rejected' && rejectionReason) {
+        body.rejection_reason = rejectionReason;
+    }
     const res = await fetch(`${API_BASE}/goods-receipts/${id}/status`, {
         method: 'PATCH',
         headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify(body),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.message || 'Không thể cập nhật trạng thái phiếu nhập kho');

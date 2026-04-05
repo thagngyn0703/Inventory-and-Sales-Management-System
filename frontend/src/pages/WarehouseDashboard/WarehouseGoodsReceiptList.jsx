@@ -6,7 +6,6 @@ import { useToast } from '../../contexts/ToastContext';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
-import { Badge } from '../../components/ui/badge';
 import {
   ArrowRight,
   ClipboardList,
@@ -26,11 +25,17 @@ const STATUS_LABEL = {
 
 const PAGE_SIZE = 10;
 
-function statusBadgeClass(status) {
-  if (status === 'pending') return 'bg-amber-100 text-amber-900 border-amber-200/80';
-  if (status === 'approved') return 'bg-emerald-100 text-emerald-900 border-emerald-200/80';
-  if (status === 'rejected') return 'bg-red-100 text-red-900 border-red-200/80';
-  return 'bg-slate-100 text-slate-700 border-slate-200/80';
+function statusPillClass(status) {
+  if (status === 'pending') {
+    return 'border-amber-200/90 bg-amber-100 text-amber-950 ring-1 ring-amber-200/60';
+  }
+  if (status === 'approved') {
+    return 'border-emerald-200/90 bg-emerald-100 text-emerald-950 ring-1 ring-emerald-200/60';
+  }
+  if (status === 'rejected') {
+    return 'border-red-200/90 bg-red-100 text-red-950 ring-1 ring-red-200/60';
+  }
+  return 'border-slate-200 bg-slate-100 text-slate-800 ring-1 ring-slate-200/80';
 }
 
 export default function WarehouseGoodsReceiptList() {
@@ -252,9 +257,14 @@ export default function WarehouseGoodsReceiptList() {
                         {r.total_amount?.toLocaleString('vi-VN') ?? 0} đ
                       </td>
                       <td className="px-4 py-3">
-                        <Badge className={cn('border font-medium', statusBadgeClass(r.status))}>
+                        <span
+                          className={cn(
+                            'inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold',
+                            statusPillClass(r.status)
+                          )}
+                        >
                           {STATUS_LABEL[r.status] ?? r.status}
-                        </Badge>
+                        </span>
                       </td>
                       <td className="px-4 py-3 text-right">
                         <Button

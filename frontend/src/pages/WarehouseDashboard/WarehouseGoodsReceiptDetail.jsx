@@ -7,7 +7,6 @@ import { ConfirmDialog } from '../../components/ui/confirm-dialog';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
-import { Badge } from '../../components/ui/badge';
 import { ArrowLeft, ClipboardList, Loader2, Send } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
@@ -18,11 +17,17 @@ const STATUS_LABEL = {
   rejected: 'Từ chối',
 };
 
-function statusBadgeClass(status) {
-  if (status === 'pending') return 'bg-amber-100 text-amber-900 border-amber-200/80';
-  if (status === 'approved') return 'bg-emerald-100 text-emerald-900 border-emerald-200/80';
-  if (status === 'rejected') return 'bg-red-100 text-red-900 border-red-200/80';
-  return 'bg-slate-100 text-slate-700 border-slate-200/80';
+function statusPillClass(status) {
+  if (status === 'pending') {
+    return 'border-amber-200/90 bg-amber-100 text-amber-950 ring-1 ring-amber-200/60';
+  }
+  if (status === 'approved') {
+    return 'border-emerald-200/90 bg-emerald-100 text-emerald-950 ring-1 ring-emerald-200/60';
+  }
+  if (status === 'rejected') {
+    return 'border-red-200/90 bg-red-100 text-red-950 ring-1 ring-red-200/60';
+  }
+  return 'border-slate-200 bg-slate-100 text-slate-800 ring-1 ring-slate-200/80';
 }
 
 export default function WarehouseGoodsReceiptDetail() {
@@ -116,9 +121,14 @@ export default function WarehouseGoodsReceiptDetail() {
               <ArrowLeft className="h-4 w-4" />
               Quay lại
             </Button>
-            <Badge className={cn('border text-sm font-medium', statusBadgeClass(receipt.status))}>
+            <span
+              className={cn(
+                'inline-flex items-center rounded-full border px-3 py-1 text-sm font-semibold',
+                statusPillClass(receipt.status)
+              )}
+            >
               {STATUS_LABEL[receipt.status] ?? receipt.status}
-            </Badge>
+            </span>
           </div>
         }
       >

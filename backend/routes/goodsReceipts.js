@@ -155,12 +155,16 @@ router.post('/', requireAuth, requireRole(['staff', 'manager']), async (req, res
         // compute total if not provided
         const computedTotal = items.reduce((s, it) => s + Number(it.quantity) * Number(it.unit_cost), 0);
 
+        // Only allow creating in draft or pending — never approved/rejected directly
+        const allowedCreateStatuses = ['draft', 'pending'];
+        const safeStatus = allowedCreateStatuses.includes(status) ? status : 'draft';
+
         const doc = await GoodsReceipt.create({
             po_id: po_id && mongoose.isValidObjectId(po_id) ? po_id : undefined,
             supplier_id,
             storeId: req.user.storeId,
             received_by: req.user.id,
-            status: ['draft', 'pending', 'approved', 'rejected'].includes(status) ? status : 'draft',
+            status: safeStatus,
             received_at: received_at ? new Date(received_at) : new Date(),
             items,
             total_amount: total_amount != null ? Number(total_amount) : computedTotal,
@@ -221,24 +225,49 @@ router.put('/:id', requireAuth, requireRole(['staff', 'manager']), async (req, r
 
 // PATCH /api/goods-receipts/:id/status  (manager, admin)
 router.patch('/:id/status', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
+    const session = await mongoose.startSession();
     try {
         const { id } = req.params;
-        const { status } = req.body || {};
+        const { status, rejection_reason } = req.body || {};
         if (!mongoose.isValidObjectId(id)) return res.status(400).json({ message: 'Invalid id' });
-        if (!['pending', 'approved', 'rejected'].includes(status)) return res.status(400).json({ message: 'Invalid status' });
+        if (!['approved', 'rejected'].includes(status)) {
+            return res.status(400).json({ message: 'Chỉ được chuyển sang approved hoặc rejected' });
+        }
+        if (status === 'rejected' && (!rejection_reason || !String(rejection_reason).trim())) {
+            return res.status(400).json({ message: 'Vui lòng nhập lý do từ chối' });
+        }
 
-        const gr = await GoodsReceipt.findById(id);
+        const gr = await GoodsReceipt.findById(id).session(session);
         if (!gr) return res.status(404).json({ message: 'Goods receipt not found' });
 
-        // only allow transition from specific states
-        if (gr.status === status) return res.json({ goodsReceipt: gr.toObject() });
+        // Kiểm tra phạm vi cửa hàng
+        if (req.user.role !== 'admin' && String(gr.storeId) !== String(req.user.storeId)) {
+            return res.status(403).json({ message: 'Forbidden: phiếu không thuộc cửa hàng của bạn' });
+        }
+
+        // Chỉ cho phép duyệt/từ chối khi phiếu đang ở trạng thái pending
+        if (gr.status !== 'pending') {
+            return res.status(400).json({ message: `Phiếu đang ở trạng thái "${gr.status}", không thể thay đổi` });
+        }
 
         if (status === 'approved') {
-            // Cập nhật tồn kho và giá vốn bình quân gia quyền (Weighted Average Cost)
-            // Công thức: giá_vốn_mới = (tồn_hiện_tại * giá_vốn_cũ + số_lượng_nhập * đơn_giá_nhập) / (tồn_hiện_tại + số_lượng_nhập)
+            // Validate: mọi product_id phải tồn tại trước khi bắt đầu transaction
             for (const it of gr.items) {
-                const product = await Product.findById(it.product_id);
+                const exists = await Product.exists({ _id: it.product_id });
+                if (!exists) {
+                    return res.status(400).json({
+                        message: `Sản phẩm không tồn tại trên hệ thống (id: ${String(it.product_id)}). Vui lòng duyệt yêu cầu tạo sản phẩm trước.`,
+                    });
+                }
+            }
+
+            session.startTransaction();
+
+            // Cập nhật tồn kho + giá vốn bình quân trong cùng transaction (adjustStockFIFO dùng session)
+            for (const it of gr.items) {
+                const product = await Product.findById(it.product_id).session(session);
                 if (!product) {
+                    await session.abortTransaction();
                     return res.status(404).json({ message: `Product not found: ${String(it.product_id)}` });
                 }
                 const addQty = Number(it.quantity) * (Number(it.ratio) || 1);
@@ -247,37 +276,32 @@ router.patch('/:id/status', requireAuth, requireRole(['manager', 'admin']), asyn
                 const currentCost = Number(product.cost_price) || 0;
 
                 const newQty = currentQty + addQty;
-                // Weighted Average: tính giá vốn bình quân gia quyền vẫn giữ để hiển thị trên Product
                 const newCostPrice = newQty > 0
                     ? (currentQty * currentCost + addQty * unitCost) / newQty
                     : unitCost;
 
-                // Cập nhật lô hàng tập trung (FIFO)
                 await adjustStockFIFO(it.product_id, gr.storeId || req.user.storeId, addQty, {
-                  unitCost,
-                  receivedAt: gr.received_at,
-                  receiptId: gr._id,
-                  note: `Nhập hàng (Phiếu #${id.substring(id.length - 6).toUpperCase()})`
+                    session,
+                    unitCost,
+                    receivedAt: gr.received_at,
+                    receiptId: gr._id,
+                    note: `Nhập hàng (Phiếu #${id.substring(id.length - 6).toUpperCase()})`,
+                    newCostPrice: Math.round(newCostPrice * 100) / 100,
                 });
-
-                // Cập nhật giá vốn bình quân cho Product model
-                product.cost_price = Math.round(newCostPrice * 100) / 100;
-                product.updated_at = new Date();
-                await product.save();
             }
+
             gr.approved_by = req.user.id;
             gr.status = 'approved';
             gr.updated_at = new Date();
-            await gr.save();
+            await gr.save({ session });
+
+            await session.commitTransaction();
         } else {
-            // pending or rejected
-            gr.status = status;
-            if (status === 'pending') {
-                gr.updated_at = new Date();
-            } else if (status === 'rejected') {
-                gr.approved_by = req.user.id;
-                gr.updated_at = new Date();
-            }
+            // rejected
+            gr.status = 'rejected';
+            gr.rejection_reason = String(rejection_reason).trim();
+            gr.approved_by = req.user.id;
+            gr.updated_at = new Date();
             await gr.save();
         }
 
@@ -290,8 +314,11 @@ router.patch('/:id/status', requireAuth, requireRole(['manager', 'admin']), asyn
 
         return res.json({ goodsReceipt: updated });
     } catch (err) {
+        if (session.inTransaction()) await session.abortTransaction();
         console.error('Update GR status error:', err);
         return res.status(500).json({ message: err.message || 'Server error' });
+    } finally {
+        session.endSession();
     }
 });
 
