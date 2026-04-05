@@ -19,11 +19,11 @@ function getRoleStoreFilter(req) {
 }
 
 // POST /api/stocktakes — Create stocktaking record (draft). Staff, Manager, Admin.
-// Body: { warehouse_id?: ObjectId, product_ids: [ObjectId] }
+// Body: { product_ids: [ObjectId] }
 // Snapshot current system_qty for each product; actual_qty/variance filled later.
 router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
   try {
-    const { warehouse_id, product_ids } = req.body || {};
+    const { product_ids } = req.body || {};
     const ids = Array.isArray(product_ids) ? product_ids : [];
     if (ids.length === 0) {
       return res.status(400).json({ message: 'product_ids (array) is required and must not be empty' });
@@ -59,7 +59,6 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
     });
 
     const doc = await Stocktake.create({
-      warehouse_id: warehouse_id && mongoose.isValidObjectId(warehouse_id) ? warehouse_id : undefined,
       storeId: requesterStoreId || undefined,
       created_by: req.user.id,
       status: 'draft',
@@ -102,7 +101,6 @@ router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (
       .skip(skip)
       .limit(limitNum)
       .populate('created_by', 'email')
-      .populate('warehouse_id', 'name')
       .lean();
 
     return res.json({
@@ -152,7 +150,6 @@ router.post('/:id/approve', requireAuth, requireRole(['manager', 'admin']), asyn
     }
 
     const adjustment = await StockAdjustment.create({
-      warehouse_id: stocktake.warehouse_id || undefined,
       storeId: stocktake.storeId || undefined,
       stocktake_id: id,
       created_by: req.user.id,
@@ -217,7 +214,6 @@ router.post('/:id/reject', requireAuth, requireRole(['manager', 'admin']), async
     }
 
     await StockAdjustment.create({
-      warehouse_id: stocktake.warehouse_id || undefined,
       storeId: stocktake.storeId || undefined,
       stocktake_id: id,
       created_by: req.user.id,
@@ -257,7 +253,6 @@ router.get('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), asyn
     const stocktake = await Stocktake.findOne({ _id: id, ...storeFilter })
       .populate('items.product_id', 'name sku base_unit stock_qty')
       .populate('created_by', 'email')
-      .populate('warehouse_id', 'name')
       .lean();
     if (!stocktake) return res.status(404).json({ message: 'Stocktake not found' });
     return res.json({ stocktake });
@@ -329,7 +324,6 @@ router.patch('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), as
     const populated = await Stocktake.findById(doc._id)
       .populate('items.product_id', 'name sku base_unit stock_qty')
       .populate('created_by', 'email')
-      .populate('warehouse_id', 'name')
       .lean();
 
     return res.json({ stocktake: populated });

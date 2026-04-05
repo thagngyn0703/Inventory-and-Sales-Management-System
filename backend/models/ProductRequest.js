@@ -28,6 +28,18 @@ const productRequestSchema = new Schema(
             type: String,
             trim: true,
         },
+        supplier_id: {
+            type: Schema.Types.ObjectId,
+            ref: 'Supplier',
+            required: false,
+        },
+        image_urls: [{
+            type: String,
+            trim: true,
+        }],
+        expiry_date: {
+            type: Date,
+        },
         cost_price: {
             type: Number,
             default: 0,

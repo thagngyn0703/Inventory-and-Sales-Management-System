@@ -1,16 +1,25 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import ManagerSidebar from './ManagerSidebar';
+import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
 import { getGoodsReceipt, setGoodsReceiptStatus } from '../../services/goodsReceiptsApi';
+import { useToast } from '../../contexts/ToastContext';
+import { ConfirmDialog } from '../../components/ui/confirm-dialog';
+import { StaffPageShell } from '../../components/staff/StaffPageShell';
+import { Button } from '../../components/ui/button';
+import { ArrowLeft, ClipboardList } from 'lucide-react';
 import './ManagerDashboard.css';
 
 export default function ManagerReceiptDetail() {
     const { id } = useParams();
     const navigate = useNavigate();
+    const { toast } = useToast();
     const [receipt, setReceipt] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [submitting, setSubmitting] = useState(false);
+    const [confirmOpen, setConfirmOpen] = useState(false);
+    const [confirmType, setConfirmType] = useState(null);
+    const [rejectionReason, setRejectionReason] = useState('');
 
     const fetchReceipt = useCallback(async () => {
         setLoading(true);
@@ -29,29 +38,26 @@ export default function ManagerReceiptDetail() {
         fetchReceipt();
     }, [fetchReceipt]);
 
-    const handleApprove = async () => {
-        if (!window.confirm('Xác nhận duyệt phiếu nhập này? Kho hàng sẽ được tăng lên tương ứng.')) return;
-        setSubmitting(true);
-        try {
-            await setGoodsReceiptStatus(id, 'approved');
-            alert('Đã duyệt thành công.');
-            navigate('/manager/receipts');
-        } catch (e) {
-            alert(e.message || 'Lỗi khi duyệt');
-            setSubmitting(false);
-            fetchReceipt();
+    const runStatusChange = async () => {
+        if (!confirmType) return;
+        if (confirmType === 'reject' && !rejectionReason.trim()) {
+            toast('Vui lòng nhập lý do từ chối', 'error');
+            return;
         }
-    };
-
-    const handleReject = async () => {
-        if (!window.confirm('Bạn có chắc chắn muốn từ chối phiếu nhập này?')) return;
         setSubmitting(true);
         try {
-            await setGoodsReceiptStatus(id, 'rejected');
-            alert('Đã từ chối phiếu nhập.');
+            const status = confirmType === 'approve' ? 'approved' : 'rejected';
+            await setGoodsReceiptStatus(id, status, rejectionReason.trim() || undefined);
+            toast(
+                status === 'approved' ? 'Đã duyệt phiếu nhập thành công.' : 'Đã từ chối phiếu nhập.',
+                'success'
+            );
+            setConfirmOpen(false);
+            setConfirmType(null);
+            setRejectionReason('');
             navigate('/manager/receipts');
         } catch (e) {
-            alert(e.message || 'Lỗi khi từ chối');
+            toast(e.message || 'Thao tác thất bại', 'error');
             setSubmitting(false);
             fetchReceipt();
         }
@@ -66,34 +72,39 @@ export default function ManagerReceiptDetail() {
         }
     };
 
-    if (loading) return <div style={{ padding: 24, fontSize: 16 }}>Đang tải chi tiết phiếu nhập...</div>;
-    if (error) return <div style={{ backgroundColor: '#fee2e2', color: '#b91c1c', padding: 12, borderRadius: 6, margin: 24 }}>{error}</div>;
+    if (loading) {
+        return (
+            <ManagerPageFrame showNotificationBell={false}>
+                <p className="py-12 text-center text-slate-600">Đang tải chi tiết phiếu nhập...</p>
+            </ManagerPageFrame>
+        );
+    }
+    if (error) {
+        return (
+            <ManagerPageFrame showNotificationBell={false}>
+                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800">{error}</div>
+            </ManagerPageFrame>
+        );
+    }
     if (!receipt) return null;
 
-    return (
-        <div className="manager-page-with-sidebar">
-            <ManagerSidebar />
-            <div className="manager-main">
-                <header className="manager-topbar">
-                    <div className="manager-topbar-actions" style={{ marginLeft: 'auto' }}>
-                        <div className="manager-user-badge">
-                            <i className="fa-solid fa-circle-user" />
-                            <span>Quản lý</span>
-                        </div>
-                    </div>
-                </header>
-                <div className="manager-content">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
-                        <button
-                            style={{ padding: '6px 12px', border: '1px solid #d1d5db', backgroundColor: 'white', borderRadius: 4, cursor: 'pointer', fontSize: 14 }}
-                            onClick={() => navigate(-1)}
-                        >
-                            <i className="fa-solid fa-arrow-left" style={{ marginRight: 6 }} /> Quay lại
-                        </button>
-                        <h1 style={{ margin: 0, fontSize: 24, fontWeight: 600 }}>Chi tiết xét duyệt phiếu nhập kho</h1>
-                    </div>
+    const shortId = receipt._id.substring(receipt._id.length - 6).toUpperCase();
 
-            <div style={{ backgroundColor: 'white', padding: 20, borderRadius: 8, boxShadow: '0 1px 3px rgba(0,0,0,0.1)', marginBottom: 24 }}>
+    return (
+        <ManagerPageFrame showNotificationBell={false}>
+            <StaffPageShell
+                eyebrow="Kho & nhập hàng"
+                eyebrowIcon={ClipboardList}
+                title="Chi tiết xét duyệt phiếu nhập kho"
+                subtitle={`Mã phiếu: ${shortId}`}
+                headerActions={
+                    <Button type="button" variant="outline" className="gap-2" onClick={() => navigate(-1)}>
+                        <ArrowLeft className="h-4 w-4" />
+                        Quay lại
+                    </Button>
+                }
+            >
+            <div className="mb-6 rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[0_4px_24px_-4px_rgba(15,23,42,0.08)] sm:p-6">
                 <h2 style={{ fontSize: 18, marginBottom: 16, borderBottom: '1px solid #e5e7eb', paddingBottom: 8 }}>Thông tin chung</h2>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 20 }}>
                     <div>
@@ -133,10 +144,18 @@ export default function ManagerReceiptDetail() {
                              receipt.status === 'approved' ? 'Đã duyệt' : 'Từ chối'}
                         </span>
                     </div>
-                    {receipt.status === 'approved' && receipt.approved_by && (
+                    {(receipt.status === 'approved' || receipt.status === 'rejected') && receipt.approved_by && (
                         <div>
-                            <p style={{ margin: '0 0 6px 0', fontSize: 13, color: '#6b7280' }}>Người duyệt</p>
+                            <p style={{ margin: '0 0 6px 0', fontSize: 13, color: '#6b7280' }}>
+                                {receipt.status === 'approved' ? 'Người duyệt' : 'Người từ chối'}
+                            </p>
                             <p style={{ margin: 0, fontWeight: 500, fontSize: 15 }}>{receipt.approved_by?.fullName || receipt.approved_by?.email || '—'}</p>
+                        </div>
+                    )}
+                    {receipt.status === 'rejected' && receipt.rejection_reason && (
+                        <div style={{ gridColumn: '1 / -1' }}>
+                            <p style={{ margin: '0 0 6px 0', fontSize: 13, color: '#6b7280' }}>Lý do từ chối</p>
+                            <p style={{ margin: 0, fontWeight: 500, fontSize: 15, color: '#991b1b' }}>{receipt.rejection_reason}</p>
                         </div>
                     )}
                 </div>
@@ -189,22 +208,59 @@ export default function ManagerReceiptDetail() {
                         <button
                             disabled={submitting}
                             style={{ padding: '10px 20px', borderRadius: 6, cursor: submitting ? 'not-allowed' : 'pointer', backgroundColor: '#ef4444', color: 'white', border: 'none', fontSize: 15, fontWeight: 500 }}
-                            onClick={handleReject}
+                            onClick={() => { setRejectionReason(''); setConfirmType('reject'); setConfirmOpen(true); }}
                         >
                             Từ chối phiếu nhập
                         </button>
                         <button
                             disabled={submitting}
                             style={{ padding: '10px 20px', borderRadius: 6, cursor: submitting ? 'not-allowed' : 'pointer', backgroundColor: '#10b981', color: 'white', border: 'none', fontSize: 15, fontWeight: 500 }}
-                            onClick={handleApprove}
+                            onClick={() => { setConfirmType('approve'); setConfirmOpen(true); }}
                         >
                             Duyệt phiếu nhập (Nhập kho)
                         </button>
                     </div>
                 )}
             </div>
-        </div>
-      </div>
-    </div>
+      </StaffPageShell>
+
+      <ConfirmDialog
+        open={confirmOpen}
+        onOpenChange={(open) => {
+            setConfirmOpen(open);
+            if (!open) { setConfirmType(null); setRejectionReason(''); }
+        }}
+        title={confirmType === 'approve' ? 'Duyệt phiếu nhập kho?' : 'Từ chối phiếu nhập?'}
+        description={
+            confirmType === 'approve'
+                ? 'Kho hàng sẽ được tăng theo số lượng và đơn giá trên phiếu.'
+                : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <span>Vui lòng nhập lý do từ chối để nhân viên biết cần điều chỉnh gì.</span>
+                        <textarea
+                            autoFocus
+                            rows={3}
+                            placeholder="VD: Sai số lượng, thiếu chứng từ, sản phẩm không hợp lệ..."
+                            value={rejectionReason}
+                            onChange={(e) => setRejectionReason(e.target.value)}
+                            style={{
+                                width: '100%',
+                                padding: '8px 10px',
+                                borderRadius: 8,
+                                border: '1px solid #d1d5db',
+                                fontSize: 14,
+                                resize: 'vertical',
+                                outline: 'none',
+                            }}
+                        />
+                    </div>
+                )
+        }
+        confirmLabel={confirmType === 'approve' ? 'Duyệt nhập kho' : 'Xác nhận từ chối'}
+        confirmVariant={confirmType === 'reject' ? 'destructive' : 'default'}
+        loading={submitting}
+        onConfirm={runStatusChange}
+      />
+    </ManagerPageFrame>
     );
 }

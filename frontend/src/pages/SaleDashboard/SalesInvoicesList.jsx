@@ -1,7 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { getInvoices } from '../../services/invoicesApi';
-import { getCurrentUser } from '../../utils/auth';
+import { StaffPageShell } from '../../components/staff/StaffPageShell';
+import { Card, CardContent } from '../../components/ui/card';
+import { Button } from '../../components/ui/button';
+import { Badge } from '../../components/ui/badge';
+import { FileText, Loader2, Receipt, Search } from 'lucide-react';
+import { cn } from '../../lib/utils';
 
 const LIMIT = 10;
 
@@ -19,6 +24,12 @@ const PAYMENT_LABEL = {
   debt: 'Ghi nợ',
 };
 
+function statusBadgeClass(status) {
+  if (status === 'confirmed') return 'bg-emerald-100 text-emerald-900 border-emerald-200/80';
+  if (status === 'cancelled') return 'bg-amber-100 text-amber-900 border-amber-200/80';
+  return 'bg-slate-100 text-slate-700 border-slate-200/80';
+}
+
 export default function SalesInvoicesList() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -29,16 +40,8 @@ export default function SalesInvoicesList() {
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
 
-  const user = getCurrentUser();
-  const role = user?.role || '';
-  const isWarehouse = ['staff', 'manager'].includes(role);
-
-  // Base path is now always /staff
   const basePath = '/staff';
   const isReturnsPage = location.pathname.includes('/returns');
-  const [statusFilter, setStatusFilter] = useState(isReturnsPage ? 'cancelled' : '');
-
-  // Search Filters
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [searchKey, setSearchKey] = useState('');
@@ -47,34 +50,33 @@ export default function SalesInvoicesList() {
     setLoading(true);
     setError('');
     try {
-      // Fetch up to 1000 to do client-side filtering, bypassing backend limits
       const resp = await getInvoices({
         page: 1,
         limit: 1000,
-        status: isReturnsPage ? 'cancelled' : 'confirmed'
+        status: isReturnsPage ? 'cancelled' : 'confirmed',
       });
       let allInvoices = resp.invoices || [];
 
-      // For sales history: exclude debt invoices (those are handled via customer debt page)
       if (!isReturnsPage) {
-        allInvoices = allInvoices.filter(i => i.payment_method !== 'debt');
+        allInvoices = allInvoices.filter((i) => i.payment_method !== 'debt');
       }
 
       if (dateFrom) {
         const df = new Date(dateFrom);
         df.setHours(0, 0, 0, 0);
-        allInvoices = allInvoices.filter(i => new Date(i.invoice_at) >= df);
+        allInvoices = allInvoices.filter((i) => new Date(i.invoice_at) >= df);
       }
       if (dateTo) {
         const dt = new Date(dateTo);
         dt.setHours(23, 59, 59, 999);
-        allInvoices = allInvoices.filter(i => new Date(i.invoice_at) <= dt);
+        allInvoices = allInvoices.filter((i) => new Date(i.invoice_at) <= dt);
       }
       if (searchKey) {
         const lowerSearch = searchKey.toLowerCase().trim();
-        allInvoices = allInvoices.filter(i =>
-          (i._id && i._id.toLowerCase().includes(lowerSearch)) ||
-          (i.recipient_name && i.recipient_name.toLowerCase().includes(lowerSearch))
+        allInvoices = allInvoices.filter(
+          (i) =>
+            (i._id && i._id.toLowerCase().includes(lowerSearch)) ||
+            (i.recipient_name && i.recipient_name.toLowerCase().includes(lowerSearch))
         );
       }
 
@@ -83,24 +85,20 @@ export default function SalesInvoicesList() {
 
       const startIndex = (page - 1) * LIMIT;
       setInvoices(allInvoices.slice(startIndex, startIndex + LIMIT));
-
     } catch (e) {
       setError(e.message || 'Không thể tải danh sách hóa đơn');
       setInvoices([]);
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, page, dateFrom, dateTo, searchKey]);
+  }, [page, dateFrom, dateTo, searchKey, isReturnsPage]);
 
-  // Reset page when search filters change
   useEffect(() => {
     setPage(1);
   }, [dateFrom, dateTo, searchKey]);
 
-  // Reset page and update filter when switching between Invoices and Returns
   useEffect(() => {
     setPage(1);
-    setStatusFilter(isReturnsPage ? 'cancelled' : '');
   }, [isReturnsPage]);
 
   useEffect(() => {
@@ -109,131 +107,179 @@ export default function SalesInvoicesList() {
 
   const formatDate = (d) => {
     if (!d) return '—';
-    try { return new Date(d).toLocaleString('vi-VN'); } catch { return '—'; }
+    try {
+      return new Date(d).toLocaleString('vi-VN');
+    } catch {
+      return '—';
+    }
   };
 
-  return (
-    <>
-      <h1 className="warehouse-page-title">{isReturnsPage ? 'Danh sách hàng trả lại' : 'Lịch sử bán lẻ'}</h1>
-      <p className="warehouse-page-subtitle">{isReturnsPage ? 'Theo dõi các đơn hàng đã thực hiện trả hàng.' : 'Danh sách các hóa đơn bán hàng đã thực hiện.'}</p>
+  const start = total === 0 ? 0 : (page - 1) * LIMIT + 1;
+  const end = Math.min(page * LIMIT, total);
 
+  return (
+    <StaffPageShell
+      eyebrow={isReturnsPage ? 'Kho & bán hàng' : 'Bán hàng'}
+      eyebrowIcon={isReturnsPage ? FileText : Receipt}
+      eyebrowTone={isReturnsPage ? 'amber' : 'teal'}
+      title={isReturnsPage ? 'Danh sách hàng trả lại' : 'Lịch sử bán lẻ'}
+      subtitle={
+        isReturnsPage
+          ? 'Theo dõi các đơn đã thực hiện trả hàng.'
+          : 'Hóa đơn đã thanh toán (không bao gồm ghi nợ — xem tại trang khách hàng).'
+      }
+    >
       {error && (
-        <div className="warehouse-alert warehouse-alert-error" role="alert">
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800" role="alert">
           {error}
         </div>
       )}
 
-      <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', background: 'white', padding: 16, borderRadius: 12, boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <label style={{ fontSize: 13, fontWeight: 600, color: '#475569' }}>Từ ngày</label>
-          <input
-            type="date"
-            className="pos-search-input"
-            value={dateFrom}
-            onChange={(e) => setDateFrom(e.target.value)}
-          />
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <label style={{ fontSize: 13, fontWeight: 600, color: '#475569' }}>Đến ngày</label>
-          <input
-            type="date"
-            className="pos-search-input"
-            value={dateTo}
-            onChange={(e) => setDateTo(e.target.value)}
-          />
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 200 }}>
-          <label style={{ fontSize: 13, fontWeight: 600, color: '#475569' }}>Tìm mã / khách hàng</label>
-          <input
-            type="text"
-            placeholder="Nhập mã đơn hoặc tên khách hàng..."
-            className="pos-search-input"
-            value={searchKey}
-            onChange={(e) => setSearchKey(e.target.value)}
-          />
-        </div>
-      </div>
-
-      <div className="warehouse-card">
-        <div className="warehouse-card-header" style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: 20 }}>
-          {/* Status filter removed as requested */}
-        </div>
-
-        {loading ? (
-          <p style={{ padding: 24, textAlign: 'center', color: '#6b7280' }}>Đang tải...</p>
-        ) : invoices.length === 0 ? (
-          <p style={{ padding: 24, textAlign: 'center', color: '#6b7280' }}>
-            Không có hóa đơn nào.
-          </p>
-        ) : (
-          <>
-            <div className="warehouse-table-wrap">
-              <table className="warehouse-table">
-                <thead>
-                  <tr>
-                    <th>Ngày tạo</th>
-                    <th>Mã đơn</th>
-                    <th>Khách hàng</th>
-                    <th>Trạng thái</th>
-                    <th>Thanh toán</th>
-                    <th style={{ textAlign: 'right' }}>Tổng tiền</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {invoices.map((inv) => (
-                    <tr key={inv._id}>
-                      <td>{formatDate(inv.invoice_at)}</td>
-                      <td>{inv._id}</td>
-                      <td>{inv.recipient_name || 'Khách lẻ'}</td>
-                      <td>
-                        <span className={`warehouse-status-badge warehouse-status-${inv.status}`}>
-                          {STATUS_LABEL[inv.status] ?? inv.status}
-                        </span>
-                      </td>
-                      <td>{PAYMENT_LABEL[inv.payment_method] || inv.payment_method || '—'}</td>
-                      <td style={{ textAlign: 'right' }}>{Number(inv.total_amount || 0).toLocaleString('vi-VN')}₫</td>
-                      <td>
-                        <button
-                          type="button"
-                          className="warehouse-btn warehouse-btn-secondary"
-                          style={{ padding: '6px 12px', fontSize: 13 }}
-                          onClick={() => navigate(`${basePath}/${inv._id}`)}
-                        >
-                          Xem
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+      <Card className="border-slate-200/80 shadow-sm shadow-slate-900/5">
+        <CardContent className="p-4 sm:p-6">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div>
+              <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">Từ ngày</label>
+              <input
+                type="date"
+                className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none ring-sky-200 focus:ring-2"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+              />
             </div>
-            <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
-              <p style={{ margin: 0, fontSize: 13, color: '#6b7280' }}>
-                Trang {page} / {totalPages} — Tổng {total} phiếu
-              </p>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button
-                  type="button"
-                  className="warehouse-btn warehouse-btn-secondary"
-                  disabled={page <= 1}
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                >
-                  Trước
-                </button>
-                <button
-                  type="button"
-                  className="warehouse-btn warehouse-btn-secondary"
-                  disabled={page >= totalPages}
-                  onClick={() => setPage((p) => p + 1)}
-                >
-                  Sau
-                </button>
+            <div>
+              <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">Đến ngày</label>
+              <input
+                type="date"
+                className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none ring-sky-200 focus:ring-2"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                Tìm mã / khách hàng
+              </label>
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Mã đơn hoặc tên khách..."
+                  className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-3 text-sm outline-none ring-sky-200 focus:ring-2"
+                  value={searchKey}
+                  onChange={(e) => setSearchKey(e.target.value)}
+                />
               </div>
             </div>
-          </>
-        )}
-      </div>
-    </>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-4 text-sm text-slate-600">
+            <span>
+              Tổng <strong className="text-slate-900">{total}</strong> phiếu
+              {total > 0 && (
+                <>
+                  {' '}
+                  · Hiển thị <strong className="text-slate-900">{start}</strong>–
+                  <strong className="text-slate-900">{end}</strong>
+                </>
+              )}
+            </span>
+            {loading && (
+              <span className="inline-flex items-center gap-2 text-slate-500">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Đang tải...
+              </span>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-slate-200/80 shadow-sm shadow-slate-900/5">
+        <CardContent className="p-0 sm:p-0">
+          {loading && invoices.length === 0 ? (
+            <div className="flex justify-center py-16 text-slate-500">
+              <Loader2 className="h-8 w-8 animate-spin" />
+            </div>
+          ) : invoices.length === 0 ? (
+            <p className="py-14 text-center text-slate-500">Không có hóa đơn nào phù hợp.</p>
+          ) : (
+            <>
+              <div className="overflow-x-auto rounded-xl border border-slate-200/80">
+                <table className="w-full min-w-[760px] text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-200 bg-slate-50/90 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      <th className="px-4 py-3">Ngày tạo</th>
+                      <th className="px-4 py-3">Mã đơn</th>
+                      <th className="px-4 py-3">Khách hàng</th>
+                      <th className="px-4 py-3">Trạng thái</th>
+                      <th className="px-4 py-3">Thanh toán</th>
+                      <th className="px-4 py-3 text-right">Tổng tiền</th>
+                      <th className="w-24 px-4 py-3 text-right" />
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 bg-white">
+                    {invoices.map((inv) => (
+                      <tr key={inv._id} className="hover:bg-slate-50/80">
+                        <td className="whitespace-nowrap px-4 py-3 text-slate-600">{formatDate(inv.invoice_at)}</td>
+                        <td className="max-w-[120px] truncate px-4 py-3 font-mono text-xs text-slate-800">{inv._id}</td>
+                        <td className="max-w-[160px] truncate px-4 py-3 font-medium text-slate-900">
+                          {inv.recipient_name || 'Khách lẻ'}
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge className={cn('border font-medium', statusBadgeClass(inv.status))}>
+                            {STATUS_LABEL[inv.status] ?? inv.status}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3 text-slate-600">
+                          {PAYMENT_LABEL[inv.payment_method] || inv.payment_method || '—'}
+                        </td>
+                        <td className="px-4 py-3 text-right font-medium tabular-nums text-slate-900">
+                          {Number(inv.total_amount || 0).toLocaleString('vi-VN')}₫
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="default"
+                            className="h-9"
+                            onClick={() => navigate(`${basePath}/${inv._id}`)}
+                          >
+                            Xem
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="flex flex-col items-center justify-between gap-3 border-t border-slate-100 px-4 py-4 sm:flex-row">
+                <p className="text-sm text-slate-600">
+                  Trang <strong className="text-slate-900">{page}</strong> /{' '}
+                  <strong className="text-slate-900">{totalPages}</strong>
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={page <= 1 || loading}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  >
+                    Trước
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={page >= totalPages || loading}
+                    onClick={() => setPage((p) => p + 1)}
+                  >
+                    Sau
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
+    </StaffPageShell>
   );
 }

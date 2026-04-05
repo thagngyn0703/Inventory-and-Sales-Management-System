@@ -84,7 +84,7 @@ export default function SalesInvoiceView() {
                   </td>
                   <td style={{ textAlign: 'center', padding: '16px', color: '#475569' }}>{item.quantity}</td>
                   <td style={{ textAlign: 'right', padding: '16px', color: '#475569' }}>{formatMoney(item.unit_price)}</td>
-                  <td style={{ textAlign: 'right', padding: '16px 0', fontWeight: 600, color: '#0081ff' }}>{formatMoney(item.line_total)}</td>
+                  <td style={{ textAlign: 'right', padding: '16px 0', fontWeight: 600, color: '#0f766e' }}>{formatMoney(item.line_total)}</td>
                 </tr>
               ))}
             </tbody>
@@ -135,7 +135,7 @@ export default function SalesInvoiceView() {
               
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ color: '#334155', fontWeight: 600 }}>{invoice.status === 'pending' ? 'Khách còn nợ:' : 'Khách đã trả:'}</span>
-                <span style={{ fontWeight: 700, fontSize: 20, color: invoice.status === 'pending' ? '#f59e0b' : '#0081ff' }}>{formatMoney(invoice.total_amount)}</span>
+                <span style={{ fontWeight: 700, fontSize: 20, color: invoice.status === 'pending' ? '#f59e0b' : '#0f766e' }}>{formatMoney(invoice.total_amount)}</span>
               </div>
             </div>
           </div>

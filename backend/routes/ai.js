@@ -5,9 +5,9 @@
  * Pipeline:
  *   1. calendarHelper   – ngày lễ VN cố định + sự kiện âm lịch (tính sẵn theo năm)
  *   2. weatherHelper    – OpenWeatherMap 5-day forecast (free) theo tên tỉnh thành
- *   3. inventoryHelper  – Top 5 low-stock + Top 5 dead-stock từ MongoDB
- *   4. buildPrompt / buildChatPrompt
- *   5. callLLM          – Gemini trước → OpenAI (api.ai.cc) fallback; insights=jsonMode, chat=text
+ *   3. inventoryHelper  – low-stock + dead-stock + sắp hết hạn 30 ngày (khớp analytics)
+ *   4. buildPrompt / buildContextBlock + CHAT_SYSTEM_RULES (chat)
+ *   5. callLLM / callLLMChat — Gemini trước → OpenAI dự phòng; chat đa lượt + dữ liệu kho mỗi request
  *   6. cache (chỉ insights)
  *
  * LLM priority: Gemini → OpenAI dự phòng → (chat) buildChatFallback nếu cả hai lỗi
@@ -136,6 +136,27 @@ function getUpcomingEvents(daysAhead = 30) {
     .slice(0, 5);
 }
 
+/** Toàn bộ lễ/sự kiện đã biết trong năm DL hiện tại và năm sau (để LLM lọc theo tháng khi hỏi). */
+function getAllYearEventsForContext() {
+  const { y } = getVNDateParts();
+  const raw = [
+    ...getFixedHolidays(y),
+    ...getFixedHolidays(y + 1),
+    ...(LUNAR_EVENTS[y] || []),
+    ...(LUNAR_EVENTS[y + 1] || []),
+  ];
+  const seen = new Set();
+  const out = [];
+  for (const ev of raw) {
+    const k = `${ev.date}|${ev.name}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(ev);
+  }
+  out.sort((a, b) => a.date.localeCompare(b.date));
+  return out;
+}
+
 /** Mùa vụ theo tháng (Miền Bắc & Miền Nam chung). */
 function getSeasonContext(month) {
   if (month >= 4 && month <= 8) {
@@ -224,61 +245,103 @@ function extractCityFromAddress(address) {
   return 'Ho Chi Minh City';
 }
 
-// ─── 3. Inventory Helper ─────────────────────────────────────────────────────
+// ─── 3. Inventory Helper (khớp logic snapshot analytics /inventory-snapshot) ─
 async function getInventoryContext(storeId) {
-  const storeFilter = storeId ? { storeId: new mongoose.Types.ObjectId(storeId) } : {};
+  const baseMatch = storeId
+    ? { storeId: new mongoose.Types.ObjectId(storeId), status: 'active' }
+    : { status: 'active' };
 
-  const [lowStock, deadStock] = await Promise.all([
-    // Sắp hết hàng: tồn <= reorder_level và đang active
-    Product.find({ ...storeFilter, status: 'active', $expr: { $lte: ['$stock_qty', '$reorder_level'] }, reorder_level: { $gt: 0 } })
+  const thirtyDaysLater = new Date();
+  thirtyDaysLater.setDate(thirtyDaysLater.getDate() + 30);
+
+  const [lowStock, deadStock, expiringSoon] = await Promise.all([
+    Product.find({
+      ...baseMatch,
+      stock_qty: { $gt: 0 },
+      $expr: { $lte: ['$stock_qty', '$reorder_level'] },
+    })
       .select('name sku stock_qty reorder_level')
       .sort({ stock_qty: 1 })
       .limit(5)
       .lean(),
 
-    // Vốn đọng: tồn cao, không có bán (dùng stock_qty cao + cost_price)
-    Product.find({ ...storeFilter, status: 'active', stock_qty: { $gt: 10 } })
+    Product.find({ ...baseMatch, stock_qty: { $gt: 10 } })
       .select('name sku stock_qty cost_price')
       .sort({ stock_qty: -1 })
       .limit(5)
       .lean(),
+
+    Product.find({
+      ...baseMatch,
+      expiry_date: { $gte: new Date(), $lte: thirtyDaysLater },
+    })
+      .select('name sku expiry_date stock_qty')
+      .sort({ expiry_date: 1 })
+      .limit(10)
+      .lean(),
   ]);
 
-  return { lowStock, deadStock };
+  return { lowStock, deadStock, expiringSoon };
+}
+
+/** Định dạng ngày YYYY-MM-DD theo lịch VN (hạn dùng). */
+function formatVNDateYMD(d) {
+  if (!d) return '—';
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  return fmt.format(new Date(d));
 }
 
 // ─── 4. Context block (dùng chung insights + chat) ───────────────────────────
-function buildContextBlock({ vnDateStr, events, season, weather, lowStock, deadStock }) {
-  const eventsText = events.length
-    ? events.map(e => `- ${e.name} (${e.date})`).join('\n')
+function buildContextBlock({ vnDateStr, events, yearEvents, season, weather, lowStock, deadStock, expiringSoon }) {
+  const events30Text = events.length
+    ? events.map(e => `- ${e.date} — ${e.name}`).join('\n')
     : '- Không có sự kiện lớn trong 30 ngày tới';
+
+  const yearEventsText = yearEvents.length
+    ? yearEvents.map(e => `- ${e.date} — ${e.name}`).join('\n')
+    : '- (không có dữ liệu lễ trong bảng)';
 
   const lowStockText = lowStock.length
     ? lowStock.map(p => `- ${p.name} (SKU: ${p.sku}): tồn ${p.stock_qty}, mức tối thiểu ${p.reorder_level}`).join('\n')
-    : '- Không có mặt hàng sắp hết';
+    : '- Không có mặt hàng sắp hết (theo ngưỡng tồn ≤ mức tối thiểu)';
 
   const deadStockText = deadStock.length
     ? deadStock.map(p => `- ${p.name} (SKU: ${p.sku}): tồn ${p.stock_qty} ${p.cost_price ? `(vốn ~${(p.stock_qty * p.cost_price).toLocaleString('vi-VN')}đ)` : ''}`).join('\n')
-    : '- Không có hàng tồn nhiều bất thường';
+    : '- Không có hàng tồn nhiều bất thường (top tồn cao)';
+
+  const expiringText = expiringSoon.length
+    ? expiringSoon.map(p => `- ${p.name} (SKU: ${p.sku}): hạn sử dụng ${formatVNDateYMD(p.expiry_date)}, tồn ${p.stock_qty}`).join('\n')
+    : '- Không có mặt hàng nào có hạn sử dụng trong vòng 30 ngày tới';
 
   const weatherLine = weather ? `Thời tiết 24-48h tới: ${weather}` : '';
 
   return `Ngày hôm nay: ${vnDateStr}
-Bối cảnh mùa vụ: ${season}
+Bối cảnh mùa vụ (mô tả chung, không thay thế ngày lễ cụ thể): ${season}
 ${weatherLine}
 
-Sự kiện / ngày lễ sắp tới (30 ngày):
-${eventsText}
+Sự kiện / ngày lễ trong 30 ngày tới:
+${events30Text}
 
-Hàng sắp hết kho (cần nhập gấp):
+LỊCH SỰ KIỆN ĐÃ BIẾT (năm dương lịch hiện tại và năm sau; mỗi dòng: YYYY-MM-DD — tên). Dùng bảng này khi cần liệt kê theo THÁNG cụ thể:
+${yearEventsText}
+
+Hàng sắp hết kho — tồn thấp so với mức tối thiểu (cần nhập):
 ${lowStockText}
 
-Hàng tồn nhiều (rủi ro vốn đọng):
+Hàng sắp hết hạn SỬ DỤNG — hạn trong 30 ngày tới (khác với "sắp hết hàng"):
+${expiringText}
+
+Hàng tồn nhiều (rủi ro vốn đọng — top tồn cao):
 ${deadStockText}`;
 }
 
-function buildPrompt({ vnDateStr, events, season, weather, lowStock, deadStock }) {
-  const ctx = buildContextBlock({ vnDateStr, events, season, weather, lowStock, deadStock });
+function buildPrompt({ vnDateStr, events, yearEvents, season, weather, lowStock, deadStock, expiringSoon }) {
+  const ctx = buildContextBlock({ vnDateStr, events, yearEvents, season, weather, lowStock, deadStock, expiringSoon });
 
   return `Bạn là chuyên gia tư vấn kho vận và kinh doanh cho tiệm tạp hóa tại Việt Nam.
 
@@ -287,6 +350,7 @@ ${ctx}
 NHIỆM VỤ: Dựa CHÍNH XÁC vào dữ liệu trên, đưa ra 3 lời khuyên thực tế cho chủ tiệm.
 - Mỗi lời khuyên tối đa 25 từ, ngắn gọn, hành động rõ ràng.
 - Chỉ đề cập mặt hàng/SKU có trong dữ liệu trên. Nếu không có SKU cụ thể thì nói theo nhóm hàng phù hợp mùa/sự kiện.
+- Nếu mục "Hàng sắp hết hạn SỬ DỤNG" có dòng cụ thể, phải nhắc hết hạn dùng — không được báo "không có" khi danh sách không trống.
 - type phải là một trong: "urgent" (nhập gấp), "warning" (cảnh báo vốn/hạn), "opportunity" (cơ hội kinh doanh), "tip" (lời khuyên chung).
 
 Trả về JSON hợp lệ, ĐÚNG CẤU TRÚC SAU, KHÔNG giải thích thêm:
@@ -306,26 +370,111 @@ function sanitizeChatMessage(raw) {
   return s.replace(/«|»/g, '"');
 }
 
-function buildChatPrompt(ctxParams, userMessage) {
-  const ctx = buildContextBlock(ctxParams);
-  const q = sanitizeChatMessage(userMessage);
-  return `Bạn là chuyên gia tư vấn kho vận và kinh doanh cho tiệm tạp hóa tại Việt Nam.
-
-DỮ LIỆU NỀN (nguồn sự thật — chỉ được dùng số liệu kho/SKU có trong danh sách dưới đây, không được bịa tên sản phẩm không có):
-${ctx}
-
-CÂU HỎI CỦA CHỦ TIỆM:
-«${q}»
-
-YÊU CẦU TRẢ LỜI:
-- Viết bằng tiếng Việt, rõ ràng, tối đa khoảng 8–12 câu (hoặc gạch đầu dòng).
-- Ưu tiên trả lời đúng trọng tâm câu hỏi, kết hợp dữ liệu kho và sự kiện/mùa vụ nếu liên quan.
-- Không bịa nhiệt độ hay số liệu ngoài phần "Thời tiết" đã cho (nếu trống thì nói chung về mùa).
-- Nếu câu hỏi không liên quan nhập hàng / kho / bán lẻ tạp hóa, từ chối lịch sự và nhắc lại vai trò của bạn.
-- Chỉ trả về nội dung trả lời thuần văn bản, KHÔNG bọc JSON, KHÔNG bọc markdown code fence.`;
+function truncateChatText(s, max = 3500) {
+  const t = String(s || '');
+  return t.length > max ? `${t.slice(0, max)}…` : t;
 }
 
-function buildChatFallbackAnswer(userMessage, { lowStock, deadStock, events, season }) {
+/** Chuẩn hóa lịch sử từ client: tối đa 24 tin, chỉ user|assistant, bỏ footer hệ thống. */
+function normalizeChatHistory(raw) {
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  for (const item of raw.slice(-24)) {
+    if (!item || typeof item !== 'object') continue;
+    const role = item.role === 'assistant' ? 'assistant' : item.role === 'user' ? 'user' : null;
+    if (!role) continue;
+    let content = String(item.content || '').trim();
+    if (!content) continue;
+    content = content.replace(/\n\n\[Phản hồi dự phòng[^\]]*\][\s\S]*$/i, '').trim();
+    if (!content) continue;
+    out.push({ role, content: truncateChatText(content, 3500) });
+  }
+  return out;
+}
+
+/**
+ * Hướng dẫn hành vi chat đa lượt: bám câu cuối, tham chiếu hội thoại, không lạc chủ đề.
+ * Dữ liệu kho/lễ gửi riêng mỗi request (system hoặc tin nhắn đầu).
+ */
+const CHAT_SYSTEM_RULES = `Bạn là chuyên gia tư vấn kho vận và kinh doanh cho tiệm tạp hóa tại Việt Nam.
+
+TRỌNG TÂM (đa lượt):
+- Luôn trả lời trọn vẹn cho CÂU HỎI / YÊU CẦU MỚI NHẤT của user (tin nhắn user cuối cùng trong cuộc hội thoại).
+- Các tin nhắn trước chỉ dùng để hiểu tham chiếu: "như vậy", "ý là", "mùa lạnh đó", "những sự kiện đó", "vào mùa lạnh"… phải bám chủ đề đã thống nhất ở các lượt trước.
+- KHÔNG mở đầu lại "Xin chào" hay giới thiệu bản thân nếu đã có hội thoại trước đó.
+- KHÔNG lặp lại nguyên văn toàn bộ dữ liệu kho; chỉ trích phần liên quan câu hỏi cuối.
+
+DỮ LIỆU:
+- Mỗi lượt, khối «DỮ LIỆU NỀN» nằm ở đầu tin nhắn user mới nhất (do hệ thống ghép vào); đó là nguồn sự thật mới nhất về kho và lịch cho yêu cầu hiện tại.
+- Chỉ khẳng định tên sản phẩm/SKU có trong khối đó. Không bịa mặt hàng.
+- Hết hạn SỬ DỤNG: chỉ theo mục "Hàng sắp hết hạn SỬ DỤNG". Nếu có dòng cụ thể thì không được nói "không có".
+
+SỰ KIỆN THEO THÁNG (dương lịch):
+- Trong ngày YYYY-MM-DD, hai số MM sau năm là THÁNG dương lịch. Ví dụ 2026-06-01 là tháng 6; 2026-07-15 là tháng 7. KHÔNG nhầm "1/6" (ngày tháng) với "tháng 6" khi user hỏi "tháng 7".
+- Nếu user chỉ định khoảng tháng (vd. tháng 5–9): chỉ liệt kê sự kiện có MM trong khoảng đó; không thêm tháng ngoài khoảng (vd. không 30/4 nếu chỉ hỏi từ tháng 5).
+- Nếu có khối [LỌC THEO CÂU HỎI] trong tin nhắn: đó là danh sách đã lọc đúng tháng — trả lời bám khối đó (kể cả khi rỗng: nói rõ không có sự kiện trong bảng cho tháng đó).
+- Dùng bảng "LỊCH SỰ KIỆN ĐÃ BIẾT" để đối chiếu khi không có khối lọc.
+
+MÙA / CHỦ ĐỀ:
+- Nếu user đang hỏi về MÙA LẠNH (hoặc tháng 10–3, hoặc tiếp nối sau khi đã nói về mùa lạnh): ưu tiên hàng phù hợp mùa lạnh / lễ thu–đông (20/10, 20/11, Trung thu, Giáng sinh, Tết… nếu nằm trong phạm vi câu hỏi). KHÔNG chuyển sang khuyên nước giải khát mùa hè, kem, hay nhắc 30/4–1/5 trừ khi user hỏi rộng cả năm hoặc hỏi rõ tháng 4–5.
+- Nếu user đang hỏi về MÙA NÓNG / hè: mới nhấn mạnh nước giải khát, kem…
+- Dòng "Bối cảnh mùa vụ" trong dữ liệu chỉ là gợi ý khí hậu; không dùng để lấn át chủ đề user vừa chọn (vd. user nói "vào mùa lạnh" thì không trả lời như đang tư vấn hè).
+
+NHẬP HÀNG / TỐI ƯU DOANH SỐ:
+- Gợi ý nhóm hàng phù hợp sự kiện + mùa user đang hỏi.
+- Nếu dữ liệu cho thấy tồn cao một SKU (hàng tồn nhiều), cảnh báo trùng lặp / vốn đọng; không khuyên nhập thêm đúng loại đó trừ khi user hỏi riêng.
+
+THỜI TIẾT: chỉ dùng nếu có trong dữ liệu; không bịa số đo.
+
+Định dạng: tiếng Việt, rõ ràng, gạch đầu dòng khi liệt kê. Không bọc JSON hay markdown code fence.`;
+
+/** Trích các tháng dương lịch user nhắc tới (vd. "tháng 7", "tháng 5 đến tháng 9"). */
+function parseAskedMonthsFromQuestion(text) {
+  const s = String(text || '').toLowerCase();
+  const months = new Set();
+  let m;
+  const re1 = /tháng\s*(\d{1,2})\b/gi;
+  while ((m = re1.exec(s)) !== null) {
+    const n = parseInt(m[1], 10);
+    if (n >= 1 && n <= 12) months.add(n);
+  }
+  const rangeRe = /tháng\s*(\d{1,2})\s*(?:đến|-|tới)\s*tháng\s*(\d{1,2})/gi;
+  while ((m = rangeRe.exec(s)) !== null) {
+    let a = parseInt(m[1], 10);
+    let b = parseInt(m[2], 10);
+    if (a > b) [a, b] = [b, a];
+    for (let i = a; i <= b; i += 1) {
+      if (i >= 1 && i <= 12) months.add(i);
+    }
+  }
+  return [...months].sort((a, b) => a - b);
+}
+
+function filterYearEventsByMonths(yearEvents, monthNums) {
+  if (!monthNums.length) return [];
+  return yearEvents.filter((e) => {
+    const d = String(e.date || '');
+    if (d.length < 7) return false;
+    const mm = parseInt(d.slice(5, 7), 10);
+    return monthNums.includes(mm);
+  });
+}
+
+/** Gợi ý có sẵn cho LLM — tránh nhầm tháng (vd. liệt kê 1/6 khi hỏi tháng 7). */
+function buildMonthFilteredEventsBlock(yearEvents, monthNums) {
+  if (!monthNums.length) return '';
+  const filtered = filterYearEventsByMonths(yearEvents, monthNums);
+  const label =
+    monthNums.length === 1
+      ? `tháng ${monthNums[0]} (MM=${String(monthNums[0]).padStart(2, '0')} trong YYYY-MM-DD)`
+      : `các tháng ${monthNums.join(', ')}`;
+  const lines = filtered.length
+    ? filtered.map((e) => `- ${e.date} — ${e.name}`).join('\n')
+    : '- (Không có sự kiện nào trong bảng lễ cho phạm vi tháng này — trả lời đúng như vậy; không được thêm sự kiện tháng khác.)';
+  return `\n\n[LỌC THEO CÂU HỎI — Sự kiện trong ${label}:]\n${lines}`;
+}
+
+function buildChatFallbackAnswer(userMessage, { lowStock, deadStock, expiringSoon, events, yearEvents, season }) {
   const q = sanitizeChatMessage(userMessage);
   const parts = [
     '(Hiện không gọi được dịch vụ AI; dưới đây là tóm tắt nhanh từ dữ liệu kho thật.)',
@@ -335,14 +484,34 @@ function buildChatFallbackAnswer(userMessage, { lowStock, deadStock, events, sea
   } else {
     parts.push('• Trong danh sách rút gọn không có mặt hàng đang dưới ngưỡng tối thiểu.');
   }
+  if (expiringSoon.length) {
+    parts.push(
+      `• Sắp hết hạn sử dụng (30 ngày): ${expiringSoon.map((p) => `${p.name} (hạn ${formatVNDateYMD(p.expiry_date)})`).join('; ')}.`
+    );
+  } else {
+    parts.push('• Không có mặt hàng hết hạn sử dụng trong 30 ngày tới (theo dữ liệu).');
+  }
   if (deadStock.length) {
     parts.push(`• Tồn lớn cần xem xét: ${deadStock.slice(0, 3).map((p) => p.name).join(', ')}.`);
   }
   if (events.length) {
-    parts.push(`• Sự kiện sắp tới: ${events.slice(0, 2).map((e) => `${e.name} (${e.date})`).join(' — ')}.`);
+    parts.push(`• Sự kiện 30 ngày tới: ${events.slice(0, 3).map((e) => `${e.name} (${e.date})`).join(' — ')}.`);
+  }
+  const askedMonths = parseAskedMonthsFromQuestion(q);
+  if (askedMonths.length) {
+    const fev = filterYearEventsByMonths(yearEvents || [], askedMonths);
+    parts.push(
+      fev.length
+        ? `• Sự kiện theo tháng bạn hỏi (${askedMonths.join(', ')}): ${fev.map((e) => `${e.date} ${e.name}`).join('; ')}.`
+        : `• Sự kiện theo tháng bạn hỏi (${askedMonths.join(', ')}): không có mục nào trong bảng lễ cho các tháng đó.`
+    );
+  } else if (yearEvents && yearEvents.length) {
+    parts.push(
+      `• Lễ trong năm (rút gọn): ${yearEvents.slice(0, 8).map((e) => `${e.date} ${e.name}`).join('; ')}${yearEvents.length > 8 ? '…' : '.'}`
+    );
   }
   parts.push(`• Bối cảnh mùa: ${season}`);
-  parts.push(`• Câu hỏi của bạn: «${q}» — để được trả lời chi tiết theo ý hỏi, hãy bật GEMINI_API_KEY hoặc OPENAI_API_KEY trên server.`);
+  parts.push(`• Câu hỏi: «${q}» — bật GEMINI_API_KEY hoặc OPENAI_API_KEY để trả lời chi tiết theo tháng/lọc tự động.`);
   return parts.join('\n');
 }
 
@@ -424,6 +593,105 @@ async function callLLM(prompt, llmOptions = {}) {
   throw new Error('Chưa cấu hình GEMINI_API_KEY hoặc OPENAI_API_KEY');
 }
 
+/**
+ * Chat đa lượt — OpenAI Chat Completions.
+ * @param {{ systemText: string, history: {role:string,content:string}[], userMessage: string }} opts
+ */
+async function callOpenAIChat({ systemText, history, userMessage }) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error('OPENAI_API_KEY chưa cấu hình');
+
+  const client = new OpenAI({
+    apiKey,
+    baseURL: 'https://api.ai.cc/v1',
+    timeout: 45000,
+  });
+
+  const messages = [
+    { role: 'system', content: systemText },
+    ...history.map((h) => ({ role: h.role, content: h.content })),
+    { role: 'user', content: userMessage },
+  ];
+
+  const completion = await client.chat.completions.create({
+    model: 'gpt-4o-mini',
+    messages,
+    temperature: 0.35,
+    max_tokens: 1600,
+  });
+
+  const text = completion.choices?.[0]?.message?.content || '';
+  if (!text) throw new Error('OpenAI trả về nội dung trống');
+  return text;
+}
+
+/**
+ * Chat đa lượt — Gemini: systemInstruction + startChat history (user/model).
+ */
+async function callGeminiChat({ systemText, history, userMessage }) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error('GEMINI_API_KEY chưa cấu hình');
+
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({
+    model: 'gemini-1.5-flash',
+    systemInstruction: systemText,
+    generationConfig: {
+      temperature: 0.35,
+      maxOutputTokens: 1600,
+    },
+  });
+
+  const gemHistory = [];
+  for (const h of history) {
+    if (h.role === 'user') {
+      gemHistory.push({ role: 'user', parts: [{ text: h.content }] });
+    } else if (h.role === 'assistant') {
+      gemHistory.push({ role: 'model', parts: [{ text: h.content }] });
+    }
+  }
+  while (gemHistory.length > 0 && gemHistory[0].role !== 'user') {
+    gemHistory.shift();
+  }
+
+  const chat = model.startChat({ history: gemHistory });
+  const result = await chat.sendMessage(userMessage);
+  const text = result.response.text();
+  if (!text) throw new Error('Gemini trả về nội dung trống');
+  return text;
+}
+
+const CHAT_LLM_TIMEOUT_MS = 70000;
+
+function withTimeout(promise, ms, label) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error(`${label} quá thời gian (${Math.round(ms / 1000)}s)`)), ms);
+    }),
+  ]);
+}
+
+async function callLLMChat(opts) {
+  const logTag = '[AI Chat]';
+
+  if (process.env.GEMINI_API_KEY) {
+    try {
+      console.log(`${logTag} Đang gọi Gemini (đa lượt)...`);
+      return await withTimeout(callGeminiChat(opts), CHAT_LLM_TIMEOUT_MS, 'Gemini');
+    } catch (geminiErr) {
+      console.error(`${logTag} Gemini lỗi, chuyển sang OpenAI dự phòng:`, geminiErr.message);
+    }
+  }
+
+  if (process.env.OPENAI_API_KEY) {
+    console.log(`${logTag} Đang gọi OpenAI (api.ai.cc, đa lượt)...`);
+    return await withTimeout(callOpenAIChat(opts), CHAT_LLM_TIMEOUT_MS, 'OpenAI');
+  }
+
+  throw new Error('Chưa cấu hình GEMINI_API_KEY hoặc OPENAI_API_KEY');
+}
+
 /** Parse và validate JSON từ LLM. Fallback sang rule-based nếu parse lỗi. */
 function parseLLMResponse(text, fallbackData) {
   try {
@@ -450,13 +718,19 @@ function parseLLMResponse(text, fallbackData) {
 }
 
 /** Fallback rule-based nếu LLM lỗi hoàn toàn. */
-function buildFallback({ season, events, lowStock, deadStock }) {
+function buildFallback({ season, events, lowStock, deadStock, expiringSoon }) {
   const recs = [];
 
   if (lowStock.length > 0) {
     recs.push({
       type: 'urgent',
       content: `Kiểm tra và nhập thêm: ${lowStock.slice(0, 2).map(p => p.name).join(', ')} đang gần hết hàng.`,
+    });
+  }
+  if (expiringSoon && expiringSoon.length > 0) {
+    recs.push({
+      type: 'warning',
+      content: `Sắp hết hạn dùng: ${expiringSoon.slice(0, 2).map(p => `${p.name} (${formatVNDateYMD(p.expiry_date)})`).join(', ')} — ưu tiên bán hoặc giảm nhập.`,
     });
   }
   if (deadStock.length > 0) {
@@ -509,6 +783,7 @@ router.get(
       // ── Build context ──
       const { m } = getVNDateParts();
       const events = getUpcomingEvents(30);
+      const yearEvents = getAllYearEventsForContext();
       const season = getSeasonContext(m);
 
       // Lấy địa chỉ cửa hàng để dự báo thời tiết
@@ -519,13 +794,15 @@ router.get(
       }
 
       // Parallel: thời tiết + tồn kho
-      const [weather, { lowStock, deadStock }] = await Promise.all([
+      const [weather, { lowStock, deadStock, expiringSoon }] = await Promise.all([
         fetchWeather(city),
         getInventoryContext(storeId === 'admin' ? null : storeId),
       ]);
 
-      const fallbackContext = { season, events, lowStock, deadStock };
-      const prompt = buildPrompt({ vnDateStr, events, season, weather, lowStock, deadStock });
+      const fallbackContext = { season, events, lowStock, deadStock, expiringSoon };
+      const prompt = buildPrompt({
+        vnDateStr, events, yearEvents, season, weather, lowStock, deadStock, expiringSoon,
+      });
 
       // ── Gọi LLM ──
       let insightData;
@@ -563,7 +840,8 @@ function stripOuterCodeFence(text) {
 
 /**
  * POST /api/ai/chat
- * Body: { "message": "..." }
+ * Body: { "message": "...", "history": [{ "role": "user"|"assistant", "content": "..." }] }
+ * history = các lượt trước tin user hiện tại (tối đa ~24 tin, server chuẩn hóa).
  * Trả về: { status, reply, source: "llm" | "fallback" }
  */
 router.post(
@@ -588,10 +866,13 @@ router.post(
         return res.status(400).json({ status: 'error', message: 'Vui lòng nhập nội dung câu hỏi.' });
       }
 
+      const history = normalizeChatHistory(req.body?.history);
+
       const storeId = req.user?.storeId ? String(req.user.storeId) : 'admin';
       const vnDateStr = getVNDateStr();
       const { m } = getVNDateParts();
       const events = getUpcomingEvents(30);
+      const yearEvents = getAllYearEventsForContext();
       const season = getSeasonContext(m);
 
       let city = 'Ho Chi Minh City';
@@ -600,23 +881,34 @@ router.post(
         if (store?.address) city = extractCityFromAddress(store.address);
       }
 
-      const [weather, { lowStock, deadStock }] = await Promise.all([
+      const [weather, { lowStock, deadStock, expiringSoon }] = await Promise.all([
         fetchWeather(city),
         getInventoryContext(storeId === 'admin' ? null : storeId),
       ]);
 
-      const ctxParams = { vnDateStr, events, season, weather, lowStock, deadStock };
-      const prompt = buildChatPrompt(ctxParams, message);
+      const ctxParams = {
+        vnDateStr, events, yearEvents, season, weather, lowStock, deadStock, expiringSoon,
+      };
+      const ctx = buildContextBlock(ctxParams);
+      const askedMonths = parseAskedMonthsFromQuestion(message);
+      const monthBlock = buildMonthFilteredEventsBlock(yearEvents, askedMonths);
+      const augmentedUserMessage = `[DỮ LIỆU NỀN — cập nhật cho yêu cầu này; chỉ dùng SKU có liệt kê, không bịa tên]\n${ctx}${monthBlock}\n\n---\nCÂU HỎI / YÊU CẦU CỦA CHỦ TIỆM:\n${message}`;
 
       let reply;
       let source = 'llm';
       try {
-        const raw = await callLLM(prompt, { jsonMode: false });
+        const raw = await callLLMChat({
+          systemText: CHAT_SYSTEM_RULES,
+          history,
+          userMessage: augmentedUserMessage,
+        });
         reply = stripOuterCodeFence(raw);
         if (!reply) throw new Error('Phản hồi trống');
       } catch (chatErr) {
         console.error('[AI Chat] LLM error:', chatErr.message);
-        reply = buildChatFallbackAnswer(message, { lowStock, deadStock, events, season });
+        reply = buildChatFallbackAnswer(message, {
+          lowStock, deadStock, expiringSoon, events, yearEvents, season,
+        });
         source = 'fallback';
       }
 

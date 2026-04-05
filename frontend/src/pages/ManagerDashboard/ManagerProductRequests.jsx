@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import ManagerSidebar from './ManagerSidebar';
+import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
+import { StaffPageShell } from '../../components/staff/StaffPageShell';
+import { FileStack } from 'lucide-react';
 import { getProductRequests, approveProductRequest, rejectProductRequest } from '../../services/productsApi';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
@@ -69,8 +71,8 @@ export default function ManagerProductRequests() {
     const renderSortIcon = (field) => {
         if (sortBy !== field) return <i className="fa-solid fa-sort" style={{ marginLeft: 8, opacity: 0.3 }} />;
         return order === 'asc' 
-            ? <i className="fa-solid fa-sort-up" style={{ marginLeft: 8, color: '#2563eb' }} />
-            : <i className="fa-solid fa-sort-down" style={{ marginLeft: 8, color: '#2563eb' }} />;
+            ? <i className="fa-solid fa-sort-up" style={{ marginLeft: 8, color: '#0d9488' }} />
+            : <i className="fa-solid fa-sort-down" style={{ marginLeft: 8, color: '#0d9488' }} />;
     };
 
     const openConfirm = (action, id, title, message) => {
@@ -123,30 +125,14 @@ export default function ManagerProductRequests() {
     const end = Math.min(page * LIMIT, total);
 
     return (
-        <div className="manager-page-with-sidebar">
-            <ManagerSidebar />
-            <div className="manager-main">
-                <header className="manager-topbar">
-                    <div className="manager-topbar-search-wrap">
-                        {/* Search moved to main content area */}
-                    </div>
-                    <div className="manager-topbar-actions">
-                        <div className="manager-user-badge">
-                            <i className="fa-solid fa-circle-user" />
-                            <span>Quản lý</span>
-                        </div>
-                    </div>
-                </header>
-
-                <div className="manager-content">
-                    <div className="manager-products-header">
-                        <div>
-                            <h1 className="manager-page-title">Yêu cầu tạo sản phẩm mới</h1>
-                            <p className="manager-page-subtitle">Quản lý các sản phẩm mới được đề xuất bởi kho</p>
-                        </div>
-                    </div>
-
-                    <div style={{ backgroundColor: 'white', padding: 16, borderRadius: 8, boxShadow: '0 1px 3px rgba(0,0,0,0.1)', marginBottom: 20 }}>
+        <ManagerPageFrame showNotificationBell={false}>
+            <StaffPageShell
+                eyebrow="Kho & sản phẩm"
+                eyebrowIcon={FileStack}
+                title="Yêu cầu tạo sản phẩm mới"
+                subtitle="Duyệt hoặc từ chối sản phẩm do nhân viên kho đề xuất."
+            >
+                    <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm sm:p-5">
                         <div style={{ display: 'flex', gap: 16, alignItems: 'flex-end', flexWrap: 'wrap' }}>
                             <div style={{ flex: 1, maxWidth: 350 }}>
                                 <label style={{ display: 'block', fontSize: 13, color: '#6b7280', marginBottom: 4 }}>Tìm kiếm</label>
@@ -339,8 +325,7 @@ export default function ManagerProductRequests() {
                             </>
                         )}
                     </div>
-                </div>
-            </div>
+            </StaffPageShell>
 
             {confirmModal.show && (
                 <div className="manager-reason-modal-overlay" onClick={handleConfirmClose}>
@@ -362,6 +347,6 @@ export default function ManagerProductRequests() {
                     </div>
                 </div>
             )}
-        </div>
+        </ManagerPageFrame>
     );
 }

@@ -31,7 +31,8 @@ const requireAdmin = (req, res, next) => {
     next();
 };
 
-const requireManagerOrWarehouse = (req, res, next) => {
+/** Admin, Manager (có store), hoặc Staff */
+const requireManagerOrStaff = (req, res, next) => {
     if (!req.user || !['admin', 'manager', 'staff'].includes(req.user.role)) {
         return res.status(403).json({ message: 'Access denied. Admin, Manager, or Staff only.' });
     }
@@ -44,17 +45,11 @@ const requireManagerOrWarehouse = (req, res, next) => {
     next();
 };
 
-const requireManagerOrAdminOrWarehouse = (req, res, next) => {
-    if (!req.user || !['admin', 'manager', 'staff'].includes(req.user.role)) {
-        return res.status(403).json({ message: 'Access denied. Admin, Manager, or Staff only.' });
-    }
-    if (req.user.role === 'manager' && !req.user.storeId) {
-        return res.status(403).json({
-            message: 'Manager chưa có cửa hàng. Vui lòng đăng ký cửa hàng trước khi tiếp tục.',
-            code: 'STORE_REQUIRED',
-        });
-    }
-    next();
+module.exports = {
+    verifyToken,
+    requireAdmin,
+    requireManagerOrStaff,
+    /** @deprecated dùng requireManagerOrStaff */
+    requireManagerOrWarehouse: requireManagerOrStaff,
+    requireManagerOrAdminOrWarehouse: requireManagerOrStaff,
 };
-
-module.exports = { verifyToken, requireAdmin, requireManagerOrWarehouse, requireManagerOrAdminOrWarehouse };

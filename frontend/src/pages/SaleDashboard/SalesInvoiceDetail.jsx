@@ -1,10 +1,12 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useNavigate, useOutletContext, useParams } from 'react-router-dom';
-import { getInvoice, createInvoice, updateInvoice, getPaymentStatus } from '../../services/invoicesApi';
+import { getInvoice, createInvoice, updateInvoice, getPaymentStatus, cancelUnpaidBankTransferInvoice } from '../../services/invoicesApi';
 import { getProducts } from '../../services/productsApi';
 import { getCustomers, createCustomer } from '../../services/customersApi';
 import PaymentWaitModal from '../../components/payment/PaymentWaitModal';
 import { Button } from '../../components/ui/button';
+import { useToast } from '../../contexts/ToastContext';
+import { Barcode, Loader2, Menu, Plus, Receipt, X } from 'lucide-react';
 import './SalesPOS.css';
 
 function formatMoney(n) {
@@ -33,6 +35,7 @@ const createDefaultTab = (index = 1) => ({
 export default function SalesInvoiceDetail() {
   const { id = '' } = useParams();
   const navigate = useNavigate();
+  const { toast: notify } = useToast();
   const outletContext = useOutletContext() || {};
   const toggleSidebar = outletContext.toggleSidebar;
   const sidebarCollapsed = Boolean(outletContext.sidebarCollapsed);
@@ -40,6 +43,28 @@ export default function SalesInvoiceDetail() {
     (typeof outletContext.storeName === 'string' && outletContext.storeName.trim()) ||
     String(process.env.REACT_APP_STORE_NAME || '').trim() ||
     'Cửa hàng';
+
+  const staffFromStorage = () => {
+    try {
+      const u = JSON.parse(localStorage.getItem('user') || 'null');
+      if (!u) return { name: 'Nhân viên', role: 'Nhân viên' };
+      const role = u.role === 'manager' ? 'Quản lý' : 'Nhân viên';
+      return {
+        name: String(u.fullName || u.email || 'Nhân viên').trim(),
+        role,
+      };
+    } catch {
+      return { name: 'Nhân viên', role: 'Nhân viên' };
+    }
+  };
+  const staffSnap = staffFromStorage();
+  const staffDisplayName =
+    (typeof outletContext.staffDisplayName === 'string' && outletContext.staffDisplayName.trim()) ||
+    staffSnap.name;
+  const staffRoleLabel =
+    (typeof outletContext.staffRoleLabel === 'string' && outletContext.staffRoleLabel.trim()) ||
+    staffSnap.role;
+
   const isNew = id === 'new' || !id || id === 'undefined' || id === 'null';
 
  
@@ -59,15 +84,6 @@ export default function SalesInvoiceDetail() {
   // Tab Management State
   const [tabs, setTabs] = useState([createDefaultTab(1)]);
   const [activeTabId, setActiveTabId] = useState(tabs[0].tabId);
-  const [tabCounter, setTabCounter] = useState(2); // to name new tabs Hóa đơn 2, 3...
-  
-  const [toastMessage, setToastMessage] = useState('');
-  const [toast, setToast] = useState({ message: '', type: 'success' }); // { message, type: 'success' | 'error' }
-
-  const showToast = (message, type = 'success') => {
-    setToast({ message, type });
-    setTimeout(() => setToast({ message: '', type: 'success' }), 4000);
-  };
 
   const [customerSearch, setCustomerSearch] = useState('');
   const [customerList, setCustomerList] = useState([]);
@@ -76,34 +92,7 @@ export default function SalesInvoiceDetail() {
 
   const [showCreateCustomer, setShowCreateCustomer] = useState(false);
   const [newCustomer, setNewCustomer] = useState({ full_name: '', phone: '' });
-  const [creatingCustomer, setCreatingCustomer] = useState(false);
   const [customerModalError, setCustomerModalError] = useState('');
-
-  const handleCreateCustomer = async () => {
-    if (!newCustomer.full_name || !newCustomer.phone) {
-      setCustomerModalError('Vui lòng nhập đầy đủ Tên và Số điện thoại.');
-      return;
-    }
-    const cleanPhone = newCustomer.phone.trim().replace(/\\s/g, '');
-    if (cleanPhone.length < 10 || cleanPhone.length > 11) {
-      setCustomerModalError('Số điện thoại hợp lệ phải có 10 hoặc 11 chữ số.');
-      return;
-    }
-    setCreatingCustomer(true);
-    setCustomerModalError('');
-    try {
-      const created = await createCustomer({ ...newCustomer, status: 'active', is_regular: true });
-      updateActiveTab({ customerId: created._id, customerData: created, recipientName: created.full_name, paymentMethod: 'cash' });
-      setCustomerSearch('');
-      setShowCreateCustomer(false);
-      setNewCustomer({ full_name: '', phone: '' });
-      showToast('Thêm khách hàng thành công!', 'success');
-    } catch (e) {
-      setCustomerModalError(e.message || 'Lỗi khi thêm khách hàng mới');
-    } finally {
-      setCreatingCustomer(false);
-    }
-  };
 
   const searchCustomers = (val) => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -195,9 +184,7 @@ export default function SalesInvoiceDetail() {
           // In hóa đơn
           handlePrintInvoice(invoiceData, tabSnapshot);
 
-          // Toast
-          setToastMessage('Thanh toán chuyển khoản thành công!');
-          setTimeout(() => setToastMessage(''), 4000);
+          notify('Thanh toán chuyển khoản thành công!', 'success');
 
           // Reset tab
           setTabs(prev => {
@@ -219,12 +206,17 @@ export default function SalesInvoiceDetail() {
 
       if (attempts >= MAX_ATTEMPTS) {
         stopPolling();
-        setPendingPayment(null);
-        setToastMessage('Hết thời gian chờ thanh toán. Vui lòng kiểm tra lại.');
-        setTimeout(() => setToastMessage(''), 5000);
+        // Hết giờ: hủy hóa đơn chưa thanh toán để không làm sai thống kê
+        setPendingPayment((prev) => {
+          if (prev?.invoice?._id) {
+            cancelUnpaidBankTransferInvoice(prev.invoice._id).then(() => loadProducts());
+          }
+          return null;
+        });
+        notify('Hết thời gian chờ thanh toán. Giao dịch đã bị hủy.', 'error');
       }
     }, 5000);
-  }, [stopPolling, speakPayment, loadProducts]);
+  }, [stopPolling, speakPayment, loadProducts, notify]);
 
   // Dọn dẹp polling khi unmount
   useEffect(() => () => stopPolling(), [stopPolling]);
@@ -363,13 +355,11 @@ export default function SalesInvoiceDetail() {
       String(p.sku || '').toLowerCase() === normalized
     ));
     if (!found) {
-      setToastMessage(`Không tìm thấy sản phẩm với mã: ${code}`);
-      setTimeout(() => setToastMessage(''), 2500);
+      notify(`Không tìm thấy sản phẩm với mã: ${code}`, 'error');
       return;
     }
     handleAddProduct(found);
-    setToastMessage(`Đã thêm: ${found.name}`);
-    setTimeout(() => setToastMessage(''), 1800);
+    notify(`Đã thêm: ${found.name}`, 'success');
   };
 
   useEffect(() => {
@@ -399,7 +389,7 @@ export default function SalesInvoiceDetail() {
     };
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [scanMode, products, activeTabId]);
+  }, [scanMode, products, activeTabId, notify]);
 
   const updateLine = (idx, changes) => {
     const newItems = [...activeTab.items];
@@ -429,8 +419,11 @@ export default function SalesInvoiceDetail() {
   const missingAmount = Math.max(0, totalWithDebt - customerPaidNum);
   
   // Validation
+  const customerDebt = activeTab.customerData?.debt_account || 0;
+  // Nợ >= 100.000đ: bắt buộc phải chọn "Trả luôn" (payOldDebt=true) mới được thanh toán
+  const isDebtBlocked = customerDebt >= 100000 && !activeTab.payOldDebt;
   const isPaymentSufficient = activeTab.paymentMethod === 'bank_transfer' || customerPaidNum >= totalAmount;
-  const canSubmit = !activeTab.saving && activeTab.items.length > 0 && 
+  const canSubmit = !activeTab.saving && activeTab.items.length > 0 && !isDebtBlocked &&
     (activeTab.paymentMethod === 'debt' || customerPaidNum >= totalWithDebt || activeTab.paymentMethod === 'bank_transfer');
 
   const QUICK_PAID_VALUES = [10000, 20000, 50000, 100000, 200000, 500000];
@@ -576,8 +569,9 @@ export default function SalesInvoiceDetail() {
 
         if (activeTab.paymentMethod === 'bank_transfer' && payment_ref) {
           // Chuyển khoản: hiện màn hình QR chờ, bắt đầu polling
+          // Dùng totalWithDebt để QR hiện đúng số tiền thực thu (bao gồm nợ cũ nếu khách chọn trả luôn)
           const tabSnapshot = { ...activeTab, items: [...activeTab.items] };
-          setPendingPayment({ paymentRef: payment_ref, totalAmount: totalAmount, invoice: created });
+          setPendingPayment({ paymentRef: payment_ref, totalAmount: totalWithDebt, invoice: created });
           startPolling(payment_ref, created, tabSnapshot);
           updateActiveTab({ saving: false });
         } else {
@@ -586,7 +580,7 @@ export default function SalesInvoiceDetail() {
              handlePrintInvoice(created, activeTab);
           }
           speakPayment();
-          showToast('Thanh toán thành công! ' + (changeAmount > 0 ? `Tiền thừa trả khách: ${formatMoney(changeAmount)}` : ''), 'success');
+          notify('Thanh toán thành công! ' + (changeAmount > 0 ? `Tiền thừa trả khách: ${formatMoney(changeAmount)}` : ''), 'success');
 
           if (tabs.length === 1) {
             const nextNumber = getNextTabNumber(tabs);
@@ -603,11 +597,11 @@ export default function SalesInvoiceDetail() {
       } else {
         await updateInvoice(activeTab.invoiceId, payload);
         updateActiveTab({ successMessage: 'Đã lưu thay đổi.', saving: false });
-        showToast('Đã lưu thay đổi hóa đơn.', 'success');
+        notify('Đã lưu thay đổi hóa đơn.', 'success');
       }
     } catch (e) {
       updateActiveTab({ error: e.message || 'Lỗi khi lưu hóa đơn', saving: false });
-      showToast(e.message || 'Lỗi khi lưu hóa đơn', 'error');
+      notify(e.message || 'Lỗi khi lưu hóa đơn', 'error');
     }
   };
 
@@ -625,7 +619,14 @@ export default function SalesInvoiceDetail() {
     processCheckout();
   };
 
-  if (loading) return <div className="pos-loading">Đang tải...</div>;
+  if (loading) {
+    return (
+      <div className="pos-loading">
+        <Loader2 className="h-10 w-10 animate-spin text-teal-500" aria-hidden />
+        <span>Đang tải dữ liệu quầy...</span>
+      </div>
+    );
+  }
 
   return (
     <div className="pos-container">
@@ -636,8 +637,17 @@ export default function SalesInvoiceDetail() {
             title={sidebarCollapsed ? 'Mở menu' : 'Thu nhỏ menu'}
             onClick={() => typeof toggleSidebar === 'function' && toggleSidebar()}
           >
-            <i className="fa-solid fa-bars" />
+            <Menu className="h-[18px] w-[18px]" strokeWidth={2.25} aria-hidden />
           </button>
+          {isNew ? (
+            <div
+              className="hidden shrink-0 select-none items-center gap-1.5 rounded-full border border-white/35 bg-white/15 px-3 py-1 text-xs font-bold tracking-tight text-white shadow-sm backdrop-blur-sm sm:flex"
+              title="Quầy bán lẻ"
+            >
+              <Receipt className="h-3.5 w-3.5 opacity-95" aria-hidden />
+              Tạo hóa đơn
+            </div>
+          ) : null}
           <div className="pos-toolbar-left">
             <div className="pos-search-dropdown-wrap" ref={searchWrapRef}>
               <input
@@ -692,7 +702,7 @@ export default function SalesInvoiceDetail() {
                 }
               }}
             >
-              <i className="fa-solid fa-barcode" />
+              <Barcode className="mx-auto h-[18px] w-[18px]" strokeWidth={2.25} aria-hidden />
             </button>
             {scanMode && <span className="pos-scan-mode-tag">Đang quét mã</span>}
           </div>
@@ -705,25 +715,55 @@ export default function SalesInvoiceDetail() {
                 onClick={() => setActiveTabId(tab.tabId)}
               >
                 {tab.name}
-                <i
-                  className="fa-solid fa-xmark"
-                  style={{ fontSize: 12, marginLeft: 8, cursor: 'pointer', padding: 2 }}
+                <X
+                  className="ml-2 h-3.5 w-3.5 shrink-0 cursor-pointer opacity-80 hover:opacity-100"
+                  strokeWidth={2.5}
+                  aria-label="Đóng tab"
                   onClick={(e) => handleCloseTab(tab.tabId, e)}
                 />
               </div>
             ))}
-            <Button type="button" variant="outline" className="pos-add-tab-btn" onClick={handleAddTab}>
-              <i className="fa-solid fa-plus" />
+            <Button type="button" variant="outline" className="pos-add-tab-btn" onClick={handleAddTab} aria-label="Thêm hóa đơn">
+              <Plus className="h-4 w-4" strokeWidth={2.25} />
             </Button>
           </div>
+
+          {isNew ? (
+            <div className="pos-toolbar-user-badge" aria-label="Thông tin cửa hàng và nhân viên">
+              <span className="pos-toolbar-user-avatar" aria-hidden>
+                <i className="fa-solid fa-user" />
+              </span>
+              {storeDisplayName ? (
+                <span className="pos-toolbar-store-chip">
+                  <i className="fa-solid fa-store pos-toolbar-store-ico" aria-hidden />
+                  {storeDisplayName}
+                </span>
+              ) : null}
+              <span className="pos-toolbar-staff-line">
+                <span className="pos-toolbar-staff-name">{staffDisplayName}</span>
+                <span className="pos-toolbar-staff-role"> ({staffRoleLabel})</span>
+              </span>
+            </div>
+          ) : null}
       </div>
 
       <div className="pos-body">
       {/* Center Area: Active Order with Tabs */}
       <div className="pos-center-area">
         <div className="pos-cart-container">
-          {activeTab.error && <div className="warehouse-alert warehouse-alert-error">{activeTab.error}</div>}
-          {activeTab.successMessage && <div className="warehouse-alert warehouse-alert-success">{activeTab.successMessage}</div>}
+          {activeTab.error && (
+            <div className="mb-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-sm font-medium text-red-800" role="alert">
+              {activeTab.error}
+            </div>
+          )}
+          {activeTab.successMessage && (
+            <div
+              className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm font-medium text-emerald-800"
+              role="status"
+            >
+              {activeTab.successMessage}
+            </div>
+          )}
           
           <table className="pos-cart-table">
             <thead>
@@ -785,13 +825,12 @@ export default function SalesInvoiceDetail() {
       {/* Right Sidebar: Summary */}
       <div className="pos-right-sidebar">
         <div className="pos-customer-section">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-            <span style={{ fontWeight: 700, color: '#1e293b' }}>Khách hàng</span>
-          </div>
-
+          <div className="pos-sidebar-panel pos-sidebar-panel--customer">
+            <div className="pos-sidebar-panel-head">Khách hàng</div>
+            <div className="pos-sidebar-panel-body pos-sidebar-panel-body-pad">
           {showCreateCustomer ? (
             /* Inline create customer mode */
-            <div>
+            <div className="pos-customer-create-fields">
               <input
                 type="text"
                 placeholder="Tên khách hàng *"
@@ -813,8 +852,8 @@ export default function SalesInvoiceDetail() {
                 <div style={{ color: '#ef4444', fontSize: 12, marginBottom: 6 }}>{customerModalError}</div>
               )}
               <button
-                className="warehouse-btn warehouse-btn-secondary"
-                style={{ width: '100%', padding: '6px', fontSize: 13, marginTop: 2 }}
+                type="button"
+                className="pos-sidebar-text-btn"
                 onClick={() => { setShowCreateCustomer(false); setNewCustomer({ full_name: '', phone: '' }); setCustomerModalError(''); }}
               >
                 <i className="fa-solid fa-xmark" style={{ marginRight: 6 }} /> Hủy thêm khách hàng
@@ -822,79 +861,104 @@ export default function SalesInvoiceDetail() {
             </div>
           ) : (
             /* Normal search mode */
-            <div className="pos-customer-search" style={{ position: 'relative' }}>
-              <input
-                type="text"
-                placeholder={activeTab.customerId ? activeTab.customerData?.full_name : "Khách lẻ (mặc định) (Tên/SĐT)"}
-                className="pos-search-input"
-                value={customerSearch !== '' ? customerSearch : (activeTab.customerId ? activeTab.recipientName : activeTab.recipientName)}
-                onChange={(e) => {
-                    setCustomerSearch(e.target.value);
-                    updateActiveTab({ recipientName: e.target.value, customerId: null, customerData: null });
-                    searchCustomers(e.target.value);
-                }}
-                onFocus={() => { if(customerList.length > 0) setShowCustomerDropdown(true); }}
-                onBlur={() => setTimeout(() => setShowCustomerDropdown(false), 200)}
-              />
-              {activeTab.customerId && (
-                <i className="fa-solid fa-xmark" style={{ position: 'absolute', right: 40, top: 10, cursor: 'pointer', color: '#94a3b8' }}
-                  onClick={() => {
-                    updateActiveTab({ customerId: null, customerData: null, recipientName: '', paymentMethod: 'cash', payOldDebt: false });
-                    setCustomerSearch('');
-                  }} />
-              )}
-              <button className="warehouse-btn warehouse-btn-secondary" style={{ padding: '0 12px' }} onClick={() => setShowCreateCustomer(true)}>+</button>
+            <div className="pos-customer-search">
+              <div className={`pos-customer-search-field${activeTab.customerId ? ' pos-customer-search-field--has-clear' : ''}`}>
+                <input
+                  type="text"
+                  placeholder={activeTab.customerId ? activeTab.customerData?.full_name : "Khách lẻ (mặc định) (Tên/SĐT)"}
+                  className="pos-search-input"
+                  value={customerSearch !== '' ? customerSearch : (activeTab.customerId ? activeTab.recipientName : activeTab.recipientName)}
+                  onChange={(e) => {
+                      setCustomerSearch(e.target.value);
+                      updateActiveTab({ recipientName: e.target.value, customerId: null, customerData: null });
+                      searchCustomers(e.target.value);
+                  }}
+                  onFocus={() => { if(customerList.length > 0) setShowCustomerDropdown(true); }}
+                  onBlur={() => setTimeout(() => setShowCustomerDropdown(false), 200)}
+                />
+                {activeTab.customerId && (
+                  <button
+                    type="button"
+                    className="pos-customer-clear"
+                    aria-label="Bỏ chọn khách"
+                    onClick={() => {
+                      updateActiveTab({ customerId: null, customerData: null, recipientName: '', paymentMethod: 'cash', payOldDebt: false });
+                      setCustomerSearch('');
+                    }}
+                  >
+                    <i className="fa-solid fa-xmark" />
+                  </button>
+                )}
+              </div>
+              <button type="button" className="pos-customer-add-btn" onClick={() => setShowCreateCustomer(true)} aria-label="Thêm khách hàng">
+                <i className="fa-solid fa-plus" />
+              </button>
 
               {/* Dropdown */}
               {showCustomerDropdown && customerList.length > 0 && (
-                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: '1px solid #cbd5e1', borderRadius: 6, zIndex: 10, maxHeight: 200, overflowY: 'auto', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)', marginTop: 4 }}>
+                <div className="pos-customer-dropdown">
                   {customerList.map(c => (
-                    <div key={c._id} style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}
+                    <div key={c._id} className="pos-customer-dropdown-item"
+                      role="button"
+                      tabIndex={0}
                       onClick={() => {
                         updateActiveTab({ customerId: c._id, customerData: c, recipientName: c.full_name });
                         setCustomerSearch('');
                         setShowCustomerDropdown(false);
                       }}>
-                      <div style={{ fontWeight: 600, fontSize: 13, color: '#0f172a' }}>{c.full_name}</div>
-                      <div style={{ fontSize: 12, color: '#64748b' }}>{c.phone}</div>
+                      <div className="pos-customer-dropdown-name">{c.full_name}</div>
+                      <div className="pos-customer-dropdown-phone">{c.phone}</div>
                     </div>
                   ))}
                 </div>
               )}
             </div>
           )}
+            </div>
+          </div>
         </div>
 
         <div className="pos-summary-section">
-          <div className="pos-summary-row">
-            <span>Tổng tiền hàng</span>
-            <span>{formatMoney(totalAmount)}</span>
+          <div className="pos-sidebar-panel pos-summary-panel">
+            <div className="pos-sidebar-panel-head pos-sidebar-panel-head-cols">
+              <span>Khoản mục</span>
+              <span>Giá trị</span>
+            </div>
+            <div className="pos-summary-panel-lines">
+              <div className="pos-summary-line">
+                <span>Tổng tiền hàng</span>
+                <span className="pos-summary-amount">{formatMoney(totalAmount)}</span>
+              </div>
+              <div className="pos-summary-line pos-summary-line-discount">
+                <span>Giảm giá</span>
+                <input
+                  type="text"
+                  placeholder="0"
+                  className="pos-discount-input"
+                />
+              </div>
+            </div>
+            <div className="pos-total-banner">
+              <span>{activeTab.payOldDebt ? 'Tổng thanh toán (+Nợ)' : 'Khách cần trả'}</span>
+              <span className="pos-total-amount">{formatMoney(totalWithDebt)}</span>
+            </div>
           </div>
-          <div className="pos-summary-row pos-discount-row">
-            <span>Giảm giá</span>
-            <input 
-               type="text" 
-               placeholder="0" 
-               className="pos-discount-input"
-            />
-          </div>
-          <div className="pos-total-row">
-            <span>{activeTab.payOldDebt ? 'Tổng thanh toán (+Nợ)' : 'Khách cần trả'}</span>
-            <span style={{ color: '#0081ff', fontSize: 20 }}>{formatMoney(totalWithDebt)}</span>
-          </div>
-          
-          {/* Detailed Payment Inputs */}
-          <div className="pos-payment-box">
+
+          <div className="pos-sidebar-panel pos-payment-panel">
+            <div className="pos-sidebar-panel-head">Phương thức thanh toán</div>
+            <div className="pos-payment-panel-body">
 
               {/* Mixed payment toggles or summary */}
               <div className="pos-payment-methods">
                   <button 
+                     type="button"
                      className={`pos-method-btn ${activeTab.paymentMethod === 'cash' ? 'active' : ''}`}
                      onClick={() => updateActiveTab({ paymentMethod: 'cash' })}
                   >
                      <i className="fa-solid fa-money-bill" style={{ marginRight: 6 }}/> Tiền mặt
                   </button>
                   <button 
+                     type="button"
                      className={`pos-method-btn ${activeTab.paymentMethod === 'bank_transfer' ? 'active' : ''}`}
                      onClick={() => updateActiveTab({ paymentMethod: 'bank_transfer' })}
                   >
@@ -902,7 +966,8 @@ export default function SalesInvoiceDetail() {
                   </button>
                   {activeTab.customerId && !activeTab.payOldDebt && (
                       <button 
-                         style={{ flex: 1, padding: '8px', borderRadius: 6, border: activeTab.paymentMethod === 'debt' ? '1px solid #0081ff' : '1px solid #cbd5e1', background: activeTab.paymentMethod === 'debt' ? '#eff6ff' : 'white', cursor: 'pointer', fontWeight: 600, color: activeTab.paymentMethod === 'debt' ? '#0081ff' : '#64748b' }}
+                         type="button"
+                         className={`pos-method-btn ${activeTab.paymentMethod === 'debt' ? 'active' : ''}`}
                          onClick={() => updateActiveTab({ paymentMethod: 'debt' })}
                       >
                          <i className="fa-solid fa-book" style={{ marginRight: 6 }}/> Ghi nợ
@@ -953,17 +1018,7 @@ export default function SalesInvoiceDetail() {
                         <button
                           type="button"
                           onClick={() => updateActiveTab({ customerPaid: totalWithDebt.toString() })}
-                          style={{
-                            gridColumn: 'span 3',
-                            padding: '6px',
-                            background: '#f1f5f9',
-                            border: '1px solid #cbd5e1',
-                            borderRadius: 6,
-                            fontSize: 12,
-                            fontWeight: 700,
-                            color: '#0f172a',
-                            cursor: 'pointer',
-                          }}
+                          className="pos-quick-paid-full"
                         >
                           Đủ tiền ({formatMoney(totalWithDebt)})
                         </button>
@@ -998,6 +1053,7 @@ export default function SalesInvoiceDetail() {
                   </div>
                 </div>
               )}
+            </div>
           </div>
 
           {/* Debt Notification Alert */}
@@ -1005,43 +1061,54 @@ export default function SalesInvoiceDetail() {
               <div style={{ 
                  marginTop: 16, 
                  padding: '16px', 
-                 background: '#fff7ed', 
-                 border: '1px solid #fed7aa', 
+                 background: isDebtBlocked ? '#fef2f2' : '#fff7ed', 
+                 border: isDebtBlocked ? '1px solid #fca5a5' : '1px solid #fed7aa', 
                  borderRadius: 12,
                  boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)'
               }}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-                      <div style={{ background: '#ffedd5', color: '#ea580c', width: 32, height: 32, borderRadius: '50%', display: 'flex', alignItems: 'center', flexShrink: 0, justifyContent: 'center' }}>
-                          <i className="fa-solid fa-triangle-exclamation" />
+                      <div style={{ background: isDebtBlocked ? '#fee2e2' : '#ffedd5', color: isDebtBlocked ? '#dc2626' : '#ea580c', width: 32, height: 32, borderRadius: '50%', display: 'flex', alignItems: 'center', flexShrink: 0, justifyContent: 'center' }}>
+                          <i className={isDebtBlocked ? "fa-solid fa-ban" : "fa-solid fa-triangle-exclamation"} />
                       </div>
                       <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 13, color: '#9a3412', fontWeight: 700, marginBottom: 4 }}>THÔNG BÁO NỢ CŨ</div>
-                          <div style={{ fontSize: 13, color: '#c2410c' }}>
+                          <div style={{ fontSize: 13, color: isDebtBlocked ? '#991b1b' : '#9a3412', fontWeight: 700, marginBottom: 4 }}>
+                            {isDebtBlocked ? 'BẮT BUỘC THANH TOÁN NỢ TRƯỚC' : 'THÔNG BÁO NỢ CŨ'}
+                          </div>
+                          <div style={{ fontSize: 13, color: isDebtBlocked ? '#dc2626' : '#c2410c' }}>
                               Khách hàng đang còn nợ: <span style={{ fontWeight: 800 }}>{formatMoney(activeTab.customerData.debt_account)}</span>
                           </div>
                           
-                          <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, background: 'white', padding: '8px 12px', borderRadius: 8, border: '1px solid #fdba74' }}>
-                              <span style={{ fontSize: 12, fontWeight: 600, color: '#9a3412' }}>Thanh toán cùng đơn này?</span>
+                          {isDebtBlocked && (
+                            <div style={{ marginTop: 8, fontSize: 12, color: '#991b1b', background: '#fee2e2', padding: '6px 10px', borderRadius: 6, border: '1px solid #fca5a5' }}>
+                              Số nợ ≥ 100.000₫ — khách phải thanh toán toàn bộ nợ cũ trước khi mua hàng mới. Chọn <strong>Trả luôn</strong> để tiếp tục.
+                            </div>
+                          )}
+                          
+                          <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, background: 'white', padding: '8px 12px', borderRadius: 8, border: `1px solid ${isDebtBlocked ? '#fca5a5' : '#fdba74'}` }}>
+                              <span style={{ fontSize: 12, fontWeight: 600, color: isDebtBlocked ? '#991b1b' : '#9a3412' }}>Thanh toán cùng đơn này?</span>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const updates = { payOldDebt: false };
-                                      updateActiveTab(updates);
-                                    }}
-                                    style={{
-                                      background: !activeTab.payOldDebt ? '#ea580c' : '#f1f5f9',
-                                      color: !activeTab.payOldDebt ? 'white' : '#64748b',
-                                      border: 'none',
-                                      padding: '6px 14px',
-                                      borderRadius: 6,
-                                      fontSize: 11,
-                                      fontWeight: 700,
-                                      cursor: 'pointer',
-                                    }}
-                                  >
-                                    Chưa trả
-                                  </button>
+                                  {/* Ẩn nút "Chưa trả" khi nợ >= 100.000đ vì bắt buộc phải trả */}
+                                  {!isDebtBlocked && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const updates = { payOldDebt: false };
+                                        updateActiveTab(updates);
+                                      }}
+                                      style={{
+                                        background: !activeTab.payOldDebt ? '#ea580c' : '#f1f5f9',
+                                        color: !activeTab.payOldDebt ? 'white' : '#64748b',
+                                        border: 'none',
+                                        padding: '6px 14px',
+                                        borderRadius: 6,
+                                        fontSize: 11,
+                                        fontWeight: 700,
+                                        cursor: 'pointer',
+                                      }}
+                                    >
+                                      Chưa trả
+                                    </button>
+                                  )}
                                   <button
                                     type="button"
                                     onClick={() => {
@@ -1052,8 +1119,8 @@ export default function SalesInvoiceDetail() {
                                       updateActiveTab(updates);
                                     }}
                                     style={{
-                                      background: activeTab.payOldDebt ? '#ea580c' : '#f1f5f9',
-                                      color: activeTab.payOldDebt ? 'white' : '#64748b',
+                                      background: activeTab.payOldDebt ? '#ea580c' : (isDebtBlocked ? '#dc2626' : '#f1f5f9'),
+                                      color: (activeTab.payOldDebt || isDebtBlocked) ? 'white' : '#64748b',
                                       border: 'none',
                                       padding: '6px 14px',
                                       borderRadius: 6,
@@ -1072,10 +1139,17 @@ export default function SalesInvoiceDetail() {
           )}
           
           <div className="pos-submit-wrap">
+            {isDebtBlocked && (
+              <div style={{ marginBottom: 8, fontSize: 12, color: '#dc2626', textAlign: 'center', fontWeight: 600 }}>
+                <i className="fa-solid fa-lock" style={{ marginRight: 4 }} />
+                Chọn "Trả luôn" để mở khóa thanh toán
+              </div>
+            )}
             <button 
               className="pos-pay-button" 
               onClick={handleSubmit}
               disabled={!canSubmit}
+              title={isDebtBlocked ? `Khách nợ ${formatMoney(customerDebt)} ≥ 100.000₫, phải trả nợ trước` : ''}
             >
               {activeTab.saving ? 'ĐANG XỬ LÝ...' : 'THANH TOÁN'}
             </button>
@@ -1085,28 +1159,20 @@ export default function SalesInvoiceDetail() {
       </div>
       </div>
       
-      {/* Toast Notification */}
-      {toast.message && (
-        <div style={{
-          position: 'fixed', bottom: 40, right: 40, 
-          background: toast.type === 'error' ? '#ef4444' : '#10b981', 
-          color: 'white', padding: '16px 24px', 
-          borderRadius: 8, boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', zIndex: 9999, fontWeight: 600,
-          display: 'flex', alignItems: 'center', gap: 12, animation: 'slideUp 0.3s ease-out'
-        }}>
-          <i className={toast.type === 'error' ? "fa-solid fa-circle-xmark" : "fa-solid fa-circle-check"} style={{ fontSize: 20 }} />
-          {toast.message}
-        </div>
-      )}
-
       <PaymentWaitModal
         pendingPayment={pendingPayment}
         bankCode={bankCode}
         bankAccountNumber={bankAccountNumber}
         storeName={storeDisplayName}
-        onCancel={() => {
+        onCancel={async () => {
           stopPolling();
+          // Hủy hóa đơn chưa thanh toán để tránh tính vào thống kê doanh thu
+          if (pendingPayment?.invoice?._id) {
+            await cancelUnpaidBankTransferInvoice(pendingPayment.invoice._id);
+            loadProducts(); // Hoàn lại tồn kho sau khi hủy
+          }
           setPendingPayment(null);
+          notify('Đã hủy giao dịch chuyển khoản.', 'error');
         }}
       />
 

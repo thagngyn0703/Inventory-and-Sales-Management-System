@@ -31,45 +31,53 @@ export default function SalesDashboard() {
   const storeName = currentUser?.storeName || '';
   const displayName = currentUser?.fullName || currentUser?.email || roleLabel;
   const toggleSidebar = () => setSidebarCollapsed((c) => !c);
-  const isPosRoute = location.pathname.startsWith('/staff/invoices');
+  // Chỉ màn quầy tạo HĐ fullscreen; /staff/invoices (lịch sử) vẫn cần navbar
+  const normalizedPath = location.pathname.replace(/\/$/, '') || '/';
+  const isPosRoute = normalizedPath === '/staff/invoices/new';
 
   return (
     <div className={`sales-layout${sidebarCollapsed ? ' sidebar-collapsed' : ''}${isPosRoute ? ' pos-mode' : ''}`}>
-      <SalesSidebar
-        collapsed={sidebarCollapsed}
-        onToggle={toggleSidebar}
-      />
+      <SalesSidebar collapsed={sidebarCollapsed} />
       <main className={`sales-main${isPosRoute ? ' pos-mode' : ''}`}>
         {!isPosRoute && (
-        <header className="sales-header">
-          {/* Nút toggle sidebar */}
+        <header className="sales-header flex min-h-12 flex-wrap items-center gap-2 border-b border-teal-900/20 bg-[linear-gradient(120deg,#0d9488_0%,#0ea5e9_48%,#0284c7_100%)] px-3 py-2 shadow-md shadow-teal-900/15">
           <button
-            className="sales-toggle-btn"
+            type="button"
+            className="sales-toggle-btn flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/35 bg-white/15 text-white shadow-sm transition hover:bg-white/25"
             onClick={toggleSidebar}
             title={sidebarCollapsed ? 'Mở menu' : 'Thu nhỏ menu'}
           >
-            <i className="fa-solid fa-bars" />
+            <i className="fa-solid fa-bars text-sm" />
           </button>
 
-          <div style={{ flex: 1 }} />
+          <div className="min-w-0 flex-1" />
 
-          {/* User badge với tên cửa hàng */}
-          <div className="sales-user-badge">
-            <i className="fa-solid fa-circle-user" style={{ color: '#0d9488' }} />
+          <div className="sales-user-badge flex max-w-none flex-wrap items-center justify-end gap-x-2 gap-y-1 rounded-full border border-white/30 bg-white/15 py-1.5 pl-1.5 pr-3 text-[11px] font-semibold text-white shadow-sm backdrop-blur-sm">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/25 text-[10px] text-white shadow-inner ring-1 ring-white/40">
+              <i className="fa-solid fa-user" />
+            </span>
             {storeName && (
-              <span className="sales-store-tag">
-                <i className="fa-solid fa-store" style={{ marginRight: 4, fontSize: 10 }} />
+              <span className="hidden rounded-md border border-white/35 bg-white/15 px-2.5 py-1 text-left text-[11px] font-bold leading-snug text-white whitespace-normal break-words sm:inline">
+                <i className="fa-solid fa-store mr-1 text-[9px] opacity-90" />
                 {storeName}
               </span>
             )}
-            <span>{displayName}</span>
-            <span style={{ fontSize: '11px', opacity: 0.6 }}>({roleLabel})</span>
+            <span className="whitespace-normal break-words text-right text-white">{displayName}</span>
+            <span className="shrink-0 whitespace-nowrap text-[10px] font-medium text-white/80">({roleLabel})</span>
           </div>
         </header>
         )}
 
         <div className={`sales-content${isPosRoute ? ' pos-mode' : ''}`}>
-          <Outlet context={{ sidebarCollapsed, toggleSidebar, storeName }} />
+          <Outlet
+            context={{
+              sidebarCollapsed,
+              toggleSidebar,
+              storeName,
+              staffDisplayName: displayName,
+              staffRoleLabel: roleLabel,
+            }}
+          />
         </div>
       </main>
     </div>

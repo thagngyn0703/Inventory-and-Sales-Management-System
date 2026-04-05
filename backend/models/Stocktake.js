@@ -2,11 +2,6 @@ const { Schema, model } = require('mongoose');
 
 const stocktakeSchema = new Schema(
     {
-        warehouse_id: {
-            type: Schema.Types.ObjectId,
-            ref: 'Warehouse',
-            required: false,
-        },
         storeId: {
             type: Schema.Types.ObjectId,
             ref: 'Store',

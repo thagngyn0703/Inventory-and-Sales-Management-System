@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { Platform } from 'react-bits/lib/modules/Platform';
-import ManagerSidebar from './ManagerSidebar';
-import ManagerNotificationBell from '../../components/ManagerNotificationBell';
+import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
+import { StaffPageShell } from '../../components/staff/StaffPageShell';
+import { LayoutDashboard } from 'lucide-react';
 import {
   getIncomingFrequencyBySupplier,
   getAnalyticsSummary,
@@ -16,28 +17,6 @@ import './ManagerProducts.css';
 import { Button } from '../../components/ui/button';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
-
-function useCurrentUser() {
-  const [user, setUser] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('user') || 'null'); }
-    catch { return null; }
-  });
-  useEffect(() => {
-    const token = localStorage.getItem('token') || '';
-    if (!token) return;
-    fetch('http://localhost:8000/api/auth/me', {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then(res => res.json().catch(() => ({})))
-      .then(data => {
-        if (!data?.user) return;
-        setUser(data.user);
-        localStorage.setItem('user', JSON.stringify(data.user));
-      })
-      .catch(() => {});
-  }, []);
-  return user;
-}
 
 function fmt(n) {
   if (n == null) return '—';
@@ -148,10 +127,6 @@ const MONTH_NAMES = ['Tháng 1','Tháng 2','Tháng 3','Tháng 4','Tháng 5','Th�
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 export default function ManagerDashboard() {
-  const currentUser = useCurrentUser();
-  const storeName = currentUser?.storeName || '';
-  const displayName = currentUser?.fullName || currentUser?.email || 'Quản lý';
-
   const now = new Date();
   const todayStr = toDateStr(now);
   const firstOfMonth = toDateStr(new Date(now.getFullYear(), now.getMonth(), 1));
@@ -273,58 +248,45 @@ export default function ManagerDashboard() {
   const maxIncoming = Math.max(1, ...(incomingFreq.data || []).map(d => d.total_count));
 
   return (
-    <div className="manager-page-with-sidebar">
-      <ManagerSidebar />
-      <div className="manager-main">
-        {/* ── Topbar ── */}
-        <header className="manager-topbar">
-          <div className="manager-topbar-actions" style={{ marginLeft: 'auto' }}>
-            <ManagerNotificationBell />
-            <div className="manager-user-badge">
-              <i className="fa-solid fa-circle-user" style={{ color: '#6366f1' }} />
-              {storeName && (
-                <span style={{
-                  fontSize: '11px', fontWeight: 700, color: '#6366f1',
-                  background: '#eef2ff', border: '1px solid #c7d2fe',
-                  borderRadius: 6, padding: '1px 7px', whiteSpace: 'nowrap',
-                }}>
-                  <i className="fa-solid fa-store" style={{ marginRight: 4, fontSize: 10 }} />
-                  {storeName}
-                </span>
-              )}
-              <span>{displayName}</span>
-              <span style={{ fontSize: '11px', opacity: 0.6 }}>(Quản lý)</span>
-            </div>
+    <ManagerPageFrame>
+      <StaffPageShell
+        eyebrow="Quản lý cửa hàng"
+        eyebrowIcon={LayoutDashboard}
+        title="Tổng quan kinh doanh"
+        subtitle="Nhìn nhanh hiệu quả bán hàng, tồn kho và nhập hàng."
+        headerActions={
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Link to="/manager/reports">
+              <Button type="button" variant="outline">
+                Báo cáo đổi giá
+              </Button>
+            </Link>
+            <label className="hidden text-xs font-medium text-slate-500 sm:inline">Từ</label>
+            <input
+              type="date"
+              value={summaryFrom}
+              onChange={(e) => setSummaryFrom(e.target.value)}
+              className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-teal-200/80 focus:ring-2"
+            />
+            <label className="hidden text-xs font-medium text-slate-500 sm:inline">đến</label>
+            <input
+              type="date"
+              value={summaryTo}
+              onChange={(e) => setSummaryTo(e.target.value)}
+              className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-teal-200/80 focus:ring-2"
+            />
+            <Button type="button" onClick={fetchSummary}>
+              Xem
+            </Button>
           </div>
-        </header>
-
-        <div className="manager-content">
-          {/* ── Header + bộ lọc kỳ ── */}
-          <div className="manager-page-header" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
-            <div>
-              <h1 className="manager-page-title">Tổng quan kinh doanh</h1>
-              <p className="manager-page-subtitle">Nhìn nhanh hiệu quả bán hàng, tồn kho và nhập hàng</p>
-              <p className="text-xs text-slate-500">{Platform.select({ web: 'Dashboard đã được đồng bộ UI theo Tailwind + shadcn + React Bits.', default: 'Dashboard manager.' })}</p>
-            </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <Link to="/manager/reports"><Button type="button" variant="outline">Báo cáo đổi giá</Button></Link>
-            </div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-              <label style={{ fontSize: 13, color: '#6b7280' }}>Từ</label>
-              <input
-                type="date" value={summaryFrom}
-                onChange={e => setSummaryFrom(e.target.value)}
-                style={{ padding: '6px 10px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13 }}
-              />
-              <label style={{ fontSize: 13, color: '#6b7280' }}>đến</label>
-              <input
-                type="date" value={summaryTo}
-                onChange={e => setSummaryTo(e.target.value)}
-                style={{ padding: '6px 10px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13 }}
-              />
-              <Button type="button" onClick={fetchSummary}>Xem</Button>
-            </div>
-          </div>
+        }
+      >
+          <p className="text-xs text-slate-500">
+            {Platform.select({
+              web: 'Dashboard đồng bộ giao diện với quầy staff (Tailwind + shadcn).',
+              default: 'Dashboard manager.',
+            })}
+          </p>
 
           {summaryError && (
             <p className="text-xs text-slate-500" style={{ marginBottom: 12, maxWidth: 720 }}>
@@ -889,8 +851,7 @@ export default function ManagerDashboard() {
             </div>
           </div>
 
-        </div>
-      </div>
-    </div>
+      </StaffPageShell>
+    </ManagerPageFrame>
   );
 }

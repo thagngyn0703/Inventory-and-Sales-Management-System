@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Platform } from 'react-bits/lib/modules/Platform';
-import ManagerSidebar from './ManagerSidebar';
-import SalesSidebar from '../SaleDashboard/SalesSidebar';
-import ManagerNotificationBell from '../../components/ManagerNotificationBell';
+import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
+import { StaffPageShell } from '../../components/staff/StaffPageShell';
+import { Package } from 'lucide-react';
 import { getProduct, setProductStatus } from '../../services/productsApi';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
@@ -26,7 +26,6 @@ export default function ManagerProductDetail() {
     const user = JSON.parse(localStorage.getItem('user') || '{}');
     const isManager = user.role === 'manager' || user.role === 'admin';
     const isStaffPath = window.location.pathname.startsWith('/staff');
-    const SidebarComponent = isStaffPath ? SalesSidebar : ManagerSidebar;
 
     useEffect(() => {
         if (!id) return;
@@ -75,14 +74,9 @@ export default function ManagerProductDetail() {
             );
         }
         return (
-            <div className="manager-page-with-sidebar">
-                <ManagerSidebar />
-                <div className="manager-main">
-                    <div className="manager-content">
-                        <p className="manager-products-loading">Đang tải...</p>
-                    </div>
-                </div>
-            </div>
+            <ManagerPageFrame showNotificationBell>
+                <p className="manager-products-loading">Đang tải...</p>
+            </ManagerPageFrame>
         );
     }
 
@@ -98,17 +92,12 @@ export default function ManagerProductDetail() {
             );
         }
         return (
-            <div className="manager-page-with-sidebar">
-                <ManagerSidebar />
-                <div className="manager-main">
-                    <div className="manager-content">
-                        <div className="manager-products-error">{error}</div>
-                        <button type="button" className="manager-btn-secondary" onClick={() => navigate('/manager/products')}>
-                            Quay lại danh sách
-                        </button>
-                    </div>
-                </div>
-            </div>
+            <ManagerPageFrame showNotificationBell>
+                <div className="manager-products-error">{error}</div>
+                <button type="button" className="manager-btn-secondary" onClick={() => navigate('/manager/products')}>
+                    Quay lại danh sách
+                </button>
+            </ManagerPageFrame>
         );
     }
 
@@ -117,26 +106,31 @@ export default function ManagerProductDetail() {
     const costNum = Number(p.cost_price) || 0;
     const marginPct = costNum > 0 && profit >= 0 ? ((profit / costNum) * 100).toFixed(1) : '0';
 
-    const content = (
-        <div className="manager-content manager-product-create-fullwidth bg-slate-50">
-            <div className="manager-products-header">
-                <div>
-                    <h1 className="manager-page-title">Chi tiết sản phẩm</h1>
-                    <p className="manager-page-subtitle">{p.name || p.sku || '—'}</p>
-                </div>
-                <div className="flex gap-2">
-                    <Button type="button" variant="outline" onClick={() => navigate(isStaffPath ? '/staff/products' : '/manager/products')}>Danh sách</Button>
-                    {isManager && (
-                        <>
-                            <Button type="button" variant="outline" onClick={() => navigate(`/manager/products/${id}/edit`)}>Sửa</Button>
-                            <Button type="button" variant={p.status === 'active' ? 'warning' : 'default'} onClick={handleToggleStatus} disabled={toggling}>
-                                {p.status === 'active' ? 'Ngừng bán' : 'Kích hoạt'}
-                            </Button>
-                        </>
-                    )}
-                </div>
-            </div>
+    const headerActions = (
+        <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" onClick={() => navigate(isStaffPath ? '/staff/products' : '/manager/products')}>
+                Danh sách
+            </Button>
+            {isManager && (
+                <>
+                    <Button type="button" variant="outline" onClick={() => navigate(`/manager/products/${id}/edit`)}>
+                        Sửa
+                    </Button>
+                    <Button
+                        type="button"
+                        variant={p.status === 'active' ? 'warning' : 'default'}
+                        onClick={handleToggleStatus}
+                        disabled={toggling}
+                    >
+                        {p.status === 'active' ? 'Ngừng bán' : 'Kích hoạt'}
+                    </Button>
+                </>
+            )}
+        </div>
+    );
 
+    const detailInner = (
+        <>
             {successMessage && <div className="manager-products-success">{successMessage}</div>}
             {error && <div className="manager-products-error">{error}</div>}
 
@@ -150,7 +144,7 @@ export default function ManagerProductDetail() {
                             <div className="text-sm text-slate-600">Barcode: <strong className="text-slate-900">{p.barcode || '—'}</strong></div>
                             <div className="text-sm text-slate-600">Nhà cung cấp: <strong className="text-slate-900">{typeof p.supplier_id === 'object' ? (p.supplier_id?.name || '—') : '—'}</strong></div>
                             <div className="text-sm text-slate-600">Hạn dùng: <strong className="text-slate-900">{p.expiry_date ? new Date(p.expiry_date).toLocaleDateString('vi-VN') : '—'}</strong></div>
-                            <div className="text-sm text-slate-600">Trạng thái: <Badge className={p.status === 'inactive' ? 'bg-rose-100 text-rose-700' : ''}>{p.status === 'inactive' ? 'Ngừng bán' : 'Đang bán'}</Badge></div>
+                            <div className="text-sm text-slate-600">Trạng thái: <Badge className={p.status === 'inactive' ? 'border border-rose-200/80 bg-rose-100 text-rose-800' : 'border border-teal-200/80 bg-teal-50 text-teal-800'}>{p.status === 'inactive' ? 'Ngừng bán' : 'Đang bán'}</Badge></div>
                         </div>
                         <p className="text-xs text-slate-500">{Platform.select({ web: 'Thông tin hiển thị đồng bộ với màn thêm/sửa sản phẩm.', default: 'Thông tin sản phẩm.' })}</p>
                     </CardContent>
@@ -227,7 +221,7 @@ export default function ManagerProductDetail() {
                                                 </td>
                                                 <td className="px-4 py-3">
                                                     {b.receipt_id ? (
-                                                        <span className="font-mono text-xs text-blue-600">
+                                                        <span className="font-mono text-xs text-teal-600">
                                                             #{String(b.receipt_id).slice(-6).toUpperCase()}
                                                         </span>
                                                     ) : <span className="text-slate-400">—</span>}
@@ -257,27 +251,33 @@ export default function ManagerProductDetail() {
                     </CardContent>
                 </Card>
             </div>
-        </div>
+        </>
     );
 
-    if (isStaffPath) return content;
-
-    return (
-        <div className="manager-page-with-sidebar">
-            <ManagerSidebar />
-            <div className="manager-main">
-                <header className="manager-topbar">
-                    <div className="manager-topbar-search-wrap" />
-                    <div className="manager-topbar-actions">
-                        <ManagerNotificationBell />
-                        <div className="manager-user-badge">
-                            <i className="fa-solid fa-circle-user" />
-                            <span>Quản lý</span>
-                        </div>
-                    </div>
-                </header>
-                {content}
+    const content = isStaffPath ? (
+        <div className="manager-product-create-fullwidth bg-slate-50">
+            <div className="manager-products-header">
+                <div>
+                    <h1 className="manager-page-title">Chi tiết sản phẩm</h1>
+                    <p className="manager-page-subtitle">{p.name || p.sku || '—'}</p>
+                </div>
+                {headerActions}
             </div>
+            {detailInner}
         </div>
+    ) : (
+        <StaffPageShell
+            eyebrow="Quản lý cửa hàng"
+            eyebrowIcon={Package}
+            title="Chi tiết sản phẩm"
+            subtitle={p.name || p.sku || '—'}
+            headerActions={headerActions}
+        >
+            <div className="manager-product-create-fullwidth">{detailInner}</div>
+        </StaffPageShell>
     );
+
+    if (isStaffPath) return <div className="manager-content">{content}</div>;
+
+    return <ManagerPageFrame showNotificationBell>{content}</ManagerPageFrame>;
 }

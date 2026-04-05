@@ -294,6 +294,23 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
             return res.status(400).json({ message: 'Khách hàng không được để trống khi ghi nợ' });
         }
 
+        // Validate nợ cũ >= 100.000đ: khách phải trả nợ trước, không được tạo hóa đơn mới
+        if (customer_id) {
+            const Customer = require('../models/Customer');
+            const customer = await Customer.findById(customer_id).select('debt_account full_name').lean();
+            if (customer && Number(customer.debt_account) >= 100000) {
+                // Chỉ cho phép nếu đây là đơn có payOldDebt (previous_debt_paid >= debt_account)
+                const debtPaid = Number(previous_debt_paid) || 0;
+                if (debtPaid < Number(customer.debt_account)) {
+                    return res.status(400).json({
+                        message: `Khách hàng đang nợ ${Number(customer.debt_account).toLocaleString('vi-VN')}₫ (≥ 100.000₫). Vui lòng thanh toán toàn bộ nợ cũ trước khi mua hàng mới.`,
+                        debt_account: customer.debt_account,
+                        error_code: 'DEBT_LIMIT_EXCEEDED',
+                    });
+                }
+            }
+        }
+
         const costMap = await buildCostMap(reqItems);
         const { totalAmount, items: normalizedItems } = calculateInvoiceTotals(reqItems, costMap);
         const invalidLine = normalizedItems.find((it) => !it.product_id);
@@ -344,11 +361,15 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
             const addDebt = method === 'debt' ? totalAmount : 0;
             const payOldDebt =
                 Number(previous_debt_paid) > 0 ? Math.abs(Number(previous_debt_paid)) : 0;
-            if (customer_id && (status === 'confirmed' || status === 'pending') && (addDebt > 0 || payOldDebt > 0)) {
-                await applyCustomerDebtAfterNewInvoice(customer_id, { addDebt, payOldDebt });
+            // Chuyển khoản: chỉ khi SePay xác nhận paid mới trừ nợ + chốt HĐ nợ (xem settlePreviousDebtIfNeeded)
+            const deferPayOldDebtSettlement = method === 'bank_transfer' && payOldDebt > 0;
+            const payOldDebtNow = deferPayOldDebtSettlement ? 0 : payOldDebt;
+
+            if (customer_id && (status === 'confirmed' || status === 'pending') && (addDebt > 0 || payOldDebtNow > 0)) {
+                await applyCustomerDebtAfterNewInvoice(customer_id, { addDebt, payOldDebt: payOldDebtNow });
             }
 
-            if (payOldDebt > 0 && customer_id && (status === 'confirmed' || status === 'pending')) {
+            if (payOldDebt > 0 && customer_id && (status === 'confirmed' || status === 'pending') && !deferPayOldDebtSettlement) {
                 await SalesInvoice.updateMany(
                     { customer_id, status: 'pending', payment_method: 'debt' },
                     { 
@@ -360,6 +381,11 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
                       } 
                     }
                 );
+            }
+
+            if (payOldDebt > 0 && !deferPayOldDebtSettlement) {
+                invoice.previous_debt_settled = true;
+                await invoice.save();
             }
         } catch (err) {
             if (err.status) return res.status(err.status).json({ message: err.message, problems: err.problems });
@@ -505,6 +531,11 @@ router.get('/stats/daily-sales', requireAuth, requireRole(['staff', 'manager', '
                     $match: {
                         status: 'confirmed',
                         invoice_at: { $gte: start, $lte: end },
+                        // Chỉ tính chuyển khoản khi đã xác nhận thanh toán
+                        $or: [
+                            { payment_method: { $ne: 'bank_transfer' } },
+                            { payment_status: 'paid' },
+                        ],
                     },
                 },
                 {

@@ -108,6 +108,11 @@ const salesInvoiceSchema = new Schema(
             type: Number,
             default: 0,
         },
+        /** Đã áp dụng trừ nợ cũ + chốt HĐ ghi nợ (tránh chạy 2 lần; CK chỉ set sau SePay paid) */
+        previous_debt_settled: {
+            type: Boolean,
+            default: false,
+        },
         created_at: {
             type: Date,
             default: Date.now,

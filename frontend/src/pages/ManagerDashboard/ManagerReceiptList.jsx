@@ -1,256 +1,293 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import ManagerSidebar from './ManagerSidebar';
+import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
+import { StaffPageShell } from '../../components/staff/StaffPageShell';
+import { ClipboardList } from 'lucide-react';
 import { getGoodsReceipts, setGoodsReceiptStatus } from '../../services/goodsReceiptsApi';
+import { useToast } from '../../contexts/ToastContext';
+import { ConfirmDialog } from '../../components/ui/confirm-dialog';
+import { Button } from '../../components/ui/button';
+import { Card, CardContent } from '../../components/ui/card';
+import { Badge } from '../../components/ui/badge';
+import { Loader2, Search, SlidersHorizontal } from 'lucide-react';
+import { cn } from '../../lib/utils';
 import './ManagerDashboard.css';
 
+function statusBadgeClass(status) {
+  if (status === 'pending') return 'bg-amber-100 text-amber-900 border-amber-200/80';
+  if (status === 'approved') return 'bg-emerald-100 text-emerald-900 border-emerald-200/80';
+  return 'bg-red-100 text-red-900 border-red-200/80';
+}
+
 export default function ManagerReceiptList() {
-    const navigate = useNavigate();
-    const [receipts, setReceipts] = useState([]);
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState('');
-    const [filterStatus, setFilterStatus] = useState(''); 
-    const [searchTerm, setSearchTerm] = useState('');
-    const [sortByPrice, setSortByPrice] = useState(null); // 'asc' or 'desc'
+  const navigate = useNavigate();
+  const { toast } = useToast();
+  const [receipts, setReceipts] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [sortByPrice, setSortByPrice] = useState(null);
 
-    const fetchReceipts = useCallback(async () => {
-        setLoading(true);
-        setError('');
-        try {
-            const data = await getGoodsReceipts(filterStatus);
-            // Managers should not see 'draft' receipts
-            const filtered = (data || []).filter(r => r.status !== 'draft');
-            setReceipts(filtered);
-        } catch (err) {
-            setError(err.message || 'Không thể tải danh sách phiếu nhập kho');
-        } finally {
-            setLoading(false);
-        }
-    }, [filterStatus]);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmLoading, setConfirmLoading] = useState(false);
+  const [pendingAction, setPendingAction] = useState(null);
+  const [rejectionReason, setRejectionReason] = useState('');
 
-    useEffect(() => {
-        fetchReceipts();
-    }, [fetchReceipts]);
+  const fetchReceipts = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const data = await getGoodsReceipts(filterStatus);
+      const filtered = (data || []).filter((r) => r.status !== 'draft');
+      setReceipts(filtered);
+    } catch (err) {
+      setError(err.message || 'Không thể tải danh sách phiếu nhập kho');
+    } finally {
+      setLoading(false);
+    }
+  }, [filterStatus]);
 
-    const handleApprove = async (id) => {
-        if (!window.confirm('Bạn có chắc chắn muốn duyệt phiếu nhập này? Kho hàng sẽ được cập nhật số lượng.')) return;
-        try {
-            await setGoodsReceiptStatus(id, 'approved');
-            alert('Đã duyệt phiếu nhập kho.');
-            fetchReceipts();
-        } catch (err) {
-            alert(err.message || 'Lỗi khi duyệt');
-        }
-    };
+  useEffect(() => {
+    fetchReceipts();
+  }, [fetchReceipts]);
 
-    const handleReject = async (id) => {
-        if (!window.confirm('Bạn có chắc chắn muốn từ chối phiếu nhập này?')) return;
-        try {
-            await setGoodsReceiptStatus(id, 'rejected');
-            alert('Đã từ chối phiếu nhập kho.');
-            fetchReceipts();
-        } catch (err) {
-            alert(err.message || 'Lỗi khi từ chối');
-        }
-    };
+  const handleSortPrice = () => {
+    if (sortByPrice === null) setSortByPrice('asc');
+    else if (sortByPrice === 'asc') setSortByPrice('desc');
+    else setSortByPrice(null);
+  };
 
-    const formatDate = (dateString) => {
-        if (!dateString) return '';
-        return new Date(dateString).toLocaleString('vi-VN');
-    };
+  const filteredAndSortedReceipts = useMemo(() => {
+    let result = receipts.filter((r) => {
+      if (!searchTerm) return true;
+      const term = searchTerm.toLowerCase();
+      const code = r._id.substring(r._id.length - 6).toLowerCase();
+      const supplier = (r.supplier_id?.name || '').toLowerCase();
+      const creator = (r.received_by?.fullName || '').toLowerCase();
+      return code.includes(term) || supplier.includes(term) || creator.includes(term);
+    });
+    result.sort((a, b) => {
+      if (sortByPrice === 'asc') return Number(a.total_amount) - Number(b.total_amount);
+      if (sortByPrice === 'desc') return Number(b.total_amount) - Number(a.total_amount);
+      return new Date(b.created_at) - new Date(a.created_at);
+    });
+    return result;
+  }, [receipts, searchTerm, sortByPrice]);
 
-    const handleSortPrice = () => {
-        if (sortByPrice === null) setSortByPrice('asc');
-        else if (sortByPrice === 'asc') setSortByPrice('desc');
-        else setSortByPrice(null);
-    };
+  const formatDate = (dateString) => {
+    if (!dateString) return '';
+    return new Date(dateString).toLocaleString('vi-VN');
+  };
 
-    const filteredAndSortedReceipts = React.useMemo(() => {
-        let result = receipts.filter(r => {
-            if (!searchTerm) return true;
-            const term = searchTerm.toLowerCase();
-            const code = r._id.substring(r._id.length - 6).toLowerCase();
-            const supplier = (r.supplier_id?.name || '').toLowerCase();
-            const creator = (r.received_by?.fullName || '').toLowerCase();
-            return code.includes(term) || supplier.includes(term) || creator.includes(term);
-        });
+  const openConfirm = (type, id) => {
+    setRejectionReason('');
+    setPendingAction({ type, id });
+    setConfirmOpen(true);
+  };
 
-        result.sort((a, b) => {
-            if (sortByPrice === 'asc') return Number(a.total_amount) - Number(b.total_amount);
-            if (sortByPrice === 'desc') return Number(b.total_amount) - Number(a.total_amount);
-            return new Date(b.created_at) - new Date(a.created_at);
-        });
+  const runConfirmedAction = async () => {
+    if (!pendingAction) return;
+    if (pendingAction.type === 'reject' && !rejectionReason.trim()) {
+      toast('Vui lòng nhập lý do từ chối', 'error');
+      return;
+    }
+    setConfirmLoading(true);
+    try {
+      const next = pendingAction.type === 'approve' ? 'approved' : 'rejected';
+      await setGoodsReceiptStatus(pendingAction.id, next, rejectionReason.trim() || undefined);
+      toast(
+        next === 'approved' ? 'Đã duyệt phiếu nhập kho.' : 'Đã từ chối phiếu nhập kho.',
+        'success'
+      );
+      setConfirmOpen(false);
+      setPendingAction(null);
+      setRejectionReason('');
+      fetchReceipts();
+    } catch (err) {
+      toast(err.message || 'Thao tác thất bại', 'error');
+    } finally {
+      setConfirmLoading(false);
+    }
+  };
 
-        return result;
-    }, [receipts, searchTerm, sortByPrice]);
+  const sortLabel =
+    sortByPrice === 'asc'
+      ? 'Giá trị: thấp → cao'
+      : sortByPrice === 'desc'
+        ? 'Giá trị: cao → thấp'
+        : 'Mặc định (mới nhất)';
 
-    return (
-        <div className="manager-page-with-sidebar">
-            <ManagerSidebar />
-            <div className="manager-main">
-                <header className="manager-topbar">
-                    <div className="manager-topbar-actions" style={{ marginLeft: 'auto' }}>
-                        <div className="manager-user-badge">
-                            <i className="fa-solid fa-circle-user" />
-                            <span>Quản lý</span>
-                        </div>
-                    </div>
-                </header>
-                <div className="manager-content">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-                        <h1 style={{ margin: 0, fontSize: 24, fontWeight: 600 }}>Duyệt phiếu nhập kho</h1>
-                    </div>
-
+  return (
+    <ManagerPageFrame showNotificationBell={false}>
+      <StaffPageShell
+        eyebrow="Kho & nhập hàng"
+        eyebrowIcon={ClipboardList}
+        title="Duyệt phiếu nhập kho"
+        subtitle="Phê duyệt hoặc từ chối phiếu từ nhân viên kho."
+      >
             {error && (
-                <div style={{ backgroundColor: '#fee2e2', color: '#b91c1c', padding: 12, borderRadius: 6, marginBottom: 16 }}>
-                    {error}
-                </div>
+              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>
             )}
 
-            <div style={{ backgroundColor: 'white', padding: 16, borderRadius: 8, boxShadow: '0 1px 3px rgba(0,0,0,0.1)', marginBottom: 20 }}>
-                <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-                    <div style={{ flex: 1, maxWidth: 300 }}>
-                        <label style={{ display: 'block', fontSize: 13, color: '#6b7280', marginBottom: 4 }}>Tìm kiếm</label>
-                        <div style={{ position: 'relative' }}>
-                            <i className="fa-solid fa-search" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }}></i>
-                            <input
-                                type="text"
-                                placeholder="Mã phiếu, NCC, Người tạo..."
-                                style={{ width: '100%', padding: '8px 12px 8px 36px', border: '1px solid #d1d5db', borderRadius: 6, boxSizing: 'border-box' }}
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
-                            />
-                        </div>
-                    </div>
-                    <div style={{ flex: 1, maxWidth: 200 }}>
-                        <label style={{ display: 'block', fontSize: 13, color: '#6b7280', marginBottom: 4 }}>Trạng thái</label>
-                        <select
-                            style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 6 }}
-                            value={filterStatus}
-                            onChange={(e) => setFilterStatus(e.target.value)}
-                        >
-                            <option value="">Tất cả</option>
-                            <option value="pending">Chờ duyệt</option>
-                            <option value="approved">Đã duyệt</option>
-                            <option value="rejected">Từ chối</option>
-                        </select>
-                    </div>
-                    <div style={{ flex: 1, maxWidth: 200 }}>
-                        <label style={{ display: 'block', fontSize: 13, color: '#6b7280', marginBottom: 4 }}>Sắp xếp giá trị</label>
-                        <button
-                            type="button"
-                            onClick={handleSortPrice}
-                            style={{
-                                width: '100%',
-                                height: 38,
-                                padding: '0 12px',
-                                border: '1px solid #d1d5db',
-                                borderRadius: 6,
-                                backgroundColor: 'white',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center',
-                                color: '#111827',
-                                fontSize: 14
-                            }}
-                            title="Nhấn để đổi chiều sắp xếp"
-                        >
-                            <span>
-                                {sortByPrice === 'asc' ? 'Từ thấp đến cao' : sortByPrice === 'desc' ? 'Từ cao xuống thấp' : 'Mặc định (Mới nhất)'}
-                            </span>
-                            <i className={`fa-solid ${sortByPrice === 'asc' ? 'fa-arrow-up-1-9' : sortByPrice === 'desc' ? 'fa-arrow-down-9-1' : 'fa-sort'}`} style={{ color: '#6b7280' }}></i>
-                        </button>
-                    </div>
+            <Card className="border-slate-200/80 shadow-sm">
+              <CardContent className="space-y-4 p-4 sm:p-6">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:gap-4">
+                  <div className="relative min-w-0 flex-1">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Mã phiếu, NCC, người tạo..."
+                      className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-3 text-sm outline-none ring-teal-200/80 focus:ring-2"
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select
+                      value={filterStatus}
+                      onChange={(e) => setFilterStatus(e.target.value)}
+                      className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-teal-200/80 focus:ring-2"
+                    >
+                      <option value="">Tất cả trạng thái</option>
+                      <option value="pending">Chờ duyệt</option>
+                      <option value="approved">Đã duyệt</option>
+                      <option value="rejected">Từ chối</option>
+                    </select>
+                    <Button type="button" variant="outline" className="h-11 gap-2" onClick={handleSortPrice}>
+                      <SlidersHorizontal className="h-4 w-4" />
+                      {sortLabel}
+                    </Button>
+                  </div>
                 </div>
-            </div>
 
-            <div style={{ backgroundColor: 'white', borderRadius: 8, overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
                 {loading ? (
-                    <div style={{ padding: 32, textAlign: 'center', color: '#6b7280' }}>Đang tải dữ liệu...</div>
+                  <div className="flex justify-center py-16 text-slate-500">
+                    <Loader2 className="h-8 w-8 animate-spin" />
+                  </div>
                 ) : filteredAndSortedReceipts.length === 0 ? (
-                    <div style={{ padding: 48, textAlign: 'center', color: '#6b7280' }}>
-                        Không có phiếu nhập kho nào phù hợp.
-                    </div>
+                  <p className="py-12 text-center text-slate-500">Không có phiếu nhập kho nào phù hợp.</p>
                 ) : (
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                        <thead style={{ backgroundColor: '#f3f4f6', borderBottom: '1px solid #e5e7eb' }}>
-                            <tr>
-                                <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 13, fontWeight: 500, color: '#4b5563' }}>Mã phiếu</th>
-                                <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 13, fontWeight: 500, color: '#4b5563' }}>Ngày tạo</th>
-                                <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 13, fontWeight: 500, color: '#4b5563' }}>Nhà cung cấp</th>
-                                <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 13, fontWeight: 500, color: '#4b5563' }}>Người tạo</th>
-                                <th style={{ padding: '12px 16px', textAlign: 'right', fontSize: 13, fontWeight: 500, color: '#4b5563' }}>Tổng tiền</th>
-                                <th style={{ padding: '12px 16px', textAlign: 'center', fontSize: 13, fontWeight: 500, color: '#4b5563' }}>Trạng thái</th>
-                                <th style={{ padding: '12px 16px', textAlign: 'right', fontSize: 13, fontWeight: 500, color: '#4b5563' }}>Thao tác</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {filteredAndSortedReceipts.map(receipt => (
-                                <tr key={receipt._id} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                                    <td style={{ padding: '16px', fontSize: 14 }}>
-                                        <span 
-                                            style={{ color: '#2563eb', cursor: 'pointer', fontWeight: 500 }}
-                                            onClick={() => navigate(`/manager/receipts/${receipt._id}`)}
-                                        >
-                                            {receipt._id.substring(receipt._id.length - 6).toUpperCase()}
-                                        </span>
-                                    </td>
-                                    <td style={{ padding: '16px', fontSize: 14, color: '#4b5563' }}>{formatDate(receipt.created_at)}</td>
-                                    <td style={{ padding: '16px', fontSize: 14 }}>{receipt.supplier_id?.name || '—'}</td>
-                                    <td style={{ padding: '16px', fontSize: 14, color: '#4b5563' }}>{receipt.received_by?.fullName || '—'}</td>
-                                    <td style={{ padding: '16px', fontSize: 14, textAlign: 'right', fontWeight: 500 }}>
-                                        {Number(receipt.total_amount).toLocaleString()} đ
-                                    </td>
-                                    <td style={{ padding: '16px', textAlign: 'center' }}>
-                                        <span style={{
-                                            padding: '4px 10px',
-                                            borderRadius: 9999,
-                                            fontSize: 12,
-                                            fontWeight: 500,
-                                            backgroundColor: 
-                                                receipt.status === 'pending' ? '#fef3c7' :
-                                                receipt.status === 'approved' ? '#d1fae5' : '#fee2e2',
-                                            color:
-                                                receipt.status === 'pending' ? '#92400e' :
-                                                receipt.status === 'approved' ? '#065f46' : '#991b1b',
-                                        }}>
-                                            {receipt.status === 'pending' ? 'Chờ duyệt' : 
-                                             receipt.status === 'approved' ? 'Đã duyệt' : 'Từ chối'}
-                                        </span>
-                                    </td>
-                                    <td style={{ padding: '16px', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                                        <button
-                                            style={{ padding: '6px 12px', marginRight: 8, fontSize: 13, borderRadius: 4, cursor: 'pointer', backgroundColor: 'white', border: '1px solid #d1d5db' }}
-                                            onClick={() => navigate(`/manager/receipts/${receipt._id}`)}
-                                        >
-                                            Chi tiết
-                                        </button>
-                                        {receipt.status === 'pending' && (
-                                            <>
-                                                <button
-                                                    style={{ padding: '6px 12px', marginRight: 8, fontSize: 13, borderRadius: 4, cursor: 'pointer', backgroundColor: '#10b981', color: 'white', border: 'none' }}
-                                                    onClick={() => handleApprove(receipt._id)}
-                                                >
-                                                    Duyệt
-                                                </button>
-                                                <button
-                                                    style={{ padding: '6px 12px', fontSize: 13, borderRadius: 4, cursor: 'pointer', backgroundColor: '#ef4444', color: 'white', border: 'none' }}
-                                                    onClick={() => handleReject(receipt._id)}
-                                                >
-                                                    Từ chối
-                                                </button>
-                                            </>
-                                        )}
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
+                  <div className="overflow-x-auto rounded-xl border border-slate-200/80">
+                    <table className="w-full min-w-[800px] text-sm">
+                      <thead>
+                        <tr className="border-b border-slate-200 bg-slate-50/90 text-left text-xs font-semibold uppercase text-slate-500">
+                          <th className="px-4 py-3">Mã phiếu</th>
+                          <th className="px-4 py-3">Ngày tạo</th>
+                          <th className="px-4 py-3">Nhà cung cấp</th>
+                          <th className="px-4 py-3">Người tạo</th>
+                          <th className="px-4 py-3 text-right">Tổng tiền</th>
+                          <th className="px-4 py-3">Trạng thái</th>
+                          <th className="px-4 py-3 text-right">Thao tác</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 bg-white">
+                        {filteredAndSortedReceipts.map((receipt) => (
+                          <tr key={receipt._id} className="hover:bg-slate-50/80">
+                            <td className="px-4 py-3">
+                              <button
+                                type="button"
+                                className="font-mono font-semibold text-sky-700 hover:underline"
+                                onClick={() => navigate(`/manager/receipts/${receipt._id}`)}
+                              >
+                                {receipt._id.substring(receipt._id.length - 6).toUpperCase()}
+                              </button>
+                            </td>
+                            <td className="whitespace-nowrap px-4 py-3 text-slate-600">{formatDate(receipt.created_at)}</td>
+                            <td className="max-w-[160px] truncate px-4 py-3 font-medium">{receipt.supplier_id?.name || '—'}</td>
+                            <td className="max-w-[120px] truncate px-4 py-3 text-slate-600">
+                              {receipt.received_by?.fullName || '—'}
+                            </td>
+                            <td className="px-4 py-3 text-right font-medium tabular-nums">
+                              {Number(receipt.total_amount).toLocaleString('vi-VN')} đ
+                            </td>
+                            <td className="px-4 py-3">
+                              <Badge className={cn('border font-medium', statusBadgeClass(receipt.status))}>
+                                {receipt.status === 'pending'
+                                  ? 'Chờ duyệt'
+                                  : receipt.status === 'approved'
+                                    ? 'Đã duyệt'
+                                    : 'Từ chối'}
+                              </Badge>
+                            </td>
+                            <td className="whitespace-nowrap px-4 py-3 text-right">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="default"
+                                className="mr-2 h-9"
+                                onClick={() => navigate(`/manager/receipts/${receipt._id}`)}
+                              >
+                                Chi tiết
+                              </Button>
+                              {receipt.status === 'pending' && (
+                                <>
+                                  <Button
+                                    type="button"
+                                    size="default"
+                                    className="mr-2 h-9 bg-emerald-600 hover:bg-emerald-700"
+                                    onClick={() => openConfirm('approve', receipt._id)}
+                                  >
+                                    Duyệt
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    variant="warning"
+                                    className="h-9"
+                                    onClick={() => openConfirm('reject', receipt._id)}
+                                  >
+                                    Từ chối
+                                  </Button>
+                                </>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
                     </table>
+                  </div>
                 )}
-            </div>
-        </div>
-      </div>
-    </div>
-    );
+              </CardContent>
+            </Card>
+      </StaffPageShell>
+
+      <ConfirmDialog
+        open={confirmOpen}
+        onOpenChange={(open) => {
+          setConfirmOpen(open);
+          if (!open) { setPendingAction(null); setRejectionReason(''); }
+        }}
+        title={pendingAction?.type === 'approve' ? 'Duyệt phiếu nhập kho?' : 'Từ chối phiếu nhập?'}
+        description={
+          pendingAction?.type === 'approve'
+            ? 'Kho hàng sẽ được cập nhật theo số lượng và giá trên phiếu.'
+            : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <span>Vui lòng nhập lý do từ chối để nhân viên biết cần điều chỉnh gì.</span>
+                <textarea
+                  autoFocus
+                  rows={3}
+                  placeholder="VD: Sai số lượng, thiếu chứng từ, sản phẩm không hợp lệ..."
+                  value={rejectionReason}
+                  onChange={(e) => setRejectionReason(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '8px 10px',
+                    borderRadius: 8,
+                    border: '1px solid #d1d5db',
+                    fontSize: 14,
+                    resize: 'vertical',
+                    outline: 'none',
+                  }}
+                />
+              </div>
+            )
+        }
+        confirmLabel={pendingAction?.type === 'approve' ? 'Duyệt nhập kho' : 'Xác nhận từ chối'}
+        confirmVariant={pendingAction?.type === 'reject' ? 'destructive' : 'default'}
+        loading={confirmLoading}
+        onConfirm={runConfirmedAction}
+      />
+    </ManagerPageFrame>
+  );
 }

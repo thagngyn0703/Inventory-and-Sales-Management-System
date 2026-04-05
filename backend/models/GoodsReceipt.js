@@ -73,6 +73,10 @@ const goodsReceiptSchema = new Schema(
             type: String,
             trim: true,
         },
+        rejection_reason: {
+            type: String,
+            trim: true,
+        },
         updated_at: {
             type: Date,
         },

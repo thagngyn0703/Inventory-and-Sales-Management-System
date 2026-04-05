@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Platform } from 'react-bits/lib/modules/Platform';
-import { Search, X } from 'lucide-react';
-import ManagerSidebar from './ManagerSidebar';
-import ManagerNotificationBell from '../../components/ManagerNotificationBell';
+import { Search, X, Package } from 'lucide-react';
+import { StaffPageShell } from '../../components/staff/StaffPageShell';
+import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
 import {
     getProducts,
     setProductStatus,
@@ -228,72 +228,58 @@ export default function ManagerProductList() {
     const end = Math.min(page * LIMIT, total);
 
     return (
-        <div className="manager-page-with-sidebar">
-            <ManagerSidebar />
-            <div className="manager-main">
-                <header className="manager-topbar">
-                    <div className="manager-topbar-search-wrap">
-                        <div className="relative w-full">
-                            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                            <input
-                                type="text"
-                                className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-10 text-sm outline-none ring-sky-200 transition focus:ring-2"
-                                placeholder="Tìm kiếm theo tên, SKU, barcode..."
-                                value={searchInput}
-                                onChange={(e) => setSearchInput(e.target.value)}
-                            />
-                            {searchInput.trim() && (
-                                <button
-                                    type="button"
-                                    onClick={() => setSearchInput('')}
-                                    className="absolute right-2 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
-                                    title="Xóa tìm kiếm"
-                                >
-                                    <X className="h-4 w-4" />
-                                </button>
-                            )}
-                        </div>
-                    </div>
-                    <div className="manager-topbar-actions">
-                        <ManagerNotificationBell />
-                        <div className="manager-user-badge">
-                            <i className="fa-solid fa-circle-user" />
-                            <span>Quản lý</span>
-                        </div>
-                    </div>
-                </header>
-
-                <div className="manager-content">
-                    <div className="manager-products-header">
-                        <div>
-                            <h1 className="manager-page-title">Sản phẩm</h1>
-                            <p className="manager-page-subtitle">Xem danh sách và tìm kiếm sản phẩm</p>
-                            <p className="text-xs text-slate-500">{Platform.select({ web: 'Giao diện danh sách đã đồng bộ cùng trang thêm/sửa sản phẩm.', default: 'Danh sách sản phẩm.' })}</p>
-                        </div>
-                        <div className="manager-supplier-header-actions">
-                            <Button
-                                type="button"
-                                variant="outline"
-                                onClick={() => {
-                                    setImportOpen(true);
-                                    setImportPreview(null);
-                                    setImportError('');
-                                }}
-                            >
-                                Import Excel
-                            </Button>
-                            <Button
-                                type="button"
-                                onClick={() => navigate('/manager/products/new')}
-                            >
-                                Thêm sản phẩm
-                            </Button>
-                        </div>
-                    </div>
-
+        <ManagerPageFrame
+            showNotificationBell
+            topBarLeft={
+                <div className="relative w-full min-w-0 max-w-xl">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                    <input
+                        type="text"
+                        className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-10 text-sm text-slate-900 outline-none ring-teal-200/80 transition focus:ring-2"
+                        placeholder="Tìm kiếm theo tên, SKU, barcode..."
+                        value={searchInput}
+                        onChange={(e) => setSearchInput(e.target.value)}
+                    />
+                    {searchInput.trim() && (
+                        <button
+                            type="button"
+                            onClick={() => setSearchInput('')}
+                            className="absolute right-2 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                            title="Xóa tìm kiếm"
+                        >
+                            <X className="h-4 w-4" />
+                        </button>
+                    )}
+                </div>
+            }
+        >
+            <StaffPageShell
+                eyebrow="Quản lý cửa hàng"
+                eyebrowIcon={Package}
+                title="Sản phẩm"
+                subtitle={`Xem danh sách và tìm kiếm sản phẩm. ${Platform.select({ web: 'Giao diện đồng bộ với trang thêm/sửa sản phẩm.', default: 'Danh sách sản phẩm.' })}`}
+                headerActions={
+                    <>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => {
+                                setImportOpen(true);
+                                setImportPreview(null);
+                                setImportError('');
+                            }}
+                        >
+                            Import Excel
+                        </Button>
+                        <Button type="button" onClick={() => navigate('/manager/products/new')}>
+                            Thêm sản phẩm
+                        </Button>
+                    </>
+                }
+            >
                     {error && <div className="manager-products-error">{error}</div>}
 
-                    <Card className="manager-products-card">
+                    <Card className="manager-products-card rounded-2xl border border-slate-200/80 shadow-sm">
                         <CardContent className="p-0">
                         {loading ? (
                             <p className="manager-products-loading">Đang tải...</p>
@@ -360,7 +346,13 @@ export default function ManagerProductList() {
                                                         <td>{Number(p.stock_qty ?? 0).toLocaleString('vi-VN')}</td>
                                                         <td>{p.base_unit || 'Cái'}</td>
                                                         <td>
-                                                            <Badge className={p.status === 'inactive' ? 'bg-rose-100 text-rose-700' : ''}>
+                                                            <Badge
+                                                                className={
+                                                                    p.status === 'inactive'
+                                                                        ? 'border border-rose-200/80 bg-rose-100 text-rose-800'
+                                                                        : 'border border-teal-200/80 bg-teal-50 text-teal-800'
+                                                                }
+                                                            >
                                                                 {p.status === 'inactive' ? 'Ngừng' : 'Đang bán'}
                                                             </Badge>
                                                         </td>
@@ -435,6 +427,7 @@ export default function ManagerProductList() {
                         )}
                         </CardContent>
                     </Card>
+            </StaffPageShell>
 
                     {importOpen && (
                         <div
@@ -654,8 +647,6 @@ export default function ManagerProductList() {
                             </div>
                         </div>
                     )}
-                </div>
-            </div>
             {toast && (
                 <div className="fixed right-4 top-4 z-[2500]">
                     <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700 shadow-lg">
@@ -663,6 +654,6 @@ export default function ManagerProductList() {
                     </div>
                 </div>
             )}
-        </div>
+        </ManagerPageFrame>
     );
 }

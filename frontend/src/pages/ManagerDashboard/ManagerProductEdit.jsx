@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Platform } from 'react-bits/lib/modules/Platform';
-import { Plus, X, Barcode } from 'lucide-react';
-import ManagerSidebar from './ManagerSidebar';
-import ManagerNotificationBell from '../../components/ManagerNotificationBell';
+import { Plus, X, Barcode, Package } from 'lucide-react';
+import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
+import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { getProduct, updateProduct, uploadProductImages } from '../../services/productsApi';
 import { minExpiryDateString, isExpiryDateNotInPast } from '../../utils/dateInput';
 import {
@@ -293,44 +293,31 @@ export default function ManagerProductEdit() {
 
     if (loadProduct) {
         return (
-            <div className="manager-page-with-sidebar">
-                <ManagerSidebar />
-                <div className="manager-main">
-                    <div className="manager-content">
-                        <p className="manager-products-loading">Đang tải...</p>
-                    </div>
-                </div>
-            </div>
+            <ManagerPageFrame showNotificationBell>
+                <p className="manager-products-loading">Đang tải...</p>
+            </ManagerPageFrame>
         );
     }
 
     return (
-        <div className="manager-page-with-sidebar">
-            <ManagerSidebar />
-            <div className="manager-main">
-                <header className="manager-topbar">
-                    <div className="manager-topbar-search-wrap" />
-                    <div className="manager-topbar-actions">
-                        <ManagerNotificationBell />
-                        <div className="manager-user-badge">
-                            <i className="fa-solid fa-circle-user" />
-                            <span>Quản lý</span>
-                        </div>
+        <ManagerPageFrame showNotificationBell>
+            <StaffPageShell
+                eyebrow="Sản phẩm"
+                eyebrowIcon={Package}
+                title="Sửa sản phẩm"
+                subtitle="Cập nhật thông tin và hình ảnh sản phẩm."
+                headerActions={
+                    <div className="flex flex-wrap gap-2">
+                        <Button type="button" variant="outline" onClick={() => navigate(`/manager/products/${id}`)}>
+                            Xem chi tiết
+                        </Button>
+                        <Button type="button" variant="outline" onClick={() => navigate('/manager/products')}>
+                            Danh sách
+                        </Button>
                     </div>
-                </header>
-
-                <div className="manager-content manager-product-create-fullwidth bg-slate-50">
-                    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                            <h1 className="text-2xl font-bold text-slate-900">Sửa sản phẩm</h1>
-                            <p className="text-sm text-slate-500">Cập nhật thông tin và hình ảnh sản phẩm theo bố cục đồng nhất.</p>
-                        </div>
-                        <div className="flex gap-2">
-                            <Button type="button" variant="outline" onClick={() => navigate(`/manager/products/${id}`)}>Xem chi tiết</Button>
-                            <Button type="button" variant="outline" onClick={() => navigate('/manager/products')}>Danh sách</Button>
-                        </div>
-                    </div>
-
+                }
+            >
+                <div className="manager-product-create-fullwidth">
                     {error && <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-600">{error}</div>}
 
                     <form onSubmit={handleSubmit} className="space-y-4">
@@ -381,19 +368,19 @@ export default function ManagerProductEdit() {
                                 </CardContent>
                             </Card>
 
-                            <Card className="xl:col-span-4">
-                                <CardContent className="space-y-4">
+                            <Card className="min-w-0 xl:col-span-4">
+                                <CardContent className="min-w-0 space-y-4">
                                     <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Đơn vị bán & giá</h3>
                                     <Button type="button" variant="outline" onClick={addSellingUnit}>
                                         <Plus className="mr-1 h-4 w-4" /> Thêm đơn vị bán
                                     </Button>
-                                    <div className="space-y-2">
+                                    <div className="min-w-0 space-y-2">
                                         {form.selling_units.map((u, i) => (
-                                            <div key={i} className="grid grid-cols-[1fr_90px_1fr_36px] gap-2">
-                                                <input type="text" value={u.name} onChange={(e) => updateSellingUnit(i, 'name', e.target.value)} placeholder="Đơn vị" className="h-10 rounded-lg border border-slate-200 px-2 text-sm outline-none ring-sky-200 transition focus:ring-2" />
-                                                <input type="number" min="1" step="any" value={u.ratio} onChange={(e) => updateSellingUnit(i, 'ratio', e.target.value)} placeholder="Tỉ lệ" className="h-10 rounded-lg border border-slate-200 px-2 text-sm outline-none ring-sky-200 transition focus:ring-2" />
-                                                <input type="number" min="0" step="any" value={u.sale_price} onChange={(e) => updateSellingUnit(i, 'sale_price', e.target.value)} placeholder="Giá bán" className="h-10 rounded-lg border border-slate-200 px-2 text-sm outline-none ring-sky-200 transition focus:ring-2" />
-                                                <button type="button" onClick={() => removeSellingUnit(i)} disabled={form.selling_units.length <= 1} className="inline-flex h-10 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40">
+                                            <div key={i} className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_5.625rem_minmax(0,1fr)_auto] items-center gap-2">
+                                                <input type="text" value={u.name} onChange={(e) => updateSellingUnit(i, 'name', e.target.value)} placeholder="Đơn vị" className="h-10 w-full min-w-0 rounded-lg border border-slate-200 px-2 text-sm outline-none ring-sky-200 transition focus:ring-2" />
+                                                <input type="number" min="1" step="any" value={u.ratio} onChange={(e) => updateSellingUnit(i, 'ratio', e.target.value)} placeholder="Tỉ lệ" className="h-10 w-full min-w-0 rounded-lg border border-slate-200 px-2 text-sm outline-none ring-sky-200 transition focus:ring-2" />
+                                                <input type="number" min="0" step="any" value={u.sale_price} onChange={(e) => updateSellingUnit(i, 'sale_price', e.target.value)} placeholder="Giá bán" className="h-10 w-full min-w-0 rounded-lg border border-slate-200 px-2 text-sm outline-none ring-sky-200 transition focus:ring-2" />
+                                                <button type="button" onClick={() => removeSellingUnit(i)} disabled={form.selling_units.length <= 1} className="inline-flex h-10 w-9 shrink-0 items-center justify-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40">
                                                     <X className="h-4 w-4" />
                                                 </button>
                                             </div>
@@ -487,7 +474,7 @@ export default function ManagerProductEdit() {
                         </div>
                     </form>
                 </div>
-            </div>
-        </div>
+            </StaffPageShell>
+        </ManagerPageFrame>
     );
 }
