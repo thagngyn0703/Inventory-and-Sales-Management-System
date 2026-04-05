@@ -35,6 +35,14 @@ export function hasAnyRole(user, allowedRoles) {
 }
 
 export function logout() {
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith("manager_ai_chat_")) localStorage.removeItem(k);
+    }
+  } catch {
+    /* ignore */
+  }
   localStorage.removeItem("token");
   localStorage.removeItem("user");
 }

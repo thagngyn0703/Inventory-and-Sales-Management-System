@@ -11,18 +11,56 @@ import { cn } from '../lib/utils';
 
 const API_BASE = 'http://localhost:8000/api';
 
+const FALLBACK_FOOTER_RE = /\n\n\[Phản hồi dự phòng[^\]]*\][\s\S]*$/i;
+
 function getToken() {
   return localStorage.getItem('token') || '';
 }
 
-async function postChat(message) {
+/** Khóa lưu hội thoại theo user — xóa khi logout (localStorage.clear). */
+function getManagerAiChatStorageKey() {
+  try {
+    const u = JSON.parse(localStorage.getItem('user') || 'null');
+    const id = u?.id ?? u?._id ?? 'anon';
+    return `manager_ai_chat_${id}`;
+  } catch {
+    return 'manager_ai_chat_anon';
+  }
+}
+
+function loadStoredChatMessages() {
+  try {
+    const raw = localStorage.getItem(getManagerAiChatStorageKey());
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (m) => m && (m.role === 'user' || m.role === 'assistant') && String(m.content || '').trim()
+    );
+  } catch {
+    return [];
+  }
+}
+
+function stripForHistory(content) {
+  return String(content || '').replace(FALLBACK_FOOTER_RE, '').trim();
+}
+
+/** Tránh treo vĩnh viễn khi backend/AI không phản hồi (fetch mặc định không có timeout). */
+const CHAT_FETCH_TIMEOUT_MS = 78000;
+
+async function postChat(message, history, signal) {
   const res = await fetch(`${API_BASE}/ai/chat`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${getToken()}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ message }),
+    body: JSON.stringify({
+      message,
+      history: Array.isArray(history) ? history : [],
+    }),
+    signal,
   });
   const data = await res.json().catch(() => ({}));
   if (res.status === 429) {
@@ -40,32 +78,66 @@ const SUGGESTIONS = [
 
 export default function AIChatPanel({ className = '' }) {
   const [input, setInput] = useState('');
-  const [messages, setMessages] = useState([]);
+  const [messages, setMessages] = useState(() => loadStoredChatMessages());
   const [sending, setSending] = useState(false);
   const bottomRef = useRef(null);
+  const requestIdRef = useRef(0);
+  const fetchAbortRef = useRef(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, sending]);
 
+  useEffect(() => {
+    try {
+      const key = getManagerAiChatStorageKey();
+      localStorage.setItem(key, JSON.stringify(messages));
+    } catch {
+      /* quota / private mode */
+    }
+  }, [messages]);
+
   const send = async (text) => {
     const trimmed = String(text || '').trim();
-    if (!trimmed || sending) return;
+    if (!trimmed) return;
+
+    fetchAbortRef.current?.abort();
+    const ac = new AbortController();
+    fetchAbortRef.current = ac;
+    const reqId = (requestIdRef.current += 1);
+
+    const historyPayload = messages.map((m) => ({
+      role: m.role,
+      content: stripForHistory(m.content),
+    }));
     setMessages((prev) => [...prev, { role: 'user', content: trimmed }]);
     setInput('');
     setSending(true);
+
+    const timeoutId = setTimeout(() => ac.abort(), CHAT_FETCH_TIMEOUT_MS);
+
     try {
-      const data = await postChat(trimmed);
+      const data = await postChat(trimmed, historyPayload, ac.signal);
+      if (reqId !== requestIdRef.current) return;
       const reply = data.reply || 'Không có phản hồi.';
       const tag = data.source === 'fallback' ? '\n\n[Phản hồi dự phòng từ dữ liệu kho — chưa qua AI.]' : '';
       setMessages((prev) => [...prev, { role: 'assistant', content: reply + tag }]);
     } catch (e) {
+      if (reqId !== requestIdRef.current) return;
+      const aborted = e?.name === 'AbortError';
+      const msg = aborted
+        ? 'Hết thời gian chờ phản hồi (mạng hoặc AI quá chậm). Bạn có thể gửi lại câu hỏi.'
+        : e.message || 'lỗi không xác định';
       setMessages((prev) => [
         ...prev,
-        { role: 'assistant', content: `Không thể trả lời: ${e.message || 'lỗi không xác định'}` },
+        { role: 'assistant', content: `Không thể trả lời: ${msg}` },
       ]);
     } finally {
-      setSending(false);
+      clearTimeout(timeoutId);
+      if (reqId === requestIdRef.current) {
+        setSending(false);
+        fetchAbortRef.current = null;
+      }
     }
   };
 
@@ -95,7 +167,7 @@ export default function AIChatPanel({ className = '' }) {
                   <span className="font-bold text-slate-800"> trực tiếp</span>
                 </CardTitle>
                 <CardDescription className="mt-1 text-slate-600">
-                  Câu hỏi được kèm ngữ cảnh kho &amp; lịch cửa hàng bạn
+                  Trả lời từ AI + dữ liệu kho/lịch trong hệ thống — không tìm kiếm web trực tiếp
                 </CardDescription>
               </div>
             </div>
