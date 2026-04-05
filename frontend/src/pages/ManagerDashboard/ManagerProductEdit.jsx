@@ -368,19 +368,19 @@ export default function ManagerProductEdit() {
                                 </CardContent>
                             </Card>
 
-                            <Card className="xl:col-span-4">
-                                <CardContent className="space-y-4">
+                            <Card className="min-w-0 xl:col-span-4">
+                                <CardContent className="min-w-0 space-y-4">
                                     <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Đơn vị bán & giá</h3>
                                     <Button type="button" variant="outline" onClick={addSellingUnit}>
                                         <Plus className="mr-1 h-4 w-4" /> Thêm đơn vị bán
                                     </Button>
-                                    <div className="space-y-2">
+                                    <div className="min-w-0 space-y-2">
                                         {form.selling_units.map((u, i) => (
-                                            <div key={i} className="grid grid-cols-[1fr_90px_1fr_36px] gap-2">
-                                                <input type="text" value={u.name} onChange={(e) => updateSellingUnit(i, 'name', e.target.value)} placeholder="Đơn vị" className="h-10 rounded-lg border border-slate-200 px-2 text-sm outline-none ring-sky-200 transition focus:ring-2" />
-                                                <input type="number" min="1" step="any" value={u.ratio} onChange={(e) => updateSellingUnit(i, 'ratio', e.target.value)} placeholder="Tỉ lệ" className="h-10 rounded-lg border border-slate-200 px-2 text-sm outline-none ring-sky-200 transition focus:ring-2" />
-                                                <input type="number" min="0" step="any" value={u.sale_price} onChange={(e) => updateSellingUnit(i, 'sale_price', e.target.value)} placeholder="Giá bán" className="h-10 rounded-lg border border-slate-200 px-2 text-sm outline-none ring-sky-200 transition focus:ring-2" />
-                                                <button type="button" onClick={() => removeSellingUnit(i)} disabled={form.selling_units.length <= 1} className="inline-flex h-10 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40">
+                                            <div key={i} className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_5.625rem_minmax(0,1fr)_auto] items-center gap-2">
+                                                <input type="text" value={u.name} onChange={(e) => updateSellingUnit(i, 'name', e.target.value)} placeholder="Đơn vị" className="h-10 w-full min-w-0 rounded-lg border border-slate-200 px-2 text-sm outline-none ring-sky-200 transition focus:ring-2" />
+                                                <input type="number" min="1" step="any" value={u.ratio} onChange={(e) => updateSellingUnit(i, 'ratio', e.target.value)} placeholder="Tỉ lệ" className="h-10 w-full min-w-0 rounded-lg border border-slate-200 px-2 text-sm outline-none ring-sky-200 transition focus:ring-2" />
+                                                <input type="number" min="0" step="any" value={u.sale_price} onChange={(e) => updateSellingUnit(i, 'sale_price', e.target.value)} placeholder="Giá bán" className="h-10 w-full min-w-0 rounded-lg border border-slate-200 px-2 text-sm outline-none ring-sky-200 transition focus:ring-2" />
+                                                <button type="button" onClick={() => removeSellingUnit(i)} disabled={form.selling_units.length <= 1} className="inline-flex h-10 w-9 shrink-0 items-center justify-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40">
                                                     <X className="h-4 w-4" />
                                                 </button>
                                             </div>

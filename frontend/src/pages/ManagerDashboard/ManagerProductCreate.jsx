@@ -484,8 +484,8 @@ export default function ManagerProductCreate() {
                                 </CardContent>
                             </Card>
 
-                            <Card className="xl:col-span-4">
-                                <CardContent>
+                            <Card className="min-w-0 xl:col-span-4">
+                                <CardContent className="min-w-0">
                                     <div className="mb-3 flex items-center justify-between">
                                         <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Đơn vị bán & giá</h3>
                                         <Button type="button" variant="outline" onClick={addSellingUnit}>
