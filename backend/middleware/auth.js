@@ -51,6 +51,7 @@ function normalizeRoleToThreeTier(role) {
 function requireRole(allowedRoles, options = {}) {
   const allowed = (allowedRoles || []).map((r) => String(r).toLowerCase());
   const allowManagerWithoutStore = Boolean(options.allowManagerWithoutStore);
+  const allowLockedStoreForManager = Boolean(options.allowLockedStoreForManager);
 
   return (req, res, next) => {
     const raw = String(req.user?.role || '').toLowerCase();
@@ -69,7 +70,8 @@ function requireRole(allowedRoles, options = {}) {
       });
     }
 
-    if (isStoreScopedRole && isWrite && req.user?.storeStatus === 'inactive') {
+    const skipLockedForManager = allowLockedStoreForManager && role === 'manager';
+    if (isStoreScopedRole && isWrite && req.user?.storeStatus === 'inactive' && !skipLockedForManager) {
       return res.status(403).json({
         message: 'Cửa hàng của bạn đã tạm bị khóa. Vui lòng liên hệ admin để được hỗ trợ.',
         code: 'STORE_LOCKED',
