@@ -52,6 +52,11 @@ const goodsReceiptSchema = new Schema(
                     type: Number,
                     required: true,
                 },
+                // Giá gốc (theo đơn vị dòng) mà hệ thống có tại thời điểm staff tạo phiếu — chỉ để đối chiếu
+                system_unit_cost: {
+                    type: Number,
+                    default: 0,
+                },
                 unit_name: {
                     type: String,
                     trim: true,
@@ -59,6 +64,11 @@ const goodsReceiptSchema = new Schema(
                 ratio: {
                     type: Number,
                     default: 1,
+                },
+                // Ghi chú chênh lệch giá do staff ghi nhận (nếu có)
+                price_gap_note: {
+                    type: String,
+                    trim: true,
                 },
                 expiry_date: {
                     type: Date,

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
@@ -37,6 +37,13 @@ function statusPill(status, isOverdue) {
 
 const fmt = (n) => Number(n || 0).toLocaleString('vi-VN') + ' đ';
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString('vi-VN') : '—';
+const normalizeSearchText = (v) =>
+    String(v || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim();
+const normalizeDigits = (v) => String(v || '').replace(/\D/g, '');
 const toQrSrc = (url) => {
     const u = String(url || '').trim();
     if (!u) return '';
@@ -79,6 +86,11 @@ export default function ManagerSupplierPayables() {
     const [payForm, setPayForm] = useState(PAY_MODAL_INITIAL);
     const [paySubmitting, setPaySubmitting] = useState(false);
     const [loadingModalDebt, setLoadingModalDebt] = useState(false);
+    const [modalSupplierQuery, setModalSupplierQuery] = useState('');
+    const [modalSupplierOptions, setModalSupplierOptions] = useState([]);
+    const [loadingModalSupplierOptions, setLoadingModalSupplierOptions] = useState(false);
+    const [modalSupplierDropdownOpen, setModalSupplierDropdownOpen] = useState(false);
+    const modalSupplierPickerRef = useRef(null);
 
     const loadSummary = useCallback(async (opts = {}) => {
         const silent = Boolean(opts.silent);
@@ -110,23 +122,69 @@ export default function ManagerSupplierPayables() {
     useEffect(() => {
         if (!payModalOpen) {
             setLoadingModalDebt(false);
+            setLoadingModalSupplierOptions(false);
+            setModalSupplierDropdownOpen(false);
             return;
         }
         setPayForm({ ...PAY_MODAL_INITIAL, payment_date: new Date().toISOString().split('T')[0] });
+        setModalSupplierQuery('');
         let cancelled = false;
         setLoadingModalDebt(true);
+        setLoadingModalSupplierOptions(false);
+        setModalSupplierOptions(suppliers);
         (async () => {
             try {
                 const d = await getSupplierPayableSummary();
-                if (!cancelled) setSummary(d);
+                if (!cancelled) {
+                    setSummary(d);
+                }
             } catch (e) {
                 if (!cancelled) toast(e.message, 'error');
             } finally {
-                if (!cancelled) setLoadingModalDebt(false);
+                if (!cancelled) {
+                    setLoadingModalDebt(false);
+                }
             }
         })();
         return () => { cancelled = true; };
-    }, [payModalOpen, toast]);
+    }, [payModalOpen, suppliers, toast]);
+
+    useEffect(() => {
+        if (!payModalOpen) return undefined;
+        const onDocMouseDown = (e) => {
+            if (!modalSupplierPickerRef.current) return;
+            if (!modalSupplierPickerRef.current.contains(e.target)) {
+                setModalSupplierDropdownOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', onDocMouseDown);
+        return () => document.removeEventListener('mousedown', onDocMouseDown);
+    }, [payModalOpen]);
+
+    // Search nhà cung cấp realtime trong modal (không cần Enter)
+    useEffect(() => {
+        if (!payModalOpen) return undefined;
+        const q = String(modalSupplierQuery || '').trim();
+        const timer = setTimeout(() => {
+            if (!q) {
+                setModalSupplierOptions(suppliers);
+                return;
+            }
+            const queryText = normalizeSearchText(q);
+            const queryDigits = normalizeDigits(q);
+            setModalSupplierOptions(
+                suppliers.filter((s) => {
+                    const haystack = normalizeSearchText(
+                        `${s.name || ''} ${s.phone || ''} ${s.email || ''} ${s.code || ''} ${s.tax_code || ''}`
+                    );
+                    if (haystack.includes(queryText)) return true;
+                    if (!queryDigits) return false;
+                    return normalizeDigits(s.phone || '').includes(queryDigits);
+                })
+            );
+        }, 250);
+        return () => clearTimeout(timer);
+    }, [modalSupplierQuery, payModalOpen, suppliers]);
 
     const loadPayables = useCallback(async () => {
         setLoadingPayables(true);
@@ -154,7 +212,13 @@ export default function ManagerSupplierPayables() {
     useEffect(() => { loadPayables(); }, [loadPayables]);
     useEffect(() => { if (tab === 'history') loadPaymentHistory(); }, [tab, loadPaymentHistory]);
     useEffect(() => {
-        getSuppliers(1, 200).then((d) => setSuppliers(d.suppliers || [])).catch(() => {});
+        getSuppliers(1, 1000, '', 'all')
+            .then((d) => {
+                const list = d.suppliers || [];
+                setSuppliers(list);
+                setModalSupplierOptions(list);
+            })
+            .catch(() => {});
     }, []);
 
     const handlePay = async (e) => {
@@ -401,21 +465,74 @@ export default function ManagerSupplierPayables() {
                         </div>
                         <div className="max-h-[80vh] overflow-y-auto p-4">
                             <div className="flex flex-col gap-3">
-                            <div>
-                                <label className="mb-1 block text-[12px] font-semibold text-slate-700">Nhà cung cấp <span className="text-red-500">*</span></label>
-                                <select
-                                    value={payForm.supplier_id}
-                                    onChange={(e) => setPayForm((f) => ({
-                                        ...f,
-                                        supplier_id: e.target.value,
-                                        total_amount: '',
-                                        payment_method: f.payment_method === 'bank_transfer' || f.payment_method === 'cash' ? f.payment_method : 'cash',
-                                    }))}
+                            <div className="rounded-xl border border-slate-200/80 bg-slate-50/60 p-2.5">
+                                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Tìm nhà cung cấp</label>
+                                <input
+                                    type="search"
+                                    value={modalSupplierQuery}
+                                    onFocus={() => setModalSupplierDropdownOpen(true)}
+                                    onChange={(e) => {
+                                        setModalSupplierQuery(e.target.value);
+                                        setModalSupplierDropdownOpen(true);
+                                        if (payForm.supplier_id) {
+                                            setPayForm((f) => ({ ...f, supplier_id: '', total_amount: '' }));
+                                        }
+                                    }}
+                                    placeholder="Gõ tên, điện thoại, email..."
                                     className="h-9 w-full rounded-xl border border-slate-200 bg-white px-3 text-[13px] outline-none ring-teal-200 transition focus:border-teal-300 focus:ring-2"
+                                />
+                            </div>
+                            <div ref={modalSupplierPickerRef} className="relative">
+                                <label className="mb-1 block text-[12px] font-semibold text-slate-700">Nhà cung cấp <span className="text-red-500">*</span></label>
+                                <button
+                                    type="button"
+                                    className="flex h-9 w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-3 text-left text-[13px] outline-none ring-teal-200 transition focus:border-teal-300 focus:ring-2"
+                                    onClick={() => setModalSupplierDropdownOpen((v) => !v)}
                                 >
-                                    <option value="">— Chọn nhà cung cấp —</option>
-                                    {suppliers.map((s) => <option key={s._id} value={s._id}>{s.name}</option>)}
-                                </select>
+                                    <span className={payForm.supplier_id ? 'text-slate-900' : 'text-slate-500'}>
+                                        {modalSupplier?.name
+                                            ? `${modalSupplier.name}${modalSupplier.phone ? ` · ${modalSupplier.phone}` : ''}`
+                                            : '— Chọn nhà cung cấp —'}
+                                    </span>
+                                    <span className="text-slate-400">▾</span>
+                                </button>
+                                {modalSupplierDropdownOpen && (
+                                    <div className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
+                                        {modalSupplierOptions.length === 0 ? (
+                                            <p className="px-2 py-2 text-[12px] text-slate-500">Không có nhà cung cấp phù hợp.</p>
+                                        ) : (
+                                            modalSupplierOptions.map((s) => (
+                                                <button
+                                                    key={s._id}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setPayForm((f) => ({
+                                                            ...f,
+                                                            supplier_id: s._id,
+                                                            total_amount: '',
+                                                            payment_method:
+                                                                f.payment_method === 'bank_transfer' || f.payment_method === 'cash'
+                                                                    ? f.payment_method
+                                                                    : 'cash',
+                                                        }));
+                                                        setModalSupplierQuery(`${s.name || ''}${s.phone ? ` ${s.phone}` : ''}`.trim());
+                                                        setModalSupplierDropdownOpen(false);
+                                                    }}
+                                                    className={cn(
+                                                        'flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-[13px] hover:bg-slate-100',
+                                                        String(payForm.supplier_id) === String(s._id) ? 'bg-teal-50 text-teal-800' : 'text-slate-700'
+                                                    )}
+                                                >
+                                                    <span className="truncate">{s.name || '—'}</span>
+                                                    <span className="ml-2 shrink-0 text-[11px] text-slate-500">{s.phone || ''}</span>
+                                                </button>
+                                            ))
+                                        )}
+                                    </div>
+                                )}
+                                {loadingModalSupplierOptions && (
+                                    <p className="mt-1 text-[11px] text-slate-500">Đang lọc nhà cung cấp…</p>
+                                )}
                             </div>
 
                             {payForm.supplier_id && loadingModalDebt && (

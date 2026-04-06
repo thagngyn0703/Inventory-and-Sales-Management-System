@@ -18,6 +18,14 @@ function escapeRegex(s) {
     return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/** Giá nhập theo đơn vị dòng = giá gốc (theo đơn vị cơ sở) × hệ số quy đổi. */
+function resolveUnitCostFromProductCost(productDoc, ratio) {
+    if (!productDoc) return 0;
+    const baseCost = Number(productDoc.cost_price) || 0;
+    const safeRatio = Number(ratio) > 0 ? Number(ratio) : 1;
+    return Math.round(baseCost * safeRatio * 100) / 100;
+}
+
 /** Gắn công nợ NCC (SupplierPayable) — nguồn đúng sau các lần thanh toán sau duyệt. */
 async function attachSupplierPayablesToReceipts(list) {
     if (!list?.length) return list;
@@ -110,7 +118,7 @@ router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (
             .populate('po_id', 'status expected_date')
             .populate('received_by', 'fullName email')
             .populate('approved_by', 'fullName email')
-            .populate('items.product_id', 'name sku')
+            .populate('items.product_id', 'name sku cost_price sale_price base_unit selling_units')
             .lean();
 
         const listWithPayable = await attachSupplierPayablesToReceipts(list);
@@ -140,7 +148,7 @@ router.get('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), asyn
             .populate('po_id')
             .populate('received_by', 'fullName email')
             .populate('approved_by', 'fullName email')
-            .populate('items.product_id', 'name sku')
+            .populate('items.product_id', 'name sku cost_price sale_price base_unit selling_units')
             .lean();
         if (!gr) return res.status(404).json({ message: 'Goods receipt not found' });
 
@@ -185,7 +193,7 @@ router.post('/', requireAuth, requireRole(['staff', 'manager']), async (req, res
             return res.status(400).json({ message: 'items is required' });
         }
 
-        // validate items
+        // validate items cơ bản
         for (const it of items) {
             if (!it.product_id || !mongoose.isValidObjectId(it.product_id)) {
                 return res.status(400).json({ message: 'Invalid product_id in items' });
@@ -193,13 +201,41 @@ router.post('/', requireAuth, requireRole(['staff', 'manager']), async (req, res
             if (!it.quantity || Number(it.quantity) <= 0) {
                 return res.status(400).json({ message: 'Invalid quantity in items' });
             }
-            if (it.unit_cost == null || Number(it.unit_cost) < 0) {
-                return res.status(400).json({ message: 'Invalid unit_cost in items' });
-            }
         }
 
-        // compute total if not provided
-        const computedTotal = items.reduce((s, it) => s + Number(it.quantity) * Number(it.unit_cost), 0);
+        // Staff không được sửa giá nhập: luôn lấy theo giá gốc (cost_price) × HSQĐ — khớp hóa đơn NCC theo đơn vị cơ sở.
+        // unit_cost được server override để tránh client tự sửa payload.
+        const productIds = [...new Set(items.map((it) => String(it.product_id)))];
+        const products = await Product.find({ _id: { $in: productIds } })
+            .select('name cost_price base_unit selling_units')
+            .lean();
+        const productMap = new Map(products.map((p) => [String(p._id), p]));
+        const normalizedItems = [];
+
+        for (const it of items) {
+            const product = productMap.get(String(it.product_id));
+            if (!product) {
+                return res.status(400).json({ message: `Sản phẩm không tồn tại: ${String(it.product_id)}` });
+            }
+            const itemRatio = Number(it.ratio) > 0 ? Number(it.ratio) : 1;
+            const itemUnitName = String(it.unit_name || '').trim() || product.base_unit || 'Cái';
+            const systemUnitCost = resolveUnitCostFromProductCost(product, itemRatio);
+            const note = it.price_gap_note != null ? String(it.price_gap_note).trim() : '';
+
+            normalizedItems.push({
+                product_id: it.product_id,
+                quantity: Number(it.quantity),
+                unit_cost: systemUnitCost,
+                system_unit_cost: systemUnitCost,
+                unit_name: itemUnitName,
+                ratio: itemRatio,
+                expiry_date: it.expiry_date ? new Date(it.expiry_date) : undefined,
+                price_gap_note: note || undefined,
+            });
+        }
+
+        // compute total từ giá đã chuẩn hóa
+        const computedTotal = normalizedItems.reduce((s, it) => s + Number(it.quantity) * Number(it.unit_cost), 0);
 
         // Only allow creating in draft or pending — never approved/rejected directly
         const allowedCreateStatuses = ['draft', 'pending'];
@@ -212,7 +248,7 @@ router.post('/', requireAuth, requireRole(['staff', 'manager']), async (req, res
             received_by: req.user.id,
             status: safeStatus,
             received_at: received_at ? new Date(received_at) : new Date(),
-            items,
+            items: normalizedItems,
             total_amount: total_amount != null ? Number(total_amount) : computedTotal,
             created_at: new Date(),
             reason: reason || undefined,
@@ -222,12 +258,123 @@ router.post('/', requireAuth, requireRole(['staff', 'manager']), async (req, res
             .populate('supplier_id', 'name phone email')
             .populate('received_by', 'fullName email')
             .populate('approved_by', 'fullName email')
-            .populate('items.product_id', 'name sku')
+            .populate('items.product_id', 'name sku cost_price sale_price base_unit selling_units')
             .lean();
 
         return res.status(201).json({ goodsReceipt: saved });
     } catch (err) {
         console.error('Create GR error:', err);
+        return res.status(500).json({ message: err.message || 'Server error' });
+    }
+});
+
+// PATCH /api/goods-receipts/:id/items (manager, admin)
+// Manager cập nhật lại giá nhập + giá bán trước khi duyệt (status phải là pending)
+router.patch('/:id/items', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { items = [] } = req.body || {};
+        if (!mongoose.isValidObjectId(id)) {
+            return res.status(400).json({ message: 'Invalid goods receipt id' });
+        }
+        if (!Array.isArray(items) || items.length === 0) {
+            return res.status(400).json({ message: 'items is required' });
+        }
+
+        const gr = await GoodsReceipt.findById(id);
+        if (!gr) return res.status(404).json({ message: 'Goods receipt not found' });
+        if (req.user.role !== 'admin' && String(gr.storeId) !== String(req.user.storeId)) {
+            return res.status(403).json({ message: 'Forbidden' });
+        }
+        if (gr.status !== 'pending') {
+            return res.status(400).json({ message: 'Chỉ được cập nhật khi phiếu ở trạng thái chờ duyệt' });
+        }
+
+        const existingByProduct = new Map(gr.items.map((it) => [String(it.product_id), it]));
+        const seen = new Set();
+
+        for (const it of items) {
+            if (!it.product_id || !mongoose.isValidObjectId(it.product_id)) {
+                return res.status(400).json({ message: 'Invalid product_id in items' });
+            }
+            const key = String(it.product_id);
+            if (seen.has(key)) {
+                return res.status(400).json({ message: 'Một sản phẩm chỉ xuất hiện một lần trong danh sách cập nhật' });
+            }
+            seen.add(key);
+            if (!existingByProduct.has(key)) {
+                return res.status(400).json({ message: `Sản phẩm ${key} không thuộc phiếu nhập` });
+            }
+            if (!it.quantity || Number(it.quantity) <= 0) {
+                return res.status(400).json({ message: 'Invalid quantity in items' });
+            }
+            if (it.unit_cost == null || Number(it.unit_cost) < 0) {
+                return res.status(400).json({ message: 'Invalid unit_cost in items' });
+            }
+            if (it.sale_price == null || Number(it.sale_price) < 0) {
+                return res.status(400).json({ message: 'Invalid sale_price in items' });
+            }
+        }
+
+        const updatedItems = [];
+        for (const curr of gr.items) {
+            const patchItem = items.find((x) => String(x.product_id) === String(curr.product_id));
+            if (!patchItem) {
+                updatedItems.push(curr);
+                continue;
+            }
+            const next = curr.toObject ? curr.toObject() : { ...curr };
+            next.quantity = Number(patchItem.quantity);
+            next.unit_cost = Number(patchItem.unit_cost);
+            if (patchItem.price_gap_note !== undefined) {
+                const n = String(patchItem.price_gap_note || '').trim();
+                next.price_gap_note = n || undefined;
+            }
+            updatedItems.push(next);
+
+            const product = await Product.findById(curr.product_id);
+            if (product) {
+                const nextSalePrice = Number(patchItem.sale_price);
+                const lineUnitCost = Number(patchItem.unit_cost);
+                const itemRatio = Number(curr.ratio) > 0 ? Number(curr.ratio) : 1;
+                // Giá gốc trong DB = đơn giá nhập theo đơn vị dòng / HSQĐ (đơn vị cơ sở)
+                const nextBaseCost = Math.round((lineUnitCost / itemRatio) * 100) / 100;
+                product.cost_price = nextBaseCost;
+
+                const itemUnit = String(curr.unit_name || '').trim();
+                let updatedSale = false;
+                if (Array.isArray(product.selling_units) && product.selling_units.length > 0) {
+                    const unit = product.selling_units.find((u) => String(u?.name || '').trim() === itemUnit);
+                    if (unit) {
+                        unit.sale_price = nextSalePrice;
+                        updatedSale = true;
+                    }
+                }
+                if (!updatedSale || itemUnit === String(product.base_unit || '').trim() || itemRatio === 1) {
+                    product.sale_price = nextSalePrice;
+                }
+                product.updated_at = new Date();
+                await product.save();
+            }
+        }
+
+        gr.items = updatedItems;
+        gr.total_amount = updatedItems.reduce(
+            (sum, it) => sum + (Number(it.quantity) || 0) * (Number(it.unit_cost) || 0),
+            0
+        );
+        gr.updated_at = new Date();
+        await gr.save();
+
+        const updated = await GoodsReceipt.findById(id)
+            .populate('supplier_id', 'name phone email')
+            .populate('received_by', 'fullName email')
+            .populate('approved_by', 'fullName email')
+            .populate('items.product_id', 'name sku cost_price sale_price base_unit selling_units')
+            .lean();
+        return res.json({ goodsReceipt: updated });
+    } catch (err) {
+        console.error('Patch GR items error:', err);
         return res.status(500).json({ message: err.message || 'Server error' });
     }
 });
@@ -259,7 +406,7 @@ router.put('/:id', requireAuth, requireRole(['staff', 'manager']), async (req, r
             .populate('supplier_id', 'name phone email')
             .populate('received_by', 'fullName email')
             .populate('approved_by', 'fullName email')
-            .populate('items.product_id', 'name sku')
+            .populate('items.product_id', 'name sku cost_price sale_price base_unit selling_units')
             .lean();
 
         return res.json({ goodsReceipt: updated });
@@ -447,7 +594,7 @@ router.patch('/:id/status', requireAuth, requireRole(['manager', 'admin']), asyn
             .populate('supplier_id', 'name phone email')
             .populate('received_by', 'fullName email')
             .populate('approved_by', 'fullName email')
-            .populate('items.product_id', 'name sku')
+            .populate('items.product_id', 'name sku cost_price sale_price base_unit selling_units')
             .lean();
 
         return res.json({ goodsReceipt: updated });

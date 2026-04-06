@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useWarehouseBase } from '../../utils/useWarehouseBase';
 import { getProducts } from '../../services/productsApi';
@@ -38,6 +38,7 @@ export default function WarehouseGoodsReceiptCreate() {
 
   const [submitting, setSubmitting] = useState(false);
   const [showProductModal, setShowProductModal] = useState(false);
+  const searchReqSeqRef = useRef(0);
 
   const addedIds = useMemo(() => new Set(items.map((i) => i.product._id)), [items]);
 
@@ -52,25 +53,48 @@ export default function WarehouseGoodsReceiptCreate() {
       .catch((e) => toast(e.message || 'Không tải được nhà cung cấp', 'error'));
   }, [toast]);
 
-  const handleSearchProducts = useCallback(async () => {
-    if (!search.trim()) {
-      toast('Nhập từ khóa để tìm sản phẩm', 'info');
+  const runSearchProducts = useCallback(async (rawKeyword, opts = {}) => {
+    const keyword = String(rawKeyword || '').trim();
+    const showEmptyToast = Boolean(opts.showEmptyToast);
+    if (!keyword) {
+      setProducts([]);
       return;
     }
+    const reqSeq = ++searchReqSeqRef.current;
     setSearching(true);
     try {
-      const data = await getProducts(1, 20, search);
-      setProducts(data.products || []);
+      const data = await getProducts(1, 20, keyword);
+      if (reqSeq !== searchReqSeqRef.current) return;
       const list = data.products || [];
-      const available = list.filter((p) => !addedIds.has(p._id));
-      if (list.length === 0) toast('Không tìm thấy sản phẩm', 'info');
-      else if (available.length === 0) toast('Các sản phẩm tìm được đã có trong phiếu nhập', 'info');
+      setProducts(list);
+      if (list.length === 0 && showEmptyToast) toast('Không tìm thấy sản phẩm', 'info');
     } catch (e) {
-      toast(e.message || 'Lỗi tìm kiếm sản phẩm', 'error');
+      if (reqSeq === searchReqSeqRef.current) {
+        toast(e.message || 'Lỗi tìm kiếm sản phẩm', 'error');
+      }
     } finally {
-      setSearching(false);
+      if (reqSeq === searchReqSeqRef.current) setSearching(false);
     }
-  }, [search, addedIds, toast]);
+  }, [toast]);
+
+  // Realtime search: gõ ký tự là lọc ngay (debounce 250ms)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      runSearchProducts(search, { showEmptyToast: false });
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [search, runSearchProducts]);
+
+  const handleSearchProducts = useCallback(() => {
+    runSearchProducts(search, { showEmptyToast: true });
+  }, [runSearchProducts, search]);
+
+  /** Đơn giá theo đơn vị dòng = giá gốc (theo đơn vị cơ sở trên hệ thống) × HSQĐ — khớp cách tính trên hóa đơn NCC. */
+  const unitCostFromBaseCost = (product, ratio) => {
+    const base = Number(product?.cost_price) || 0;
+    const r = Number(ratio) > 0 ? Number(ratio) : 1;
+    return Math.round(base * r * 100) / 100;
+  };
 
   const handleAddProduct = (product) => {
     if (addedIds.has(product._id)) {
@@ -80,16 +104,19 @@ export default function WarehouseGoodsReceiptCreate() {
     const defaultUnit =
       product.selling_units && product.selling_units.length > 0
         ? product.selling_units[0]
-        : { name: product.base_unit || 'Cái', ratio: 1, sale_price: product.sale_price };
+        : { name: product.base_unit || 'Cái', ratio: 1 };
+    const lineUnitCost = unitCostFromBaseCost(product, defaultUnit.ratio);
 
     setItems((prev) => [
       ...prev,
       {
         product,
         quantity: 1,
-        unit_cost: product.cost_price || 0,
+        unit_cost: lineUnitCost,
+        system_unit_cost: lineUnitCost,
         unit_name: defaultUnit.name,
         ratio: defaultUnit.ratio,
+        price_gap_note: '',
       },
     ]);
   };
@@ -104,12 +131,17 @@ export default function WarehouseGoodsReceiptCreate() {
         if (item.product._id !== productId) return item;
         if (field === 'unit') {
           const selectedUnit = item.product.selling_units?.find((u) => u.name === value);
+          const nextRatio = selectedUnit ? selectedUnit.ratio : 1;
+          const nextLineCost = unitCostFromBaseCost(item.product, nextRatio);
           return {
             ...item,
             unit_name: selectedUnit ? selectedUnit.name : value,
-            ratio: selectedUnit ? selectedUnit.ratio : 1,
+            ratio: nextRatio,
+            unit_cost: nextLineCost,
+            system_unit_cost: nextLineCost,
           };
         }
+        if (field === 'price_gap_note') return { ...item, price_gap_note: String(value || '') };
         return { ...item, [field]: Number(value) >= 0 ? Number(value) : 0 };
       })
     );
@@ -138,8 +170,10 @@ export default function WarehouseGoodsReceiptCreate() {
         product_id: item.product._id,
         quantity: item.quantity,
         unit_cost: item.unit_cost,
+        system_unit_cost: item.system_unit_cost,
         unit_name: item.unit_name,
         ratio: item.ratio,
+        price_gap_note: item.price_gap_note,
       }));
 
       await createGoodsReceipt({
@@ -166,7 +200,7 @@ export default function WarehouseGoodsReceiptCreate() {
       eyebrowIcon={Sparkles}
       eyebrowTone="sky"
       title="Nhập hàng vào kho"
-      subtitle="Ghi nhận hàng từ nhà cung cấp, thêm sản phẩm có sẵn hoặc đăng ký SKU mới chờ quản lý duyệt."
+      subtitle="Ghi nhận hàng từ nhà cung cấp. Giá trên phiếu hiển thị theo giá gốc (vốn) trên hệ thống theo đơn vị — quản lý sẽ chỉnh theo hóa đơn NCC khi duyệt."
     >
       <Card className="border-slate-200/80 shadow-sm shadow-slate-900/5">
         <CardContent className="space-y-4 p-4 sm:p-6">
@@ -230,7 +264,6 @@ export default function WarehouseGoodsReceiptCreate() {
                 className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-3 text-sm outline-none ring-sky-200 focus:ring-2"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleSearchProducts()}
               />
             </div>
             <Button
@@ -296,8 +329,9 @@ export default function WarehouseGoodsReceiptCreate() {
                     <tr className="border-b border-slate-200 bg-slate-50/90 text-left text-xs font-semibold uppercase text-slate-500">
                       <th className="px-3 py-2">Sản phẩm</th>
                       <th className="px-3 py-2">SL</th>
-                      <th className="px-3 py-2">Đơn giá (đ)</th>
+                      <th className="px-3 py-2">Giá gốc HS (đ)</th>
                       <th className="px-3 py-2 text-right">Thành tiền</th>
+                      <th className="px-3 py-2">Ghi chú chênh lệch giá</th>
                       <th className="w-10 px-2" />
                     </tr>
                   </thead>
@@ -335,15 +369,24 @@ export default function WarehouseGoodsReceiptCreate() {
                         </td>
                         <td className="px-3 py-2">
                           <input
-                            type="number"
-                            min="0"
-                            className="w-28 rounded-lg border border-slate-200 px-2 py-1.5"
-                            value={item.unit_cost}
-                            onChange={(e) => handleItemChange(item.product._id, 'unit_cost', e.target.value)}
+                            type="text"
+                            className="w-32 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-slate-700"
+                            value={Number(item.unit_cost || 0).toLocaleString('vi-VN')}
+                            readOnly
+                            title="Giá gốc theo đơn vị = giá gốc sản phẩm × hệ số quy đổi. Chỉ quản lý được sửa khi duyệt."
                           />
                         </td>
                         <td className="px-3 py-2 text-right font-medium tabular-nums">
                           {(item.quantity * item.unit_cost).toLocaleString('vi-VN')}
+                        </td>
+                        <td className="px-3 py-2">
+                          <input
+                            type="text"
+                            className="w-full min-w-[220px] rounded-lg border border-amber-200 bg-amber-50/50 px-2 py-1.5 text-xs"
+                            placeholder="VD: NCC báo giá thay đổi, cần manager kiểm tra"
+                            value={item.price_gap_note || ''}
+                            onChange={(e) => handleItemChange(item.product._id, 'price_gap_note', e.target.value)}
+                          />
                         </td>
                         <td className="px-2 py-2 text-right">
                           <button

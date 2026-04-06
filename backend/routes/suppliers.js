@@ -231,7 +231,7 @@ router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (
     const { q = '', status = 'active', page = '1', limit = '20', sort = 'name' } = req.query;
     const query = String(q || '').trim();
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
-    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
+    const limitNum = Math.min(1000, Math.max(1, parseInt(limit, 10) || 20));
 
     const filter = getSupplierScopeFilter(req);
     const statusNorm = String(status || '').toLowerCase();

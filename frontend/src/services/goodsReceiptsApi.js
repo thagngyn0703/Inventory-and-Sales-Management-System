@@ -122,3 +122,18 @@ export async function setGoodsReceiptStatus(id, status, rejectionReason, approva
     if (!res.ok) throw new Error(data.message || 'Không thể cập nhật trạng thái phiếu nhập kho');
     return data.goodsReceipt;
 }
+
+export async function updateGoodsReceiptItems(id, items) {
+    const token = getToken();
+    const res = await fetch(`${API_BASE}/goods-receipts/${id}/items`, {
+        method: 'PATCH',
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ items }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.message || 'Không thể cập nhật chi tiết phiếu nhập');
+    return data.goodsReceipt;
+}
