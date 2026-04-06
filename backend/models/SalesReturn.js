@@ -23,15 +23,6 @@ const salesReturnSchema = new Schema(
             ref: 'User',
             required: true,
         },
-        warehouse_id: {
-            type: Schema.Types.ObjectId,
-            ref: 'Warehouse',
-            required: false,
-        },
-        supplier_id: {
-            type: Schema.Types.ObjectId,
-            ref: 'Supplier',
-        },
         status: {
             type: String,
             enum: ['pending', 'approved', 'rejected'],
@@ -60,21 +51,9 @@ const salesReturnSchema = new Schema(
                 unit_price: {
                     type: Number,
                     required: true,
-                },
-                disposition: {
-                    type: String,
-                    enum: ['restock', 'scrap', 'repair'],
-                    default: 'restock',
-                },
+                }
             },
         ],
-        approved_by: {
-            type: Schema.Types.ObjectId,
-            ref: 'User',
-        },
-        approved_at: {
-            type: Date,
-        },
         created_at: {
             type: Date,
             default: Date.now,
