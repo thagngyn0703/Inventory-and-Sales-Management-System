@@ -4,6 +4,7 @@ import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { Handshake } from 'lucide-react';
 import { getSuppliers, setSupplierStatus } from '../../services/suppliersApi';
+import { useToast } from '../../contexts/ToastContext';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
 
@@ -20,8 +21,8 @@ export default function ManagerSupplierList() {
     const [searchInput, setSearchInput] = useState('');
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
-    const [successMessage, setSuccessMessage] = useState('');
     const [togglingId, setTogglingId] = useState(null);
+    const { toast } = useToast();
 
     const fetchList = useCallback(async () => {
         setLoading(true);
@@ -47,11 +48,11 @@ export default function ManagerSupplierList() {
     useEffect(() => {
         const stateMessage = location.state?.success;
         if (stateMessage) {
-            setSuccessMessage(stateMessage);
+            toast(stateMessage, 'success');
             setError('');
             window.history.replaceState({}, document.title, location.pathname + location.search);
         }
-    }, [location.state]);
+    }, [location.state, location.pathname, location.search, toast]);
 
     const handleSearchSubmit = (e) => {
         e.preventDefault();
@@ -65,10 +66,11 @@ export default function ManagerSupplierList() {
         setTogglingId(s._id);
         try {
             await setSupplierStatus(s._id, nextStatus);
-            setSuccessMessage(nextStatus === 'active' ? 'Đã kích hoạt nhà cung cấp.' : 'Đã ngừng nhà cung cấp.');
+            toast(nextStatus === 'active' ? 'Đã kích hoạt nhà cung cấp.' : 'Đã ngừng nhà cung cấp.', 'success');
             fetchList();
         } catch (err) {
             setError(err.message || 'Không thể đổi trạng thái');
+            toast(err.message || 'Không thể đổi trạng thái', 'error');
         } finally {
             setTogglingId(null);
         }
@@ -113,9 +115,6 @@ export default function ManagerSupplierList() {
                     </div>
                 }
             >
-                    {successMessage && (
-                        <div className="manager-products-success">{successMessage}</div>
-                    )}
                     {error && <div className="manager-products-error">{error}</div>}
 
                     <div className="manager-panel-card manager-products-card rounded-2xl border border-slate-200/80 shadow-sm">

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { Plus } from 'lucide-react';
-import { createSupplier } from '../../services/suppliersApi';
+import { createSupplier, uploadSupplierQrImage } from '../../services/suppliersApi';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
 
@@ -17,6 +17,7 @@ const defaultForm = {
     note: '',
     status: 'active',
     payable_account: '',
+    bank_qr_image_url: '',
 };
 
 export default function ManagerSupplierCreate() {
@@ -24,6 +25,8 @@ export default function ManagerSupplierCreate() {
     const [form, setForm] = useState(defaultForm);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const [selectedQrFile, setSelectedQrFile] = useState(null);
+    const [qrPreviewUrl, setQrPreviewUrl] = useState('');
 
     const update = (field, value) => {
         setForm((prev) => ({ ...prev, [field]: value }));
@@ -39,6 +42,10 @@ export default function ManagerSupplierCreate() {
         setLoading(true);
         setError('');
         try {
+            let qrUrl = form.bank_qr_image_url ? String(form.bank_qr_image_url).trim() : '';
+            if (selectedQrFile) {
+                qrUrl = await uploadSupplierQrImage(selectedQrFile);
+            }
             await createSupplier({
                 code: form.code ? String(form.code).trim() : undefined,
                 name: form.name.trim(),
@@ -49,6 +56,7 @@ export default function ManagerSupplierCreate() {
                 note: form.note ? String(form.note).trim() : undefined,
                 status: form.status === 'inactive' ? 'inactive' : 'active',
                 payable_account: Number(form.payable_account) || 0,
+                bank_qr_image_url: qrUrl || undefined,
             });
             navigate('/manager/suppliers', { state: { success: 'Thêm nhà cung cấp thành công.' } });
         } catch (err) {
@@ -161,6 +169,20 @@ export default function ManagerSupplierCreate() {
                                         placeholder="0"
                                     />
                                 </div>
+                                <div className="manager-form-group">
+                                    <label>Ảnh QR chuyển khoản</label>
+                                    <input type="file" accept="image/*" onChange={(e) => {
+                                        const f = e.target.files?.[0] || null;
+                                        setSelectedQrFile(f);
+                                        setQrPreviewUrl(f ? URL.createObjectURL(f) : '');
+                                    }} />
+                                    {qrPreviewUrl && (
+                                        <img src={qrPreviewUrl} alt="QR preview" style={{ marginTop: 8, width: 140, height: 140, objectFit: 'contain', border: '1px solid #e5e7eb', borderRadius: 8 }} />
+                                    )}
+                                    <small style={{ color: '#64748b' }}>Chọn ảnh QR từ máy. Hệ thống sẽ tự upload.</small>
+                                </div>
+                            </div>
+                            <div className="manager-form-row manager-form-row--2">
                                 <div className="manager-form-group">
                                     <label>Ghi chú</label>
                                     <input

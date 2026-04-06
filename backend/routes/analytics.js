@@ -7,6 +7,7 @@ const SalesReturn = require('../models/SalesReturn');
 const Product = require('../models/Product');
 const ProductPriceHistory = require('../models/ProductPriceHistory');
 const Supplier = require('../models/Supplier');
+const SupplierPayment = require('../models/SupplierPayment');
 const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
@@ -325,7 +326,7 @@ router.get(
         : { status: 'confirmed', invoice_at: { $gte: yStart, $lte: yEnd }, ...PAID_TRANSFER_FILTER };
 
       // Doanh thu + số đơn + lợi nhuận gộp thực (từ cost_price snapshot trên từng dòng hóa đơn)
-      const [invoiceAgg, invoiceProfitAgg, returnAgg, grAgg, todayAgg, yesterdayAgg, todayProfitAgg, yesterdayProfitAgg] = await Promise.all([
+      const [invoiceAgg, invoiceProfitAgg, returnAgg, grAgg, supplierPaymentAgg, todayAgg, yesterdayAgg, todayProfitAgg, yesterdayProfitAgg] = await Promise.all([
         // Aggregate 1: đếm số hóa đơn, tổng doanh thu, tổng đã thu
         SalesInvoice.aggregate([
           { $match: invoiceMatchPeriod },
@@ -362,6 +363,31 @@ router.get(
           { $group: { _id: null, incoming_cost: { $sum: '$total_amount' } } },
         ]),
 
+        // Chi trả nợ NCC trong kỳ (dòng tiền thực chi), tách theo phương thức
+        SupplierPayment.aggregate([
+          {
+            $match: storeIdObj
+              ? { storeId: storeIdObj, payment_date: { $gte: from, $lte: to } }
+              : { payment_date: { $gte: from, $lte: to } },
+          },
+          {
+            $group: {
+              _id: null,
+              supplier_payment_total: { $sum: '$total_amount' },
+              supplier_payment_cash: {
+                $sum: {
+                  $cond: [{ $eq: ['$payment_method', 'cash'] }, '$total_amount', 0],
+                },
+              },
+              supplier_payment_bank_transfer: {
+                $sum: {
+                  $cond: [{ $eq: ['$payment_method', 'bank_transfer'] }, '$total_amount', 0],
+                },
+              },
+            },
+          },
+        ]),
+
         // Doanh thu hôm nay
         SalesInvoice.aggregate([
           { $match: todayMatchCond },
@@ -385,6 +411,9 @@ router.get(
       const orderCount = invoiceAgg[0]?.order_count ?? 0;
       const returnCount = returnAgg[0]?.return_count ?? 0;
       const incomingCost = grAgg[0]?.incoming_cost ?? 0;
+      const supplierPaymentTotal = supplierPaymentAgg[0]?.supplier_payment_total ?? 0;
+      const supplierPaymentCash = supplierPaymentAgg[0]?.supplier_payment_cash ?? 0;
+      const supplierPaymentBankTransfer = supplierPaymentAgg[0]?.supplier_payment_bank_transfer ?? 0;
       // Lợi nhuận gộp thực: tính từ cost_price snapshot trên từng dòng hóa đơn
       const grossProfit = invoiceProfitAgg[0]?.gross_profit ?? 0;
       // Giữ lại gross_profit_estimate (dựa GoodsReceipt) để tham khảo
@@ -415,6 +444,9 @@ router.get(
         return_count: returnCount,
         return_rate: returnRate,
         incoming_cost: incomingCost,
+        supplier_payment_total: supplierPaymentTotal,
+        supplier_payment_cash: supplierPaymentCash,
+        supplier_payment_bank_transfer: supplierPaymentBankTransfer,
         // Lợi nhuận gộp thực: tính từ cost_price snapshot trên từng dòng hóa đơn (chính xác)
         gross_profit: grossProfit,
         // Lợi nhuận ước tính cũ (doanh thu - tiền nhập kỳ): giữ để tham khảo, không dùng cho báo cáo chính

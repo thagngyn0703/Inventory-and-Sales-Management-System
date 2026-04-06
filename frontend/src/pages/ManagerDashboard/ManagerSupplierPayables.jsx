@@ -37,6 +37,12 @@ function statusPill(status, isOverdue) {
 
 const fmt = (n) => Number(n || 0).toLocaleString('vi-VN') + ' đ';
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString('vi-VN') : '—';
+const toQrSrc = (url) => {
+    const u = String(url || '').trim();
+    if (!u) return '';
+    if (/^https?:\/\//i.test(u)) return u;
+    return `http://localhost:8000${u.startsWith('/') ? '' : '/'}${u}`;
+};
 
 export default function ManagerSupplierPayables() {
     const navigate = useNavigate();
@@ -89,6 +95,10 @@ export default function ManagerSupplierPayables() {
         if (row) return Math.max(0, Number(row.total_remaining) || 0);
         return 0;
     }, [payForm.supplier_id, summary, loadingModalDebt]);
+    const modalSupplier = useMemo(
+        () => suppliers.find((s) => String(s._id) === String(payForm.supplier_id)) || null,
+        [suppliers, payForm.supplier_id]
+    );
 
     const modalHasPayableDebt =
         Boolean(payForm.supplier_id)
@@ -381,14 +391,18 @@ export default function ManagerSupplierPayables() {
             {payModalOpen && (
                 <div
                     role="presentation"
-                    style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+                    className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[1px]"
                     onClick={(e) => { if (e.target === e.currentTarget && !paySubmitting) closePayModal(); }}
                 >
-                    <div style={{ backgroundColor: 'white', borderRadius: 16, padding: 28, width: '100%', maxWidth: 480, boxShadow: '0 20px 60px rgba(0,0,0,0.18)' }}>
-                        <h2 style={{ margin: '0 0 20px', fontSize: 18, fontWeight: 700 }}>Ghi nhận thanh toán NCC</h2>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                    <div className="relative w-full max-w-[560px] overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_20px_60px_-10px_rgba(15,23,42,0.35)]">
+                        <div className="border-b border-slate-200/80 bg-[linear-gradient(135deg,#f0fdfa_0%,#ecfeff_45%,#f8fafc_100%)] px-4 py-3">
+                            <h2 className="m-0 text-[22px] font-bold tracking-tight text-slate-900">Ghi nhận thanh toán NCC</h2>
+                            <p className="mt-0.5 text-xs text-slate-600">Thanh toán công nợ nhanh, rõ ràng và đồng bộ sổ quỹ.</p>
+                        </div>
+                        <div className="max-h-[80vh] overflow-y-auto p-4">
+                            <div className="flex flex-col gap-3">
                             <div>
-                                <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>Nhà cung cấp <span style={{ color: '#ef4444' }}>*</span></label>
+                                <label className="mb-1 block text-[12px] font-semibold text-slate-700">Nhà cung cấp <span className="text-red-500">*</span></label>
                                 <select
                                     value={payForm.supplier_id}
                                     onChange={(e) => setPayForm((f) => ({
@@ -397,7 +411,7 @@ export default function ManagerSupplierPayables() {
                                         total_amount: '',
                                         payment_method: f.payment_method === 'bank_transfer' || f.payment_method === 'cash' ? f.payment_method : 'cash',
                                     }))}
-                                    style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 14, outline: 'none' }}
+                                    className="h-9 w-full rounded-xl border border-slate-200 bg-white px-3 text-[13px] outline-none ring-teal-200 transition focus:border-teal-300 focus:ring-2"
                                 >
                                     <option value="">— Chọn nhà cung cấp —</option>
                                     {suppliers.map((s) => <option key={s._id} value={s._id}>{s.name}</option>)}
@@ -405,46 +419,27 @@ export default function ManagerSupplierPayables() {
                             </div>
 
                             {payForm.supplier_id && loadingModalDebt && (
-                                <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                                <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
                                     <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
                                     Đang kiểm tra công nợ với nhà cung cấp…
                                 </div>
                             )}
 
                             {payForm.supplier_id && !loadingModalDebt && modalSupplierRemaining === 0 && (
-                                <div
-                                    style={{
-                                        borderRadius: 12,
-                                        border: '1px solid #fde68a',
-                                        background: '#fffbeb',
-                                        padding: '14px 16px',
-                                        fontSize: 14,
-                                        color: '#92400e',
-                                        lineHeight: 1.5,
-                                    }}
-                                >
+                                <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2.5 text-[13px] leading-relaxed text-amber-800">
                                     Bạn <strong>không có khoản nợ</strong> nào với nhà cung cấp này (hoặc đã thanh toán đủ). Không cần ghi nhận thanh toán.
                                 </div>
                             )}
 
                             {modalHasPayableDebt && (
                                 <>
-                                    <div
-                                        style={{
-                                            borderRadius: 12,
-                                            border: '1px solid #bae6fd',
-                                            background: '#f0f9ff',
-                                            padding: '14px 16px',
-                                            fontSize: 15,
-                                            color: '#0c4a6e',
-                                        }}
-                                    >
+                                    <div className="rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-[14px] text-sky-900">
                                         Bạn còn nợ nhà cung cấp này:{' '}
-                                        <strong style={{ fontSize: 17, color: '#0369a1' }}>{fmt(modalSupplierRemaining)}</strong>
+                                        <strong className="text-[17px] font-bold text-sky-700">{fmt(modalSupplierRemaining)}</strong>
                                     </div>
-                                    <form onSubmit={handlePay} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                                    <form onSubmit={handlePay} className="flex flex-col gap-3">
                                         <div>
-                                            <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>Số tiền thanh toán (đ) <span style={{ color: '#ef4444' }}>*</span></label>
+                                            <label className="mb-1 block text-[12px] font-semibold text-slate-700">Số tiền thanh toán (đ) <span className="text-red-500">*</span></label>
                                             <input
                                                 type="number"
                                                 min="1"
@@ -453,51 +448,79 @@ export default function ManagerSupplierPayables() {
                                                 value={payForm.total_amount}
                                                 onChange={(e) => setPayForm((f) => ({ ...f, total_amount: e.target.value }))}
                                                 placeholder={`Tối đa ${fmt(modalSupplierRemaining)}`}
-                                                style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 14, outline: 'none' }}
+                                                className="h-9 w-full rounded-xl border border-slate-200 px-3 text-[13px] outline-none ring-teal-200 transition focus:border-teal-300 focus:ring-2"
                                             />
                                         </div>
-                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                                        <div className="grid grid-cols-2 gap-3">
                                             <div>
-                                                <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>Ngày thanh toán</label>
+                                                <label className="mb-1 block text-[12px] font-semibold text-slate-700">Ngày thanh toán</label>
                                                 <input
                                                     type="date"
                                                     value={payForm.payment_date}
                                                     onChange={(e) => setPayForm((f) => ({ ...f, payment_date: e.target.value }))}
-                                                    style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 14, outline: 'none' }}
+                                                    className="h-9 w-full rounded-xl border border-slate-200 px-3 text-[13px] outline-none ring-teal-200 transition focus:border-teal-300 focus:ring-2"
                                                 />
                                             </div>
                                             <div>
-                                                <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>Hình thức</label>
+                                                <label className="mb-1 block text-[12px] font-semibold text-slate-700">Hình thức</label>
                                                 <select
                                                     value={payForm.payment_method === 'bank_transfer' ? 'bank_transfer' : 'cash'}
                                                     onChange={(e) => setPayForm((f) => ({ ...f, payment_method: e.target.value }))}
-                                                    style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 14, outline: 'none' }}
+                                                    className="h-9 w-full rounded-xl border border-slate-200 bg-white px-3 text-[13px] outline-none ring-teal-200 transition focus:border-teal-300 focus:ring-2"
                                                 >
                                                     <option value="cash">Tiền mặt</option>
                                                     <option value="bank_transfer">Chuyển khoản</option>
                                                 </select>
                                             </div>
                                         </div>
+                                        {payForm.payment_method === 'bank_transfer' && (
+                                            <div className="rounded-xl border border-blue-200 bg-blue-50/80 p-2.5">
+                                                <p className="mb-2 text-[12px] font-semibold text-blue-800">
+                                                    Mã QR chuyển khoản nhà cung cấp
+                                                </p>
+                                                {modalSupplier?.bank_qr_image_url ? (
+                                                    <div className="flex items-start gap-2.5">
+                                                        <img
+                                                            src={toQrSrc(modalSupplier.bank_qr_image_url)}
+                                                            alt={`QR ${modalSupplier.name || ''}`}
+                                                            className="h-24 w-24 rounded-lg border border-blue-100 bg-white object-contain"
+                                                        />
+                                                        <div className="flex-1 text-[11px] leading-relaxed text-blue-800">
+                                                            <p className="m-0">
+                                                                Dùng app ngân hàng quét mã QR để chuyển khoản.
+                                                            </p>
+                                                            <p className="mt-1.5 mb-0">
+                                                                Sau khi chuyển, nhập mã tham chiếu bên dưới rồi bấm “Ghi nhận”.
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    <p className="m-0 text-[12px] text-blue-800">
+                                                        Nhà cung cấp này chưa có mã QR. Vào trang chỉnh sửa nhà cung cấp để thêm ảnh QR.
+                                                    </p>
+                                                )}
+                                            </div>
+                                        )}
                                         <div>
-                                            <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>Mã tham chiếu (nếu có)</label>
+                                            <label className="mb-1 block text-[12px] font-semibold text-slate-700">Mã tham chiếu (nếu có)</label>
                                             <input
                                                 type="text"
                                                 value={payForm.reference_code}
                                                 onChange={(e) => setPayForm((f) => ({ ...f, reference_code: e.target.value }))}
                                                 placeholder="Mã giao dịch, số biên lai…"
-                                                style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 14, outline: 'none' }}
+                                                className="h-9 w-full rounded-xl border border-slate-200 px-3 text-[13px] outline-none ring-teal-200 transition focus:border-teal-300 focus:ring-2"
                                             />
                                         </div>
                                         <div>
-                                            <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>Ghi chú</label>
+                                            <label className="mb-1 block text-[12px] font-semibold text-slate-700">Ghi chú</label>
                                             <textarea
-                                                rows={2}
+                                                rows={1}
                                                 value={payForm.note}
                                                 onChange={(e) => setPayForm((f) => ({ ...f, note: e.target.value }))}
-                                                style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 14, outline: 'none', resize: 'vertical' }}
+                                                className="min-h-9 w-full resize-y rounded-xl border border-slate-200 px-3 py-2 text-[13px] outline-none ring-teal-200 transition focus:border-teal-300 focus:ring-2"
                                             />
                                         </div>
-                                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 4 }}>
+                                        <div className="mt-1 flex justify-end gap-2 border-t border-slate-100 pt-2">
                                             <Button type="button" variant="outline" onClick={closePayModal} disabled={paySubmitting}>Đóng</Button>
                                             <Button type="submit" disabled={paySubmitting}>
                                                 {paySubmitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
@@ -509,12 +532,13 @@ export default function ManagerSupplierPayables() {
                             )}
 
                             {!modalHasPayableDebt && (
-                                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 4 }}>
+                                <div className="flex justify-end gap-2 border-t border-slate-100 pt-2">
                                     <Button type="button" variant="outline" onClick={closePayModal} disabled={paySubmitting}>Đóng</Button>
                                 </div>
                             )}
                         </div>
                     </div>
+                </div>
                 </div>
             )}
         </ManagerPageFrame>

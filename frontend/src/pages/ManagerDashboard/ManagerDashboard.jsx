@@ -497,6 +497,12 @@ export default function ManagerDashboard() {
                     <div className="manager-kpi-item">
                       <p className="manager-kpi-label">Chi phí nhập hàng</p>
                       <p className="manager-kpi-value">{fmtVND(summary?.incoming_cost)}</p>
+                      <p style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                        Đã chi trả NCC: {fmtVND(summary?.supplier_payment_total)}
+                      </p>
+                      <p style={{ fontSize: 11, color: '#94a3b8' }}>
+                        Tiền mặt: {fmtVND(summary?.supplier_payment_cash)} · Chuyển khoản: {fmtVND(summary?.supplier_payment_bank_transfer)}
+                      </p>
                     </div>
                     <div className="manager-kpi-item">
                       <p className="manager-kpi-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
