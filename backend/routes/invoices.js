@@ -282,6 +282,12 @@ function generatePaymentRef() {
     return `IMS-${hex}`;
 }
 
+function getInvoiceRefLabel(invoiceId) {
+    const id = String(invoiceId || '').trim();
+    if (!id) return '#N/A';
+    return `#${id}`;
+}
+
 // POST /api/invoices — create a confirmed outbound invoice
 router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
@@ -377,7 +383,9 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
                         status: 'confirmed', 
                         payment_status: 'paid',
                         paid_at: new Date(),
-                        updated_at: new Date() 
+                        updated_at: new Date(),
+                        debt_settlement_note: `Trả nợ thông qua đơn hàng ${getInvoiceRefLabel(invoice._id)}`,
+                        debt_settlement_by_invoice_id: invoice._id,
                       } 
                     }
                 );

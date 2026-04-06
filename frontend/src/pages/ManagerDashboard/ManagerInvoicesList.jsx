@@ -12,6 +12,7 @@ const STATUS_LABEL = {
   confirmed: 'Đã thanh toán',
   pending: 'Chờ thanh toán',
   cancelled: 'Trả hàng',
+  debt_unpaid: 'Nợ',
 };
 
 const PAYMENT_LABEL = {
@@ -21,6 +22,11 @@ const PAYMENT_LABEL = {
   card: 'Thẻ',
   debt: 'Ghi nợ',
 };
+
+function getInvoiceStatusView(inv) {
+  const isDebtUnpaid = inv?.payment_method === 'debt' && inv?.payment_status !== 'paid';
+  return isDebtUnpaid ? 'debt_unpaid' : inv?.status;
+}
 
 export default function ManagerInvoicesList() {
   const navigate = useNavigate();
@@ -232,15 +238,17 @@ export default function ManagerInvoicesList() {
                       </tr>
                     </thead>
                     <tbody>
-                      {invoices.map((inv) => (
+                      {invoices.map((inv) => {
+                        const statusView = getInvoiceStatusView(inv);
+                        return (
                         <tr key={inv._id}>
                           <td>{formatDate(inv.invoice_at)}</td>
                           <td style={{ fontFamily: 'monospace', fontSize: 12, color: '#64748b', maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{inv._id}</td>
                           <td>{inv.created_by?.email ?? '—'}</td>
                           <td>{inv.recipient_name || '—'}</td>
                           <td>
-                            <span className={`warehouse-status-badge warehouse-status-${inv.status}`}>
-                              {STATUS_LABEL[inv.status] || inv.status || '—'}
+                            <span className={`warehouse-status-badge warehouse-status-${statusView === 'debt_unpaid' ? 'cancelled' : statusView}`}>
+                              {STATUS_LABEL[statusView] || statusView || '—'}
                             </span>
                           </td>
                           <td>{PAYMENT_LABEL[inv.payment_method] || inv.payment_method || '—'}</td>
@@ -256,7 +264,8 @@ export default function ManagerInvoicesList() {
                             </button>
                           </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

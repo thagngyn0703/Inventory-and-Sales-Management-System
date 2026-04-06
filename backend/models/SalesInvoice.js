@@ -113,6 +113,17 @@ const salesInvoiceSchema = new Schema(
             type: Boolean,
             default: false,
         },
+        debt_settlement_note: {
+            type: String,
+            trim: true,
+            default: '',
+        },
+        debt_settlement_by_invoice_id: {
+            type: Schema.Types.ObjectId,
+            ref: 'SalesInvoice',
+            default: null,
+            index: true,
+        },
         created_at: {
             type: Date,
             default: Date.now,

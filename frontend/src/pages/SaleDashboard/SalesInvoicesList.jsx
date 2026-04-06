@@ -14,6 +14,7 @@ const STATUS_LABEL = {
   confirmed: 'Đã thanh toán',
   pending: 'Chờ thanh toán',
   cancelled: 'Trả hàng',
+  debt_unpaid: 'Nợ',
 };
 
 const PAYMENT_LABEL = {
@@ -26,8 +27,14 @@ const PAYMENT_LABEL = {
 
 function statusBadgeClass(status) {
   if (status === 'confirmed') return 'bg-emerald-100 text-emerald-900 border-emerald-200/80';
+  if (status === 'debt_unpaid') return 'bg-red-100 text-red-900 border-red-200/80';
   if (status === 'cancelled') return 'bg-amber-100 text-amber-900 border-amber-200/80';
   return 'bg-slate-100 text-slate-700 border-slate-200/80';
+}
+
+function getInvoiceStatusView(inv) {
+  const isDebtUnpaid = inv?.payment_method === 'debt' && inv?.payment_status !== 'paid';
+  return isDebtUnpaid ? 'debt_unpaid' : inv?.status;
 }
 
 export default function SalesInvoicesList() {
@@ -53,12 +60,12 @@ export default function SalesInvoicesList() {
       const resp = await getInvoices({
         page: 1,
         limit: 1000,
-        status: isReturnsPage ? 'cancelled' : 'confirmed',
+        status: isReturnsPage ? 'cancelled' : undefined,
       });
       let allInvoices = resp.invoices || [];
 
       if (!isReturnsPage) {
-        allInvoices = allInvoices.filter((i) => i.payment_method !== 'debt');
+        allInvoices = allInvoices.filter((i) => i.status !== 'cancelled');
       }
 
       if (dateFrom) {
@@ -126,7 +133,7 @@ export default function SalesInvoicesList() {
       subtitle={
         isReturnsPage
           ? 'Theo dõi các đơn đã thực hiện trả hàng.'
-          : 'Hóa đơn đã thanh toán (không bao gồm ghi nợ — xem tại trang khách hàng).'
+          : 'Theo dõi toàn bộ hóa đơn bán lẻ và trạng thái thanh toán.'
       }
     >
       {error && (
@@ -218,7 +225,9 @@ export default function SalesInvoicesList() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 bg-white">
-                    {invoices.map((inv) => (
+                    {invoices.map((inv) => {
+                      const statusView = getInvoiceStatusView(inv);
+                      return (
                       <tr key={inv._id} className="hover:bg-slate-50/80">
                         <td className="whitespace-nowrap px-4 py-3 text-slate-600">{formatDate(inv.invoice_at)}</td>
                         <td className="max-w-[120px] truncate px-4 py-3 font-mono text-xs text-slate-800">{inv._id}</td>
@@ -226,8 +235,8 @@ export default function SalesInvoicesList() {
                           {inv.recipient_name || 'Khách lẻ'}
                         </td>
                         <td className="px-4 py-3">
-                          <Badge className={cn('border font-medium', statusBadgeClass(inv.status))}>
-                            {STATUS_LABEL[inv.status] ?? inv.status}
+                          <Badge className={cn('border font-medium', statusBadgeClass(statusView))}>
+                            {STATUS_LABEL[statusView] ?? statusView}
                           </Badge>
                         </td>
                         <td className="px-4 py-3 text-slate-600">
@@ -248,7 +257,8 @@ export default function SalesInvoicesList() {
                           </Button>
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
