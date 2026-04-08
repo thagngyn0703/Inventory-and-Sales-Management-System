@@ -61,7 +61,6 @@ function requireRole(allowedRoles, options = {}) {
     const isManagerAllowed = allowed.includes('manager');
     const missingManagerStore = role === 'manager' && isManagerAllowed && !req.user?.storeId;
     const isStoreScopedRole = ['manager', 'staff'].includes(role);
-    const isWrite = !['GET', 'HEAD', 'OPTIONS'].includes(String(req.method || '').toUpperCase());
 
     if (missingManagerStore && !allowManagerWithoutStore) {
       return res.status(403).json({
@@ -71,9 +70,9 @@ function requireRole(allowedRoles, options = {}) {
     }
 
     const skipLockedForManager = allowLockedStoreForManager && role === 'manager';
-    if (isStoreScopedRole && isWrite && req.user?.storeStatus === 'inactive' && !skipLockedForManager) {
+    if (isStoreScopedRole && req.user?.storeStatus === 'inactive' && !skipLockedForManager) {
       return res.status(403).json({
-        message: 'Cửa hàng của bạn đã tạm bị khóa. Vui lòng liên hệ admin để được hỗ trợ.',
+        message: 'Cửa hàng của bạn đã bị khóa. Vui lòng liên hệ admin để được hỗ trợ.',
         code: 'STORE_LOCKED',
       });
     }

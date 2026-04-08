@@ -15,6 +15,7 @@ import {
   FolderTree,
   Handshake,
   History,
+  LifeBuoy,
   LayoutDashboard,
   LogOut,
   Package,
@@ -44,6 +45,7 @@ const overviewItems = [
   { label: 'Khách hàng', path: '/manager/customers', icon: Users },
   { label: 'Báo cáo', path: '/manager/reports', icon: BarChart3 },
   { label: 'Thông báo', path: '/manager/notifications', icon: Bell },
+  { label: 'Phiếu hỗ trợ', path: '/manager/support', icon: LifeBuoy },
 ];
 
 const manageItems = [
@@ -62,6 +64,7 @@ function getActivePath(pathname) {
   if (pathname.startsWith('/manager/stocktakes/')) return '/manager/stocktakes/pending';
   if (pathname.startsWith('/manager/adjustments/')) return '/manager/adjustments';
   if (pathname.startsWith('/manager/notifications/')) return '/manager/notifications';
+  if (pathname.startsWith('/manager/support')) return '/manager/support';
   if (pathname.startsWith('/manager/suppliers/')) return '/manager/suppliers';
   if (pathname.startsWith('/manager/categories')) return '/manager/categories';
   if (pathname.startsWith('/manager/settings')) return '/manager/settings';

@@ -1,14 +1,14 @@
 const express = require('express');
 const Category = require('../models/Category');
-const { verifyToken, requireManagerOrStaff } = require('../middleware/authMiddleware');
+const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
 // Apply JWT verification to all routes
-router.use(verifyToken);
+router.use(requireAuth);
 
 // GET /api/categories - list categories (optionally include inactive via query)
-router.get('/', requireManagerOrStaff, async (req, res) => {
+router.get('/', requireRole(['manager', 'staff', 'admin']), async (req, res) => {
     try {
         // allow ?all=true to return inactive too
         const filter = {};
@@ -24,7 +24,7 @@ router.get('/', requireManagerOrStaff, async (req, res) => {
 });
 
 // POST /api/categories - create new category
-router.post('/', requireManagerOrStaff, async (req, res) => {
+router.post('/', requireRole(['manager', 'staff', 'admin']), async (req, res) => {
     try {
         const { name } = req.body;
         if (!name || !name.trim()) {
@@ -45,7 +45,7 @@ router.post('/', requireManagerOrStaff, async (req, res) => {
 });
 
 // PUT /api/categories/:id - update name
-router.put('/:id', requireManagerOrStaff, async (req, res) => {
+router.put('/:id', requireRole(['manager', 'staff', 'admin']), async (req, res) => {
     try {
         const { id } = req.params;
         const { name } = req.body;
@@ -75,7 +75,7 @@ router.put('/:id', requireManagerOrStaff, async (req, res) => {
 });
 
 // PATCH /api/categories/:id/activate - set active or inactive
-router.patch('/:id/activate', requireManagerOrStaff, async (req, res) => {
+router.patch('/:id/activate', requireRole(['manager', 'staff', 'admin']), async (req, res) => {
     try {
         const { id } = req.params;
         let { is_active } = req.body;

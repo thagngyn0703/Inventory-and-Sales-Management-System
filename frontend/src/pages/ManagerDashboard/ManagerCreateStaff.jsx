@@ -24,6 +24,7 @@ export default function ManagerCreateStaff() {
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
     const [ready, setReady] = useState(false);
+    const [isStoreLocked, setIsStoreLocked] = useState(false);
 
     useEffect(() => {
         const token = localStorage.getItem('token');
@@ -44,6 +45,10 @@ export default function ManagerCreateStaff() {
             navigate('/manager/store/register', { replace: true });
             return;
         }
+        if (user?.storeStatus === 'inactive') {
+            setIsStoreLocked(true);
+            setError('Cửa hàng của bạn đã bị khóa. Bạn không thể tạo tài khoản nhân viên. Vui lòng liên hệ admin để được hỗ trợ.');
+        }
         setReady(true);
     }, [navigate]);
 
@@ -55,6 +60,10 @@ export default function ManagerCreateStaff() {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        if (isStoreLocked) {
+            setError('Cửa hàng của bạn đã bị khóa. Bạn không thể tạo tài khoản nhân viên. Vui lòng liên hệ admin để được hỗ trợ.');
+            return;
+        }
         if (!form.fullName.trim()) {
             setError('Vui lòng nhập họ tên.');
             return;
@@ -118,6 +127,11 @@ export default function ManagerCreateStaff() {
                         setLoading(false);
                         return;
                     }
+                    if (data.code === 'STORE_LOCKED') {
+                        setError('Cửa hàng của bạn đã bị khóa. Vui lòng liên hệ admin để được hỗ trợ.');
+                        setLoading(false);
+                        return;
+                    }
                     setError('Chỉ Manager mới có quyền tạo tài khoản nhân viên.');
                     setLoading(false);
                     return;
@@ -167,6 +181,7 @@ export default function ManagerCreateStaff() {
                                         value={form.fullName}
                                         onChange={(e) => update('fullName', e.target.value)}
                                         placeholder="Nguyễn Văn A"
+                                        disabled={isStoreLocked || loading}
                                     />
                                 </div>
                                 <div className="manager-form-group">
@@ -176,6 +191,7 @@ export default function ManagerCreateStaff() {
                                         value={form.email}
                                         onChange={(e) => update('email', e.target.value)}
                                         placeholder="nhanvien@example.com"
+                                        disabled={isStoreLocked || loading}
                                     />
                                 </div>
                             </div>
@@ -188,6 +204,7 @@ export default function ManagerCreateStaff() {
                                         onChange={(e) => update('password', e.target.value)}
                                         placeholder="Tối thiểu 6 ký tự"
                                         minLength={6}
+                                        disabled={isStoreLocked || loading}
                                     />
                                 </div>
                                 <div className="manager-form-group">
@@ -197,6 +214,7 @@ export default function ManagerCreateStaff() {
                                         value={form.confirmPassword}
                                         onChange={(e) => update('confirmPassword', e.target.value)}
                                         placeholder="Nhập lại mật khẩu"
+                                        disabled={isStoreLocked || loading}
                                     />
                                 </div>
                             </div>
@@ -211,7 +229,7 @@ export default function ManagerCreateStaff() {
                                 <button
                                     type="submit"
                                     className="manager-btn-primary"
-                                    disabled={loading}
+                                    disabled={loading || isStoreLocked}
                                 >
                                     {loading ? 'Đang tạo...' : 'Tạo tài khoản nhân viên'}
                                 </button>
