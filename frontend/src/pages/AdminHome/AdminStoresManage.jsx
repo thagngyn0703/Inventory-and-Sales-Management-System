@@ -1,6 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import Sidebar from '../../components/Sidebar';
 import { getAdminStores, setAdminStoreStatus } from '../../services/adminApi';
+import { ConfirmDialog } from '../../components/ui/confirm-dialog';
+import { useToast } from '../../contexts/ToastContext';
 import '../ManagerDashboard/ManagerDashboard.css';
 import '../ManagerDashboard/ManagerProducts.css';
 import './AdminUserList.css';
@@ -8,12 +10,15 @@ import './AdminUserList.css';
 const PAGE_SIZE = 10;
 
 export default function AdminStoresManage() {
+  const { toast } = useToast();
   const [stores, setStores] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
+  const [confirmStore, setConfirmStore] = useState(null);
+  const [updatingStatus, setUpdatingStatus] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -47,19 +52,28 @@ export default function AdminStoresManage() {
     }
   }, [totalPages, page]);
 
-  const onToggleStatus = async (s) => {
+  const onToggleStatus = (s) => {
+    setConfirmStore(s);
+  };
+
+  const onConfirmToggleStatus = async () => {
+    if (!confirmStore) return;
     try {
-      const status = s.status === 'active' ? 'inactive' : 'active';
-      const confirmed = window.confirm(
-        status === 'inactive'
-          ? `Bạn có chắc muốn ngừng hoạt động cửa hàng "${s.name}"?`
-          : `Bạn có chắc muốn cho hoạt động lại cửa hàng "${s.name}"?`
-      );
-      if (!confirmed) return;
-      await setAdminStoreStatus(s._id, status);
+      setUpdatingStatus(true);
+      const status = confirmStore.status === 'active' ? 'inactive' : 'active';
+      await setAdminStoreStatus(confirmStore._id, status);
       await load();
+      toast(
+        status === 'inactive'
+          ? 'Đã ngừng hoạt động cửa hàng thành công'
+          : 'Đã cho cửa hàng hoạt động lại thành công',
+        'success'
+      );
+      setConfirmStore(null);
     } catch (err) {
-      setError(err.message || 'Không thể cập nhật trạng thái');
+      toast(err.message || 'Không thể cập nhật trạng thái', 'error');
+    } finally {
+      setUpdatingStatus(false);
     }
   };
 
@@ -180,6 +194,25 @@ export default function AdminStoresManage() {
           </div>
         </div>
       </div>
+      <ConfirmDialog
+        open={Boolean(confirmStore)}
+        onOpenChange={(open) => {
+          if (!open) setConfirmStore(null);
+        }}
+        title="Xác nhận thao tác"
+        description={
+          confirmStore
+            ? confirmStore.status === 'active'
+              ? `Bạn có chắc muốn ngừng hoạt động cửa hàng "${confirmStore.name}"?`
+              : `Bạn có chắc muốn cho hoạt động lại cửa hàng "${confirmStore.name}"?`
+            : ''
+        }
+        confirmLabel={confirmStore?.status === 'active' ? 'Ngừng hoạt động' : 'Cho hoạt động lại'}
+        cancelLabel="Hủy"
+        onConfirm={onConfirmToggleStatus}
+        loading={updatingStatus}
+        confirmVariant={confirmStore?.status === 'active' ? 'destructive' : 'default'}
+      />
     </div>
   );
 }
