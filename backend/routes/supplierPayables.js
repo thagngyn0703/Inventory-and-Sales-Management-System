@@ -25,7 +25,7 @@ function getStoreOidFromUser(req) {
 // Query: supplier_id, status, page, limit
 router.get('/', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
     try {
-        const { supplier_id, status, page = '1', limit = '20' } = req.query;
+        const { supplier_id, status, page = '1', limit = '20', created_from, created_to } = req.query;
         const pageNum = Math.max(1, parseInt(page, 10) || 1);
         const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
 
@@ -39,29 +39,94 @@ router.get('/', requireAuth, requireRole(['manager', 'admin']), async (req, res)
         }
         const validStatuses = ['open', 'partial', 'paid', 'cancelled'];
         if (status && validStatuses.includes(status)) filter.status = status;
+        if (created_from || created_to) {
+            const createdAtFilter = {};
+            if (created_from) {
+                const from = new Date(created_from);
+                from.setHours(0, 0, 0, 0);
+                if (!Number.isNaN(from.getTime())) createdAtFilter.$gte = from;
+            }
+            if (created_to) {
+                const to = new Date(created_to);
+                to.setHours(23, 59, 59, 999);
+                if (!Number.isNaN(to.getTime())) createdAtFilter.$lte = to;
+            }
+            if (Object.keys(createdAtFilter).length > 0) filter.created_at = createdAtFilter;
+        }
 
-        const total = await SupplierPayable.countDocuments(filter);
-        const payables = await SupplierPayable.find(filter)
-            .sort({ created_at: -1 })
-            .skip((pageNum - 1) * limitNum)
-            .limit(limitNum)
-            .populate('supplier_id', 'name phone email')
-            .populate('source_id', 'total_amount received_at reason')
-            .populate('created_by', 'fullName email')
-            .lean();
+        const [total, summaryAgg, payables] = await Promise.all([
+            SupplierPayable.countDocuments(filter),
+            SupplierPayable.aggregate([
+                { $match: filter },
+                {
+                    $group: {
+                        _id: null,
+                        total_amount: { $sum: '$total_amount' },
+                        total_paid: { $sum: '$paid_amount' },
+                        total_remaining: { $sum: '$remaining_amount' },
+                        order_count: { $sum: 1 },
+                    },
+                },
+            ]),
+            SupplierPayable.find(filter)
+                .sort({ created_at: -1 })
+                .skip((pageNum - 1) * limitNum)
+                .limit(limitNum)
+                .populate('supplier_id', 'name phone email')
+                .populate('source_id', 'total_amount received_at reason')
+                .populate('created_by', 'fullName email')
+                .lean(),
+        ]);
+
+        const payableIds = payables.map((p) => p._id);
+        const paymentMeta = payableIds.length
+            ? await SupplierPaymentAllocation.aggregate([
+                { $match: { payable_id: { $in: payableIds } } },
+                {
+                    $lookup: {
+                        from: 'supplierpayments',
+                        localField: 'payment_id',
+                        foreignField: '_id',
+                        as: 'payment',
+                    },
+                },
+                { $unwind: '$payment' },
+                {
+                    $group: {
+                        _id: '$payable_id',
+                        payment_count: { $sum: 1 },
+                        last_payment_at: {
+                            $max: {
+                                $ifNull: ['$payment.payment_date', '$payment.created_at'],
+                            },
+                        },
+                    },
+                },
+            ])
+            : [];
+        const paymentMetaMap = new Map(paymentMeta.map((m) => [String(m._id), m]));
 
         // Tính derived status overdue cho từng payable
         const now = new Date();
         const result = payables.map((p) => ({
             ...p,
             is_overdue: p.remaining_amount > 0 && p.due_date && new Date(p.due_date) < now,
+            payment_count: paymentMetaMap.get(String(p._id))?.payment_count || 0,
+            last_payment_at: paymentMetaMap.get(String(p._id))?.last_payment_at || null,
         }));
+        const summary = summaryAgg[0] || {
+            total_amount: 0,
+            total_paid: 0,
+            total_remaining: 0,
+            order_count: 0,
+        };
 
         return res.json({
             payables: result,
             total,
             page: pageNum,
             totalPages: Math.ceil(total / limitNum) || 1,
+            summary,
         });
     } catch (err) {
         console.error('GET /supplier-payables error:', err);

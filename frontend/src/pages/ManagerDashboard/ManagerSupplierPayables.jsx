@@ -67,6 +67,7 @@ export default function ManagerSupplierPayables() {
     const [filterSupplierId, setFilterSupplierId] = useState('');
     const [filterStatus, setFilterStatus] = useState('');
     const [loadingPayables, setLoadingPayables] = useState(true);
+    const [payablesSummary, setPayablesSummary] = useState(null);
 
     // Payment history
     const [payments, setPayments] = useState([]);
@@ -193,6 +194,7 @@ export default function ManagerSupplierPayables() {
             setPayables(d.payables || []);
             setPayTotal(d.total ?? 0);
             setPayTotalPages(d.totalPages ?? 1);
+            setPayablesSummary(d.summary || null);
         } catch (e) { toast(e.message, 'error'); }
         finally { setLoadingPayables(false); }
     }, [filterSupplierId, filterStatus, payPage, toast]);
@@ -290,7 +292,11 @@ export default function ManagerSupplierPayables() {
                     <CardContent className="flex flex-wrap gap-3 p-4">
                         <select
                             value={filterSupplierId}
-                            onChange={(e) => { setFilterSupplierId(e.target.value); setPayPage(1); setPayHPage(1); }}
+                            onChange={(e) => {
+                                setFilterSupplierId(e.target.value);
+                                setPayPage(1);
+                                setPayHPage(1);
+                            }}
                             className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-teal-200 focus:ring-2"
                         >
                             <option value="">Tất cả nhà cung cấp</option>
@@ -322,17 +328,17 @@ export default function ManagerSupplierPayables() {
 
                 {/* ── Danh sách khoản nợ ── */}
                 {tab === 'payables' && (
-                    <Card className="border-slate-200/80 shadow-sm">
+                    <Card className="overflow-hidden border-slate-200/80 shadow-sm">
                         <CardContent className="p-0">
                             {loadingPayables ? (
                                 <div className="flex justify-center py-14"><Loader2 className="h-7 w-7 animate-spin text-slate-400" /></div>
                             ) : payables.length === 0 ? (
                                 <p className="py-14 text-center text-slate-500">Không có khoản nợ nào.</p>
                             ) : (
-                                <div className="overflow-x-auto">
-                                    <table className="w-full min-w-[800px] text-sm">
+                                <div className="overflow-x-auto rounded-xl border border-slate-200/80">
+                                    <table className="w-full min-w-[800px] text-sm text-slate-700">
                                         <thead>
-                                            <tr className="border-b border-slate-200 bg-slate-50/90 text-xs font-semibold uppercase text-slate-500">
+                                            <tr className="border-b border-slate-200 bg-slate-50/80 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                                                 <th className="px-4 py-3">Nhà cung cấp</th>
                                                 <th className="px-4 py-3">Phiếu nhập</th>
                                                 <th className="px-4 py-3">Ngày tạo</th>
@@ -346,37 +352,37 @@ export default function ManagerSupplierPayables() {
                                         </thead>
                                         <tbody className="divide-y divide-slate-100 bg-white">
                                             {payables.map((p) => (
-                                                <tr key={p._id} className="hover:bg-slate-50/60">
-                                                    <td className="px-4 py-3 font-medium">{p.supplier_id?.name ?? '—'}</td>
-                                                    <td className="px-4 py-3">
+                                                <tr key={p._id} className="transition-colors odd:bg-white even:bg-slate-50/30 hover:bg-teal-50/40">
+                                                    <td className="px-4 py-3.5 font-medium text-slate-900">{p.supplier_id?.name ?? '—'}</td>
+                                                    <td className="px-4 py-3.5">
                                                         <button
                                                             type="button"
-                                                            className="font-mono text-sky-700 hover:underline text-xs"
+                                                            className="font-mono text-xs font-semibold text-sky-700 hover:text-sky-800 hover:underline"
                                                             onClick={() => navigate(`/manager/receipts/${p.source_id?._id ?? p.source_id}`)}
                                                         >
                                                             {(p.source_id?._id ?? String(p.source_id))?.slice(-8).toUpperCase()}
                                                         </button>
                                                     </td>
-                                                    <td className="px-4 py-3 whitespace-nowrap text-slate-700">{fmtDate(p.created_at)}</td>
-                                                    <td className="px-4 py-3 text-right tabular-nums">{fmt(p.total_amount)}</td>
-                                                    <td className="px-4 py-3 text-right tabular-nums text-emerald-700">{fmt(p.paid_amount)}</td>
-                                                    <td className="px-4 py-3 text-right tabular-nums font-semibold text-red-600">{fmt(p.remaining_amount)}</td>
-                                                    <td className="px-4 py-3 whitespace-nowrap">
+                                                    <td className="px-4 py-3.5 whitespace-nowrap text-slate-600">{fmtDate(p.created_at)}</td>
+                                                    <td className="px-4 py-3.5 text-right tabular-nums text-slate-800">{fmt(p.total_amount)}</td>
+                                                    <td className="px-4 py-3.5 text-right tabular-nums font-semibold text-emerald-700">{fmt(p.paid_amount)}</td>
+                                                    <td className="px-4 py-3.5 text-right tabular-nums font-semibold text-red-600">{fmt(p.remaining_amount)}</td>
+                                                    <td className="px-4 py-3.5 whitespace-nowrap">
                                                         {p.due_date ? (
                                                             <span className={cn(p.is_overdue ? 'font-semibold text-red-600' : 'text-slate-700')}>
                                                                 {fmtDate(p.due_date)}{p.is_overdue && ' ⚠️'}
                                                             </span>
                                                         ) : '—'}
                                                     </td>
-                                                    <td className="px-4 py-3">
+                                                    <td className="px-4 py-3.5">
                                                         <span className={cn('inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold', statusPill(p.status, p.is_overdue))}>
                                                             {p.is_overdue ? 'Quá hạn' : STATUS_LABEL[p.status] ?? p.status}
                                                         </span>
                                                     </td>
-                                                    <td className="px-4 py-3 text-right">
+                                                    <td className="px-4 py-3.5 text-right">
                                                         <button
                                                             type="button"
-                                                            className="text-xs text-sky-700 hover:underline"
+                                                            className="text-xs font-semibold text-sky-700 hover:text-sky-800 hover:underline"
                                                             onClick={() => navigate(`/manager/supplier-payables/${p._id}`)}
                                                         >
                                                             Chi tiết
@@ -403,17 +409,17 @@ export default function ManagerSupplierPayables() {
 
                 {/* ── Lịch sử thanh toán ── */}
                 {tab === 'history' && (
-                    <Card className="border-slate-200/80 shadow-sm">
+                    <Card className="overflow-hidden border-slate-200/80 shadow-sm">
                         <CardContent className="p-0">
                             {loadingPayH ? (
                                 <div className="flex justify-center py-14"><Loader2 className="h-7 w-7 animate-spin text-slate-400" /></div>
                             ) : payments.length === 0 ? (
                                 <p className="py-14 text-center text-slate-500">Chưa có lần thanh toán nào.</p>
                             ) : (
-                                <div className="overflow-x-auto">
-                                    <table className="w-full min-w-[700px] text-sm">
+                                <div className="overflow-x-auto rounded-xl border border-slate-200/80">
+                                    <table className="w-full min-w-[700px] text-sm text-slate-700">
                                         <thead>
-                                            <tr className="border-b border-slate-200 bg-slate-50/90 text-xs font-semibold uppercase text-slate-500">
+                                            <tr className="border-b border-slate-200 bg-slate-50/80 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                                                 <th className="px-4 py-3">Nhà cung cấp</th>
                                                 <th className="px-4 py-3">Ngày thanh toán</th>
                                                 <th className="px-4 py-3 text-right">Số tiền</th>
@@ -425,14 +431,14 @@ export default function ManagerSupplierPayables() {
                                         </thead>
                                         <tbody className="divide-y divide-slate-100 bg-white">
                                             {payments.map((pm) => (
-                                                <tr key={pm._id} className="hover:bg-slate-50/60">
-                                                    <td className="px-4 py-3 font-medium">{pm.supplier_id?.name ?? '—'}</td>
-                                                    <td className="px-4 py-3 whitespace-nowrap">{fmtDate(pm.payment_date)}</td>
-                                                    <td className="px-4 py-3 text-right tabular-nums font-semibold text-emerald-700">{fmt(pm.total_amount)}</td>
-                                                    <td className="px-4 py-3">{METHOD_LABEL[pm.payment_method] ?? pm.payment_method}</td>
-                                                    <td className="px-4 py-3 font-mono text-xs">{pm.reference_code || '—'}</td>
-                                                    <td className="px-4 py-3">{pm.created_by?.fullName || pm.created_by?.email || '—'}</td>
-                                                    <td className="px-4 py-3 max-w-[180px] truncate text-slate-500">{pm.note || '—'}</td>
+                                                <tr key={pm._id} className="transition-colors odd:bg-white even:bg-slate-50/30 hover:bg-teal-50/40">
+                                                    <td className="px-4 py-3.5 font-medium text-slate-900">{pm.supplier_id?.name ?? '—'}</td>
+                                                    <td className="px-4 py-3.5 whitespace-nowrap text-slate-600">{fmtDate(pm.payment_date)}</td>
+                                                    <td className="px-4 py-3.5 text-right tabular-nums font-semibold text-emerald-700">{fmt(pm.total_amount)}</td>
+                                                    <td className="px-4 py-3.5 text-slate-700">{METHOD_LABEL[pm.payment_method] ?? pm.payment_method}</td>
+                                                    <td className="px-4 py-3.5 font-mono text-xs text-slate-600">{pm.reference_code || '—'}</td>
+                                                    <td className="px-4 py-3.5 text-slate-700">{pm.created_by?.fullName || pm.created_by?.email || '—'}</td>
+                                                    <td className="px-4 py-3.5 max-w-[180px] truncate text-slate-500">{pm.note || '—'}</td>
                                                 </tr>
                                             ))}
                                         </tbody>
@@ -451,6 +457,7 @@ export default function ManagerSupplierPayables() {
                         </CardContent>
                     </Card>
                 )}
+
             </StaffPageShell>
 
             {/* ── Modal ghi nhận thanh toán ── */}
