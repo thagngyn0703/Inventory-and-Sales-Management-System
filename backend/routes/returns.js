@@ -8,9 +8,20 @@ const { adjustCustomerDebtAccount } = require('../utils/customerDebt');
 
 const router = express.Router();
 
+function assertStoreScope(req, res) {
+    const role = String(req.user?.role || '').toLowerCase();
+    if (role === 'admin') return true;
+    if (!req.user?.storeId || !mongoose.isValidObjectId(req.user.storeId)) {
+        res.status(403).json({ message: 'Tài khoản chưa được gán cửa hàng.', code: 'STORE_REQUIRED' });
+        return false;
+    }
+    return true;
+}
+
 // GET /api/returns — list returns for the user's store
 router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
+        if (!assertStoreScope(req, res)) return;
         const { page = '1', limit = '50', status } = req.query;
         const pageNum = Math.max(1, parseInt(page, 10) || 1);
         const limitNum = Math.min(200, Math.max(1, parseInt(limit, 10) || 50));
@@ -50,6 +61,7 @@ router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (
 
 // POST /api/returns — trả hàng; luôn cộng số lượng trả lại vào tồn kho
 router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
+    if (!assertStoreScope(req, res)) return;
     const { invoice_id, items: reqItems, reason } = req.body || {};
 
     if (!invoice_id) {

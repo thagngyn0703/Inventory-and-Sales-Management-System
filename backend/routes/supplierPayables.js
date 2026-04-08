@@ -13,6 +13,13 @@ function toOid(id) {
     return mongoose.isValidObjectId(id) ? new mongoose.Types.ObjectId(id) : null;
 }
 
+function getStoreOidFromUser(req) {
+    const role = String(req.user?.role || '').toLowerCase();
+    if (role === 'admin') return null;
+    const oid = toOid(req.user?.storeId);
+    return oid || '__FORBIDDEN__';
+}
+
 // ─── GET /api/supplier-payables ─────────────────────────────────────────────
 // List công nợ NCC (tổng hợp hoặc theo supplier_id)
 // Query: supplier_id, status, page, limit
@@ -22,7 +29,11 @@ router.get('/', requireAuth, requireRole(['manager', 'admin']), async (req, res)
         const pageNum = Math.max(1, parseInt(page, 10) || 1);
         const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
 
-        const filter = { storeId: toOid(req.user.storeId) };
+        const storeOid = getStoreOidFromUser(req);
+        if (storeOid === '__FORBIDDEN__') {
+            return res.status(403).json({ message: 'Tài khoản chưa được gán cửa hàng.', code: 'STORE_REQUIRED' });
+        }
+        const filter = storeOid ? { storeId: storeOid } : {};
         if (supplier_id && mongoose.isValidObjectId(supplier_id)) {
             filter.supplier_id = toOid(supplier_id);
         }
@@ -62,12 +73,15 @@ router.get('/', requireAuth, requireRole(['manager', 'admin']), async (req, res)
 // Tổng hợp theo NCC: total_remaining, total_overdue, số phiếu mở
 router.get('/summary', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
     try {
-        const storeOid = toOid(req.user.storeId);
+        const storeOid = getStoreOidFromUser(req);
+        if (storeOid === '__FORBIDDEN__') {
+            return res.status(403).json({ message: 'Tài khoản chưa được gán cửa hàng.', code: 'STORE_REQUIRED' });
+        }
         const now = new Date();
 
         const [aggBySupplier, totalStats] = await Promise.all([
             SupplierPayable.aggregate([
-                { $match: { storeId: storeOid, status: { $in: ['open', 'partial'] } } },
+                { $match: { ...(storeOid ? { storeId: storeOid } : {}), status: { $in: ['open', 'partial'] } } },
                 {
                     $group: {
                         _id: '$supplier_id',
@@ -102,7 +116,7 @@ router.get('/summary', requireAuth, requireRole(['manager', 'admin']), async (re
                 { $project: { _supplierLookup: 0 } },
             ]),
             SupplierPayable.aggregate([
-                { $match: { storeId: storeOid, status: { $in: ['open', 'partial'] } } },
+                { $match: { ...(storeOid ? { storeId: storeOid } : {}), status: { $in: ['open', 'partial'] } } },
                 {
                     $group: {
                         _id: null,
@@ -213,7 +227,10 @@ router.post('/payments', requireAuth, requireRole(['manager', 'admin']), async (
             return res.status(400).json({ message: 'total_amount phải lớn hơn 0' });
         }
 
-        const storeOid = toOid(req.user.storeId);
+        const storeOid = getStoreOidFromUser(req);
+        if (!storeOid || storeOid === '__FORBIDDEN__') {
+            return res.status(403).json({ message: 'Tài khoản chưa được gán cửa hàng.', code: 'STORE_REQUIRED' });
+        }
         const supplierOid = toOid(supplier_id);
 
         // Lấy các khoản nợ còn dư — FIFO: due_date ASC, created_at ASC
@@ -306,7 +323,11 @@ router.get('/payments/history', requireAuth, requireRole(['manager', 'admin']), 
         const pageNum = Math.max(1, parseInt(page, 10) || 1);
         const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
 
-        const filter = { storeId: toOid(req.user.storeId) };
+        const storeOid = getStoreOidFromUser(req);
+        if (storeOid === '__FORBIDDEN__') {
+            return res.status(403).json({ message: 'Tài khoản chưa được gán cửa hàng.', code: 'STORE_REQUIRED' });
+        }
+        const filter = storeOid ? { storeId: storeOid } : {};
         if (supplier_id && mongoose.isValidObjectId(supplier_id)) {
             filter.supplier_id = toOid(supplier_id);
         }
