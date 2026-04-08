@@ -379,7 +379,7 @@ export default function ManagerProductEdit() {
                                             <div key={i} className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_5.625rem_minmax(0,1fr)_auto] items-center gap-2">
                                                 <input type="text" value={u.name} onChange={(e) => updateSellingUnit(i, 'name', e.target.value)} placeholder="Đơn vị" className="h-10 w-full min-w-0 rounded-lg border border-slate-200 px-2 text-sm outline-none ring-sky-200 transition focus:ring-2" />
                                                 <input type="number" min="1" step="any" value={u.ratio} onChange={(e) => updateSellingUnit(i, 'ratio', e.target.value)} placeholder="Tỉ lệ" className="h-10 w-full min-w-0 rounded-lg border border-slate-200 px-2 text-sm outline-none ring-sky-200 transition focus:ring-2" />
-                                                <input type="number" min="0" step="any" value={u.sale_price} onChange={(e) => updateSellingUnit(i, 'sale_price', e.target.value)} placeholder="Giá bán" className="h-10 w-full min-w-0 rounded-lg border border-slate-200 px-2 text-sm outline-none ring-sky-200 transition focus:ring-2" />
+                                                <input type="number" min="0" step="1" value={u.sale_price} onChange={(e) => updateSellingUnit(i, 'sale_price', e.target.value)} placeholder="Giá bán" className="h-10 w-full min-w-0 rounded-lg border border-slate-200 px-2 text-sm outline-none ring-sky-200 transition focus:ring-2" />
                                                 <button type="button" onClick={() => removeSellingUnit(i)} disabled={form.selling_units.length <= 1} className="inline-flex h-10 w-9 shrink-0 items-center justify-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40">
                                                     <X className="h-4 w-4" />
                                                 </button>
@@ -401,7 +401,7 @@ export default function ManagerProductEdit() {
                                         </div>
                                         <div>
                                             <label className="mb-1 block text-sm font-medium text-slate-600">Giá vốn (₫) / 1 đơn vị gốc</label>
-                                            <input type="number" min="0" step="any" value={form.cost_price} onChange={(e) => setForm((prev) => ({ ...prev, cost_price: e.target.value }))} placeholder="0" className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2" />
+                                            <input type="number" min="0" step="1" value={form.cost_price} onChange={(e) => setForm((prev) => ({ ...prev, cost_price: e.target.value }))} placeholder="0" className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2" />
                                         </div>
                                         <div>
                                             <label className="mb-1 block text-sm font-medium text-slate-600">Tồn kho hiện tại</label>

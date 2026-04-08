@@ -22,9 +22,13 @@ const productPriceHistorySchema = new Schema(
     },
     source: {
       type: String,
-      enum: ['import_excel', 'manual_update'],
+      enum: ['import_excel', 'manual_update', 'goods_receipt'],
       default: 'manual_update',
       index: true,
+    },
+    source_note: {
+      type: String,
+      trim: true,
     },
     old_cost_price: { type: Number, required: true },
     new_cost_price: { type: Number, required: true },

@@ -11,6 +11,7 @@ const { recalculatePayable, refreshSupplierPayableCache } = require('../utils/su
 const router = express.Router();
 
 const Product = require('../models/Product');
+const ProductPriceHistory = require('../models/ProductPriceHistory');
 const Supplier = require('../models/Supplier');
 const User = require('../models/User');
 
@@ -30,7 +31,48 @@ function resolveUnitCostFromProductCost(productDoc, ratio) {
     if (!productDoc) return 0;
     const baseCost = Number(productDoc.cost_price) || 0;
     const safeRatio = Number(ratio) > 0 ? Number(ratio) : 1;
-    return Math.round(baseCost * safeRatio * 100) / 100;
+    return Math.round(baseCost * safeRatio);
+}
+
+function shortReceiptCode(id) {
+    const s = String(id || '');
+    return s.slice(-6).toUpperCase();
+}
+
+async function logPriceHistory({
+    productId,
+    storeId,
+    changedBy,
+    source = 'goods_receipt',
+    sourceNote,
+    oldCost,
+    newCost,
+    oldSale,
+    newSale,
+    session,
+}) {
+    const safeOldCost = Math.round(Number(oldCost) || 0);
+    const safeNewCost = Math.round(Number(newCost) || 0);
+    const safeOldSale = Math.round(Number(oldSale) || 0);
+    const safeNewSale = Math.round(Number(newSale) || 0);
+    if (safeOldCost === safeNewCost && safeOldSale === safeNewSale) return;
+    const payload = {
+        product_id: productId,
+        storeId: storeId || null,
+        changed_by: changedBy,
+        source,
+        source_note: sourceNote ? String(sourceNote).trim() : undefined,
+        old_cost_price: safeOldCost,
+        new_cost_price: safeNewCost,
+        old_sale_price: safeOldSale,
+        new_sale_price: safeNewSale,
+        changed_at: new Date(),
+    };
+    if (session) {
+        await ProductPriceHistory.create([payload], { session });
+        return;
+    }
+    await ProductPriceHistory.create(payload);
 }
 
 /** Gắn công nợ NCC (SupplierPayable) — nguồn đúng sau các lần thanh toán sau duyệt. */
@@ -338,7 +380,7 @@ router.patch('/:id/items', requireAuth, requireRole(['manager', 'admin']), async
             }
             const next = curr.toObject ? curr.toObject() : { ...curr };
             next.quantity = Number(patchItem.quantity);
-            next.unit_cost = Number(patchItem.unit_cost);
+            next.unit_cost = Math.round(Number(patchItem.unit_cost) || 0);
             if (patchItem.price_gap_note !== undefined) {
                 const n = String(patchItem.price_gap_note || '').trim();
                 next.price_gap_note = n || undefined;
@@ -347,11 +389,13 @@ router.patch('/:id/items', requireAuth, requireRole(['manager', 'admin']), async
 
             const product = await Product.findById(curr.product_id);
             if (product) {
-                const nextSalePrice = Number(patchItem.sale_price);
-                const lineUnitCost = Number(patchItem.unit_cost);
+                const prevCost = Number(product.cost_price) || 0;
+                const prevSale = Number(product.sale_price) || 0;
+                const nextSalePrice = Math.round(Number(patchItem.sale_price) || 0);
+                const lineUnitCost = Math.round(Number(patchItem.unit_cost) || 0);
                 const itemRatio = Number(curr.ratio) > 0 ? Number(curr.ratio) : 1;
                 // Giá gốc trong DB = đơn giá nhập theo đơn vị dòng / HSQĐ (đơn vị cơ sở)
-                const nextBaseCost = Math.round((lineUnitCost / itemRatio) * 100) / 100;
+                const nextBaseCost = Math.round(lineUnitCost / itemRatio);
                 product.cost_price = nextBaseCost;
 
                 const itemUnit = String(curr.unit_name || '').trim();
@@ -368,6 +412,17 @@ router.patch('/:id/items', requireAuth, requireRole(['manager', 'admin']), async
                 }
                 product.updated_at = new Date();
                 await product.save();
+                await logPriceHistory({
+                    productId: product._id,
+                    storeId: product.storeId,
+                    changedBy: req.user.id,
+                    source: 'goods_receipt',
+                    sourceNote: `Phiếu nhập #${shortReceiptCode(gr._id)}`,
+                    oldCost: prevCost,
+                    newCost: product.cost_price,
+                    oldSale: prevSale,
+                    newSale: product.sale_price,
+                });
             }
         }
 
@@ -486,6 +541,7 @@ router.patch('/:id/status', requireAuth, requireRole(['manager', 'admin']), asyn
                 const unitCost = Number(it.unit_cost) || 0;
                 const currentQty = Number(product.stock_qty) || 0;
                 const currentCost = Number(product.cost_price) || 0;
+                const prevSale = Number(product.sale_price) || 0;
 
                 const newQty = currentQty + addQty;
                 const newCostPrice = newQty > 0
@@ -498,8 +554,24 @@ router.patch('/:id/status', requireAuth, requireRole(['manager', 'admin']), asyn
                     receivedAt: gr.received_at,
                     receiptId: gr._id,
                     note: `Nhập hàng (Phiếu #${id.substring(id.length - 6).toUpperCase()})`,
-                    newCostPrice: Math.round(newCostPrice * 100) / 100,
+                    newCostPrice: Math.round(newCostPrice),
                 });
+
+                const productAfter = await Product.findById(it.product_id).session(session);
+                if (productAfter) {
+                    await logPriceHistory({
+                        productId: productAfter._id,
+                        storeId: productAfter.storeId,
+                        changedBy: req.user.id,
+                        source: 'goods_receipt',
+                        sourceNote: `Phiếu nhập #${shortReceiptCode(gr._id)}`,
+                        oldCost: currentCost,
+                        newCost: Number(productAfter.cost_price) || 0,
+                        oldSale: prevSale,
+                        newSale: Number(productAfter.sale_price) || 0,
+                        session,
+                    });
+                }
             }
 
             gr.approved_by = req.user.id;

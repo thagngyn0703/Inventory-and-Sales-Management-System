@@ -6,7 +6,10 @@ import {
 } from '../../services/notificationsApi';
 import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
-import { Bell } from 'lucide-react';
+import { Bell, Loader2 } from 'lucide-react';
+import { Button } from '../../components/ui/button';
+import { Card, CardContent } from '../../components/ui/card';
+import { Badge } from '../../components/ui/badge';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
 
@@ -59,42 +62,49 @@ export default function ManagerNotifications() {
         title="Thông báo"
         subtitle="Cảnh báo hạn sử dụng sản phẩm theo cửa hàng của bạn."
         headerActions={
-          <button type="button" className="manager-btn-outline" onClick={onMarkAll}>
+          <Button type="button" variant="outline" className="h-10 rounded-xl" onClick={onMarkAll}>
             Đánh dấu đã đọc tất cả
-          </button>
+          </Button>
         }
       >
-          {error && <div className="manager-products-error">{error}</div>}
+          {error && <div className="manager-products-error mb-4">{error}</div>}
 
-          <div className="manager-panel-card manager-products-card rounded-2xl border border-slate-200/80 shadow-sm">
+          <Card className="overflow-hidden border-slate-200/80 shadow-sm">
+            <CardContent className="p-0">
             {loading ? (
-              <p className="manager-products-loading">Đang tải...</p>
+              <div className="flex justify-center py-14 text-slate-500">
+                <Loader2 className="h-7 w-7 animate-spin" />
+              </div>
             ) : notifications.length === 0 ? (
-              <p className="manager-products-empty">Hiện chưa có thông báo.</p>
+              <p className="py-14 text-center text-slate-500">Hiện chưa có thông báo.</p>
             ) : (
-              <div className="manager-products-table-wrap">
-                <table className="manager-products-table">
+              <div className="overflow-x-auto rounded-xl border border-slate-200/80">
+                <table className="w-full min-w-[840px] text-sm text-slate-700">
                   <thead>
-                    <tr>
-                      <th>Trạng thái</th>
-                      <th>Tiêu đề</th>
-                      <th>Nội dung</th>
-                      <th>Thời gian</th>
-                      <th></th>
+                    <tr className="border-b border-slate-200 bg-slate-50/80 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      <th className="px-4 py-3">Trạng thái</th>
+                      <th className="px-4 py-3">Tiêu đề</th>
+                      <th className="px-4 py-3">Nội dung</th>
+                      <th className="px-4 py-3">Thời gian</th>
+                      <th className="px-4 py-3 text-right"></th>
                     </tr>
                   </thead>
-                  <tbody>
+                  <tbody className="divide-y divide-slate-100 bg-white">
                     {notifications.map((n) => (
-                      <tr key={n._id}>
-                        <td>{n.is_read ? 'Đã đọc' : 'Chưa đọc'}</td>
-                        <td>{n.title}</td>
-                        <td>{n.message}</td>
-                        <td>{n.created_at ? new Date(n.created_at).toLocaleString('vi-VN') : '—'}</td>
-                        <td>
+                      <tr key={n._id} className="transition-colors odd:bg-white even:bg-slate-50/30 hover:bg-teal-50/40">
+                        <td className="px-4 py-3.5">
+                          <Badge className={`border font-medium ${n.is_read ? 'bg-slate-100 text-slate-700 border-slate-200' : 'bg-sky-100 text-sky-800 border-sky-200'}`}>
+                            {n.is_read ? 'Đã đọc' : 'Chưa đọc'}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3.5 font-medium text-slate-900">{n.title}</td>
+                        <td className="max-w-[420px] px-4 py-3.5 text-slate-600">{n.message}</td>
+                        <td className="whitespace-nowrap px-4 py-3.5 text-slate-600">{n.created_at ? new Date(n.created_at).toLocaleString('vi-VN') : '—'}</td>
+                        <td className="px-4 py-3.5 text-right">
                           {!n.is_read && (
-                            <button type="button" className="manager-btn-outline manager-btn-small" onClick={() => onMarkRead(n._id)}>
+                            <Button type="button" size="sm" variant="outline" className="h-8 rounded-lg text-xs font-semibold" onClick={() => onMarkRead(n._id)}>
                               Đánh dấu đã đọc
-                            </button>
+                            </Button>
                           )}
                         </td>
                       </tr>
@@ -103,7 +113,8 @@ export default function ManagerNotifications() {
                 </table>
               </div>
             )}
-          </div>
+          </CardContent>
+          </Card>
       </StaffPageShell>
     </ManagerPageFrame>
   );

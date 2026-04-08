@@ -91,18 +91,31 @@ function getStoreFilter(req) {
 function parseDateRange(query) {
   const now = new Date();
   let from, to;
+  const ymdRegex = /^\d{4}-\d{2}-\d{2}$/;
 
   if (query.from) {
-    from = new Date(query.from);
-    from.setHours(0, 0, 0, 0);
+    const fromRaw = String(query.from).trim();
+    if (ymdRegex.test(fromRaw)) {
+      // Parse date-only input as VN calendar day to avoid timezone shifting.
+      from = new Date(`${fromRaw}T00:00:00+07:00`);
+    } else {
+      from = new Date(fromRaw);
+      from.setHours(0, 0, 0, 0);
+    }
   } else {
     // Mặc định: đầu tháng hiện tại
     from = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
   }
 
   if (query.to) {
-    to = new Date(query.to);
-    to.setHours(23, 59, 59, 999);
+    const toRaw = String(query.to).trim();
+    if (ymdRegex.test(toRaw)) {
+      // Parse date-only input as VN calendar day to avoid timezone shifting.
+      to = new Date(`${toRaw}T23:59:59.999+07:00`);
+    } else {
+      to = new Date(toRaw);
+      to.setHours(23, 59, 59, 999);
+    }
   } else {
     // Mặc định: hôm nay cuối ngày
     to = new Date(now);
@@ -827,149 +840,102 @@ router.get(
 
       const { from, to } = parseDateRange(req.query);
       const productId = req.query.productId;
-      const productFilter = {};
+      const supplierId = req.query.supplierId;
+      const costDirection = String(req.query.costDirection || '').trim().toLowerCase();
+      const productFilter = { storeId: storeIdObj };
       if (productId) {
         if (!mongoose.isValidObjectId(productId)) {
           return res.status(400).json({ message: 'productId không hợp lệ' });
         }
         productFilter._id = new mongoose.Types.ObjectId(productId);
       }
+      if (supplierId) {
+        if (!mongoose.isValidObjectId(supplierId)) {
+          return res.status(400).json({ message: 'supplierId không hợp lệ' });
+        }
+        productFilter.supplier_id = new mongoose.Types.ObjectId(supplierId);
+      }
 
-      const products = await Product.find({ storeId: storeIdObj, ...productFilter })
-        .select('_id name sku cost_price sale_price')
-        .lean();
+      const [products, suppliers] = await Promise.all([
+        Product.find(productFilter)
+          .select('_id name sku supplier_id')
+          .lean(),
+        Supplier.find({ storeId: storeIdObj }).select('_id name').sort({ created_at: -1 }).lean(),
+      ]);
       const productIdList = products.map((p) => p._id);
       if (productIdList.length === 0) {
         return res.json({
           period: { from: from.toISOString(), to: to.toISOString() },
           products: [],
+          suppliers,
           events: [],
-          summary: { total_events: 0, total_revenue: 0, estimated_profit: 0, total_qty: 0 },
+          summary: { total_events: 0 },
         });
       }
 
       const histories = await ProductPriceHistory.find({
         storeId: storeIdObj,
         product_id: { $in: productIdList },
-        changed_at: { $lte: to },
+        changed_at: { $gte: from, $lte: to },
       })
-        .sort({ changed_at: 1 })
+        .sort({ changed_at: -1 })
         .populate('changed_by', 'fullName email')
         .lean();
 
       const events = [];
-      for (let i = 0; i < histories.length; i++) {
-        const h = histories[i];
-        const nextForSameProduct = histories.find(
-          (x, idx) => idx > i && String(x.product_id) === String(h.product_id)
-        );
-        const windowStart = h.changed_at > from ? h.changed_at : from;
-        const windowEnd = nextForSameProduct?.changed_at && nextForSameProduct.changed_at < to ? nextForSameProduct.changed_at : to;
-        if (windowStart >= windowEnd) continue;
-
-        const salesAgg = await SalesInvoice.aggregate([
-          {
-            $match: {
-              store_id: storeIdObj,
-              status: 'confirmed',
-              invoice_at: { $gte: windowStart, $lt: windowEnd },
-              ...PAID_TRANSFER_FILTER,
-            },
-          },
-          { $unwind: '$items' },
-          {
-            $match: {
-              'items.product_id': new mongoose.Types.ObjectId(h.product_id),
-            },
-          },
-          {
-            $lookup: {
-              from: 'products',
-              localField: 'items.product_id',
-              foreignField: '_id',
-              as: '__p',
-            },
-          },
-          { $unwind: { path: '$__p', preserveNullAndEmptyArrays: true } },
-          {
-            $addFields: {
-              __unitCost: {
-                $cond: [
-                  { $gt: [{ $ifNull: ['$items.cost_price', 0] }, 0] },
-                  '$items.cost_price',
-                  { $ifNull: ['$__p.cost_price', 0] },
-                ],
-              },
-            },
-          },
-          {
-            $group: {
-              _id: null,
-              qty: { $sum: '$items.quantity' },
-              revenue: { $sum: '$items.line_total' },
-              orders: { $sum: 1 },
-              actual_profit: {
-                $sum: aggLineGrossRounded('$items.line_total', '$items.quantity', '$__unitCost'),
-              },
-            },
-          },
-        ]);
-
-        const qty = salesAgg[0]?.qty ?? 0;
-        const revenue = salesAgg[0]?.revenue ?? 0;
-        // Lợi nhuận thực từ cost_price snapshot (chính xác)
-        const actualProfit = salesAgg[0]?.actual_profit ?? 0;
-        // Giữ lại estimated dựa new_cost_price để so sánh (tham khảo)
-        const estimatedCost = qty * (Number(h.new_cost_price) || 0);
-        const estimatedProfit = revenue - estimatedCost;
-
+      for (const h of histories) {
         const product = products.find((p) => String(p._id) === String(h.product_id));
-        events.push({
-          _id: h._id,
-          product_id: h.product_id,
-          product_name: product?.name || 'Không rõ',
-          sku: product?.sku || '—',
-          changed_at: h.changed_at,
-          source: h.source,
-          changed_by: h.changed_by?.fullName || h.changed_by?.email || '—',
-          old_cost_price: h.old_cost_price,
-          new_cost_price: h.new_cost_price,
-          old_sale_price: h.old_sale_price,
-          new_sale_price: h.new_sale_price,
-          window: {
-            from: windowStart,
-            to: windowEnd,
-          },
-          impact: {
-            qty_sold: qty,
-            revenue,
-            // Lợi nhuận thực: tính từ cost_price snapshot trên từng dòng hóa đơn (chính xác)
-            actual_profit: actualProfit,
-            // Lợi nhuận ước tính cũ (dựa new_cost_price): giữ để tham khảo
-            estimated_cost: estimatedCost,
-            estimated_profit: estimatedProfit,
-            order_lines: salesAgg[0]?.orders ?? 0,
-          },
-        });
-      }
+        if (!product) continue;
 
-      const summary = events.reduce(
-        (acc, e) => {
-          acc.total_events += 1;
-          acc.total_revenue += e.impact.revenue;
-          acc.actual_profit += e.impact.actual_profit;
-          acc.estimated_profit += e.impact.estimated_profit;
-          acc.total_qty += e.impact.qty_sold;
-          return acc;
-        },
-        { total_events: 0, total_revenue: 0, actual_profit: 0, estimated_profit: 0, total_qty: 0 }
-      );
+        const oldCost = Number(h.old_cost_price || 0);
+        const newCost = Number(h.new_cost_price || 0);
+        const oldSale = Number(h.old_sale_price || 0);
+        const newSale = Number(h.new_sale_price || 0);
+
+        const addCostRow = oldCost !== newCost;
+        const addSaleRow = oldSale !== newSale;
+
+        if (addCostRow) {
+          const passCostDirection = costDirection !== 'up' || newCost > oldCost;
+          if (passCostDirection) {
+            events.push({
+              _id: `${h._id}:cost`,
+              changed_at: h.changed_at,
+              product_id: product._id,
+              product_name: product.name || 'Không rõ',
+              sku: product.sku || '—',
+              price_type: 'cost',
+              old_value: oldCost,
+              new_value: newCost,
+              changed_by: h.changed_by?.fullName || h.changed_by?.email || '—',
+              source: h.source,
+              source_note: h.source_note || '',
+            });
+          }
+        }
+        if (addSaleRow && costDirection !== 'up') {
+          events.push({
+            _id: `${h._id}:sale`,
+            changed_at: h.changed_at,
+            product_id: product._id,
+            product_name: product.name || 'Không rõ',
+            sku: product.sku || '—',
+            price_type: 'sale',
+            old_value: oldSale,
+            new_value: newSale,
+            changed_by: h.changed_by?.fullName || h.changed_by?.email || '—',
+            source: h.source,
+            source_note: h.source_note || '',
+          });
+        }
+      }
 
       return res.json({
         period: { from: from.toISOString(), to: to.toISOString() },
-        products: products.map((p) => ({ _id: p._id, name: p.name, sku: p.sku })),
+        products: products.map((p) => ({ _id: p._id, name: p.name, sku: p.sku, supplier_id: p.supplier_id || null })),
+        suppliers,
         events,
-        summary,
+        summary: { total_events: events.length },
       });
     } catch (err) {
       console.error(err);

@@ -210,21 +210,27 @@ async function logPriceChange({
   storeId,
   changedBy,
   source,
+  sourceNote,
   oldCost,
   newCost,
   oldSale,
   newSale,
 }) {
-  if (Number(oldCost) === Number(newCost) && Number(oldSale) === Number(newSale)) return;
+  const safeOldCost = Math.round(Number(oldCost) || 0);
+  const safeNewCost = Math.round(Number(newCost) || 0);
+  const safeOldSale = Math.round(Number(oldSale) || 0);
+  const safeNewSale = Math.round(Number(newSale) || 0);
+  if (safeOldCost === safeNewCost && safeOldSale === safeNewSale) return;
   await ProductPriceHistory.create({
     product_id: productId,
     storeId: storeId || null,
     changed_by: changedBy,
     source,
-    old_cost_price: Number(oldCost) || 0,
-    new_cost_price: Number(newCost) || 0,
-    old_sale_price: Number(oldSale) || 0,
-    new_sale_price: Number(newSale) || 0,
+    source_note: sourceNote ? String(sourceNote).trim() : undefined,
+    old_cost_price: safeOldCost,
+    new_cost_price: safeNewCost,
+    old_sale_price: safeOldSale,
+    new_sale_price: safeNewSale,
     changed_at: new Date(),
   });
 }
@@ -334,13 +340,14 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
         const unitName = trimText(u.name) || base;
         const ratioNum = parseNonNegativeNumber(u.ratio);
         const saleNum = parseNonNegativeNumber(u.sale_price);
+        const parsedRatio = ratioNum != null && ratioNum > 0 ? ratioNum : 1;
         return {
           name: unitName,
-          ratio: ratioNum != null && ratioNum > 0 ? ratioNum : 1,
-          sale_price: saleNum != null ? saleNum : 0,
+          ratio: Math.abs(parsedRatio - 1) < 1e-9 || unitName === base ? 1 : parsedRatio,
+          sale_price: saleNum != null ? Math.round(saleNum) : 0,
         };
       })
-      : [{ name: base, ratio: 1, sale_price: parseNonNegativeNumber(sale_price) ?? 0 }];
+      : [{ name: base, ratio: 1, sale_price: Math.round(parseNonNegativeNumber(sale_price) ?? 0) }];
 
     for (const u of selling_units) {
       if (!isValidNoSpecialText(u.name)) {
@@ -354,13 +361,13 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
       }
     }
 
-    const hasBase = selling_units.some((u) => u.ratio === 1);
+    const hasBase = selling_units.some((u) => u.ratio === 1 || String(u.name || '').trim() === base);
     if (!hasBase) {
       selling_units = [{ name: base, ratio: 1, sale_price: selling_units[0] ? selling_units[0].sale_price : 0 }, ...selling_units];
     }
 
-    const baseUnit = selling_units.find((u) => u.ratio === 1);
-    const baseUnitPrice = baseUnit ? baseUnit.sale_price : (Number(sale_price) || 0);
+    const baseUnit = selling_units.find((u) => String(u.name || '').trim() === base) || selling_units.find((u) => u.ratio === 1);
+    const baseUnitPrice = Math.round(baseUnit ? baseUnit.sale_price : (Number(sale_price) || 0));
     const isPlatform = role === 'admin';
     const resolvedStoreId = isPlatform
       ? (req.body?.storeId && mongoose.isValidObjectId(req.body.storeId) ? req.body.storeId : undefined)
@@ -401,8 +408,8 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
       name: nameTrim,
       sku: skuTrim,
       barcode: barcodeTrim || undefined,
-      cost_price: costNum,
-      sale_price: baseUnitPrice,
+      cost_price: Math.round(costNum),
+      sale_price: Math.round(baseUnitPrice),
       stock_qty: stockNum,
       reorder_level: reorderNum,
       expiry_date: expCheck.date,
@@ -681,9 +688,9 @@ router.post('/import/commit', requireAuth, requireRole(['manager', 'admin']), as
             }
           }
           // Chỉ cập nhật giá bán và thông tin catalog, giữ nguyên cost_price và stock_qty
-          existing.sale_price = sale_price;
+          existing.sale_price = Math.round(sale_price);
           existing.base_unit = base_unit || base;
-          existing.selling_units = [{ name: base_unit || base, ratio: 1, sale_price }];
+          existing.selling_units = [{ name: base_unit || base, ratio: 1, sale_price: Math.round(sale_price) }];
           if (barcodeIn) {
             existing.barcode = barcodeIn;
           }
@@ -731,14 +738,14 @@ router.post('/import/commit', requireAuth, requireRole(['manager', 'admin']), as
           }
         }
 
-        const selling_units = [{ name: base_unit || base, ratio: 1, sale_price }];
+        const selling_units = [{ name: base_unit || base, ratio: 1, sale_price: Math.round(sale_price) }];
         const doc = await Product.create({
           storeId: resolvedStoreId,
           name,
           sku,
           barcode: barcodeIn || undefined,
-          cost_price,
-          sale_price,
+          cost_price: Math.round(cost_price),
+          sale_price: Math.round(sale_price),
           stock_qty,
           reorder_level: 0,
           base_unit: base_unit || base,
@@ -876,7 +883,7 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
     if (cost_price !== undefined) {
       const n = parseNonNegativeNumber(cost_price);
       if (n == null) return res.status(400).json({ message: 'Giá vốn không hợp lệ.' });
-      product.cost_price = n;
+      product.cost_price = Math.round(n);
     }
     if (stock_qty !== undefined) {
       const n = parseNonNegativeNumber(stock_qty);
@@ -921,10 +928,11 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
         const unitName = trimText(u.name) || base;
         const ratioNum = parseNonNegativeNumber(u.ratio);
         const saleNum = parseNonNegativeNumber(u.sale_price);
+        const parsedRatio = ratioNum != null && ratioNum > 0 ? ratioNum : 1;
         return {
           name: unitName,
-          ratio: ratioNum != null && ratioNum > 0 ? ratioNum : 1,
-          sale_price: saleNum != null ? saleNum : 0,
+          ratio: Math.abs(parsedRatio - 1) < 1e-9 || unitName === base ? 1 : parsedRatio,
+          sale_price: saleNum != null ? Math.round(saleNum) : 0,
         };
       });
       for (const u of units) {
@@ -938,14 +946,20 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
           return res.status(400).json({ message: 'Giá bán đơn vị không hợp lệ.' });
         }
       }
-      const hasBase = units.some((u) => u.ratio === 1);
-      product.selling_units = hasBase ? units : [{ name: base, ratio: 1, sale_price: units[0]?.sale_price ?? 0 }, ...units];
-      const baseUnitPrice = product.selling_units.find((u) => u.ratio === 1)?.sale_price ?? 0;
-      product.sale_price = baseUnitPrice;
+      const baseByName = units.find((u) => String(u.name || '').trim() === base);
+      const baseByRatio = units.find((u) => u.ratio === 1);
+      const hasBase = Boolean(baseByName || baseByRatio);
+      const fallbackBaseSale = baseByName?.sale_price ?? baseByRatio?.sale_price ?? Math.round(Number(product.sale_price) || 0);
+      product.selling_units = hasBase ? units : [{ name: base, ratio: 1, sale_price: fallbackBaseSale }, ...units];
+      const baseUnitPrice =
+        product.selling_units.find((u) => String(u.name || '').trim() === base)?.sale_price
+        ?? product.selling_units.find((u) => u.ratio === 1)?.sale_price
+        ?? fallbackBaseSale;
+      product.sale_price = Math.round(baseUnitPrice);
     } else if (sale_price !== undefined) {
       const saleNum = parseNonNegativeNumber(sale_price);
       if (saleNum == null) return res.status(400).json({ message: 'Giá bán không hợp lệ.' });
-      product.sale_price = saleNum;
+      product.sale_price = Math.round(saleNum);
       product.selling_units = [{ name: product.base_unit || 'Cái', ratio: 1, sale_price: product.sale_price }];
     }
     product.updated_at = new Date();

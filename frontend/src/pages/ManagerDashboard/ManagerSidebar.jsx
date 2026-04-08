@@ -31,7 +31,6 @@ import {
 const overviewItems = [
   { label: 'Tổng quan', path: '/manager', icon: LayoutDashboard },
   { label: 'Trợ lý AI', path: '/manager/ai-assistant', icon: Sparkles },
-  { label: 'Đơn hàng', path: '/manager/invoices', icon: FileText },
   { label: 'Sản phẩm', path: '/manager/products', icon: Package },
   { label: 'Yêu cầu tạo sản phẩm', path: '/manager/product-requests', icon: FileStack },
   { label: 'Hóa đơn', path: '/manager/invoices', icon: Receipt },
@@ -40,7 +39,7 @@ const overviewItems = [
   { label: 'Nhà cung cấp', path: '/manager/suppliers', icon: Handshake },
   { label: 'Thêm nhà cung cấp', path: '/manager/suppliers/new', icon: Plus },
   { label: 'Khách hàng', path: '/manager/customers', icon: Users },
-  { label: 'Báo cáo', path: '/manager/reports', icon: BarChart3 },
+  { label: 'Báo cáo thay đổi giá', path: '/manager/reports', icon: BarChart3 },
   { label: 'Thông báo', path: '/manager/notifications', icon: Bell },
   { label: 'Phiếu hỗ trợ', path: '/manager/support', icon: LifeBuoy },
 ];
