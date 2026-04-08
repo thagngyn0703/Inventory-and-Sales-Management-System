@@ -335,6 +335,7 @@ export default function ManagerSupplierPayables() {
                                             <tr className="border-b border-slate-200 bg-slate-50/90 text-xs font-semibold uppercase text-slate-500">
                                                 <th className="px-4 py-3">Nhà cung cấp</th>
                                                 <th className="px-4 py-3">Phiếu nhập</th>
+                                                <th className="px-4 py-3">Ngày tạo</th>
                                                 <th className="px-4 py-3 text-right">Tổng phiếu</th>
                                                 <th className="px-4 py-3 text-right">Đã trả</th>
                                                 <th className="px-4 py-3 text-right">Còn nợ</th>
@@ -356,6 +357,7 @@ export default function ManagerSupplierPayables() {
                                                             {(p.source_id?._id ?? String(p.source_id))?.slice(-8).toUpperCase()}
                                                         </button>
                                                     </td>
+                                                    <td className="px-4 py-3 whitespace-nowrap text-slate-700">{fmtDate(p.created_at)}</td>
                                                     <td className="px-4 py-3 text-right tabular-nums">{fmt(p.total_amount)}</td>
                                                     <td className="px-4 py-3 text-right tabular-nums text-emerald-700">{fmt(p.paid_amount)}</td>
                                                     <td className="px-4 py-3 text-right tabular-nums font-semibold text-red-600">{fmt(p.remaining_amount)}</td>

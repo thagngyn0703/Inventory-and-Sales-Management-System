@@ -52,7 +52,7 @@ async function attachSupplierPayablesToReceipts(list) {
     });
 }
 
-// GET /api/goods-receipts?page=&limit=&status=&supplier_id=&q=&sortBy=&order=
+// GET /api/goods-receipts?page=&limit=&status=&supplier_id=&q=
 router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
         const {
@@ -61,8 +61,6 @@ router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (
             status,
             supplier_id,
             q,
-            sortBy = 'received_at',
-            order = 'desc',
         } = req.query;
         const pageNum = Math.max(1, parseInt(page, 10) || 1);
         const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
@@ -103,15 +101,10 @@ router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (
 
         const filter = clauses.length === 0 ? {} : clauses.length === 1 ? clauses[0] : { $and: clauses };
 
-        const allowedSortFields = { received_at: 1, created_at: 1, total_amount: 1 };
-        const sortField = allowedSortFields[sortBy] ? sortBy : 'received_at';
-        const sortDir = order === 'asc' ? 1 : -1;
-        const sortObj = { [sortField]: sortDir };
-
         const total = await GoodsReceipt.countDocuments(filter);
         const skip = (pageNum - 1) * limitNum;
         const list = await GoodsReceipt.find(filter)
-            .sort(sortObj)
+            .sort({ created_at: -1 })
             .skip(skip)
             .limit(limitNum)
             .populate('supplier_id', 'name phone email')

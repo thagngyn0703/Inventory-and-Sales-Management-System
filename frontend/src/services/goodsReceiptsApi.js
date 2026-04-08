@@ -9,9 +9,7 @@ function getToken() {
  *   status?: string,
  *   page?: number,
  *   limit?: number,
- *   q?: string,
- *   sortBy?: 'received_at'|'created_at'|'total_amount',
- *   order?: 'asc'|'desc'
+ *   q?: string
  * }} input
  * @returns {Promise<Array|{ goodsReceipts: Array, total: number, page: number, limit: number, totalPages: number }>}
  */
@@ -22,8 +20,6 @@ export async function getGoodsReceipts(input = '') {
     const page = isObject ? Math.max(1, Number(opts.page) || 1) : 1;
     const limit = isObject ? Math.max(1, Number(opts.limit) || 10) : 100;
     const q = isObject ? String(opts.q || '').trim() : '';
-    const sortBy = isObject ? (opts.sortBy || 'received_at') : 'received_at';
-    const order = isObject ? (opts.order || 'desc') : 'desc';
 
     const token = getToken();
     const url = new URL(`${API_BASE}/goods-receipts`);
@@ -31,9 +27,6 @@ export async function getGoodsReceipts(input = '') {
     url.searchParams.set('limit', String(limit));
     if (status) url.searchParams.set('status', status);
     if (q) url.searchParams.set('q', q);
-    url.searchParams.set('sortBy', sortBy);
-    url.searchParams.set('order', order);
-
     const res = await fetch(url.toString(), {
         headers: { Authorization: `Bearer ${token}` },
     });

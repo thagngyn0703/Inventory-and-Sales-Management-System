@@ -224,11 +224,11 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
   }
 });
 
-// GET /api/suppliers?q=...&status=active|inactive|all&page=1&limit=20&sort=name|created_at  (staff, manager, admin)
+// GET /api/suppliers?q=...&status=active|inactive|all&page=1&limit=20  (staff, manager, admin)
 // Staff cần đọc nhà cung cấp cho dropdown khi tạo phiếu nhập.
 router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
   try {
-    const { q = '', status = 'active', page = '1', limit = '20', sort = 'name' } = req.query;
+    const { q = '', status = 'active', page = '1', limit = '20' } = req.query;
     const query = String(q || '').trim();
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.min(1000, Math.max(1, parseInt(limit, 10) || 20));
@@ -259,10 +259,8 @@ router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (
 
     const total = await Supplier.countDocuments(filter);
     const skip = (pageNum - 1) * limitNum;
-    const sortObj = String(sort || '') === 'created_at' ? { created_at: -1 } : { name: 1 };
-
     const suppliers = await Supplier.find(filter)
-      .sort(sortObj)
+      .sort({ created_at: -1 })
       .skip(skip)
       .limit(limitNum)
       .lean();

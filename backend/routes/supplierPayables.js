@@ -31,7 +31,7 @@ router.get('/', requireAuth, requireRole(['manager', 'admin']), async (req, res)
 
         const total = await SupplierPayable.countDocuments(filter);
         const payables = await SupplierPayable.find(filter)
-            .sort({ due_date: 1, created_at: -1 })
+            .sort({ created_at: -1 })
             .skip((pageNum - 1) * limitNum)
             .limit(limitNum)
             .populate('supplier_id', 'name phone email')
@@ -313,7 +313,7 @@ router.get('/payments/history', requireAuth, requireRole(['manager', 'admin']), 
 
         const total = await SupplierPayment.countDocuments(filter);
         const payments = await SupplierPayment.find(filter)
-            .sort({ payment_date: -1, created_at: -1 })
+            .sort({ created_at: -1 })
             .skip((pageNum - 1) * limitNum)
             .limit(limitNum)
             .populate('supplier_id', 'name')
