@@ -18,6 +18,13 @@ function escapeRegex(s) {
     return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function getStoreScopeFilter(req) {
+    const role = String(req.user?.role || '').toLowerCase();
+    if (role === 'admin') return null;
+    if (!req.user?.storeId || !mongoose.isValidObjectId(req.user.storeId)) return '__FORBIDDEN__';
+    return new mongoose.Types.ObjectId(req.user.storeId);
+}
+
 /** Giá nhập theo đơn vị dòng = giá gốc (theo đơn vị cơ sở) × hệ số quy đổi. */
 function resolveUnitCostFromProductCost(productDoc, ratio) {
     if (!productDoc) return 0;
@@ -66,6 +73,12 @@ router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (
         const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
 
         const clauses = [];
+        const storeScope = getStoreScopeFilter(req);
+        if (storeScope === '__FORBIDDEN__') {
+            return res.status(403).json({ message: 'Forbidden: user chưa được gán cửa hàng' });
+        }
+        if (storeScope) clauses.push({ storeId: storeScope });
+
         const validStatuses = ['draft', 'pending', 'approved', 'rejected'];
         if (status && validStatuses.includes(String(status))) {
             clauses.push({ status: String(status) });
@@ -136,7 +149,14 @@ router.get('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), asyn
         if (!mongoose.isValidObjectId(id)) {
             return res.status(400).json({ message: 'Invalid goods receipt id' });
         }
-        const gr = await GoodsReceipt.findById(id)
+        const query = { _id: id };
+        const storeScope = getStoreScopeFilter(req);
+        if (storeScope === '__FORBIDDEN__') {
+            return res.status(403).json({ message: 'Forbidden: user chưa được gán cửa hàng' });
+        }
+        if (storeScope) query.storeId = storeScope;
+
+        const gr = await GoodsReceipt.findOne(query)
             .populate('supplier_id', 'name phone email address')
             .populate('po_id')
             .populate('received_by', 'fullName email')
@@ -417,9 +437,9 @@ router.patch('/:id/status', requireAuth, requireRole(['manager', 'admin']), asyn
         const {
             status,
             rejection_reason,
-            payment_type,            // 'cash' | 'credit' | 'partial'
-            amount_paid_at_approval, // số tiền trả ngay (với partial/cash)
-            due_date_payable,        // hạn thanh toán (với credit/partial)
+            payment_type,            // 'cash' | 'credit'
+            amount_paid_at_approval, // số tiền trả ngay (với cash)
+            due_date_payable,        // hạn thanh toán (với credit)
         } = req.body || {};
         if (!mongoose.isValidObjectId(id)) return res.status(400).json({ message: 'Invalid id' });
         if (!['approved', 'rejected'].includes(status)) {
@@ -487,8 +507,10 @@ router.patch('/:id/status', requireAuth, requireRole(['manager', 'admin']), asyn
             gr.updated_at = new Date();
 
             // Ghi nhận thông tin thanh toán lên phiếu nhập
-            const safePayType = ['cash', 'credit', 'partial'].includes(payment_type) ? payment_type : 'credit';
-            const amountPaid = Math.max(0, Number(amount_paid_at_approval) || 0);
+            const safePayType = ['cash', 'credit'].includes(payment_type) ? payment_type : 'credit';
+            const requestedPaid = Math.max(0, Number(amount_paid_at_approval) || 0);
+            const receiptTotal = Number(gr.total_amount) || 0;
+            const amountPaid = safePayType === 'cash' ? Math.min(requestedPaid || receiptTotal, receiptTotal) : 0;
             gr.payment_type = safePayType;
             gr.amount_paid_at_approval = amountPaid;
             gr.due_date_payable = due_date_payable ? new Date(due_date_payable) : undefined;
@@ -518,10 +540,6 @@ router.patch('/:id/status', requireAuth, requireRole(['manager', 'admin']), asyn
                 payablePaid = totalAmount;
                 payableRemaining = 0;
                 payableStatus = 'paid';
-            } else if (safePayType === 'partial') {
-                payablePaid = Math.min(amountPaid, totalAmount);
-                payableRemaining = Math.max(0, totalAmount - payablePaid);
-                payableStatus = payableRemaining <= 0 ? 'paid' : 'partial';
             }
 
             const [newPayable] = await SupplierPayable.create(

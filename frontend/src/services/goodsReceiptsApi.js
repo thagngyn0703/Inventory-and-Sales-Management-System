@@ -7,6 +7,7 @@ function getToken() {
 /**
  * @param {string|{
  *   status?: string,
+ *   supplier_id?: string,
  *   page?: number,
  *   limit?: number,
  *   q?: string
@@ -17,6 +18,7 @@ export async function getGoodsReceipts(input = '') {
     const isObject = typeof input === 'object' && input !== null;
     const opts = isObject ? input : {};
     const status = isObject ? (opts.status ?? '') : String(input || '');
+    const supplierId = isObject ? String(opts.supplier_id || '').trim() : '';
     const page = isObject ? Math.max(1, Number(opts.page) || 1) : 1;
     const limit = isObject ? Math.max(1, Number(opts.limit) || 10) : 100;
     const q = isObject ? String(opts.q || '').trim() : '';
@@ -26,6 +28,7 @@ export async function getGoodsReceipts(input = '') {
     url.searchParams.set('page', String(page));
     url.searchParams.set('limit', String(limit));
     if (status) url.searchParams.set('status', status);
+    if (supplierId) url.searchParams.set('supplier_id', supplierId);
     if (q) url.searchParams.set('q', q);
     const res = await fetch(url.toString(), {
         headers: { Authorization: `Bearer ${token}` },

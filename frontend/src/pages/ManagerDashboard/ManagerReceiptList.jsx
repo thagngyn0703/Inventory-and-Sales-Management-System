@@ -4,6 +4,7 @@ import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { ClipboardList } from 'lucide-react';
 import { getGoodsReceipts, setGoodsReceiptStatus } from '../../services/goodsReceiptsApi';
+import { getSuppliers } from '../../services/suppliersApi';
 import { useToast } from '../../contexts/ToastContext';
 import { ConfirmDialog } from '../../components/ui/confirm-dialog';
 import { Button } from '../../components/ui/button';
@@ -26,8 +27,10 @@ export default function ManagerReceiptList() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+  const [filterSupplierId, setFilterSupplierId] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [sortByPrice, setSortByPrice] = useState(null);
+  const [suppliers, setSuppliers] = useState([]);
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmLoading, setConfirmLoading] = useState(false);
@@ -38,19 +41,37 @@ export default function ManagerReceiptList() {
     setLoading(true);
     setError('');
     try {
-      const data = await getGoodsReceipts(filterStatus);
-      const filtered = (data || []).filter((r) => r.status !== 'draft');
+      const data = await getGoodsReceipts({
+        status: filterStatus || undefined,
+        supplier_id: filterSupplierId || undefined,
+        page: 1,
+        limit: 200,
+      });
+      const filtered = (data.goodsReceipts || []).filter((r) => r.status !== 'draft');
       setReceipts(filtered);
     } catch (err) {
       setError(err.message || 'Không thể tải danh sách phiếu nhập kho');
     } finally {
       setLoading(false);
     }
-  }, [filterStatus]);
+  }, [filterStatus, filterSupplierId]);
+
+  const fetchSuppliers = useCallback(async () => {
+    try {
+      const data = await getSuppliers(1, 1000, '', 'all');
+      setSuppliers(data.suppliers || []);
+    } catch (err) {
+      toast(err.message || 'Không thể tải danh sách nhà cung cấp', 'error');
+    }
+  }, [toast]);
 
   useEffect(() => {
     fetchReceipts();
   }, [fetchReceipts]);
+
+  useEffect(() => {
+    fetchSuppliers();
+  }, [fetchSuppliers]);
 
   const handleSortPrice = () => {
     if (sortByPrice === null) setSortByPrice('asc');
@@ -144,6 +165,16 @@ export default function ManagerReceiptList() {
                     />
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
+                    <select
+                      value={filterSupplierId}
+                      onChange={(e) => setFilterSupplierId(e.target.value)}
+                      className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-teal-200/80 focus:ring-2"
+                    >
+                      <option value="">Tất cả nhà cung cấp</option>
+                      {suppliers.map((s) => (
+                        <option key={s._id} value={s._id}>{s.name}</option>
+                      ))}
+                    </select>
                     <select
                       value={filterStatus}
                       onChange={(e) => setFilterStatus(e.target.value)}

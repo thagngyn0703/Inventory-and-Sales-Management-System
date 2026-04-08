@@ -24,6 +24,7 @@ const STATUS_LABEL = {
 };
 
 const PAGE_SIZE = 10;
+const consumedSuccessToasts = new Set();
 
 function statusPillClass(status) {
   if (status === 'pending') {
@@ -98,11 +99,13 @@ export default function WarehouseGoodsReceiptList() {
 
   useEffect(() => {
     const stateMessage = location.state?.success;
-    if (stateMessage) {
+    const toastKey = `${location.key || location.pathname}:${stateMessage || ''}`;
+    if (stateMessage && !consumedSuccessToasts.has(toastKey)) {
+      consumedSuccessToasts.add(toastKey);
       toast(stateMessage, 'success');
-      window.history.replaceState({}, document.title, location.pathname + location.search);
+      navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
     }
-  }, [location.state, location.pathname, location.search, toast]);
+  }, [location.state, location.pathname, location.search, location.key, toast, navigate]);
 
   const formatDate = (d) => {
     if (!d) return '—';

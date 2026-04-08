@@ -11,7 +11,6 @@ import './ManagerDashboard.css';
 
 const PAYMENT_TYPE_LABEL = {
     cash: 'Trả đủ ngay',
-    partial: 'Trả một phần',
     credit: 'Ghi nợ (trả sau)',
 };
 
@@ -28,7 +27,6 @@ export default function ManagerReceiptDetail() {
     const [rejectionReason, setRejectionReason] = useState('');
     // Thanh toán NCC khi duyệt
     const [paymentType, setPaymentType] = useState('credit');
-    const [amountPaid, setAmountPaid] = useState('');
     const [dueDatePayable, setDueDatePayable] = useState('');
     const [editItems, setEditItems] = useState([]);
 
@@ -68,27 +66,6 @@ export default function ManagerReceiptDetail() {
         );
     };
 
-    const handleSaveManagerAdjustments = async () => {
-        if (!receipt || receipt.status !== 'pending') return;
-        setSubmitting(true);
-        try {
-            const payload = editItems.map((it) => ({
-                product_id: it.product_id,
-                quantity: it.quantity,
-                unit_cost: it.unit_cost,
-                sale_price: it.sale_price,
-                price_gap_note: it.price_gap_note,
-            }));
-            const updated = await updateGoodsReceiptItems(receipt._id, payload);
-            setReceipt(updated);
-            toast('Đã cập nhật phiếu nhập, đồng thời cập nhật giá gốc và giá bán trên sản phẩm.', 'success');
-        } catch (e) {
-            toast(e.message || 'Không thể cập nhật phiếu nhập', 'error');
-        } finally {
-            setSubmitting(false);
-        }
-    };
-
     useEffect(() => {
         fetchReceipt();
     }, [fetchReceipt]);
@@ -99,18 +76,27 @@ export default function ManagerReceiptDetail() {
             toast('Vui lòng nhập lý do từ chối', 'error');
             return;
         }
-        if (confirmType === 'approve' && paymentType === 'partial') {
-            const v = Number(amountPaid);
-            if (!v || v <= 0) { toast('Vui lòng nhập số tiền đã trả', 'error'); return; }
-            if (v >= Number(receipt?.total_amount)) { toast('Nếu trả đủ, hãy chọn "Trả đủ ngay"', 'error'); return; }
-        }
         setSubmitting(true);
         try {
+            let effectiveReceipt = receipt;
+            if (confirmType === 'approve' && receipt?.status === 'pending') {
+                const payload = editItems.map((it) => ({
+                    product_id: it.product_id,
+                    quantity: it.quantity,
+                    unit_cost: it.unit_cost,
+                    sale_price: it.sale_price,
+                    price_gap_note: it.price_gap_note,
+                }));
+                const updated = await updateGoodsReceiptItems(receipt._id, payload);
+                setReceipt(updated);
+                effectiveReceipt = updated;
+            }
+
             const status = confirmType === 'approve' ? 'approved' : 'rejected';
             const extra = confirmType === 'approve' ? {
                 payment_type: paymentType,
-                amount_paid_at_approval: paymentType === 'cash' ? Number(receipt?.total_amount) : (paymentType === 'partial' ? Number(amountPaid) : 0),
-                due_date_payable: (paymentType === 'credit' || paymentType === 'partial') && dueDatePayable ? dueDatePayable : undefined,
+                amount_paid_at_approval: paymentType === 'cash' ? Number(effectiveReceipt?.total_amount) : 0,
+                due_date_payable: paymentType === 'credit' && dueDatePayable ? dueDatePayable : undefined,
             } : {};
             await setGoodsReceiptStatus(id, status, rejectionReason.trim() || undefined, extra);
             toast(
@@ -306,7 +292,7 @@ export default function ManagerReceiptDetail() {
                 <h2 style={{ fontSize: 18, marginBottom: 8, borderBottom: '1px solid #e5e7eb', paddingBottom: 8 }}>Sản phẩm nhập kho</h2>
                 {receipt.status === 'pending' && (
                     <p style={{ margin: '0 0 16px', fontSize: 13, color: '#64748b', lineHeight: 1.5 }}>
-                        Bấm <strong>Lưu điều chỉnh giá</strong> để ghi đơn giá nhập đúng theo hóa đơn NCC và cập nhật <strong>giá gốc</strong> / <strong>giá bán</strong> trên từng sản phẩm trước khi duyệt nhập kho.
+                        Khi bấm <strong>Duyệt phiếu nhập</strong>, hệ thống sẽ tự lưu đơn giá đã điều chỉnh và cập nhật <strong>giá gốc</strong> / <strong>giá bán</strong> trên từng sản phẩm trước khi nhập kho.
                     </p>
                 )}
                 <div style={{ overflowX: 'auto' }}>
@@ -427,13 +413,6 @@ export default function ManagerReceiptDetail() {
                         </button>
                         <button
                             disabled={submitting}
-                            style={{ padding: '10px 20px', borderRadius: 6, cursor: submitting ? 'not-allowed' : 'pointer', backgroundColor: '#0ea5e9', color: 'white', border: 'none', fontSize: 15, fontWeight: 500 }}
-                            onClick={handleSaveManagerAdjustments}
-                        >
-                            Lưu điều chỉnh giá
-                        </button>
-                        <button
-                            disabled={submitting}
                             style={{ padding: '10px 20px', borderRadius: 6, cursor: submitting ? 'not-allowed' : 'pointer', backgroundColor: '#ef4444', color: 'white', border: 'none', fontSize: 15, fontWeight: 500 }}
                             onClick={() => { setRejectionReason(''); setConfirmType('reject'); setConfirmOpen(true); }}
                         >
@@ -472,7 +451,6 @@ export default function ManagerReceiptDetail() {
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                                 {[
                                     { value: 'cash', label: 'Trả đủ ngay', desc: 'Thanh toán toàn bộ ngay hôm nay' },
-                                    { value: 'partial', label: 'Trả một phần', desc: 'Trả trước một phần, còn lại ghi nợ' },
                                     { value: 'credit', label: 'Ghi nợ (trả sau)', desc: 'Chưa thanh toán, sẽ trả theo hạn' },
                                 ].map((opt) => (
                                     <label key={opt.value} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer', padding: '8px 10px', borderRadius: 8, border: `1.5px solid ${paymentType === opt.value ? '#0ea5e9' : '#e5e7eb'}`, backgroundColor: paymentType === opt.value ? '#f0f9ff' : 'white' }}>
@@ -485,21 +463,7 @@ export default function ManagerReceiptDetail() {
                                 ))}
                             </div>
                         </div>
-                        {paymentType === 'partial' && (
-                            <div>
-                                <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>
-                                    Số tiền trả ngay (đ) <span style={{ color: '#ef4444' }}>*</span>
-                                </label>
-                                <input
-                                    type="number" min="1"
-                                    placeholder={`Tối đa ${Number(receipt?.total_amount || 0).toLocaleString('vi-VN')} đ`}
-                                    value={amountPaid}
-                                    onChange={(e) => setAmountPaid(e.target.value)}
-                                    style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 14, outline: 'none' }}
-                                />
-                            </div>
-                        )}
-                        {(paymentType === 'credit' || paymentType === 'partial') && (
+                        {paymentType === 'credit' && (
                             <div>
                                 <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>
                                     Hạn thanh toán

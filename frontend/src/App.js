@@ -35,7 +35,6 @@ import ManagerStocktakePending from "./pages/ManagerDashboard/ManagerStocktakePe
 import ManagerStocktakeDetail from "./pages/ManagerDashboard/ManagerStocktakeDetail";
 import ManagerAdjustmentList from "./pages/ManagerDashboard/ManagerAdjustmentList";
 import ManagerAdjustmentDetail from "./pages/ManagerDashboard/ManagerAdjustmentDetail";
-import ManagerIncomingTransactionsBySupplier from "./pages/ManagerDashboard/ManagerIncomingTransactionsBySupplier";
 import ManagerSupplierList from "./pages/ManagerDashboard/ManagerSupplierList";
 import ManagerSupplierCreate from "./pages/ManagerDashboard/ManagerSupplierCreate";
 import ManagerSupplierEdit from "./pages/ManagerDashboard/ManagerSupplierEdit";
@@ -151,7 +150,6 @@ function App() {
       <Route path="/manager/stocktakes/:id" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerStocktakeDetail /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/adjustments" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerAdjustmentList /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/adjustments/:id" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerAdjustmentDetail /></RequireManagerStore></RequireRole></RequireAuth>} />
-      <Route path="/manager/incoming-transactions" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerIncomingTransactionsBySupplier /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/receipts" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerReceiptList /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/receipts/:id" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerReceiptDetail /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/product-requests" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerProductRequests /></RequireManagerStore></RequireRole></RequireAuth>} />
