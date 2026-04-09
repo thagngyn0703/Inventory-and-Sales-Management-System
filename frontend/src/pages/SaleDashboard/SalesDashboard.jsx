@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Outlet, useLocation } from 'react-router-dom';
+import { Outlet, useLocation, Link } from 'react-router-dom';
 import SalesSidebar from './SalesSidebar';
 import './SalesDashboard.css';
 
@@ -27,7 +27,8 @@ export default function SalesDashboard() {
       .catch(() => {});
   }, []);
 
-  const roleLabel = currentUser?.role === 'manager' ? 'Quản lý' : 'Nhân viên';
+  const isManagerInStaffMode = currentUser?.role === 'manager';
+  const roleLabel = isManagerInStaffMode ? 'Quản lý' : 'Nhân viên';
   const storeName = currentUser?.storeName || '';
   const displayName = currentUser?.fullName || currentUser?.email || roleLabel;
   const toggleSidebar = () => setSidebarCollapsed((c) => !c);
@@ -51,6 +52,17 @@ export default function SalesDashboard() {
           </button>
 
           <div className="min-w-0 flex-1" />
+
+          {isManagerInStaffMode && (
+            <Link
+              to="/manager"
+              className="inline-flex h-9 shrink-0 items-center gap-2 rounded-lg border border-white/35 bg-white/15 px-3 text-xs font-semibold text-white shadow-sm transition hover:bg-white/25"
+              title="Quay lại giao diện quản lý"
+            >
+              <i className="fa-solid fa-arrow-left" />
+              Quay lại Manager
+            </Link>
+          )}
 
           <div className="sales-user-badge flex max-w-none flex-wrap items-center justify-end gap-x-2 gap-y-1 rounded-full border border-white/30 bg-white/15 py-1.5 pl-1.5 pr-3 text-[11px] font-semibold text-white shadow-sm backdrop-blur-sm">
             <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/25 text-[10px] text-white shadow-inner ring-1 ring-white/40">
