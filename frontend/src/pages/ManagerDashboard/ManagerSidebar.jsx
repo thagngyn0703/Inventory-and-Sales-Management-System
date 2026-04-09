@@ -10,6 +10,7 @@ import {
   ClipboardCheck,
   ClipboardList,
   CreditCard,
+  Drill,
   FileStack,
   FileText,
   Handshake,
@@ -48,6 +49,7 @@ const manageItems = [
   { label: 'Kiểm kê chờ duyệt', path: '/manager/stocktakes/pending', icon: ClipboardCheck },
   { label: 'Phiếu nhập chờ duyệt', path: '/manager/receipts', icon: ClipboardList },
   { label: 'Lịch sử điều chỉnh', path: '/manager/adjustments', icon: History },
+  { label: 'Chuyển sang chế độ Staff', path: '/staff', icon: Drill },
   { label: 'Tạo tài khoản nhân viên', path: '/manager/staff/new', icon: UserPlus },
   { label: 'Quản lý nhân viên', path: '/manager/staff/manage', icon: UsersRound },
   { label: 'Cài đặt', path: '/manager/settings', icon: Settings },
@@ -68,6 +70,7 @@ function getActivePath(pathname) {
   if (pathname.startsWith('/manager/invoices')) return '/manager/invoices';
   if (pathname.startsWith('/manager/supplier-payables/report')) return '/manager/supplier-payables/report';
   if (pathname.startsWith('/manager/supplier-payables')) return '/manager/supplier-payables';
+  if (pathname.startsWith('/staff')) return '/staff';
   return pathname;
 }
 

@@ -52,6 +52,14 @@ function requireRole(allowedRoles, options = {}) {
   const allowed = (allowedRoles || []).map((r) => String(r).toLowerCase());
   const allowManagerWithoutStore = Boolean(options.allowManagerWithoutStore);
   const allowLockedStoreForManager = Boolean(options.allowLockedStoreForManager);
+  const canRoleAccess = (role) => {
+    if (allowed.includes(role)) return true;
+    // Hierarchy: manager inherits staff permissions.
+    if (role === 'manager' && allowed.includes('staff')) return true;
+    // Admin can access manager/staff endpoints too.
+    if (role === 'admin' && (allowed.includes('manager') || allowed.includes('staff'))) return true;
+    return false;
+  };
 
   return (req, res, next) => {
     const raw = String(req.user?.role || '').toLowerCase();
@@ -77,7 +85,7 @@ function requireRole(allowedRoles, options = {}) {
       });
     }
 
-    if (allowed.includes(role)) return next();
+    if (canRoleAccess(role)) return next();
     return res.status(403).json({ message: 'Forbidden' });
   };
 }
