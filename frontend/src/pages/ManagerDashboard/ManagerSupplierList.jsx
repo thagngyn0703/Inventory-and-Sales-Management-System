@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import ManagerSidebar from './ManagerSidebar';
-import ManagerNotificationBell from '../../components/ManagerNotificationBell';
+import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
+import { StaffPageShell } from '../../components/staff/StaffPageShell';
+import { Handshake } from 'lucide-react';
 import { getSuppliers, setSupplierStatus } from '../../services/suppliersApi';
+import { useToast } from '../../contexts/ToastContext';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
 
@@ -19,8 +21,8 @@ export default function ManagerSupplierList() {
     const [searchInput, setSearchInput] = useState('');
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
-    const [successMessage, setSuccessMessage] = useState('');
     const [togglingId, setTogglingId] = useState(null);
+    const { toast } = useToast();
 
     const fetchList = useCallback(async () => {
         setLoading(true);
@@ -46,11 +48,11 @@ export default function ManagerSupplierList() {
     useEffect(() => {
         const stateMessage = location.state?.success;
         if (stateMessage) {
-            setSuccessMessage(stateMessage);
+            toast(stateMessage, 'success');
             setError('');
             window.history.replaceState({}, document.title, location.pathname + location.search);
         }
-    }, [location.state]);
+    }, [location.state, location.pathname, location.search, toast]);
 
     const handleSearchSubmit = (e) => {
         e.preventDefault();
@@ -64,10 +66,11 @@ export default function ManagerSupplierList() {
         setTogglingId(s._id);
         try {
             await setSupplierStatus(s._id, nextStatus);
-            setSuccessMessage(nextStatus === 'active' ? 'Đã kích hoạt nhà cung cấp.' : 'Đã ngừng nhà cung cấp.');
+            toast(nextStatus === 'active' ? 'Đã kích hoạt nhà cung cấp.' : 'Đã ngừng nhà cung cấp.', 'success');
             fetchList();
         } catch (err) {
             setError(err.message || 'Không thể đổi trạng thái');
+            toast(err.message || 'Không thể đổi trạng thái', 'error');
         } finally {
             setTogglingId(null);
         }
@@ -82,55 +85,39 @@ export default function ManagerSupplierList() {
     const end = Math.min(page * LIMIT, total);
 
     return (
-        <div className="manager-page-with-sidebar">
-            <ManagerSidebar />
-            <div className="manager-main">
-                <header className="manager-topbar">
-                    <div className="manager-topbar-search-wrap" />
-                    <div className="manager-topbar-actions">
-                        <ManagerNotificationBell />
-                        <div className="manager-user-badge">
-                            <i className="fa-solid fa-circle-user" />
-                            <span>Quản lý</span>
-                        </div>
-                    </div>
-                </header>
-
-                <div className="manager-content">
-                    <div className="manager-products-header">
-                        <div>
-                            <h1 className="manager-page-title">Nhà cung cấp</h1>
-                            <p className="manager-page-subtitle">Quản lý danh sách nhà cung cấp</p>
-                        </div>
-                        <div className="manager-supplier-header-actions">
-                            <form onSubmit={handleSearchSubmit} className="manager-supplier-search-form">
-                                <input
-                                    type="search"
-                                    className="manager-supplier-search-input"
-                                    placeholder="Tên nhà cung cấp"
-                                    value={searchInput}
-                                    onChange={(e) => setSearchInput(e.target.value)}
-                                />
-                                <button type="submit" className="manager-btn-secondary manager-supplier-search-btn" aria-label="Tìm kiếm">
-                                    <i className="fa-solid fa-search" /> Tìm
-                                </button>
-                            </form>
-                            <button
-                                type="button"
-                                className="manager-btn-primary"
-                                onClick={() => navigate('/manager/suppliers/new')}
-                            >
-                                <i className="fa-solid fa-plus" /> Thêm nhà cung cấp
+        <ManagerPageFrame showNotificationBell>
+            <StaffPageShell
+                eyebrow="Mua hàng & NCC"
+                eyebrowIcon={Handshake}
+                title="Nhà cung cấp"
+                subtitle="Quản lý danh sách nhà cung cấp, công nợ và trạng thái hợp tác."
+                headerActions={
+                    <div className="manager-supplier-header-actions flex flex-wrap items-center gap-2">
+                        <form onSubmit={handleSearchSubmit} className="manager-supplier-search-form">
+                            <input
+                                type="search"
+                                className="manager-supplier-search-input"
+                                placeholder="Tên nhà cung cấp"
+                                value={searchInput}
+                                onChange={(e) => setSearchInput(e.target.value)}
+                            />
+                            <button type="submit" className="manager-btn-secondary manager-supplier-search-btn" aria-label="Tìm kiếm">
+                                <i className="fa-solid fa-search" /> Tìm
                             </button>
-                        </div>
+                        </form>
+                        <button
+                            type="button"
+                            className="manager-btn-primary"
+                            onClick={() => navigate('/manager/suppliers/new')}
+                        >
+                            <i className="fa-solid fa-plus" /> Thêm nhà cung cấp
+                        </button>
                     </div>
-
-                    {successMessage && (
-                        <div className="manager-products-success">{successMessage}</div>
-                    )}
+                }
+            >
                     {error && <div className="manager-products-error">{error}</div>}
 
-                    <div className="manager-panel-card manager-products-card">
+                    <div className="manager-panel-card manager-products-card rounded-2xl border border-slate-200/80 shadow-sm">
                         {loading ? (
                             <p className="manager-products-loading">Đang tải...</p>
                         ) : (
@@ -230,8 +217,7 @@ export default function ManagerSupplierList() {
                             </>
                         )}
                     </div>
-                </div>
-            </div>
-        </div>
+            </StaffPageShell>
+        </ManagerPageFrame>
     );
 }

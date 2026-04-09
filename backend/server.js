@@ -23,6 +23,9 @@ const adminDashboardRoutes = require('./routes/adminDashboard');
 const userRoutes = require('./routes/users');
 const rbacRoutes = require('./routes/rbac');
 const paymentRoutes = require('./routes/payments');
+const aiRoutes = require('./routes/ai');
+const supplierPayableRoutes = require('./routes/supplierPayables');
+const supportTicketRoutes = require('./routes/supportTickets');
 const { hasSmtpConfig } = require('./services/emailService');
 
 const app = express();
@@ -68,6 +71,9 @@ app.use('/api/admin/dashboard', adminDashboardRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/admin/rbac', rbacRoutes);
 app.use('/api/payments', paymentRoutes);
+app.use('/api/ai', aiRoutes);
+app.use('/api/supplier-payables', supplierPayableRoutes);
+app.use('/api/support-tickets', supportTicketRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

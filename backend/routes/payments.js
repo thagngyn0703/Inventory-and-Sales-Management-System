@@ -2,6 +2,7 @@ const express = require('express');
 const crypto = require('crypto');
 const SalesInvoice = require('../models/SalesInvoice');
 const PaymentTransaction = require('../models/PaymentTransaction');
+const { settlePreviousDebtIfNeeded } = require('../utils/invoiceDebtSettlement');
 const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
@@ -83,7 +84,8 @@ async function reconcileInvoiceFromSepay(invoice) {
 
   const ref = String(invoice.payment_ref).trim().toUpperCase();
   const normalizedRef = normalizePaymentRef(ref);
-  const targetAmount = parseAmount(invoice.total_amount);
+  // Số tiền thực thu = tiền hàng + nợ cũ trả cùng (nếu có)
+  const targetAmount = parseAmount(invoice.total_amount) + parseAmount(invoice.previous_debt_paid);
   const accountFilter = String(process.env.SEPAY_ACCOUNT_NUMBER || '').trim();
 
   let transactions = [];
@@ -109,6 +111,8 @@ async function reconcileInvoiceFromSepay(invoice) {
   invoice.payment_status = 'paid';
   invoice.paid_at = new Date();
   await invoice.save();
+
+  await settlePreviousDebtIfNeeded(invoice._id);
 
   // Lưu transaction nếu chưa có (idempotent)
   const providerTxnId = String(matchedTx.id || matchedTx.reference_number || `${ref}-${targetAmount}`);
@@ -234,6 +238,8 @@ router.post('/sepay/webhook', express.raw({ type: 'application/json' }), async (
       matchedInvoice.paid_at = new Date();
       await matchedInvoice.save();
 
+      await settlePreviousDebtIfNeeded(matchedInvoice._id);
+
       console.log(`[SePay Webhook] Matched invoice ${matchedInvoice._id} with ref ${paymentRef}, amount ${amount}`);
     } else {
       txn.status = 'unmatched';
@@ -264,7 +270,7 @@ router.get('/status/:paymentRef', requireAuth, requireRole(['staff', 'manager', 
     if (!paymentRef) return res.status(400).json({ message: 'paymentRef is required' });
 
     const invoice = await SalesInvoice.findOne({ payment_ref: paymentRef.toUpperCase() })
-      .select('payment_status paid_at total_amount payment_ref store_id payment_method');
+      .select('payment_status paid_at total_amount previous_debt_paid payment_ref store_id payment_method');
 
     if (!invoice) {
       return res.status(404).json({ message: 'Không tìm thấy hóa đơn' });

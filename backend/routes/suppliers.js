@@ -1,9 +1,24 @@
 const express = require('express');
 const mongoose = require('mongoose');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+const crypto = require('crypto');
 const Supplier = require('../models/Supplier');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const { ensureCloudinaryConfigured, hasCloudinaryConfig } = require('../services/cloudinary');
 
 const router = express.Router();
+
+const uploadSupplierQr = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 4 * 1024 * 1024, files: 1 },
+  fileFilter: (req, file, cb) => {
+    const ok = String(file.mimetype || '').startsWith('image/');
+    if (ok) cb(null, true);
+    else cb(new Error('Chỉ chấp nhận file ảnh'));
+  },
+});
 
 function escapeRegex(s) {
   return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -12,6 +27,14 @@ function escapeRegex(s) {
 function normalizeStr(v) {
   const s = v != null ? String(v).trim() : '';
   return s || '';
+}
+
+function normalizeUrl(v) {
+  const s = normalizeStr(v);
+  if (!s) return '';
+  if (/^https?:\/\//i.test(s) || s.startsWith('/')) return s;
+  // Cho phép nhập domain trần; tự thêm https để tiện dùng.
+  return `https://${s}`;
 }
 
 function normalizeContacts(contacts) {
@@ -25,6 +48,50 @@ function normalizeContacts(contacts) {
       note: c?.note != null ? String(c.note).trim() : '',
     }))
     .filter((c) => c.name || c.phone || c.email || c.position || c.note);
+}
+
+function uploadBufferToCloudinary(buffer, folder = 'ims/suppliers/qr') {
+  const cloud = ensureCloudinaryConfigured();
+  return new Promise((resolve, reject) => {
+    const stream = cloud.uploader.upload_stream(
+      { folder, resource_type: 'image' },
+      (err, result) => {
+        if (err) return reject(err);
+        resolve(result);
+      }
+    );
+    stream.end(buffer);
+  });
+}
+
+const LOCAL_SUPPLIER_UPLOAD_DIR = path.join(__dirname, '..', 'uploads', 'suppliers');
+
+async function ensureLocalUploadDir() {
+  await fs.promises.mkdir(LOCAL_SUPPLIER_UPLOAD_DIR, { recursive: true });
+}
+
+function extensionFromMimetype(mimetype) {
+  const map = {
+    'image/jpeg': '.jpg',
+    'image/jpg': '.jpg',
+    'image/png': '.png',
+    'image/webp': '.webp',
+    'image/gif': '.gif',
+  };
+  return map[String(mimetype || '').toLowerCase()] || '.jpg';
+}
+
+async function uploadBufferToLocal(file, req) {
+  await ensureLocalUploadDir();
+  const ext = extensionFromMimetype(file.mimetype);
+  const fileName = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}${ext}`;
+  const fullPath = path.join(LOCAL_SUPPLIER_UPLOAD_DIR, fileName);
+  await fs.promises.writeFile(fullPath, file.buffer);
+  const origin = `${req.protocol}://${req.get('host')}`;
+  return {
+    secure_url: `${origin}/uploads/suppliers/${fileName}`,
+    public_id: `local/suppliers/${fileName}`,
+  };
 }
 
 function getSupplierScopeFilter(req) {
@@ -63,6 +130,38 @@ async function findSupplierDuplicate({ scopeFilter = {}, excludeId, code, tax_co
   return Supplier.findOne(filter).select('_id code name tax_code').lean();
 }
 
+// POST /api/suppliers/upload-qr (manager, admin) - upload 1 ảnh QR
+router.post(
+  '/upload-qr',
+  requireAuth,
+  requireRole(['manager', 'admin']),
+  (req, res, next) => {
+    uploadSupplierQr.single('image')(req, res, (err) => {
+      if (err) return res.status(400).json({ message: err.message || 'Lỗi upload ảnh QR' });
+      next();
+    });
+  },
+  async (req, res) => {
+    try {
+      const file = req.file;
+      if (!file) return res.status(400).json({ message: 'Vui lòng chọn file ảnh QR' });
+      let result;
+      if (hasCloudinaryConfig()) {
+        result = await uploadBufferToCloudinary(file.buffer);
+      } else {
+        result = await uploadBufferToLocal(file, req);
+      }
+      return res.json({
+        image: { url: result.secure_url, public_id: result.public_id },
+        bank_qr_image_url: result.secure_url,
+      });
+    } catch (err) {
+      console.error('Upload supplier QR error:', err);
+      return res.status(500).json({ message: err.message || 'Không thể upload ảnh QR' });
+    }
+  }
+);
+
 // POST /api/suppliers  (manager, admin)
 router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
   try {
@@ -78,6 +177,7 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
       note,
       status,
       payable_account,
+      bank_qr_image_url,
     } = req.body || {};
 
     if (!name || !String(name).trim()) {
@@ -103,6 +203,7 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
       note: note != null && String(note).trim() ? String(note).trim() : undefined,
       status: status === 'inactive' ? 'inactive' : 'active',
       payable_account: payable_account != null ? Number(payable_account) || 0 : undefined,
+      bank_qr_image_url: bank_qr_image_url != null ? normalizeUrl(bank_qr_image_url) || undefined : undefined,
       storeId:
         String(req.user?.role || '').toLowerCase() === 'admin'
           ? (req.body?.storeId && mongoose.isValidObjectId(req.body.storeId) ? req.body.storeId : undefined)
@@ -218,6 +319,7 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
       note,
       status,
       payable_account,
+      bank_qr_image_url,
     } = req.body || {};
 
     const nextCode = code !== undefined ? normalizeStr(code) : normalizeStr(supplier.code);
@@ -247,6 +349,9 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
     if (note !== undefined) supplier.note = note && String(note).trim() ? String(note).trim() : undefined;
     if (status !== undefined) supplier.status = status === 'inactive' ? 'inactive' : 'active';
     if (payable_account !== undefined) supplier.payable_account = Number(payable_account) || 0;
+    if (bank_qr_image_url !== undefined) {
+      supplier.bank_qr_image_url = normalizeUrl(bank_qr_image_url) || undefined;
+    }
     if (contacts !== undefined) supplier.contacts = normalizeContacts(contacts);
 
     supplier.updated_at = new Date();

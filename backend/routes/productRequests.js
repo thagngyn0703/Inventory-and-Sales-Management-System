@@ -32,12 +32,15 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
       name,
       sku,
       barcode,
+      supplier_id: bodySupplierId,
       cost_price,
       sale_price,
       stock_qty,
       reorder_level,
       base_unit,
       selling_units: bodyUnits,
+      expiry_date: bodyExpiry,
+      image_urls: bodyImageUrls,
       note
     } = req.body || {};
 
@@ -71,11 +74,30 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
     const baseUnit = selling_units.find((u) => u.ratio === 1);
     const baseUnitPrice = baseUnit ? baseUnit.sale_price : (Number(sale_price) || 0);
 
+    let image_urls = Array.isArray(bodyImageUrls)
+      ? bodyImageUrls.map((u) => String(u || '').trim()).filter(Boolean).slice(0, 3)
+      : [];
+    if (image_urls.length === 0) image_urls = undefined;
+
+    let expiry_date;
+    if (bodyExpiry) {
+      const d = new Date(bodyExpiry);
+      if (!Number.isNaN(d.getTime())) expiry_date = d;
+    }
+
+    const supplier_id = bodySupplierId && mongoose.isValidObjectId(bodySupplierId)
+      ? bodySupplierId
+      : undefined;
+
     const doc = await ProductRequest.create({
       category_id: category_id && mongoose.isValidObjectId(category_id) ? category_id : undefined,
+      storeId: req.user.storeId,
       name: String(name).trim(),
       sku: String(sku).trim(),
       barcode: barcode ? String(barcode).trim() : undefined,
+      supplier_id,
+      image_urls,
+      expiry_date,
       cost_price: Number(cost_price || 0),
       sale_price: baseUnitPrice,
       stock_qty: Number(stock_qty || 0),
@@ -98,15 +120,20 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
   }
 });
 
-// GET /api/product-requests (manager, admin)
-router.get('/', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
+// GET /api/product-requests (staff, manager, admin)
+router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
   try {
-    const { q = '', page = '1', limit = '20', status } = req.query;
+    const { q = '', page = '1', limit = '20', status, sortBy = 'created_at', order = 'desc' } = req.query;
     const query = String(q || '').trim();
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
 
     const filter = {};
+    const role = String(req.user.role).toLowerCase();
+    if (['manager', 'staff'].includes(role) && req.user.storeId) {
+        filter.storeId = req.user.storeId;
+    }
+
     if (status) {
       filter.status = status;
     }
@@ -115,12 +142,15 @@ router.get('/', requireAuth, requireRole(['manager', 'admin']), async (req, res)
       filter.$or = [{ name: re }, { sku: re }, { barcode: re }];
     }
 
+    const sortObj = {};
+    sortObj[sortBy] = order === 'asc' ? 1 : -1;
+
     const total = await ProductRequest.countDocuments(filter);
     const skip = (pageNum - 1) * limitNum;
     const requests = await ProductRequest.find(filter)
-      .populate('requested_by', 'name email role')
-      .populate('approved_by', 'name email role')
-      .sort({ created_at: -1 })
+      .populate('requested_by', 'fullName email role')
+      .populate('approved_by', 'fullName email role')
+      .sort(sortObj)
       .skip(skip)
       .limit(limitNum)
       .lean();
@@ -135,6 +165,7 @@ router.get('/', requireAuth, requireRole(['manager', 'admin']), async (req, res)
       totalPages: Math.ceil(total / limitNum) || 1,
     });
   } catch (err) {
+    console.error('List product requests error:', err);
     return res.status(500).json({ message: 'Server error' });
   }
 });
@@ -171,18 +202,22 @@ router.post('/:id/approve', requireAuth, requireRole(['manager', 'admin']), asyn
       return res.status(400).json({ message: `Request is already ${request.status}` });
     }
 
-    // Check if SKU exists
-    const existingProduct = await Product.findOne({ sku: request.sku });
+    // Check if SKU exists in the specific store
+    const existingProduct = await Product.findOne({ sku: request.sku, storeId: request.storeId || null });
     if (existingProduct) {
-      return res.status(409).json({ message: 'sku already exists in Products' });
+      return res.status(409).json({ message: 'sku already exists in this store' });
     }
 
     // Create product
     const newProduct = await Product.create({
       category_id: request.category_id,
+      storeId: request.storeId,
+      supplier_id: request.supplier_id,
       name: request.name,
       sku: request.sku,
       barcode: request.barcode,
+      image_urls: Array.isArray(request.image_urls) && request.image_urls.length ? request.image_urls : [],
+      expiry_date: request.expiry_date,
       cost_price: request.cost_price,
       sale_price: request.sale_price,
       stock_qty: request.stock_qty,

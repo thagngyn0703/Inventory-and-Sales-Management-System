@@ -2,9 +2,14 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getCustomers, createCustomer, updateCustomer, payCustomerDebt } from '../../services/customersApi';
 import { getInvoices } from '../../services/invoicesApi';
+import { useToast } from '../../contexts/ToastContext';
+import { StaffPageShell } from '../../components/staff/StaffPageShell';
+import { Button } from '../../components/ui/button';
+import { Users } from 'lucide-react';
 
-export default function SalesCustomerPage() {
+export default function SalesCustomerPage({ managerMode = false }) {
     const navigate = useNavigate();
+    const { toast } = useToast();
     const [customers, setCustomers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [searchKey, setSearchKey] = useState('');
@@ -15,8 +20,6 @@ export default function SalesCustomerPage() {
     const [newCustomer, setNewCustomer] = useState({ full_name: '', phone: '' });
     const [creatingCustomer, setCreatingCustomer] = useState(false);
     const [customerModalError, setCustomerModalError] = useState('');
-    const [toastMessage, setToastMessage] = useState('');
-
     // Debt Payment Modal state
     const [payDebtModal, setPayDebtModal] = useState({ show: false, customer: null, amount: '', paymentMethod: 'cash' });
     const [isPayingDebt, setIsPayingDebt] = useState(false);
@@ -192,8 +195,7 @@ export default function SalesCustomerPage() {
             await createCustomer({ ...newCustomer, status: 'active', is_regular: true });
             setShowCreateCustomer(false);
             setNewCustomer({ full_name: '', phone: '' });
-            setToastMessage('Thêm khách hàng thành công!');
-            setTimeout(() => setToastMessage(''), 3000);
+            toast('Thêm khách hàng thành công!', 'success');
             fetchCustomers(searchKey);
         } catch (e) {
             setCustomerModalError(e.message || 'Lỗi khi thêm khách hàng mới');
@@ -204,7 +206,7 @@ export default function SalesCustomerPage() {
 
     const handlePayDebt = async () => {
         if (!payDebtModal.amount || Number(payDebtModal.amount) < 0) {
-            alert('Vui lòng nhập số tiền hợp lệ');
+            toast('Vui lòng nhập số tiền hợp lệ', 'error');
             return;
         }
         setIsPayingDebt(true);
@@ -214,34 +216,30 @@ export default function SalesCustomerPage() {
             // Print Receipt
             handlePrintDebtReceipt(payDebtModal.customer, Number(payDebtModal.amount), payDebtModal.paymentMethod);
             
-            setToastMessage('Thanh toán nợ thành công!');
-            setTimeout(() => setToastMessage(''), 3000);
+            toast('Thanh toán nợ thành công!', 'success');
             setPayDebtModal({ show: false, customer: null, amount: '', paymentMethod: 'cash' });
             fetchCustomers(searchKey);
         } catch (e) {
-            alert(e.message || 'Lỗi khi thanh toán nợ');
+            toast(e.message || 'Lỗi khi thanh toán nợ', 'error');
         } finally {
             setIsPayingDebt(false);
         }
     };
 
     return (
-        <div style={{ padding: 24, background: '#f8fafc', minHeight: '100%', display: 'flex', flexDirection: 'column' }}>
-            <header style={{ 
-                background: 'white', padding: '16px 24px', borderRadius: 8,
-                border: '1px solid #e2e8f0', display: 'flex', marginBottom: 20,
-                justifyContent: 'space-between', alignItems: 'center' 
-            }}>
-                <h2 style={{ margin: 0, fontSize: 20, color: '#1e293b' }}>Quản lý Khách hàng</h2>
-                <button 
-                    onClick={() => setShowCreateCustomer(true)}
-                    style={{ background: '#0081ff', color: 'white', border: 'none', padding: '10px 16px', borderRadius: 6, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}
-                >
+        <StaffPageShell
+            eyebrow={managerMode ? 'Quản lý cửa hàng' : 'Bán hàng'}
+            eyebrowIcon={Users}
+            title="Quản lý khách hàng"
+            subtitle="Theo dõi khách hàng, công nợ và lịch sử thanh toán."
+            headerActions={
+                <Button type="button" className="gap-2" onClick={() => setShowCreateCustomer(true)}>
                     <i className="fa-solid fa-plus" /> Thêm khách hàng
-                </button>
-            </header>
-
-            <main style={{ flex: 1 }}>
+                </Button>
+            }
+        >
+            <div className="flex min-h-0 flex-1 flex-col">
+            <main className="flex-1">
                     {error && <div className="warehouse-alert warehouse-alert-error" style={{ marginBottom: 16 }}>{error}</div>}
 
                     <div style={{ background: 'white', borderRadius: 8, border: '1px solid #e2e8f0', padding: 20 }}>
@@ -461,17 +459,6 @@ export default function SalesCustomerPage() {
                 </div>
             )}
 
-            {/* Toast Notification */}
-            {toastMessage && (
-                <div style={{
-                    position: 'fixed', bottom: 40, right: 40, background: '#10b981', color: 'white', padding: '16px 24px', 
-                    borderRadius: 8, boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', zIndex: 9999, fontWeight: 600,
-                    display: 'flex', alignItems: 'center', gap: 12, animation: 'slideUp 0.3s ease-out'
-                }}>
-                    <i className="fa-solid fa-circle-check" style={{ fontSize: 20 }} />
-                    {toastMessage}
-                </div>
-            )}
             {/* Edit Customer Modal */}
             {editCustomerModal.show && (
                 <div style={{
@@ -529,8 +516,7 @@ export default function SalesCustomerPage() {
                                             full_name: editCustomerModal.customer.full_name,
                                             phone: cleanPhone
                                         });
-                                        setToastMessage('Cập nhật khách hàng thành công!');
-                                        setTimeout(() => setToastMessage(''), 3000);
+                                        toast('Cập nhật khách hàng thành công!', 'success');
                                         setEditCustomerModal({ show: false, customer: null, saving: false, error: '' });
                                         fetchCustomers(searchKey);
                                     } catch (e) {
@@ -626,6 +612,7 @@ export default function SalesCustomerPage() {
                     </div>
                 </div>
             )}
-        </div>
+            </div>
+        </StaffPageShell>
     );
 }

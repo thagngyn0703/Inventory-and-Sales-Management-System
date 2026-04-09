@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { Platform } from 'react-bits/lib/modules/Platform';
-import ManagerSidebar from './ManagerSidebar';
-import ManagerNotificationBell from '../../components/ManagerNotificationBell';
+import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
+import { StaffPageShell } from '../../components/staff/StaffPageShell';
+import { LayoutDashboard } from 'lucide-react';
 import {
   getIncomingFrequencyBySupplier,
   getAnalyticsSummary,
@@ -10,33 +11,13 @@ import {
   getRevenueChart,
   getTopProducts,
 } from '../../services/analyticsApi';
+import { getSupplierPayableSummary } from '../../services/supplierPayablesApi';
+import RevenueProfitChart from './RevenueProfitChart';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
 import { Button } from '../../components/ui/button';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
-
-function useCurrentUser() {
-  const [user, setUser] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('user') || 'null'); }
-    catch { return null; }
-  });
-  useEffect(() => {
-    const token = localStorage.getItem('token') || '';
-    if (!token) return;
-    fetch('http://localhost:8000/api/auth/me', {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then(res => res.json().catch(() => ({})))
-      .then(data => {
-        if (!data?.user) return;
-        setUser(data.user);
-        localStorage.setItem('user', JSON.stringify(data.user));
-      })
-      .catch(() => {});
-  }, []);
-  return user;
-}
 
 function fmt(n) {
   if (n == null) return '—';
@@ -49,6 +30,66 @@ function fmt(n) {
 function fmtVND(n) {
   if (n == null) return '—';
   return Number(n).toLocaleString('vi-VN') + '₫';
+}
+
+function prefersReducedMotion() {
+  if (typeof window === 'undefined' || !window.matchMedia) return false;
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+/** Đếm số mượt (requestAnimationFrame, không thêm dependency) */
+function useAnimatedNumber(endValue, { duration = 880 } = {}) {
+  const [display, setDisplay] = useState(0);
+  const completedRef = useRef(0);
+
+  useEffect(() => {
+    if (endValue == null || Number.isNaN(Number(endValue))) return;
+    const target = Number(endValue);
+    const from = completedRef.current;
+
+    if (target === from) {
+      setDisplay(target);
+      return;
+    }
+
+    if (prefersReducedMotion()) {
+      setDisplay(target);
+      completedRef.current = target;
+      return;
+    }
+
+    let start = performance.now();
+    let raf = 0;
+    const easeOutCubic = (t) => 1 - (1 - t) ** 3;
+
+    const tick = (now) => {
+      const elapsed = now - start;
+      const t = Math.min(1, elapsed / duration);
+      const eased = easeOutCubic(t);
+      setDisplay(from + (target - from) * eased);
+      if (t < 1) {
+        raf = requestAnimationFrame(tick);
+      } else {
+        setDisplay(target);
+        completedRef.current = target;
+      }
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [endValue, duration]);
+
+  return display;
+}
+
+function AnimatedProfitVND({ value }) {
+  const n = useAnimatedNumber(value, { duration: 900 });
+  if (value == null) return <>—</>;
+  return (
+    <>
+      {Math.round(n).toLocaleString('vi-VN')}
+      <span style={{ opacity: 0.82, fontWeight: 500 }}>₫</span>
+    </>
+  );
 }
 
 function fmtPct(n, showPlus = true) {
@@ -66,8 +107,12 @@ function getMonday() {
   return d.toISOString().slice(0, 10);
 }
 
+/** Chuỗi YYYY-MM-DD theo lịch máy người dùng (tránh lệch ngày so với toISOString/UTC). */
 function toDateStr(d) {
-  return d.toISOString().slice(0, 10);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 const PERIOD_OPTIONS = [
@@ -80,61 +125,9 @@ const PERIOD_OPTIONS = [
 const MONTH_NAMES = ['Tháng 1','Tháng 2','Tháng 3','Tháng 4','Tháng 5','Tháng 6',
   'Tháng 7','Tháng 8','Tháng 9','Tháng 10','Tháng 11','Tháng 12'];
 
-// ─── Mini bar chart (SVG, không cần thư viện) ────────────────────────────────
-
-function RevenueBarChart({ data }) {
-  if (!data || data.length === 0) {
-    return <p style={{ padding: 24, textAlign: 'center', color: '#9ca3af', fontSize: 14 }}>Chưa có dữ liệu</p>;
-  }
-  const maxRev = Math.max(...data.map(d => d.revenue), 1);
-  const W = 600, H = 160, padL = 8, padR = 8, padTop = 12, padBot = 28;
-  const barW = Math.max(4, Math.floor((W - padL - padR) / data.length) - 4);
-  const gap = (W - padL - padR - barW * data.length) / Math.max(data.length - 1, 1);
-
-  return (
-    <div style={{ overflowX: 'auto' }}>
-      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', minWidth: 280, display: 'block' }}>
-        {data.map((d, i) => {
-          const barH = Math.max(2, ((d.revenue / maxRev) * (H - padTop - padBot)));
-          const x = padL + i * (barW + gap);
-          const y = H - padBot - barH;
-          const isLast = i === data.length - 1;
-          return (
-            <g key={d.key}>
-              <rect
-                x={x} y={y} width={barW} height={barH}
-                rx={3}
-                fill={isLast ? '#6366f1' : '#a5b4fc'}
-              />
-              {d.revenue > 0 && (
-                <text
-                  x={x + barW / 2} y={y - 3}
-                  textAnchor="middle" fontSize={9} fill="#6b7280"
-                >
-                  {fmt(d.revenue)}
-                </text>
-              )}
-              <text
-                x={x + barW / 2} y={H - 6}
-                textAnchor="middle" fontSize={9} fill="#9ca3af"
-              >
-                {d.label}
-              </text>
-            </g>
-          );
-        })}
-      </svg>
-    </div>
-  );
-}
-
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 export default function ManagerDashboard() {
-  const currentUser = useCurrentUser();
-  const storeName = currentUser?.storeName || '';
-  const displayName = currentUser?.fullName || currentUser?.email || 'Quản lý';
-
   const now = new Date();
   const todayStr = toDateStr(now);
   const firstOfMonth = toDateStr(new Date(now.getFullYear(), now.getMonth(), 1));
@@ -155,12 +148,31 @@ export default function ManagerDashboard() {
 
   const [topProducts, setTopProducts] = useState([]);
   const [topLoading, setTopLoading] = useState(true);
+  const [topTab, setTopTab] = useState('qty'); // 'qty' | 'profit'
+  const [topProfitProducts, setTopProfitProducts] = useState([]);
+  const [topProfitLoading, setTopProfitLoading] = useState(true);
 
   const [incomingYear, setIncomingYear] = useState(now.getFullYear());
   const [incomingMonth, setIncomingMonth] = useState(now.getMonth() + 1);
   const [incomingFreq, setIncomingFreq] = useState({ data: [] });
   const [incomingLoading, setIncomingLoading] = useState(false);
   const [incomingError, setIncomingError] = useState('');
+
+  // Supplier payable summary
+  const [payableSummary, setPayableSummary] = useState(null);
+  const [payableLoading, setPayableLoading] = useState(true);
+
+  const fetchPayableSummary = useCallback(async () => {
+    setPayableLoading(true);
+    try {
+      const d = await getSupplierPayableSummary();
+      setPayableSummary(d);
+    } catch {
+      setPayableSummary(null);
+    } finally {
+      setPayableLoading(false);
+    }
+  }, []);
 
   // ── Fetchers ──
   const fetchSummary = useCallback(async () => {
@@ -212,6 +224,18 @@ export default function ManagerDashboard() {
     }
   }, [summaryFrom, summaryTo]);
 
+  const fetchTopProfitProducts = useCallback(async () => {
+    setTopProfitLoading(true);
+    try {
+      const data = await getTopProducts({ from: summaryFrom, to: summaryTo, limit: 5, sort: 'profit' });
+      setTopProfitProducts(data.data || []);
+    } catch {
+      setTopProfitProducts([]);
+    } finally {
+      setTopProfitLoading(false);
+    }
+  }, [summaryFrom, summaryTo]);
+
   const fetchIncomingFrequency = useCallback(async () => {
     setIncomingLoading(true);
     setIncomingError('');
@@ -228,76 +252,68 @@ export default function ManagerDashboard() {
 
   useEffect(() => { fetchSummary(); }, [fetchSummary]);
   useEffect(() => { fetchInventory(); }, [fetchInventory]);
+  useEffect(() => { fetchPayableSummary(); }, [fetchPayableSummary]);
   useEffect(() => { fetchChart(); }, [fetchChart]);
   useEffect(() => { fetchTopProducts(); }, [fetchTopProducts]);
+  useEffect(() => { fetchTopProfitProducts(); }, [fetchTopProfitProducts]);
   useEffect(() => { fetchIncomingFrequency(); }, [fetchIncomingFrequency]);
 
   // ── Derived ──
   const today = summary?.today;
   const revChangePct = today?.revenue_change_pct;
   const orderDelta = today?.order_change_delta;
+  const profitChangePct = today?.profit_change_pct;
   const maxIncoming = Math.max(1, ...(incomingFreq.data || []).map(d => d.total_count));
 
   return (
-    <div className="manager-page-with-sidebar">
-      <ManagerSidebar />
-      <div className="manager-main">
-        {/* ── Topbar ── */}
-        <header className="manager-topbar">
-          <div className="manager-topbar-actions" style={{ marginLeft: 'auto' }}>
-            <ManagerNotificationBell />
-            <div className="manager-user-badge">
-              <i className="fa-solid fa-circle-user" style={{ color: '#6366f1' }} />
-              {storeName && (
-                <span style={{
-                  fontSize: '11px', fontWeight: 700, color: '#6366f1',
-                  background: '#eef2ff', border: '1px solid #c7d2fe',
-                  borderRadius: 6, padding: '1px 7px', whiteSpace: 'nowrap',
-                }}>
-                  <i className="fa-solid fa-store" style={{ marginRight: 4, fontSize: 10 }} />
-                  {storeName}
-                </span>
-              )}
-              <span>{displayName}</span>
-              <span style={{ fontSize: '11px', opacity: 0.6 }}>(Quản lý)</span>
-            </div>
+    <ManagerPageFrame>
+      <StaffPageShell
+        eyebrow="Quản lý cửa hàng"
+        eyebrowIcon={LayoutDashboard}
+        title="Tổng quan kinh doanh"
+        subtitle="Nhìn nhanh hiệu quả bán hàng, tồn kho và nhập hàng."
+        headerActions={
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Link to="/manager/reports">
+              <Button type="button" variant="outline">
+                Báo cáo đổi giá
+              </Button>
+            </Link>
+            <label className="hidden text-xs font-medium text-slate-500 sm:inline">Từ</label>
+            <input
+              type="date"
+              value={summaryFrom}
+              onChange={(e) => setSummaryFrom(e.target.value)}
+              className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-teal-200/80 focus:ring-2"
+            />
+            <label className="hidden text-xs font-medium text-slate-500 sm:inline">đến</label>
+            <input
+              type="date"
+              value={summaryTo}
+              onChange={(e) => setSummaryTo(e.target.value)}
+              className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-teal-200/80 focus:ring-2"
+            />
+            <Button type="button" onClick={fetchSummary}>
+              Xem
+            </Button>
           </div>
-        </header>
-
-        <div className="manager-content">
-          {/* ── Header + bộ lọc kỳ ── */}
-          <div className="manager-page-header" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
-            <div>
-              <h1 className="manager-page-title">Tổng quan kinh doanh</h1>
-              <p className="manager-page-subtitle">Nhìn nhanh hiệu quả bán hàng, tồn kho và nhập hàng</p>
-              <p className="text-xs text-slate-500">{Platform.select({ web: 'Dashboard đã được đồng bộ UI theo Tailwind + shadcn + React Bits.', default: 'Dashboard manager.' })}</p>
-            </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <Link to="/manager/reports"><Button type="button" variant="outline">Báo cáo đổi giá</Button></Link>
-            </div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-              <label style={{ fontSize: 13, color: '#6b7280' }}>Từ</label>
-              <input
-                type="date" value={summaryFrom}
-                onChange={e => setSummaryFrom(e.target.value)}
-                style={{ padding: '6px 10px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13 }}
-              />
-              <label style={{ fontSize: 13, color: '#6b7280' }}>đến</label>
-              <input
-                type="date" value={summaryTo}
-                onChange={e => setSummaryTo(e.target.value)}
-                style={{ padding: '6px 10px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13 }}
-              />
-              <Button type="button" onClick={fetchSummary}>Xem</Button>
-            </div>
-          </div>
+        }
+      >
+          <p className="text-xs text-slate-500">
+            {Platform.select({
+              web: 'Dashboard đồng bộ giao diện với quầy staff (Tailwind + shadcn).',
+              default: 'Dashboard manager.',
+            })}
+          </p>
 
           {summaryError && (
-            <div className="warehouse-alert warehouse-alert-error" style={{ marginBottom: 16 }}>{summaryError}</div>
+            <p className="text-xs text-slate-500" style={{ marginBottom: 12, maxWidth: 720 }}>
+              {summaryError}
+            </p>
           )}
 
-          {/* ── 4 Metric cards ── */}
-          <div className="manager-cards-row manager-cards-row--4">
+          {/* ── 5 Metric cards ── */}
+          <div className="manager-cards-row manager-cards-row--5">
             {/* Doanh thu hôm nay */}
             <div className="manager-metric-card transition-transform duration-200 hover:-translate-y-0.5">
               <div className="manager-metric-icon manager-metric-icon--blue">
@@ -316,6 +332,32 @@ export default function ManagerDashboard() {
                 )}
                 {revChangePct == null && !summaryLoading && (
                   <p className="manager-metric-meta">Hôm qua: {fmtVND(today?.yesterday_revenue)}</p>
+                )}
+              </div>
+            </div>
+
+            {/* Lợi nhuận gộp thực hôm nay — NEW */}
+            <div className="manager-metric-card transition-transform duration-200 hover:-translate-y-0.5" style={{ borderTop: '3px solid #4ade80' }}>
+              <div className="manager-metric-icon" style={{ background: '#ecfdf5', color: '#22c55e' }}>
+                <i className="fa-solid fa-circle-dollar-to-slot" />
+              </div>
+              <div className="manager-metric-body">
+                <p className="manager-metric-label" style={{ color: '#15803d', fontWeight: 600 }}>Lãi gộp thực hôm nay</p>
+                {summaryLoading
+                  ? <p className="manager-metric-value" style={{ fontSize: 16, color: '#9ca3af' }}>Đang tải...</p>
+                  : (
+                    <p className="manager-metric-value manager-metric-value--animated-profit">
+                      <AnimatedProfitVND value={today?.profit} />
+                    </p>
+                  )
+                }
+                {profitChangePct != null && !summaryLoading && (
+                  <p className={`manager-metric-trend ${profitChangePct >= 0 ? 'manager-metric-trend--up' : 'manager-metric-trend--down'}`}>
+                    {fmtPct(profitChangePct)} so với hôm qua
+                  </p>
+                )}
+                {profitChangePct == null && !summaryLoading && (
+                  <p className="manager-metric-meta" style={{ fontSize: 11, color: '#6b7280' }}>Tính từ giá vốn snapshot</p>
                 )}
               </div>
             </div>
@@ -356,19 +398,44 @@ export default function ManagerDashboard() {
               </div>
             </div>
 
-            {/* Cảnh báo tồn kho thấp */}
-            <div className="manager-metric-card transition-transform duration-200 hover:-translate-y-0.5">
-              <div className="manager-metric-icon manager-metric-icon--orange">
-                <i className="fa-solid fa-triangle-exclamation" />
+            {/* Nợ nhà cung cấp — NEW */}
+            <Link to="/manager/supplier-payables" style={{ textDecoration: 'none', color: 'inherit' }}>
+              <div className="manager-metric-card transition-transform duration-200 hover:-translate-y-0.5" style={{ borderTop: '3px solid #dc2626', cursor: 'pointer' }}>
+                <div className="manager-metric-icon" style={{ background: '#fef2f2', color: '#dc2626' }}>
+                  <i className="fa-solid fa-file-invoice-dollar" />
+                </div>
+                <div className="manager-metric-body">
+                  <p className="manager-metric-label" style={{ color: '#991b1b', fontWeight: 600 }}>Nợ nhà cung cấp</p>
+                  {payableLoading
+                    ? <p className="manager-metric-value" style={{ fontSize: 16, color: '#9ca3af' }}>Đang tải...</p>
+                    : <p className="manager-metric-value" style={{ color: '#dc2626' }}>{fmtVND(payableSummary?.total_remaining)}</p>
+                  }
+                  {!payableLoading && payableSummary && (
+                    <p className="manager-metric-meta" style={{ color: payableSummary.overdue_remaining > 0 ? '#dc2626' : '#6b7280', fontSize: 11 }}>
+                      {payableSummary.overdue_remaining > 0
+                        ? `⚠️ Quá hạn: ${fmtVND(payableSummary.overdue_remaining)}`
+                        : `${payableSummary.open_count} khoản · ${payableSummary.supplier_count} NCC`}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </Link>
+
+            {/* Vốn đọng 30 ngày — NEW */}
+            <div className="manager-metric-card transition-transform duration-200 hover:-translate-y-0.5" style={{ borderTop: '3px solid #f97316' }}>
+              <div className="manager-metric-icon" style={{ background: '#ffedd5', color: '#ea580c' }}>
+                <i className="fa-solid fa-box-archive" />
               </div>
               <div className="manager-metric-body">
-                <p className="manager-metric-label">Cảnh báo tồn kho</p>
+                <p className="manager-metric-label" style={{ color: '#9a3412', fontWeight: 600 }}>Vốn đọng (30 ngày)</p>
                 {inventoryLoading
                   ? <p className="manager-metric-value" style={{ fontSize: 16, color: '#9ca3af' }}>Đang tải...</p>
-                  : <p className="manager-metric-value">{inventory?.low_stock_count ?? 0} sắp hết</p>
+                  : <p className="manager-metric-value" style={{ color: '#ea580c' }}>{fmtVND(inventory?.dead_capital)}</p>
                 }
                 {!inventoryLoading && inventory && (
-                  <p className="manager-metric-meta">{inventory.out_of_stock_count} mặt hàng đã hết</p>
+                  <p className="manager-metric-meta" style={{ color: '#ea580c', fontSize: 11 }}>
+                    {inventory.dead_products?.length ?? 0} SKU không bán được
+                  </p>
                 )}
               </div>
             </div>
@@ -381,7 +448,7 @@ export default function ManagerDashboard() {
               <div className="manager-panel-header">
                 <div>
                   <h2 className="manager-panel-title">Biểu đồ doanh thu</h2>
-                  <p className="manager-panel-subtitle">Theo dõi xu hướng doanh thu</p>
+                  <p className="manager-panel-subtitle">Doanh thu vs lợi nhuận (lợi nhuận: vốn snapshot; nếu vốn dòng = 0 thì lấy vốn SP hiện tại)</p>
                 </div>
                 <select
                   className="manager-select"
@@ -393,10 +460,7 @@ export default function ManagerDashboard() {
                   ))}
                 </select>
               </div>
-              {chartLoading
-                ? <p style={{ padding: 24, textAlign: 'center', color: '#9ca3af', fontSize: 14 }}>Đang tải...</p>
-                : <RevenueBarChart data={chartData} />
-              }
+              <RevenueProfitChart data={chartData} loading={chartLoading} />
             </div>
 
             {/* KPI tổng kỳ */}
@@ -433,17 +497,37 @@ export default function ManagerDashboard() {
                     <div className="manager-kpi-item">
                       <p className="manager-kpi-label">Chi phí nhập hàng</p>
                       <p className="manager-kpi-value">{fmtVND(summary?.incoming_cost)}</p>
+                      <p style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                        Đã chi trả NCC: {fmtVND(summary?.supplier_payment_total)}
+                      </p>
+                      <p style={{ fontSize: 11, color: '#94a3b8' }}>
+                        Tiền mặt: {fmtVND(summary?.supplier_payment_cash)} · Chuyển khoản: {fmtVND(summary?.supplier_payment_bank_transfer)}
+                      </p>
                     </div>
                     <div className="manager-kpi-item">
-                      <p className="manager-kpi-label">Lợi nhuận gộp ước</p>
+                      <p className="manager-kpi-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        Lợi nhuận thực tế (đã chốt)
+                        <span
+                          title="Ưu tiên giá vốn đã lưu trên từng dòng bán (snapshot). Nếu dòng đó không có vốn (0), báo cáo dùng giá vốn sản phẩm hiện tại để biên lãi có ý nghĩa — không phải lỗi đổi giá."
+                          style={{ cursor: 'help', color: '#6366f1', fontSize: 13, lineHeight: 1 }}
+                        >
+                          <i className="fa-solid fa-circle-question" />
+                        </span>
+                      </p>
                       <p className="manager-kpi-value" style={{
-                        color: (summary?.gross_profit_estimate ?? 0) >= 0 ? '#166534' : '#b91c1c'
+                        color: (summary?.gross_profit ?? 0) >= 0 ? '#166534' : '#b91c1c',
+                        fontWeight: 700,
                       }}>
-                        {fmtVND(summary?.gross_profit_estimate)}
+                        {fmtVND(summary?.gross_profit)}
                       </p>
-                      <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>
-                        * Doanh thu − chi phí nhập kỳ
+                      <p style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
+                        Snapshot dòng; dòng vốn 0 → dùng giá vốn SP hiện tại (tổng hợp)
                       </p>
+                      {summary?.gross_profit_estimate != null && (
+                        <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 1 }}>
+                          Ước tính (DT − nhập kỳ): {fmtVND(summary.gross_profit_estimate)}
+                        </p>
+                      )}
                     </div>
                   </div>
                 )
@@ -453,53 +537,137 @@ export default function ManagerDashboard() {
 
           {/* ── Row 3: Top sản phẩm + Cảnh báo tồn kho ── */}
           <div className="manager-cards-row manager-cards-row--2">
-            {/* Top sản phẩm bán chạy */}
+            {/* Top sản phẩm */}
             <div className="manager-panel-card">
               <div className="manager-panel-header manager-panel-header--space">
                 <div>
-                  <h2 className="manager-panel-title">Top sản phẩm bán chạy</h2>
+                  <h2 className="manager-panel-title">Top sản phẩm</h2>
                   <p className="manager-panel-subtitle">Trong kỳ đã chọn</p>
                 </div>
-                <Link to="/manager/products" className="manager-panel-link">Xem tất cả →</Link>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {/* Tab switcher */}
+                  <div style={{ display: 'flex', background: '#f1f5f9', borderRadius: 8, padding: 2, gap: 2 }}>
+                    <button
+                      onClick={() => setTopTab('qty')}
+                      style={{
+                        padding: '4px 12px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600,
+                        background: topTab === 'qty' ? '#fff' : 'transparent',
+                        color: topTab === 'qty' ? '#6366f1' : '#6b7280',
+                        boxShadow: topTab === 'qty' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                        transition: 'all 0.15s',
+                      }}
+                    >
+                      Bán chạy
+                    </button>
+                    <button
+                      onClick={() => setTopTab('profit')}
+                      style={{
+                        padding: '4px 12px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600,
+                        background: topTab === 'profit' ? '#fff' : 'transparent',
+                        color: topTab === 'profit' ? '#10b981' : '#6b7280',
+                        boxShadow: topTab === 'profit' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                        transition: 'all 0.15s',
+                      }}
+                    >
+                      Lãi nhất
+                    </button>
+                  </div>
+                  <Link to="/manager/products" className="manager-panel-link">Xem tất cả →</Link>
+                </div>
               </div>
-              {topLoading
-                ? <p style={{ padding: 16, color: '#9ca3af', fontSize: 14 }}>Đang tải...</p>
-                : topProducts.length === 0
-                  ? <p style={{ padding: 16, color: '#9ca3af', fontSize: 14 }}>Chưa có dữ liệu bán hàng</p>
-                  : (
-                    <div className="warehouse-table-wrap">
-                      <table className="warehouse-table manager-table" style={{ fontSize: 13 }}>
-                        <thead>
-                          <tr>
-                            <th>#</th>
-                            <th>Sản phẩm</th>
-                            <th style={{ textAlign: 'right' }}>SL bán</th>
-                            <th style={{ textAlign: 'right' }}>Doanh thu</th>
-                            <th style={{ textAlign: 'right' }}>Tồn</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {topProducts.map((p, i) => (
-                            <tr key={p.product_id}>
-                              <td style={{ color: '#9ca3af' }}>{i + 1}</td>
-                              <td>
-                                <div style={{ fontWeight: 600 }}>{p.product_name}</div>
-                                <div style={{ fontSize: 11, color: '#9ca3af' }}>{p.sku}</div>
-                              </td>
-                              <td style={{ textAlign: 'right', fontWeight: 600 }}>
-                                {p.total_qty?.toLocaleString('vi-VN')}
-                              </td>
-                              <td style={{ textAlign: 'right' }}>{fmt(p.total_revenue)}</td>
-                              <td style={{ textAlign: 'right', color: p.current_stock <= 5 ? '#b91c1c' : undefined }}>
-                                {p.current_stock?.toLocaleString('vi-VN')}
-                              </td>
+
+              {/* Tab: Bán chạy */}
+              {topTab === 'qty' && (
+                topLoading
+                  ? <p style={{ padding: 16, color: '#9ca3af', fontSize: 14 }}>Đang tải...</p>
+                  : topProducts.length === 0
+                    ? <p style={{ padding: 16, color: '#9ca3af', fontSize: 14 }}>Chưa có dữ liệu bán hàng</p>
+                    : (
+                      <div className="warehouse-table-wrap">
+                        <table className="warehouse-table manager-table" style={{ fontSize: 13 }}>
+                          <thead>
+                            <tr>
+                              <th>#</th>
+                              <th>Sản phẩm</th>
+                              <th style={{ textAlign: 'right' }}>SL bán</th>
+                              <th style={{ textAlign: 'right' }}>Doanh thu</th>
+                              <th style={{ textAlign: 'right' }}>Tồn</th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )
-              }
+                          </thead>
+                          <tbody>
+                            {topProducts.map((p, i) => (
+                              <tr key={p.product_id}>
+                                <td style={{ color: '#9ca3af' }}>{i + 1}</td>
+                                <td>
+                                  <div style={{ fontWeight: 600 }}>{p.product_name}</div>
+                                  <div style={{ fontSize: 11, color: '#9ca3af' }}>{p.sku}</div>
+                                </td>
+                                <td style={{ textAlign: 'right', fontWeight: 600 }}>
+                                  {p.total_qty?.toLocaleString('vi-VN')}
+                                </td>
+                                <td style={{ textAlign: 'right' }}>{fmt(p.total_revenue)}</td>
+                                <td style={{ textAlign: 'right', color: p.current_stock <= 5 ? '#b91c1c' : undefined }}>
+                                  {p.current_stock?.toLocaleString('vi-VN')}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )
+              )}
+
+              {/* Tab: Lãi nhất */}
+              {topTab === 'profit' && (
+                topProfitLoading
+                  ? <p style={{ padding: 16, color: '#9ca3af', fontSize: 14 }}>Đang tải...</p>
+                  : topProfitProducts.length === 0
+                    ? <p style={{ padding: 16, color: '#9ca3af', fontSize: 14 }}>Chưa có dữ liệu lợi nhuận</p>
+                    : (
+                      <div className="warehouse-table-wrap">
+                        <table className="warehouse-table manager-table" style={{ fontSize: 13 }}>
+                          <thead>
+                            <tr>
+                              <th>#</th>
+                              <th>Sản phẩm</th>
+                              <th style={{ textAlign: 'right' }}>Lợi nhuận</th>
+                              <th style={{ textAlign: 'right' }}>Doanh thu</th>
+                              <th style={{ textAlign: 'right' }}>Biên lãi</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {topProfitProducts.map((p, i) => {
+                              const margin = p.total_revenue > 0
+                                ? ((p.total_profit / p.total_revenue) * 100).toFixed(1)
+                                : '0.0';
+                              return (
+                                <tr key={p.product_id}>
+                                  <td style={{ color: '#9ca3af' }}>{i + 1}</td>
+                                  <td>
+                                    <div style={{ fontWeight: 600 }}>{p.product_name}</div>
+                                    <div style={{ fontSize: 11, color: '#9ca3af' }}>{p.sku}</div>
+                                  </td>
+                                  <td style={{ textAlign: 'right', fontWeight: 700, color: '#059669' }}>
+                                    {fmtVND(p.total_profit)}
+                                  </td>
+                                  <td style={{ textAlign: 'right' }}>{fmt(p.total_revenue)}</td>
+                                  <td style={{ textAlign: 'right' }}>
+                                    <span style={{
+                                      padding: '2px 6px', borderRadius: 4, fontSize: 11, fontWeight: 700,
+                                      background: parseFloat(margin) >= 20 ? '#d1fae5' : parseFloat(margin) >= 10 ? '#fef3c7' : '#fee2e2',
+                                      color: parseFloat(margin) >= 20 ? '#065f46' : parseFloat(margin) >= 10 ? '#92400e' : '#991b1b',
+                                    }}>
+                                      {margin}%
+                                    </span>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )
+              )}
             </div>
 
             {/* Cảnh báo tồn kho */}
@@ -590,7 +758,57 @@ export default function ManagerDashboard() {
                       </>
                     )}
 
-                    {(!inventory?.low_stock_products?.length && !inventory?.expiring_soon?.length) && (
+                    {/* Vốn đọng 30 ngày */}
+                    {inventory?.dead_products?.length > 0 && (
+                      <>
+                        <p style={{ fontSize: 12, fontWeight: 600, color: '#ea580c', marginBottom: 6, marginTop: 8 }}>
+                          <i className="fa-solid fa-box-archive" style={{ marginRight: 4 }} />
+                          Vốn đọng — không bán trong 30 ngày ({inventory.dead_products.length} SKU)
+                        </p>
+                        <div className="warehouse-table-wrap" style={{ marginBottom: 16 }}>
+                          <table className="warehouse-table manager-table" style={{ fontSize: 13 }}>
+                            <thead>
+                              <tr>
+                                <th>Sản phẩm</th>
+                                <th style={{ textAlign: 'right' }}>Tồn</th>
+                                <th style={{ textAlign: 'right' }}>Vốn kẹt</th>
+                                <th>Hạn dùng</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {inventory.dead_products.slice(0, 8).map(p => {
+                                const isExpiringSoon = p.expiry_date && new Date(p.expiry_date) <= new Date(Date.now() + 30 * 86400000);
+                                return (
+                                  <tr key={p._id} style={{ background: p.dead_capital > 500000 ? '#fff7ed' : undefined }}>
+                                    <td>
+                                      <div style={{ fontWeight: 600 }}>{p.name}</div>
+                                      <div style={{ fontSize: 11, color: '#9ca3af' }}>{p.sku}</div>
+                                    </td>
+                                    <td style={{ textAlign: 'right' }}>{p.stock_qty?.toLocaleString('vi-VN')}</td>
+                                    <td style={{ textAlign: 'right', fontWeight: 700, color: p.dead_capital > 500000 ? '#dc2626' : '#ea580c' }}>
+                                      {fmtVND(p.dead_capital)}
+                                    </td>
+                                    <td>
+                                      {p.expiry_date
+                                        ? (
+                                          <span style={{ color: isExpiringSoon ? '#dc2626' : '#6b7280', fontWeight: isExpiringSoon ? 700 : 400 }}>
+                                            {isExpiringSoon && <i className="fa-solid fa-triangle-exclamation" style={{ marginRight: 3 }} />}
+                                            {new Date(p.expiry_date).toLocaleDateString('vi-VN')}
+                                          </span>
+                                        )
+                                        : <span style={{ color: '#d1d5db' }}>—</span>
+                                      }
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </>
+                    )}
+
+                    {(!inventory?.low_stock_products?.length && !inventory?.expiring_soon?.length && !inventory?.dead_products?.length) && (
                       <p style={{ padding: 16, color: '#16a34a', fontSize: 14 }}>
                         <i className="fa-solid fa-circle-check" style={{ marginRight: 6 }} />
                         Tồn kho đang ổn định, không có cảnh báo.
@@ -632,7 +850,7 @@ export default function ManagerDashboard() {
                 </div>
               </div>
               {incomingError && (
-                <p className="manager-products-error" style={{ marginBottom: 12 }}>{incomingError}</p>
+                <p className="text-xs text-slate-500" style={{ marginBottom: 12 }}>{incomingError}</p>
               )}
               {incomingLoading
                 ? <p className="manager-products-loading">Đang tải...</p>
@@ -680,8 +898,7 @@ export default function ManagerDashboard() {
             </div>
           </div>
 
-        </div>
-      </div>
-    </div>
+      </StaffPageShell>
+    </ManagerPageFrame>
   );
 }

@@ -4,6 +4,8 @@ const mongoose = require('mongoose');
 const SalesInvoice = require('../models/SalesInvoice');
 const Product = require('../models/Product');
 const User = require('../models/User');
+const { adjustStockFIFO } = require('../utils/inventoryUtils');
+const { applyCustomerDebtAfterNewInvoice } = require('../utils/customerDebt');
 const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
@@ -196,22 +198,17 @@ async function checkStockAvailability(items) {
     return problems;
 }
 
-async function adjustInventory(items, direction = -1) {
+async function adjustInventory(items, direction = -1, storeId = null) {
     if (!Array.isArray(items) || items.length === 0) return;
-    const bulkOps = items.map((item) => {
-        const pid = normalizeId(item.product_id);
-        if (!pid) return null;
-        const amount = Math.abs(item.quantity || 0) * direction;
-        return {
-            updateOne: {
-                filter: { _id: pid },
-                update: { $inc: { stock_qty: amount } },
-            },
-        };
-    }).filter(Boolean);
 
-    if (bulkOps.length > 0) {
-        await Product.bulkWrite(bulkOps);
+    for (const item of items) {
+        const pid = normalizeId(item.product_id);
+        if (!pid) continue;
+
+        const quantity = Math.abs(item.quantity || 0);
+        await adjustStockFIFO(pid, storeId, quantity * direction, {
+            note: direction === -1 ? 'Bán hàng (Hóa đơn)' : 'Khách trả hàng/Hủy hóa đơn'
+        });
     }
 }
 
@@ -233,12 +230,12 @@ async function syncInventory(invoice, nextStatus, nextItems = null) {
         const itemsToDeduct = nextItems || invoice.items;
         const problems = await checkStockAvailability(itemsToDeduct);
         if (problems.length > 0) throw { status: 400, message: 'Không đủ tồn kho', problems };
-        await adjustInventory(itemsToDeduct, -1);
+        await adjustInventory(itemsToDeduct, -1, invoice.store_id);
     } 
     else if (isOldSale && !isNextSale) {
         // Transitional Restore
         console.log(`[syncInventory] Restoring old items`);
-        await adjustInventory(invoice.items, 1);
+        await adjustInventory(invoice.items, 1, invoice.store_id);
     } 
     else if (isOldSale && isNextSale && itemsChanged) {
         // Item Update within Sale State
@@ -246,8 +243,8 @@ async function syncInventory(invoice, nextStatus, nextItems = null) {
         const problems = await checkStockAvailability(nextItems);
         if (problems.length > 0) throw { status: 400, message: 'Không đủ tồn kho để cập nhật sản phẩm', problems };
         
-        await adjustInventory(invoice.items, 1);
-        await adjustInventory(nextItems, -1);
+        await adjustInventory(invoice.items, 1, invoice.store_id);
+        await adjustInventory(nextItems, -1, invoice.store_id);
     }
 }
 
@@ -297,6 +294,23 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
             return res.status(400).json({ message: 'Khách hàng không được để trống khi ghi nợ' });
         }
 
+        // Validate nợ cũ >= 100.000đ: khách phải trả nợ trước, không được tạo hóa đơn mới
+        if (customer_id) {
+            const Customer = require('../models/Customer');
+            const customer = await Customer.findById(customer_id).select('debt_account full_name').lean();
+            if (customer && Number(customer.debt_account) >= 100000) {
+                // Chỉ cho phép nếu đây là đơn có payOldDebt (previous_debt_paid >= debt_account)
+                const debtPaid = Number(previous_debt_paid) || 0;
+                if (debtPaid < Number(customer.debt_account)) {
+                    return res.status(400).json({
+                        message: `Khách hàng đang nợ ${Number(customer.debt_account).toLocaleString('vi-VN')}₫ (≥ 100.000₫). Vui lòng thanh toán toàn bộ nợ cũ trước khi mua hàng mới.`,
+                        debt_account: customer.debt_account,
+                        error_code: 'DEBT_LIMIT_EXCEEDED',
+                    });
+                }
+            }
+        }
+
         const costMap = await buildCostMap(reqItems);
         const { totalAmount, items: normalizedItems } = calculateInvoiceTotals(reqItems, costMap);
         const invalidLine = normalizedItems.find((it) => !it.product_id);
@@ -344,17 +358,18 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
             await syncInventory(invoice, status, normalizedItems);
             await invoice.save();
 
-            if (method === 'debt' && customer_id && (status === 'confirmed' || status === 'pending')) {
-                await mongoose.model('Customer').findByIdAndUpdate(customer_id, {
-                    $inc: { debt_account: totalAmount }
-                });
+            const addDebt = method === 'debt' ? totalAmount : 0;
+            const payOldDebt =
+                Number(previous_debt_paid) > 0 ? Math.abs(Number(previous_debt_paid)) : 0;
+            // Chuyển khoản: chỉ khi SePay xác nhận paid mới trừ nợ + chốt HĐ nợ (xem settlePreviousDebtIfNeeded)
+            const deferPayOldDebtSettlement = method === 'bank_transfer' && payOldDebt > 0;
+            const payOldDebtNow = deferPayOldDebtSettlement ? 0 : payOldDebt;
+
+            if (customer_id && (status === 'confirmed' || status === 'pending') && (addDebt > 0 || payOldDebtNow > 0)) {
+                await applyCustomerDebtAfterNewInvoice(customer_id, { addDebt, payOldDebt: payOldDebtNow });
             }
 
-            if (Number(previous_debt_paid) > 0 && customer_id && (status === 'confirmed' || status === 'pending')) {
-                await mongoose.model('Customer').findByIdAndUpdate(customer_id, {
-                    $inc: { debt_account: -Math.abs(previous_debt_paid) }
-                });
-                
+            if (payOldDebt > 0 && customer_id && (status === 'confirmed' || status === 'pending') && !deferPayOldDebtSettlement) {
                 await SalesInvoice.updateMany(
                     { customer_id, status: 'pending', payment_method: 'debt' },
                     { 
@@ -366,6 +381,11 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
                       } 
                     }
                 );
+            }
+
+            if (payOldDebt > 0 && !deferPayOldDebtSettlement) {
+                invoice.previous_debt_settled = true;
+                await invoice.save();
             }
         } catch (err) {
             if (err.status) return res.status(err.status).json({ message: err.message, problems: err.problems });
@@ -511,6 +531,11 @@ router.get('/stats/daily-sales', requireAuth, requireRole(['staff', 'manager', '
                     $match: {
                         status: 'confirmed',
                         invoice_at: { $gte: start, $lte: end },
+                        // Chỉ tính chuyển khoản khi đã xác nhận thanh toán
+                        $or: [
+                            { payment_method: { $ne: 'bank_transfer' } },
+                            { payment_status: 'paid' },
+                        ],
                     },
                 },
                 {

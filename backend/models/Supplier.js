@@ -56,6 +56,17 @@ const supplierSchema = new Schema(
             type: Number,
             default: 0,
         },
+        // Số ngày nợ mặc định — dùng để tự tính due_date khi tạo payable
+        default_payment_term_days: {
+            type: Number,
+            default: 0,
+            min: 0,
+        },
+        // Ảnh mã QR chuyển khoản của nhà cung cấp (URL).
+        bank_qr_image_url: {
+            type: String,
+            trim: true,
+        },
         storeId: {
             type: Schema.Types.ObjectId,
             ref: 'Store',

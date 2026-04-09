@@ -2,6 +2,13 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useWarehouseBase } from '../../utils/useWarehouseBase';
 import { getGoodsReceipt, updateGoodsReceipt } from '../../services/goodsReceiptsApi';
+import { useToast } from '../../contexts/ToastContext';
+import { ConfirmDialog } from '../../components/ui/confirm-dialog';
+import { StaffPageShell } from '../../components/staff/StaffPageShell';
+import { Button } from '../../components/ui/button';
+import { Card, CardContent } from '../../components/ui/card';
+import { ArrowLeft, ClipboardList, Loader2, Send } from 'lucide-react';
+import { cn } from '../../lib/utils';
 
 const STATUS_LABEL = {
   draft: 'Nháp',
@@ -10,14 +17,30 @@ const STATUS_LABEL = {
   rejected: 'Từ chối',
 };
 
+function statusPillClass(status) {
+  if (status === 'pending') {
+    return 'border-amber-200/90 bg-amber-100 text-amber-950 ring-1 ring-amber-200/60';
+  }
+  if (status === 'approved') {
+    return 'border-emerald-200/90 bg-emerald-100 text-emerald-950 ring-1 ring-emerald-200/60';
+  }
+  if (status === 'rejected') {
+    return 'border-red-200/90 bg-red-100 text-red-950 ring-1 ring-red-200/60';
+  }
+  return 'border-slate-200 bg-slate-100 text-slate-800 ring-1 ring-slate-200/80';
+}
+
 export default function WarehouseGoodsReceiptDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const warehouseBase = useWarehouseBase();
+  const { toast } = useToast();
+
   const [receipt, setReceipt] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [confirmSendOpen, setConfirmSendOpen] = useState(false);
 
   const fetchReceipt = useCallback(async () => {
     setLoading(true);
@@ -26,25 +49,31 @@ export default function WarehouseGoodsReceiptDetail() {
       const data = await getGoodsReceipt(id);
       setReceipt(data);
     } catch (e) {
-      setError(e.message || 'Không thể tải phiếu nhập kho');
+      const msg = e.message || 'Không thể tải phiếu nhập kho';
+      setError(msg);
+      toast(msg, 'error');
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, toast]);
 
   useEffect(() => {
     fetchReceipt();
   }, [fetchReceipt]);
 
   const handleSubmitForApproval = async () => {
-    if (!window.confirm('Bạn có chắc chắn muốn gửi phiếu này để duyệt?')) return;
     setSubmitting(true);
     setError('');
     try {
       await updateGoodsReceipt(id, { status: 'pending' });
-      navigate(`${warehouseBase}/receipts`, { state: { success: 'Đã gửi phiếu nhập để chờ duyệt' } });
+      setConfirmSendOpen(false);
+      navigate(`${warehouseBase}/receipts`, {
+        state: { success: 'Đã gửi phiếu nhập để chờ duyệt' },
+      });
     } catch (e) {
-      setError(e.message || 'Lỗi khi gửi duyệt');
+      const msg = e.message || 'Lỗi khi gửi duyệt';
+      setError(msg);
+      toast(msg, 'error');
       setSubmitting(false);
     }
   };
@@ -58,104 +87,149 @@ export default function WarehouseGoodsReceiptDetail() {
     }
   };
 
-  if (loading) return <div style={{ padding: 24 }}>Đang tải chi tiết...</div>;
-  if (error) return <div className="warehouse-alert warehouse-alert-error" style={{ margin: 24 }}>{error}</div>;
+  if (loading) {
+    return (
+      <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 text-slate-600">
+        <Loader2 className="h-10 w-10 animate-spin text-sky-500" />
+        <p>Đang tải chi tiết phiếu nhập...</p>
+      </div>
+    );
+  }
+  if (error && !receipt) {
+    return (
+      <div className="mx-auto max-w-lg rounded-xl border border-red-200 bg-red-50 px-4 py-4 text-red-800" role="alert">
+        {error}
+      </div>
+    );
+  }
   if (!receipt) return null;
+
+  const shortId = receipt._id.substring(receipt._id.length - 6).toUpperCase();
 
   return (
     <>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-        <button
-          type="button"
-          className="warehouse-btn warehouse-btn-secondary"
-          onClick={() => navigate(`${warehouseBase}/receipts`)}
-        >
-          <i className="fa-solid fa-arrow-left" style={{ marginRight: 6 }} />
-          Quay lại
-        </button>
-        <h1 className="warehouse-page-title" style={{ margin: 0 }}>Chi tiết phiếu nhập kho</h1>
-      </div>
-
-      <div className="warehouse-card" style={{ marginBottom: 20 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-          <div>
-            <p style={{ margin: '0 0 8px 0', fontSize: 14, color: '#6b7280' }}>Người tạo</p>
-            <p style={{ margin: 0, fontWeight: 500 }}>
-              {receipt.received_by?.fullName || receipt.received_by?.email || '—'}
-            </p>
-          </div>
-          <div>
-            <p style={{ margin: '0 0 8px 0', fontSize: 14, color: '#6b7280' }}>Ngày tạo</p>
-            <p style={{ margin: 0, fontWeight: 500 }}>{formatDate(receipt.created_at)}</p>
-          </div>
-          <div>
-            <p style={{ margin: '0 0 8px 0', fontSize: 14, color: '#6b7280' }}>Nhà cung cấp</p>
-            <p style={{ margin: 0, fontWeight: 500 }}>{receipt.supplier_id?.name || '—'}</p>
-          </div>
-          <div>
-            <p style={{ margin: '0 0 8px 0', fontSize: 14, color: '#6b7280' }}>Lý do nhập</p>
-            <p style={{ margin: 0, fontWeight: 500 }}>{receipt.reason || '—'}</p>
-          </div>
-          <div>
-            <p style={{ margin: '0 0 8px 0', fontSize: 14, color: '#6b7280' }}>Trạng thái</p>
-            <span className={`warehouse-status-badge warehouse-status-${receipt.status}`}>
+      <StaffPageShell
+        className="max-w-5xl"
+        eyebrow="Kho & nhập hàng"
+        eyebrowIcon={ClipboardList}
+        eyebrowTone="violet"
+        title="Chi tiết phiếu nhập kho"
+        subtitle={`Mã phiếu: ${shortId}`}
+        headerActions={
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Button type="button" variant="outline" className="gap-2" onClick={() => navigate(`${warehouseBase}/receipts`)}>
+              <ArrowLeft className="h-4 w-4" />
+              Quay lại
+            </Button>
+            <span
+              className={cn(
+                'inline-flex items-center rounded-full border px-3 py-1 text-sm font-semibold',
+                statusPillClass(receipt.status)
+              )}
+            >
               {STATUS_LABEL[receipt.status] ?? receipt.status}
             </span>
           </div>
-          {receipt.status === 'approved' && (
-             <div>
-               <p style={{ margin: '0 0 8px 0', fontSize: 14, color: '#6b7280' }}>Người duyệt</p>
-               <p style={{ margin: 0, fontWeight: 500 }}>{receipt.approved_by?.fullName || receipt.approved_by?.email || '—'}</p>
-             </div>
-          )}
-        </div>
-      </div>
-
-      <div className="warehouse-card">
-        <h2 style={{ fontSize: 18, marginBottom: 16 }}>Danh sách sản phẩm</h2>
-        <div className="warehouse-table-wrap">
-          <table className="warehouse-table">
-            <thead>
-              <tr>
-                <th>Sản phẩm</th>
-                <th>SKU</th>
-                <th>Đơn vị tính</th>
-                <th style={{ textAlign: 'right' }}>Số lượng</th>
-                <th style={{ textAlign: 'right' }}>Đơn giá (đ)</th>
-                <th style={{ textAlign: 'right' }}>Thành tiền (đ)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {receipt.items?.map((item, idx) => (
-                <tr key={idx}>
-                  <td>{item.product_id?.name || 'Sản phẩm không xác định'}</td>
-                  <td>{item.product_id?.sku || '—'}</td>
-                  <td>{item.unit_name || item.product_id?.base_unit || 'Cái'} {item.ratio > 1 ? `(x${item.ratio})` : ''}</td>
-                  <td style={{ textAlign: 'right' }}>{Number(item.quantity).toLocaleString()}</td>
-                  <td style={{ textAlign: 'right' }}>{Number(item.unit_cost).toLocaleString()}</td>
-                  <td style={{ textAlign: 'right' }}>{(item.quantity * item.unit_cost).toLocaleString()}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <div style={{ textAlign: 'right', marginTop: 16, fontSize: 18, fontWeight: 'bold' }}>
-            Tổng cộng: {Number(receipt.total_amount).toLocaleString()} đ
-          </div>
-        </div>
-
-        {receipt.status === 'draft' && (
-          <div style={{ marginTop: 24, display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
-            <button
-              type="button"
-              className="warehouse-btn warehouse-btn-primary"
-              onClick={handleSubmitForApproval}
-              disabled={submitting}
-            >
-              {submitting ? 'Đang gửi...' : 'Gửi yêu cầu duyệt'}
-            </button>
-          </div>
+        }
+      >
+        {error && (
+          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>
         )}
-      </div>
+
+        <Card className="border-slate-200/80 shadow-sm">
+          <CardContent className="grid gap-4 p-5 sm:grid-cols-2">
+            <div>
+              <p className="text-xs font-medium uppercase text-slate-500">Người tạo</p>
+              <p className="mt-1 font-medium text-slate-900">
+                {receipt.received_by?.fullName || receipt.received_by?.email || '—'}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs font-medium uppercase text-slate-500">Ngày tạo</p>
+              <p className="mt-1 font-medium text-slate-900">{formatDate(receipt.created_at)}</p>
+            </div>
+            <div>
+              <p className="text-xs font-medium uppercase text-slate-500">Nhà cung cấp</p>
+              <p className="mt-1 font-medium text-slate-900">{receipt.supplier_id?.name || '—'}</p>
+            </div>
+            <div>
+              <p className="text-xs font-medium uppercase text-slate-500">Lý do nhập</p>
+              <p className="mt-1 text-slate-800">{receipt.reason || '—'}</p>
+            </div>
+            {receipt.status === 'approved' && (
+              <div className="sm:col-span-2">
+                <p className="text-xs font-medium uppercase text-slate-500">Người duyệt</p>
+                <p className="mt-1 font-medium text-slate-900">
+                  {receipt.approved_by?.fullName || receipt.approved_by?.email || '—'}
+                </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-200/80 shadow-sm">
+          <CardContent className="p-5">
+            <h2 className="mb-4 text-sm font-semibold text-slate-800">Danh sách sản phẩm</h2>
+            <div className="overflow-x-auto rounded-xl border border-slate-200/80">
+              <table className="w-full min-w-[640px] text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50/90 text-left text-xs font-semibold uppercase text-slate-500">
+                    <th className="px-3 py-2">Sản phẩm</th>
+                    <th className="px-3 py-2">SKU</th>
+                    <th className="px-3 py-2">Đơn vị</th>
+                    <th className="px-3 py-2 text-right">SL</th>
+                    <th className="px-3 py-2 text-right">Đơn giá</th>
+                    <th className="px-3 py-2 text-right">Thành tiền</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {receipt.items?.map((item, idx) => (
+                    <tr key={idx} className="bg-white">
+                      <td className="px-3 py-2 font-medium text-slate-900">
+                        {item.product_id?.name || '—'}
+                      </td>
+                      <td className="px-3 py-2 text-slate-600">{item.product_id?.sku || '—'}</td>
+                      <td className="px-3 py-2 text-slate-600">
+                        {item.unit_name || item.product_id?.base_unit || 'Cái'}
+                        {item.ratio > 1 ? ` (×${item.ratio})` : ''}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums">{Number(item.quantity).toLocaleString('vi-VN')}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{Number(item.unit_cost).toLocaleString('vi-VN')}</td>
+                      <td className="px-3 py-2 text-right font-medium tabular-nums text-slate-900">
+                        {(item.quantity * item.unit_cost).toLocaleString('vi-VN')}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="mt-4 text-right text-lg font-bold text-slate-900">
+              Tổng cộng:{' '}
+              <span className="text-emerald-700">{Number(receipt.total_amount).toLocaleString('vi-VN')} đ</span>
+            </p>
+
+            {receipt.status === 'draft' && (
+              <div className="mt-6 flex justify-end border-t border-slate-100 pt-4">
+                <Button type="button" className="gap-2" onClick={() => setConfirmSendOpen(true)}>
+                  <Send className="h-4 w-4" />
+                  Gửi yêu cầu duyệt
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </StaffPageShell>
+
+      <ConfirmDialog
+        open={confirmSendOpen}
+        onOpenChange={setConfirmSendOpen}
+        title="Gửi phiếu nhập để duyệt?"
+        description="Phiếu sẽ chuyển sang trạng thái chờ duyệt. Quản lý sẽ xem xét và phê duyệt trước khi nhập kho."
+        confirmLabel="Gửi duyệt"
+        cancelLabel="Hủy"
+        loading={submitting}
+        onConfirm={handleSubmitForApproval}
+      />
     </>
   );
 }

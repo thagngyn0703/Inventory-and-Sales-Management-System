@@ -54,6 +54,20 @@ export async function createSupplier(payload) {
   return data.supplier;
 }
 
+export async function uploadSupplierQrImage(file) {
+  const token = getToken();
+  const form = new FormData();
+  form.append('image', file);
+  const res = await fetch(`${API_BASE}/suppliers/upload-qr`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+  if (!res.ok) throw await parseError(res, 'Không thể upload ảnh QR nhà cung cấp');
+  const data = await res.json();
+  return data.bank_qr_image_url || data?.image?.url || '';
+}
+
 export async function getSupplier(id) {
   const token = getToken();
   const res = await fetch(`${API_BASE}/suppliers/${id}`, {

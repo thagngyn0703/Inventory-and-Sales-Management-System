@@ -98,6 +98,16 @@ export async function cancelInvoice(id) {
   return data.invoice;
 }
 
+export async function cancelUnpaidBankTransferInvoice(id) {
+  if (!id) return null;
+  try {
+    return await cancelInvoice(id);
+  } catch (e) {
+    console.warn('[cancelUnpaidBankTransfer] Không thể hủy hóa đơn:', e.message);
+    return null;
+  }
+}
+
 export async function getDailySalesStats() {
   const token = getToken();
   const res = await fetch(`${API_BASE}/invoices/stats/daily-sales`, {

@@ -41,7 +41,7 @@
 
 .manager-supplier-search-input:focus {
     outline: none;
-    border-color: #3b82f6;
+    border-color: #0d9488;
 }
 
 .manager-supplier-header-actions {
@@ -66,7 +66,7 @@
 
 .manager-supplier-search-input:focus {
     outline: none;
-    border-color: #3b82f6;
+    border-color: #0d9488;
 }
 
 .manager-supplier-header-actions {
@@ -92,7 +92,7 @@
 
 .manager-supplier-search-input:focus {
     outline: none;
-    border-color: #3b82f6;
+    border-color: #0d9488;
 }
 
 .manager-supplier-header-actions {
@@ -118,7 +118,7 @@
 
 .manager-supplier-search-input:focus {
     outline: none;
-    border-color: #3b82f6;
+    border-color: #0d9488;
 }
 
 /* Supplier list: search + button on same row */
@@ -145,7 +145,7 @@
 
 .manager-supplier-search-input:focus {
     outline: none;
-    border-color: #3b82f6;
+    border-color: #0d9488;
     box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
 }
 
@@ -163,12 +163,12 @@
 }
 
 .manager-btn-primary {
-    background: linear-gradient(135deg, #3b82f6, #2563eb);
+    background: linear-gradient(135deg, #0d9488, #0284c7);
     color: #fff;
 }
 
 .manager-btn-primary:hover:not(:disabled) {
-    background: linear-gradient(135deg, #2563eb, #1d4ed8);
+    background: linear-gradient(135deg, #0284c7, #0369a1);
 }
 
 .manager-btn-primary:disabled {
@@ -327,7 +327,7 @@
 .manager-form-group input:focus,
 .manager-form-group select:focus {
     outline: none;
-    border-color: #2563eb;
+    border-color: #0284c7;
     box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
 }
 
@@ -342,7 +342,7 @@
     border: none;
     padding: 0;
     font-size: inherit;
-    color: #2563eb;
+    color: #0284c7;
     cursor: pointer;
     text-align: left;
     text-decoration: none;
@@ -373,7 +373,7 @@
 
 .manager-btn-icon:hover:not(:disabled) {
     background: #e5e7eb;
-    color: #2563eb;
+    color: #0284c7;
 }
 
 .manager-btn-icon:disabled {
@@ -513,14 +513,14 @@
     font-weight: 600;
     cursor: pointer;
     background: #fff;
-    color: #2563eb;
-    border: 1px solid #2563eb;
+    color: #0284c7;
+    border: 1px solid #0284c7;
 }
 
 .manager-btn-outline:hover {
     background: #eff6ff;
-    border-color: #1d4ed8;
-    color: #1d4ed8;
+    border-color: #0369a1;
+    color: #0369a1;
 }
 
 .manager-detail-card {
@@ -650,7 +650,7 @@
 .manager-detail-table--form .manager-detail-value input:focus,
 .manager-detail-table--form .manager-detail-value select:focus {
     outline: none;
-    border-color: #2563eb;
+    border-color: #0284c7;
     box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
 }
 
@@ -1004,7 +1004,7 @@
 
 .manager-filter-input:focus,
 .manager-filter-select:focus {
-    border-color: #3b82f6;
+    border-color: #0d9488;
     box-shadow: 0 0 0 3px rgba(59,130,246,0.12);
     background: #fff;
 }

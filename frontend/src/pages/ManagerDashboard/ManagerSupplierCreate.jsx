@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import ManagerSidebar from './ManagerSidebar';
-import ManagerNotificationBell from '../../components/ManagerNotificationBell';
-import { createSupplier } from '../../services/suppliersApi';
+import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
+import { StaffPageShell } from '../../components/staff/StaffPageShell';
+import { Plus } from 'lucide-react';
+import { createSupplier, uploadSupplierQrImage } from '../../services/suppliersApi';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
 
@@ -16,6 +17,7 @@ const defaultForm = {
     note: '',
     status: 'active',
     payable_account: '',
+    bank_qr_image_url: '',
 };
 
 export default function ManagerSupplierCreate() {
@@ -23,6 +25,8 @@ export default function ManagerSupplierCreate() {
     const [form, setForm] = useState(defaultForm);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const [selectedQrFile, setSelectedQrFile] = useState(null);
+    const [qrPreviewUrl, setQrPreviewUrl] = useState('');
 
     const update = (field, value) => {
         setForm((prev) => ({ ...prev, [field]: value }));
@@ -38,6 +42,10 @@ export default function ManagerSupplierCreate() {
         setLoading(true);
         setError('');
         try {
+            let qrUrl = form.bank_qr_image_url ? String(form.bank_qr_image_url).trim() : '';
+            if (selectedQrFile) {
+                qrUrl = await uploadSupplierQrImage(selectedQrFile);
+            }
             await createSupplier({
                 code: form.code ? String(form.code).trim() : undefined,
                 name: form.name.trim(),
@@ -48,6 +56,7 @@ export default function ManagerSupplierCreate() {
                 note: form.note ? String(form.note).trim() : undefined,
                 status: form.status === 'inactive' ? 'inactive' : 'active',
                 payable_account: Number(form.payable_account) || 0,
+                bank_qr_image_url: qrUrl || undefined,
             });
             navigate('/manager/suppliers', { state: { success: 'Thêm nhà cung cấp thành công.' } });
         } catch (err) {
@@ -58,40 +67,23 @@ export default function ManagerSupplierCreate() {
     };
 
     return (
-        <div className="manager-page-with-sidebar">
-            <ManagerSidebar />
-            <div className="manager-main">
-                <header className="manager-topbar">
-                    <div className="manager-topbar-search-wrap" />
-                    <div className="manager-topbar-actions">
-                        <ManagerNotificationBell />
-                        <div className="manager-user-badge">
-                            <i className="fa-solid fa-circle-user" />
-                            <span>Quản lý</span>
-                        </div>
-                    </div>
-                </header>
-
-                <div className="manager-content">
-                    <div className="manager-products-header">
-                        <div>
-                            <h1 className="manager-page-title">Thêm nhà cung cấp</h1>
-                            <p className="manager-page-subtitle">Tạo nhà cung cấp mới trong hệ thống.</p>
-                        </div>
-                        <button
-                            type="button"
-                            className="manager-btn-secondary"
-                            onClick={() => navigate('/manager/suppliers')}
-                        >
-                            <i className="fa-solid fa-arrow-left" /> Quay lại
-                        </button>
-                    </div>
-
+        <ManagerPageFrame showNotificationBell>
+            <StaffPageShell
+                eyebrow="Nhà cung cấp"
+                eyebrowIcon={Plus}
+                title="Thêm nhà cung cấp"
+                subtitle="Tạo nhà cung cấp mới trong hệ thống."
+                headerActions={
+                    <button type="button" className="manager-btn-secondary" onClick={() => navigate('/manager/suppliers')}>
+                        <i className="fa-solid fa-arrow-left" /> Quay lại
+                    </button>
+                }
+            >
                     {error && (
                         <div className="manager-products-error">{error}</div>
                     )}
 
-                    <div className="manager-panel-card manager-product-form-card">
+                    <div className="manager-panel-card manager-product-form-card rounded-2xl border border-slate-200/80 shadow-sm">
                         <form onSubmit={handleSubmit} className="manager-product-form">
                             <div className="manager-form-row manager-form-row--2">
                                 <div className="manager-form-group">
@@ -178,6 +170,20 @@ export default function ManagerSupplierCreate() {
                                     />
                                 </div>
                                 <div className="manager-form-group">
+                                    <label>Ảnh QR chuyển khoản</label>
+                                    <input type="file" accept="image/*" onChange={(e) => {
+                                        const f = e.target.files?.[0] || null;
+                                        setSelectedQrFile(f);
+                                        setQrPreviewUrl(f ? URL.createObjectURL(f) : '');
+                                    }} />
+                                    {qrPreviewUrl && (
+                                        <img src={qrPreviewUrl} alt="QR preview" style={{ marginTop: 8, width: 140, height: 140, objectFit: 'contain', border: '1px solid #e5e7eb', borderRadius: 8 }} />
+                                    )}
+                                    <small style={{ color: '#64748b' }}>Chọn ảnh QR từ máy. Hệ thống sẽ tự upload.</small>
+                                </div>
+                            </div>
+                            <div className="manager-form-row manager-form-row--2">
+                                <div className="manager-form-group">
                                     <label>Ghi chú</label>
                                     <input
                                         type="text"
@@ -205,8 +211,7 @@ export default function ManagerSupplierCreate() {
                             </div>
                         </form>
                     </div>
-                </div>
-            </div>
-        </div>
+            </StaffPageShell>
+        </ManagerPageFrame>
     );
 }

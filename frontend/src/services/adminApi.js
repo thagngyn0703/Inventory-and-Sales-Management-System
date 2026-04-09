@@ -15,6 +15,17 @@ function apiPath(segment) {
   return `${base}${segment.startsWith('/') ? segment : `/${segment}`}`;
 }
 
+export async function getAdminDashboard({ months = 12 } = {}) {
+  const token = getToken();
+  const params = new URLSearchParams();
+  if (months) params.set('months', String(months));
+  const q = params.toString();
+  const res = await fetch(`${apiPath('/admin/dashboard')}${q ? `?${q}` : ''}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return parseJson(res, 'Không thể tải tổng quan admin');
+}
+
 export async function getAdminUsers({ page = 1, limit = 20, q = '', status = '', all = false } = {}) {
   const token = getToken();
   const params = new URLSearchParams({ page: String(page), limit: String(limit) });

@@ -1,7 +1,8 @@
 :root {
   --sales-primary: #0d9488;
   --sales-primary-hover: #0f766e;
-  --sales-bg: #f4f6f8;
+  /* Nền giống vùng làm việc POS */
+  --sales-bg: #f1f5f9;
   --sales-sidebar-bg: #ffffff;
   --sales-text-main: #111827;
   --sales-text-muted: #6b7280;
@@ -20,143 +21,9 @@
   font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
 }
 
-/* Sidebar Styling */
+/* Sidebar: layout width; visuals từ Tailwind trong SalesSidebar.jsx */
 .sales-sidebar {
   width: var(--sales-sidebar-width);
-  background-color: var(--sales-sidebar-bg);
-  color: var(--sales-text-main);
-  display: flex;
-  flex-direction: column;
-  position: fixed;
-  height: 100vh;
-  z-index: 100;
-  border-right: 1px solid var(--sales-border);
-  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.04);
-  overflow: hidden;
-  transform: translateX(0);
-  transition: transform var(--sidebar-transition), width var(--sidebar-transition);
-}
-
-.sales-sidebar.collapsed {
-  transform: translateX(-100%);
-}
-
-.sales-sidebar-brand {
-  padding: 20px 20px 16px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  border-bottom: 1px solid var(--sales-border);
-  flex-shrink: 0;
-}
-
-.sales-sidebar-store {
-  margin: 2px 0 0;
-  font-size: 11px;
-  color: var(--sales-primary);
-  font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 160px;
-}
-
-.brand-icon {
-  width: 40px;
-  height: 40px;
-  background: linear-gradient(135deg, var(--sales-primary), var(--sales-primary-hover));
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 800;
-  font-size: 20px;
-  color: white;
-}
-
-.brand-text {
-  font-weight: 600;
-  font-size: 14px;
-  color: #374151;
-  text-transform: none;
-}
-
-.sales-nav {
-  flex: 1;
-  padding: 8px 0;
-  display: flex;
-  flex-direction: column;
-  overflow-y: auto;
-}
-
-/* Group label trong sidebar */
-.sales-nav-group-label {
-  font-size: 10px;
-  font-weight: 700;
-  color: #9ca3af;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  padding: 12px 20px 4px;
-  margin: 0;
-  flex-shrink: 0;
-}
-
-.sales-nav-link {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 20px;
-  color: #374151;
-  text-decoration: none;
-  font-size: 14px;
-  transition: all 0.2s;
-  border-left: 3px solid transparent;
-}
-
-.sales-nav-link i {
-  width: 18px;
-  text-align: center;
-  font-size: 14px;
-  opacity: 0.9;
-}
-
-.sales-nav-link:hover {
-  background: #f0fdfa;
-  color: #0f766e;
-}
-
-.sales-nav-link.active {
-  background: #ccfbf1;
-  color: #0f766e;
-  font-weight: 600;
-  border-left-color: var(--sales-primary);
-}
-
-.sales-sidebar-footer {
-  padding: 16px 20px;
-  border-top: 1px solid var(--sales-border);
-}
-
-.sales-logout-btn {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px;
-  background: #f9fafb;
-  border: 1px solid var(--sales-border);
-  color: #374151;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 600;
-  transition: all 0.2s;
-}
-
-.sales-logout-btn:hover {
-  background: #fee2e2;
-  color: #b91c1c;
-  border-color: #fecaca;
 }
 
 /* Main Content Area */
@@ -174,65 +41,13 @@
 }
 
 .sales-header {
-  height: var(--sales-header-height);
-  background: #eaf4ff;
-  border-bottom: 1px solid #cfe5ff;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 10px 0 8px;
-  gap: 6px;
   position: sticky;
   top: 0;
   z-index: 90;
 }
 
-/* Toggle button */
 .sales-toggle-btn {
-  width: 30px;
-  height: 30px;
-  flex-shrink: 0;
-  border: none;
-  background: #f3f4f6;
-  border-radius: 8px;
   cursor: pointer;
-  font-size: 15px;
-  color: #374151;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.15s, color 0.15s;
-}
-
-.sales-toggle-btn:hover {
-  background: #e5e7eb;
-  color: #111827;
-}
-
-/* User badge */
-.sales-user-badge {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 8px;
-  background: #f9fafb;
-  border-radius: 10px;
-  font-size: 11px;
-  font-weight: 600;
-  color: #374151;
-  flex-shrink: 0;
-}
-
-/* Store name pill bên trong user badge */
-.sales-store-tag {
-  font-size: 11px;
-  font-weight: 700;
-  color: #0d9488;
-  background: #f0fdfa;
-  border: 1px solid #99f6e4;
-  border-radius: 6px;
-  padding: 1px 7px;
-  white-space: nowrap;
 }
 
 .sales-content {

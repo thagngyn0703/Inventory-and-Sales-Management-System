@@ -82,7 +82,6 @@ router.get('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
       .populate('reverted_by', 'email')
       .populate('created_by', 'email')
       .populate('items.product_id', 'name sku base_unit')
-      .populate('warehouse_id', 'name')
       .lean();
     if (!adjustment) return res.status(404).json({ message: 'Adjustment not found' });
     return res.json({ adjustment });
@@ -154,7 +153,6 @@ router.post('/:id/revert', requireAuth, requireRole(['manager', 'admin']), async
       .populate('reverted_by', 'email')
       .populate('created_by', 'email')
       .populate('items.product_id', 'name sku base_unit')
-      .populate('warehouse_id', 'name')
       .lean();
 
     return res.json({

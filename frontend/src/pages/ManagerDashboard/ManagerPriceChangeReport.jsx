@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import ManagerSidebar from './ManagerSidebar';
+import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
+import { StaffPageShell } from '../../components/staff/StaffPageShell';
+import { BarChart3 } from 'lucide-react';
 import { getPriceChangeImpactReport } from '../../services/analyticsApi';
 
 function toDateInput(d) {
@@ -56,27 +58,14 @@ export default function ManagerPriceChangeReport() {
   }, [data.products, productId]);
 
   return (
-    <div className="manager-page-with-sidebar">
-      <ManagerSidebar />
-      <div className="manager-main">
-        <header className="manager-topbar">
-          <div className="manager-topbar-actions" style={{ marginLeft: 'auto' }}>
-            <div className="manager-user-badge">
-              <i className="fa-solid fa-chart-line" />
-              <span>Báo cáo giá & lợi nhuận</span>
-            </div>
-          </div>
-        </header>
-
-        <div className="manager-content">
-          <div className="manager-page-header" style={{ marginBottom: 12 }}>
-            <h1 className="manager-page-title">Báo cáo tác động theo từng lần đổi giá</h1>
-            <p className="manager-page-subtitle">
-              Theo dõi từng đợt đổi giá sản phẩm và doanh thu/lợi nhuận ước tính sau mỗi lần đổi.
-            </p>
-          </div>
-
-          <div className="manager-panel-card" style={{ marginBottom: 14 }}>
+    <ManagerPageFrame showNotificationBell={false}>
+      <StaffPageShell
+        eyebrow="Báo cáo"
+        eyebrowIcon={BarChart3}
+        title="Tác động theo từng lần đổi giá"
+        subtitle="Theo dõi từng đợt đổi giá sản phẩm và doanh thu/lợi nhuận ước tính sau mỗi lần đổi."
+      >
+          <div className="manager-panel-card rounded-2xl border border-slate-200/80 shadow-sm" style={{ marginBottom: 14 }}>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'end' }}>
               <label style={{ fontSize: 13, color: '#374151' }}>
                 Từ ngày
@@ -211,9 +200,8 @@ export default function ManagerPriceChangeReport() {
             Ghi chú: Lợi nhuận trong màn hình này là <strong>ước tính theo giá vốn mới sau mỗi lần đổi giá</strong>,
             dùng để theo dõi xu hướng vận hành. Khi cần chuẩn kế toán sâu hơn có thể nâng cấp sang tính COGS theo lô nhập.
           </p>
-        </div>
-      </div>
-    </div>
+      </StaffPageShell>
+    </ManagerPageFrame>
   );
 }
 

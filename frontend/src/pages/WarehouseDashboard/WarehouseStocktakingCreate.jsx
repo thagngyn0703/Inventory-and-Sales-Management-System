@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Platform } from 'react-bits/lib/modules/Platform';
 import { useWarehouseBase } from '../../utils/useWarehouseBase';
 import { getProducts } from '../../services/productsApi';
 import { createStocktake } from '../../services/stocktakesApi';
+import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
 import { Badge } from '../../components/ui/badge';
+import { ClipboardCheck } from 'lucide-react';
 
 const PRODUCT_LIMIT = 10;
 
@@ -72,7 +73,7 @@ export default function WarehouseStocktakingCreate() {
     setSubmitting(true);
     setError('');
     try {
-      const { stocktake } = await createStocktake({ product_ids: ids });
+      await createStocktake({ product_ids: ids });
       navigate(`${warehouseBase}/stocktakes`, { state: { success: 'Đã tạo phiếu kiểm kê thành công.' } });
     } catch (err) {
       setError(err.message || 'Không thể tạo phiếu kiểm kê');
@@ -84,26 +85,26 @@ export default function WarehouseStocktakingCreate() {
   const allSelected = products.length > 0 && selectedIds.size === products.length;
 
   return (
-    <>
-      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Tạo phiếu kiểm kê</h1>
-          <p className="text-sm text-slate-500">Chọn các sản phẩm cần kiểm kê. Hệ thống sẽ ghi nhận tồn kho tại thời điểm tạo phiếu.</p>
-          <p className="text-xs text-slate-400">
-            {Platform.select({ web: 'Thiết kế đồng bộ với các màn kiểm kê manager để thao tác nhanh và rõ ràng.', default: 'Thiết kế đồng bộ manager.' })}
-          </p>
-        </div>
-        <Badge className="bg-sky-100 text-sky-700 border border-sky-200">Đã chọn: {selectedIds.size}</Badge>
-      </div>
-
+    <StaffPageShell
+      eyebrow="Kiểm kê kho"
+      eyebrowIcon={ClipboardCheck}
+      eyebrowTone="amber"
+      title="Tạo phiếu kiểm kê"
+      subtitle="Chọn sản phẩm cần kiểm kê — hệ thống ghi nhận tồn tại thời điểm tạo phiếu. Giao diện đồng bộ với luồng kiểm kê phía quản lý."
+      headerActions={
+        <Badge className="border border-amber-200 bg-amber-100 font-medium text-amber-900">
+          Đã chọn: {selectedIds.size}
+        </Badge>
+      }
+    >
       {error && (
-        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700" role="alert">
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800" role="alert">
           {error}
         </div>
       )}
 
-      <Card>
-        <CardContent className="p-4">
+      <Card className="border-slate-200/80 shadow-sm shadow-slate-900/5">
+        <CardContent className="p-4 sm:p-6">
         <form onSubmit={handleSubmit}>
           <div className="mb-4 flex flex-wrap items-center gap-2">
             <input
@@ -114,7 +115,7 @@ export default function WarehouseStocktakingCreate() {
                 setSearch(e.target.value);
                 setPage(1);
               }}
-              className="h-9 min-w-[220px] rounded-md border border-slate-300 bg-white px-3 text-sm"
+              className="h-11 min-w-[220px] flex-1 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-sky-200 focus:ring-2 sm:max-w-md"
             />
             <Button type="button" variant="outline" onClick={fetchProducts}>
               Tìm kiếm
@@ -130,11 +131,11 @@ export default function WarehouseStocktakingCreate() {
             <p className="py-8 text-center text-slate-500">Không có sản phẩm nào.</p>
           ) : (
             <>
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto rounded-xl border border-slate-200/80">
                 <table className="min-w-full text-sm">
-                  <thead className="bg-slate-100 text-slate-600">
-                    <tr>
-                      <th className="px-4 py-3 text-left font-semibold" style={{ width: 48 }}>
+                  <thead>
+                    <tr className="border-b border-slate-200 bg-slate-50/90 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      <th className="px-4 py-3" style={{ width: 48 }}>
                         <input
                           type="checkbox"
                           checked={allSelected}
@@ -142,15 +143,15 @@ export default function WarehouseStocktakingCreate() {
                           aria-label="Chọn tất cả"
                         />
                       </th>
-                      <th className="px-4 py-3 text-left font-semibold">Tên sản phẩm</th>
-                      <th className="px-4 py-3 text-left font-semibold">SKU</th>
-                      <th className="px-4 py-3 text-left font-semibold">Đơn vị tồn</th>
-                      <th className="px-4 py-3 text-right font-semibold">Tồn hệ thống</th>
+                      <th className="px-4 py-3">Tên sản phẩm</th>
+                      <th className="px-4 py-3">SKU</th>
+                      <th className="px-4 py-3">Đơn vị tồn</th>
+                      <th className="px-4 py-3 text-right">Tồn hệ thống</th>
                     </tr>
                   </thead>
-                  <tbody>
+                  <tbody className="divide-y divide-slate-100 bg-white">
                     {products.map((p) => (
-                      <tr key={p._id} className="border-t border-slate-100">
+                      <tr key={p._id} className="hover:bg-slate-50/80">
                         <td className="px-4 py-3">
                           <input
                             type="checkbox"
@@ -202,6 +203,6 @@ export default function WarehouseStocktakingCreate() {
         </form>
         </CardContent>
       </Card>
-    </>
+    </StaffPageShell>
   );
 }

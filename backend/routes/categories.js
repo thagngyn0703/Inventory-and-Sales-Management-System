@@ -1,6 +1,6 @@
 const express = require('express');
 const Category = require('../models/Category');
-const { verifyToken, requireManagerOrWarehouse } = require('../middleware/authMiddleware');
+const { verifyToken, requireManagerOrStaff } = require('../middleware/authMiddleware');
 
 const router = express.Router();
 
@@ -8,7 +8,7 @@ const router = express.Router();
 router.use(verifyToken);
 
 // GET /api/categories - list categories (optionally include inactive via query)
-router.get('/', requireManagerOrWarehouse, async (req, res) => {
+router.get('/', requireManagerOrStaff, async (req, res) => {
     try {
         // allow ?all=true to return inactive too
         const filter = {};
@@ -24,7 +24,7 @@ router.get('/', requireManagerOrWarehouse, async (req, res) => {
 });
 
 // POST /api/categories - create new category
-router.post('/', requireManagerOrWarehouse, async (req, res) => {
+router.post('/', requireManagerOrStaff, async (req, res) => {
     try {
         const { name } = req.body;
         if (!name || !name.trim()) {
@@ -45,7 +45,7 @@ router.post('/', requireManagerOrWarehouse, async (req, res) => {
 });
 
 // PUT /api/categories/:id - update name
-router.put('/:id', requireManagerOrWarehouse, async (req, res) => {
+router.put('/:id', requireManagerOrStaff, async (req, res) => {
     try {
         const { id } = req.params;
         const { name } = req.body;
@@ -75,7 +75,7 @@ router.put('/:id', requireManagerOrWarehouse, async (req, res) => {
 });
 
 // PATCH /api/categories/:id/activate - set active or inactive
-router.patch('/:id/activate', requireManagerOrWarehouse, async (req, res) => {
+router.patch('/:id/activate', requireManagerOrStaff, async (req, res) => {
     try {
         const { id } = req.params;
         let { is_active } = req.body;

@@ -2,6 +2,44 @@
     max-width: 560px;
 }
 
+.admin-dash-stats {
+    margin-top: 28px;
+    max-width: 920px;
+}
+
+.admin-dash-stats .manager-panel-title {
+    margin-bottom: 4px;
+}
+
+.admin-dash-stats-hint {
+    font-size: 13px;
+    color: #64748b;
+    margin: 0 0 14px;
+    line-height: 1.45;
+}
+
+.admin-dash-chart-wrap {
+    padding: 0 0.5rem 1.25rem;
+    min-height: 380px;
+}
+
+.admin-dash-chart-wrap .apexcharts-canvas {
+    margin: 0 auto;
+}
+
+.admin-dash-chart-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 380px;
+    margin: 0 1rem 1.25rem;
+    border-radius: 12px;
+    background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+    border: 1px dashed #e2e8f0;
+    color: #64748b;
+    font-size: 14px;
+}
+
 .admin-dash-quick {
     display: flex;
     flex-direction: column;

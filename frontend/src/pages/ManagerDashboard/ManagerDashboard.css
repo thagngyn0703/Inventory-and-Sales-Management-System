@@ -1,7 +1,7 @@
 .manager-page-with-sidebar {
     display: flex;
     min-height: 100vh;
-    background: #f4f6f8;
+    background: #f1f5f9;
     font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
 }
 
@@ -130,6 +130,10 @@
     grid-template-columns: repeat(4, 1fr);
 }
 
+.manager-cards-row--5 {
+    grid-template-columns: repeat(5, 1fr);
+}
+
 .manager-cards-row--2 {
     grid-template-columns: repeat(2, 1fr);
 }
@@ -160,7 +164,7 @@
     height: 8px;
     min-width: 4px;
     border-radius: 4px;
-    background: linear-gradient(90deg, #3b82f6, #60a5fa);
+    background: linear-gradient(90deg, #0d9488, #0ea5e9);
 }
 
 .manager-freq-bar-label {
@@ -193,7 +197,7 @@
 }
 
 .manager-metric-icon--blue {
-    background: linear-gradient(135deg, #3b82f6, #2563eb);
+    background: linear-gradient(135deg, #0d9488, #0284c7);
 }
 
 .manager-metric-icon--green {
@@ -224,6 +228,26 @@
     font-size: 18px;
     font-weight: 700;
     color: #111827;
+}
+
+.manager-metric-value--animated-profit {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+    font-weight: 600;
+    background: linear-gradient(180deg, #4ade80 0%, #22c55e 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 1px 1px rgba(34, 197, 94, 0.12));
+}
+
+@supports not (-webkit-background-clip: text) {
+    .manager-metric-value--animated-profit {
+        color: #22c55e;
+        -webkit-text-fill-color: unset;
+        background: none;
+        filter: none;
+    }
 }
 
 .manager-metric-meta,
@@ -288,7 +312,7 @@
 .manager-panel-link {
     font-size: 14px;
     font-weight: 600;
-    color: #2563eb;
+    color: #0d9488;
     text-decoration: none;
 }
 
@@ -366,8 +390,17 @@
     color: #9ca3af;
 }
 
+@media (max-width: 1400px) {
+    .manager-cards-row--5 {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
+
 @media (max-width: 1200px) {
     .manager-cards-row--4 {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    .manager-cards-row--5 {
         grid-template-columns: repeat(2, 1fr);
     }
 }
@@ -378,6 +411,7 @@
     }
 
     .manager-cards-row--4,
+    .manager-cards-row--5,
     .manager-cards-row--2 {
         grid-template-columns: 1fr;
     }
@@ -442,8 +476,8 @@
 }
 
 .manager-reason-modal-input:focus {
-    border-color: #2563eb;
-    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+    border-color: #0d9488;
+    box-shadow: 0 0 0 2px rgba(13, 148, 136, 0.22);
 }
 
 .manager-reason-modal-actions {
@@ -588,4 +622,14 @@
     color: #64748b;
     margin: 0;
     font-size: 14px;
+}
+
+/* Khung manager mới: đồng bộ typography / nền với staff (ManagerPageFrame). */
+.manager-main--unified {
+    background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 40%, #eef2f7 100%);
+}
+
+.manager-content--unified {
+    font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+    -webkit-font-smoothing: antialiased;
 }

@@ -4,6 +4,7 @@ const SalesReturn = require('../models/SalesReturn');
 const SalesInvoice = require('../models/SalesInvoice');
 const Product = require('../models/Product');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const { adjustCustomerDebtAccount } = require('../utils/customerDebt');
 
 const router = express.Router();
 
@@ -47,36 +48,39 @@ router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (
     }
 });
 
-// POST /api/returns — create a return receipt
+// POST /api/returns — trả hàng; luôn cộng số lượng trả lại vào tồn kho
 router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
+    const { invoice_id, items: reqItems, reason } = req.body || {};
+
+    if (!invoice_id) {
+        return res.status(400).json({ message: '[TC_INV_018] invoice_id is required' });
+    }
+    if (!reqItems || reqItems.length === 0) {
+        return res.status(400).json({ message: 'items are required' });
+    }
+
     const session = await mongoose.startSession();
     session.startTransaction();
     try {
-        const { invoice_id, items: reqItems, reason } = req.body || {};
-
-        if (!invoice_id) {
-            return res.status(400).json({ message: '[TC_INV_018] invoice_id is required' });
+        const invoice = await SalesInvoice.findById(invoice_id).populate('customer_id').session(session);
+        if (!invoice) {
+            await session.abortTransaction();
+            session.endSession();
+            return res.status(404).json({ message: '[TC_INV_019] Invoice not found (Không tìm thấy hóa đơn)' });
         }
-        if (!reqItems || reqItems.length === 0) {
-            return res.status(400).json({ message: 'items are required' });
-        }
-
-        // 1. Check original invoice
-        const invoice = await SalesInvoice.findById(invoice_id).populate('customer_id');
-        if (!invoice) return res.status(404).json({ message: '[TC_INV_019] Invoice not found (Không tìm thấy hóa đơn)' });
 
         if (invoice.status === 'cancelled') {
+            await session.abortTransaction();
+            session.endSession();
             return res.status(400).json({ message: 'Hóa đơn này đã được hủy hoặc đã trả hàng trước đó.' });
         }
 
-        // Build map of sold items: product_id -> quantity
         const soldItemsMap = new Map();
-        (invoice.items || []).forEach(item => {
+        (invoice.items || []).forEach((item) => {
             const pid = item.product_id?._id?.toString() || item.product_id?.toString();
             soldItemsMap.set(pid, (soldItemsMap.get(pid) || 0) + (item.quantity || 0));
         });
 
-        // Store ownership check
         const userRole = String(req.user?.role || '').toLowerCase();
         if (userRole !== 'admin' && req.user.storeId && invoice.store_id && String(invoice.store_id) !== String(req.user.storeId)) {
             await session.abortTransaction();
@@ -86,7 +90,6 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
 
         let returnItems = [];
         let firstSupplierId = null;
-
         let returnTotalAmount = 0;
 
         for (const it of reqItems) {
@@ -106,78 +109,80 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
                 throw err;
             }
             if (reqQty > soldQty) {
-                const err = new Error(`[TC_INV_020] Return more than sold (Số lượng trả ${reqQty} vượt quá số lượng đã mua ${soldQty})`);
+                const err = new Error(
+                    `[TC_INV_020] Return more than sold (Số lượng trả ${reqQty} vượt quá số lượng đã mua ${soldQty})`
+                );
                 err.status = 400;
                 throw err;
             }
 
-            const product = await Product.findById(it.product_id);
+            const product = await Product.findById(it.product_id).session(session);
             if (!product) {
                 const err = new Error(`Không tìm thấy sản phẩm trong kho: ${it.product_id}`);
                 err.status = 400;
                 throw err;
             }
 
-            // 2. Identify supplier (from product)
             if (!firstSupplierId && product.supplier_id) {
                 firstSupplierId = product.supplier_id;
             }
-            
+
+            returnTotalAmount += (Number(it.unit_price) || 0) * reqQty;
+
+            product.stock_qty = (Number(product.stock_qty) || 0) + reqQty;
+            await product.save({ session });
+
             returnItems.push({
                 product_id: it.product_id,
                 quantity: reqQty,
                 unit_price: it.unit_price || 0,
-                disposition: 'restock'
+                disposition: 'restock',
             });
-
-            returnTotalAmount += (it.unit_price || 0) * reqQty;
-
-            // 4. Increase stock quantity
-            product.stock_qty += reqQty;
-            await product.save({ session });
         }
 
-        // 5. Create return receipt & Record return transaction
         const salesReturn = new SalesReturn({
             store_id: req.user.storeId || invoice.store_id || null,
             invoice_id,
             customer_id: invoice.customer_id?._id || invoice.customer_id || req.body.customer_id,
             created_by: req.user.id,
-            warehouse_id: req.body.warehouse_id || invoice.warehouse_id || null,
             supplier_id: firstSupplierId,
             items: returnItems,
             reason: reason || 'Khách trả hàng',
-            status: 'approved'
+            status: 'approved',
         });
 
         await salesReturn.save({ session });
-        
-        // 3. Mark the original invoice as cancelled (returned)
+
         invoice.status = 'cancelled';
         await invoice.save({ session });
 
-        // Decrease customer debt if payment method was debt
         if (invoice.payment_method === 'debt') {
             const customerId = invoice.customer_id?._id || invoice.customer_id;
             if (customerId) {
-                const Customer = mongoose.model('Customer');
-                await Customer.findByIdAndUpdate(customerId, {
-                    $inc: { debt_account: -returnTotalAmount }
-                }, { session });
+                await adjustCustomerDebtAccount(customerId, -returnTotalAmount, { session });
             }
         }
 
         await session.commitTransaction();
         session.endSession();
 
-        return res.status(201).json({ message: 'Trả hàng thành công', salesReturn });
+        const populated = await SalesReturn.findById(salesReturn._id)
+            .populate('invoice_id', '_id recipient_name total_amount invoice_at')
+            .populate('created_by', 'fullName email')
+            .populate('items.product_id', 'name sku')
+            .lean();
+
+        return res.status(201).json({
+            message: 'Trả hàng thành công',
+            salesReturn: populated,
+        });
     } catch (err) {
         await session.abortTransaction();
         session.endSession();
         console.error('Sales Return Error:', err);
-        return res.status(err.status || 400).json({ 
+        return res.status(err.status || 400).json({
             message: err.message || 'Lỗi hệ thống khi thực hiện trả hàng',
-            error: err.toString() 
+            error: err.toString(),
         });
     }
 });

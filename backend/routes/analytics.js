@@ -7,9 +7,76 @@ const SalesReturn = require('../models/SalesReturn');
 const Product = require('../models/Product');
 const ProductPriceHistory = require('../models/ProductPriceHistory');
 const Supplier = require('../models/Supplier');
+const SupplierPayment = require('../models/SupplierPayment');
 const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
+
+/**
+ * IANA timezone. Cả VN một múi; Hà Nội = TP.HCM về giờ. Tên chuẩn là Asia/Ho_Chi_Minh — không có Asia/Ha_Noi trong IANA,
+ * MongoDB $dateToString sẽ lỗi "Invalid time zone" nếu dùng sai.
+ */
+const REPORT_TZ = 'Asia/Ho_Chi_Minh';
+
+function getVNCalendarDate(d = new Date()) {
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: REPORT_TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const parts = fmt.formatToParts(d);
+  const y = parseInt(parts.find((p) => p.type === 'year').value, 10);
+  const m = parseInt(parts.find((p) => p.type === 'month').value, 10);
+  const day = parseInt(parts.find((p) => p.type === 'day').value, 10);
+  return { y, m, day };
+}
+
+function vnYmdKey(y, mo, d) {
+  return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
+function startOfVNCalendarDay(y, mo, d) {
+  return new Date(`${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}T00:00:00+07:00`);
+}
+
+function endOfVNCalendarDay(y, mo, d) {
+  return new Date(`${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}T23:59:59.999+07:00`);
+}
+
+/** Cộng/trừ N ngày trên lịch VN */
+function addDaysVNCalendar(y, mo, d, deltaDays) {
+  const noon = new Date(`${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}T12:00:00+07:00`);
+  return getVNCalendarDate(new Date(noon.getTime() + deltaDays * 86400000));
+}
+
+function getVNYearMonth(d = new Date()) {
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: REPORT_TZ,
+    year: 'numeric',
+    month: '2-digit',
+  });
+  const parts = fmt.formatToParts(d);
+  return {
+    y: parseInt(parts.find((p) => p.type === 'year').value, 10),
+    m: parseInt(parts.find((p) => p.type === 'month').value, 10),
+  };
+}
+
+function startOfVNMonth(y, mo) {
+  return new Date(`${y}-${String(mo).padStart(2, '0')}-01T00:00:00+07:00`);
+}
+
+/** Lùi `monthsBack` tháng trên lịch (monthsBack >= 0) */
+function subtractVNMonths(y, mo, monthsBack) {
+  let yy = y;
+  let mm = mo - monthsBack;
+  while (mm < 1) {
+    mm += 12;
+    yy -= 1;
+  }
+  return { y: yy, m: mm };
+}
 
 /** Lấy storeId filter cho manager/staff, admin không filter */
 function getStoreFilter(req) {
@@ -50,6 +117,74 @@ function getManagerStoreId(req) {
   if (!storeId || !mongoose.isValidObjectId(storeId)) return null;
   return new mongoose.Types.ObjectId(storeId);
 }
+
+/**
+ * Điều kiện loại trừ hóa đơn chuyển khoản chưa được xác nhận thanh toán.
+ * Hóa đơn bank_transfer chỉ được tính vào doanh thu/lợi nhuận khi payment_status = 'paid'.
+ * Các phương thức khác (cash, debt, card, credit) luôn được tính.
+ */
+const PAID_TRANSFER_FILTER = {
+  $or: [
+    { payment_method: { $ne: 'bank_transfer' } },
+    { payment_status: 'paid' },
+  ],
+};
+
+/**
+ * Lãi gộp dòng = line_total − qty×unitCost, làm tròn 2 chữ số (khớp computeLineProfit trong invoices.js).
+ */
+function aggLineGrossRounded(lineTotalRef, qtyRef, unitCostRef) {
+  return {
+    $divide: [
+      {
+        $round: [
+          {
+            $multiply: [
+              {
+                $subtract: [
+                  { $ifNull: [lineTotalRef, 0] },
+                  { $multiply: [{ $ifNull: [unitCostRef, 0] }, { $ifNull: [qtyRef, 0] }] },
+                ],
+              },
+              100,
+            ],
+          },
+          0,
+        ],
+      },
+      100,
+    ],
+  };
+}
+
+/**
+ * Unwind dòng hàng → lookup Product → __unitCost: ưu tiên cost_price snapshot trên dòng;
+ * nếu snapshot = 0 (đơn cũ / chưa nhập vốn) thì dùng cost_price SP hiện tại để báo cáo biên lãi có ý nghĩa.
+ * (Đơn đã chốt vẫn giữ snapshot khi snapshot > 0.)
+ */
+const AGG_STAGES_ITEMS_WITH_EFFECTIVE_UNIT_COST = [
+  { $unwind: '$items' },
+  {
+    $lookup: {
+      from: 'products',
+      localField: 'items.product_id',
+      foreignField: '_id',
+      as: '__p',
+    },
+  },
+  { $unwind: { path: '$__p', preserveNullAndEmptyArrays: true } },
+  {
+    $addFields: {
+      __unitCost: {
+        $cond: [
+          { $gt: [{ $ifNull: ['$items.cost_price', 0] }, 0] },
+          '$items.cost_price',
+          { $ifNull: ['$__p.cost_price', 0] },
+        ],
+      },
+    },
+  },
+];
 
 /**
  * GET /api/analytics/incoming-frequency?year=2025&month=3
@@ -159,16 +294,39 @@ router.get(
       const storeIdObj = req.user?.storeId ? new mongoose.Types.ObjectId(req.user.storeId) : null;
 
       const invoiceMatchPeriod = storeIdObj
-        ? { store_id: storeIdObj, status: 'confirmed', invoice_at: { $gte: from, $lte: to } }
-        : { status: 'confirmed', invoice_at: { $gte: from, $lte: to } };
+        ? { store_id: storeIdObj, status: 'confirmed', invoice_at: { $gte: from, $lte: to }, ...PAID_TRANSFER_FILTER }
+        : { status: 'confirmed', invoice_at: { $gte: from, $lte: to }, ...PAID_TRANSFER_FILTER };
 
-      const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
-      const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999);
-      const yStart = new Date(); yStart.setDate(yStart.getDate() - 1); yStart.setHours(0, 0, 0, 0);
-      const yEnd = new Date(); yEnd.setDate(yEnd.getDate() - 1); yEnd.setHours(23, 59, 59, 999);
+      const vnToday = getVNCalendarDate();
+      const todayStart = startOfVNCalendarDay(vnToday.y, vnToday.m, vnToday.day);
+      const todayEnd = endOfVNCalendarDay(vnToday.y, vnToday.m, vnToday.day);
+      const yest = addDaysVNCalendar(vnToday.y, vnToday.m, vnToday.day, -1);
+      const yStart = startOfVNCalendarDay(yest.y, yest.m, yest.day);
+      const yEnd = endOfVNCalendarDay(yest.y, yest.m, yest.day);
+
+      // Lợi nhuận gộp: tính từ line_total & giá vốn hiệu dụng (snapshot hoặc SP hiện tại nếu snapshot = 0)
+      const profitPipeline = (matchCond) => [
+        { $match: matchCond },
+        ...AGG_STAGES_ITEMS_WITH_EFFECTIVE_UNIT_COST,
+        {
+          $group: {
+            _id: null,
+            gross_profit: {
+              $sum: aggLineGrossRounded('$items.line_total', '$items.quantity', '$__unitCost'),
+            },
+          },
+        },
+      ];
+
+      const todayMatchCond = storeIdObj
+        ? { store_id: storeIdObj, status: 'confirmed', invoice_at: { $gte: todayStart, $lte: todayEnd }, ...PAID_TRANSFER_FILTER }
+        : { status: 'confirmed', invoice_at: { $gte: todayStart, $lte: todayEnd }, ...PAID_TRANSFER_FILTER };
+      const yMatchCond = storeIdObj
+        ? { store_id: storeIdObj, status: 'confirmed', invoice_at: { $gte: yStart, $lte: yEnd }, ...PAID_TRANSFER_FILTER }
+        : { status: 'confirmed', invoice_at: { $gte: yStart, $lte: yEnd }, ...PAID_TRANSFER_FILTER };
 
       // Doanh thu + số đơn + lợi nhuận gộp thực (từ cost_price snapshot trên từng dòng hóa đơn)
-      const [invoiceAgg, invoiceProfitAgg, returnAgg, grAgg, todayAgg, yesterdayAgg] = await Promise.all([
+      const [invoiceAgg, invoiceProfitAgg, returnAgg, grAgg, supplierPaymentAgg, todayAgg, yesterdayAgg, todayProfitAgg, yesterdayProfitAgg] = await Promise.all([
         // Aggregate 1: đếm số hóa đơn, tổng doanh thu, tổng đã thu
         SalesInvoice.aggregate([
           { $match: invoiceMatchPeriod },
@@ -183,28 +341,7 @@ router.get(
         ]),
 
         // Aggregate 2: tính lợi nhuận gộp thực từ cost_price snapshot trên từng dòng hóa đơn
-        SalesInvoice.aggregate([
-          { $match: invoiceMatchPeriod },
-          { $unwind: '$items' },
-          {
-            $group: {
-              _id: null,
-              gross_profit: {
-                $sum: {
-                  $ifNull: [
-                    '$items.line_profit',
-                    {
-                      $subtract: [
-                        '$items.line_total',
-                        { $multiply: [{ $ifNull: ['$items.cost_price', 0] }, '$items.quantity'] },
-                      ],
-                    },
-                  ],
-                },
-              },
-            },
-          },
-        ]),
+        SalesInvoice.aggregate(profitPipeline(invoiceMatchPeriod)),
 
         // Số đơn trả hàng trong kỳ
         SalesReturn.aggregate([
@@ -226,31 +363,57 @@ router.get(
           { $group: { _id: null, incoming_cost: { $sum: '$total_amount' } } },
         ]),
 
-        // Doanh thu hôm nay
-        SalesInvoice.aggregate([
+        // Chi trả nợ NCC trong kỳ (dòng tiền thực chi), tách theo phương thức
+        SupplierPayment.aggregate([
           {
             $match: storeIdObj
-              ? { store_id: storeIdObj, status: 'confirmed', invoice_at: { $gte: todayStart, $lte: todayEnd } }
-              : { status: 'confirmed', invoice_at: { $gte: todayStart, $lte: todayEnd } },
+              ? { storeId: storeIdObj, payment_date: { $gte: from, $lte: to } }
+              : { payment_date: { $gte: from, $lte: to } },
           },
+          {
+            $group: {
+              _id: null,
+              supplier_payment_total: { $sum: '$total_amount' },
+              supplier_payment_cash: {
+                $sum: {
+                  $cond: [{ $eq: ['$payment_method', 'cash'] }, '$total_amount', 0],
+                },
+              },
+              supplier_payment_bank_transfer: {
+                $sum: {
+                  $cond: [{ $eq: ['$payment_method', 'bank_transfer'] }, '$total_amount', 0],
+                },
+              },
+            },
+          },
+        ]),
+
+        // Doanh thu hôm nay
+        SalesInvoice.aggregate([
+          { $match: todayMatchCond },
           { $group: { _id: null, revenue: { $sum: '$total_amount' }, count: { $sum: 1 } } },
         ]),
 
         // Doanh thu hôm qua (để tính % thay đổi)
         SalesInvoice.aggregate([
-          {
-            $match: storeIdObj
-              ? { store_id: storeIdObj, status: 'confirmed', invoice_at: { $gte: yStart, $lte: yEnd } }
-              : { status: 'confirmed', invoice_at: { $gte: yStart, $lte: yEnd } },
-          },
+          { $match: yMatchCond },
           { $group: { _id: null, revenue: { $sum: '$total_amount' }, count: { $sum: 1 } } },
         ]),
+
+        // Lợi nhuận gộp thực hôm nay
+        SalesInvoice.aggregate(profitPipeline(todayMatchCond)),
+
+        // Lợi nhuận gộp thực hôm qua
+        SalesInvoice.aggregate(profitPipeline(yMatchCond)),
       ]);
 
       const revenue = invoiceAgg[0]?.total_revenue ?? 0;
       const orderCount = invoiceAgg[0]?.order_count ?? 0;
       const returnCount = returnAgg[0]?.return_count ?? 0;
       const incomingCost = grAgg[0]?.incoming_cost ?? 0;
+      const supplierPaymentTotal = supplierPaymentAgg[0]?.supplier_payment_total ?? 0;
+      const supplierPaymentCash = supplierPaymentAgg[0]?.supplier_payment_cash ?? 0;
+      const supplierPaymentBankTransfer = supplierPaymentAgg[0]?.supplier_payment_bank_transfer ?? 0;
       // Lợi nhuận gộp thực: tính từ cost_price snapshot trên từng dòng hóa đơn
       const grossProfit = invoiceProfitAgg[0]?.gross_profit ?? 0;
       // Giữ lại gross_profit_estimate (dựa GoodsReceipt) để tham khảo
@@ -262,9 +425,14 @@ router.get(
       const todayCount = todayAgg[0]?.count ?? 0;
       const yesterdayRevenue = yesterdayAgg[0]?.revenue ?? 0;
       const yesterdayCount = yesterdayAgg[0]?.count ?? 0;
+      const todayProfit = todayProfitAgg[0]?.gross_profit ?? 0;
+      const yesterdayProfit = yesterdayProfitAgg[0]?.gross_profit ?? 0;
 
       const revenueChangePct = yesterdayRevenue > 0
         ? Math.round(((todayRevenue - yesterdayRevenue) / yesterdayRevenue) * 10000) / 100
+        : null;
+      const profitChangePct = yesterdayProfit > 0
+        ? Math.round(((todayProfit - yesterdayProfit) / yesterdayProfit) * 10000) / 100
         : null;
       const orderChangeDelta = todayCount - yesterdayCount;
 
@@ -276,6 +444,9 @@ router.get(
         return_count: returnCount,
         return_rate: returnRate,
         incoming_cost: incomingCost,
+        supplier_payment_total: supplierPaymentTotal,
+        supplier_payment_cash: supplierPaymentCash,
+        supplier_payment_bank_transfer: supplierPaymentBankTransfer,
         // Lợi nhuận gộp thực: tính từ cost_price snapshot trên từng dòng hóa đơn (chính xác)
         gross_profit: grossProfit,
         // Lợi nhuận ước tính cũ (doanh thu - tiền nhập kỳ): giữ để tham khảo, không dùng cho báo cáo chính
@@ -286,6 +457,9 @@ router.get(
           revenue_change_pct: revenueChangePct,
           order_change_delta: orderChangeDelta,
           yesterday_revenue: yesterdayRevenue,
+          profit: todayProfit,
+          profit_change_pct: profitChangePct,
+          yesterday_profit: yesterdayProfit,
         },
       });
     } catch (err) {
@@ -316,8 +490,11 @@ router.get(
 
       const thirtyDaysLater = new Date();
       thirtyDaysLater.setDate(thirtyDaysLater.getDate() + 30);
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      thirtyDaysAgo.setHours(0, 0, 0, 0);
 
-      const [inventoryAgg, lowStockProducts, expiringProducts] = await Promise.all([
+      const [inventoryAgg, lowStockProducts, expiringProducts, deadCapitalAgg] = await Promise.all([
         Product.aggregate([
           { $match: baseMatch },
           {
@@ -345,7 +522,7 @@ router.get(
           stock_qty: { $gt: 0 },
           $expr: { $lte: ['$stock_qty', '$reorder_level'] },
         })
-          .select('name sku stock_qty reorder_level')
+          .select('name sku stock_qty reorder_level cost_price')
           .sort({ stock_qty: 1 })
           .limit(5)
           .lean(),
@@ -355,10 +532,54 @@ router.get(
           ...baseMatch,
           expiry_date: { $gte: new Date(), $lte: thirtyDaysLater },
         })
-          .select('name sku expiry_date stock_qty')
+          .select('name sku expiry_date stock_qty cost_price')
           .sort({ expiry_date: 1 })
           .limit(10)
           .lean(),
+
+        // Vốn đọng: sản phẩm có tồn > 0 nhưng không có đơn bán trong 30 ngày qua
+        (async () => {
+          const invoiceMatchDead = storeIdObj
+            ? { store_id: storeIdObj, status: 'confirmed', invoice_at: { $gte: thirtyDaysAgo }, ...PAID_TRANSFER_FILTER }
+            : { status: 'confirmed', invoice_at: { $gte: thirtyDaysAgo }, ...PAID_TRANSFER_FILTER };
+
+          // Lấy danh sách product_id đã bán trong 30 ngày
+          const soldProductIds = await SalesInvoice.aggregate([
+            { $match: invoiceMatchDead },
+            { $unwind: '$items' },
+            { $group: { _id: '$items.product_id' } },
+          ]);
+          const soldIds = soldProductIds.map((r) => r._id).filter(Boolean);
+
+          // Sản phẩm có tồn > 0 và KHÔNG trong danh sách đã bán
+          const deadProducts = await Product.find({
+            ...baseMatch,
+            stock_qty: { $gt: 0 },
+            _id: { $nin: soldIds },
+          })
+            .select('name sku stock_qty cost_price expiry_date')
+            .sort({ stock_qty: -1 })
+            .limit(20)
+            .lean();
+
+          const total_dead_capital = deadProducts.reduce(
+            (sum, p) => sum + (p.stock_qty || 0) * (p.cost_price || 0),
+            0
+          );
+
+          return {
+            total_dead_capital,
+            dead_products: deadProducts.map((p) => ({
+              _id: p._id,
+              name: p.name,
+              sku: p.sku,
+              stock_qty: p.stock_qty,
+              cost_price: p.cost_price,
+              dead_capital: (p.stock_qty || 0) * (p.cost_price || 0),
+              expiry_date: p.expiry_date || null,
+            })),
+          };
+        })(),
       ]);
 
       return res.json({
@@ -368,6 +589,8 @@ router.get(
         low_stock_count: inventoryAgg[0]?.low_stock ?? 0,
         low_stock_products: lowStockProducts,
         expiring_soon: expiringProducts,
+        dead_capital: deadCapitalAgg.total_dead_capital ?? 0,
+        dead_products: deadCapitalAgg.dead_products ?? [],
       });
     } catch (err) {
       console.error(err);
@@ -395,82 +618,116 @@ router.get(
       }
 
       const now = new Date();
-      let groupBy, from, points;
+      let groupBy;
+      let points;
+      /** @type {{ y: number, m: number, day?: number }} */
+      let rangeStartVN;
+      let matchFrom;
+      /** Gom bucket theo ngày YYYY-MM-DD hoặc tháng YYYY-MM (timezone VN trong Mongo) */
+      let bucketExpr;
+
+      const vnNow = getVNCalendarDate(now);
 
       if (period === '7d' || period === '30d') {
         const days = period === '7d' ? 7 : 30;
-        from = new Date(now);
-        from.setDate(from.getDate() - (days - 1));
-        from.setHours(0, 0, 0, 0);
         groupBy = 'day';
         points = days;
+        rangeStartVN = addDaysVNCalendar(vnNow.y, vnNow.m, vnNow.day, -(days - 1));
+        matchFrom = startOfVNCalendarDay(rangeStartVN.y, rangeStartVN.m, rangeStartVN.day);
+        bucketExpr = {
+          $dateToString: { format: '%Y-%m-%d', date: '$invoice_at', timezone: REPORT_TZ },
+        };
       } else if (period === '3m') {
-        from = new Date(now.getFullYear(), now.getMonth() - 2, 1);
         groupBy = 'month';
         points = 3;
+        const first = subtractVNMonths(vnNow.y, vnNow.m, 2);
+        rangeStartVN = { y: first.y, m: first.m };
+        matchFrom = startOfVNMonth(first.y, first.m);
+        bucketExpr = {
+          $dateToString: { format: '%Y-%m', date: '$invoice_at', timezone: REPORT_TZ },
+        };
       } else {
-        from = new Date(now.getFullYear(), now.getMonth() - 5, 1);
         groupBy = 'month';
         points = 6;
+        const first = subtractVNMonths(vnNow.y, vnNow.m, 5);
+        rangeStartVN = { y: first.y, m: first.m };
+        matchFrom = startOfVNMonth(first.y, first.m);
+        bucketExpr = {
+          $dateToString: { format: '%Y-%m', date: '$invoice_at', timezone: REPORT_TZ },
+        };
       }
 
       const matchStage = storeIdObj
-        ? { store_id: storeIdObj, status: 'confirmed', invoice_at: { $gte: from, $lte: now } }
-        : { status: 'confirmed', invoice_at: { $gte: from, $lte: now } };
+        ? { store_id: storeIdObj, status: 'confirmed', invoice_at: { $gte: matchFrom, $lte: now }, ...PAID_TRANSFER_FILTER }
+        : { status: 'confirmed', invoice_at: { $gte: matchFrom, $lte: now }, ...PAID_TRANSFER_FILTER };
 
-      const groupStage = groupBy === 'day'
-        ? {
-            _id: {
-              year: { $year: '$invoice_at' },
-              month: { $month: '$invoice_at' },
-              day: { $dayOfMonth: '$invoice_at' },
-            },
-            revenue: { $sum: '$total_amount' },
-            order_count: { $sum: 1 },
-          }
-        : {
-            _id: {
-              year: { $year: '$invoice_at' },
-              month: { $month: '$invoice_at' },
-            },
-            revenue: { $sum: '$total_amount' },
-            order_count: { $sum: 1 },
-          };
-
-      const agg = await SalesInvoice.aggregate([
+      // Aggregate doanh thu theo bucket (khóa = chuỗi ngày/tháng theo REPORT_TZ)
+      const revenueAgg = await SalesInvoice.aggregate([
         { $match: matchStage },
-        { $group: groupStage },
-        { $sort: { '_id.year': 1, '_id.month': 1, '_id.day': 1 } },
+        { $group: { _id: bucketExpr, revenue: { $sum: '$total_amount' }, order_count: { $sum: 1 } } },
+        { $sort: { _id: 1 } },
       ]);
 
-      // Build lookup map
-      const dataMap = new Map();
-      agg.forEach((r) => {
-        const key = groupBy === 'day'
-          ? `${r._id.year}-${String(r._id.month).padStart(2, '0')}-${String(r._id.day).padStart(2, '0')}`
-          : `${r._id.year}-${String(r._id.month).padStart(2, '0')}`;
-        dataMap.set(key, { revenue: r.revenue, order_count: r.order_count });
+      // Lợi nhuận theo bucket: cùng công thức giá vốn hiệu dụng như summary (tránh lãi = DT khi snapshot vốn = 0)
+      const profitAgg = await SalesInvoice.aggregate([
+        { $match: matchStage },
+        ...AGG_STAGES_ITEMS_WITH_EFFECTIVE_UNIT_COST,
+        {
+          $group: {
+            _id: bucketExpr,
+            profit: {
+              $sum: aggLineGrossRounded('$items.line_total', '$items.quantity', '$__unitCost'),
+            },
+          },
+        },
+        { $sort: { _id: 1 } },
+      ]);
+
+      const revenueMap = new Map();
+      revenueAgg.forEach((r) => {
+        if (r._id) revenueMap.set(r._id, { revenue: r.revenue, order_count: r.order_count });
+      });
+      const profitMap = new Map();
+      profitAgg.forEach((r) => {
+        if (r._id != null) profitMap.set(r._id, r.profit);
       });
 
-      // Fill tất cả điểm (kể cả ngày/tháng không có đơn = 0)
       const result = [];
-      for (let i = 0; i < points; i++) {
-        let label, key;
-        if (groupBy === 'day') {
-          const d = new Date(from);
-          d.setDate(d.getDate() + i);
-          key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-          label = `${d.getDate()}/${d.getMonth() + 1}`;
-        } else {
-          const d = new Date(from.getFullYear(), from.getMonth() + i, 1);
-          key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-          label = `T${d.getMonth() + 1}/${d.getFullYear()}`;
+      if (groupBy === 'day') {
+        for (let i = 0; i < points; i++) {
+          const d = addDaysVNCalendar(rangeStartVN.y, rangeStartVN.m, rangeStartVN.day, i);
+          const key = vnYmdKey(d.y, d.m, d.day);
+          const entry = revenueMap.get(key) || { revenue: 0, order_count: 0 };
+          result.push({
+            label: `${d.day}/${d.m}`,
+            key,
+            revenue: entry.revenue,
+            order_count: entry.order_count,
+            profit: profitMap.get(key) ?? 0,
+          });
         }
-        const entry = dataMap.get(key) || { revenue: 0, order_count: 0 };
-        result.push({ label, key, revenue: entry.revenue, order_count: entry.order_count });
+      } else {
+        let cy = rangeStartVN.y;
+        let cm = rangeStartVN.m;
+        for (let i = 0; i < points; i++) {
+          const key = `${cy}-${String(cm).padStart(2, '0')}`;
+          const entry = revenueMap.get(key) || { revenue: 0, order_count: 0 };
+          result.push({
+            label: `T${cm}/${cy}`,
+            key,
+            revenue: entry.revenue,
+            order_count: entry.order_count,
+            profit: profitMap.get(key) ?? 0,
+          });
+          cm += 1;
+          if (cm > 12) {
+            cm = 1;
+            cy += 1;
+          }
+        }
       }
 
-      return res.json({ period, data: result });
+      return res.json({ period, data: result, timezone: REPORT_TZ });
     } catch (err) {
       console.error(err);
       return res.status(500).json({ message: err.message || 'Server error' });
@@ -479,8 +736,8 @@ router.get(
 );
 
 /**
- * GET /api/analytics/top-products?from=&to=&limit=10
- * Sản phẩm bán chạy nhất theo số lượng và doanh thu
+ * GET /api/analytics/top-products?from=&to=&limit=10&sort=qty|profit
+ * Sản phẩm bán chạy nhất (sort=qty) hoặc lãi nhiều nhất (sort=profit)
  */
 router.get(
   '/top-products',
@@ -490,6 +747,7 @@ router.get(
     try {
       const { from, to } = parseDateRange(req.query);
       const limit = Math.min(parseInt(req.query.limit, 10) || 10, 50);
+      const sortBy = req.query.sort === 'profit' ? 'total_profit' : 'total_qty';
       const storeIdObj = req.user?.storeId ? new mongoose.Types.ObjectId(req.user.storeId) : null;
       const role = String(req.user?.role || '').toLowerCase();
 
@@ -498,21 +756,24 @@ router.get(
       }
 
       const matchStage = storeIdObj
-        ? { store_id: storeIdObj, status: 'confirmed', invoice_at: { $gte: from, $lte: to } }
-        : { status: 'confirmed', invoice_at: { $gte: from, $lte: to } };
+        ? { store_id: storeIdObj, status: 'confirmed', invoice_at: { $gte: from, $lte: to }, ...PAID_TRANSFER_FILTER }
+        : { status: 'confirmed', invoice_at: { $gte: from, $lte: to }, ...PAID_TRANSFER_FILTER };
 
       const agg = await SalesInvoice.aggregate([
         { $match: matchStage },
-        { $unwind: '$items' },
+        ...AGG_STAGES_ITEMS_WITH_EFFECTIVE_UNIT_COST,
         {
           $group: {
             _id: '$items.product_id',
             total_qty: { $sum: '$items.quantity' },
             total_revenue: { $sum: '$items.line_total' },
             order_count: { $sum: 1 },
+            total_profit: {
+              $sum: aggLineGrossRounded('$items.line_total', '$items.quantity', '$__unitCost'),
+            },
           },
         },
-        { $sort: { total_qty: -1 } },
+        { $sort: { [sortBy]: -1 } },
         { $limit: limit },
         {
           $lookup: {
@@ -522,7 +783,7 @@ router.get(
             as: 'product',
           },
         },
-        { $unwind: { path: '$product', preserveNullAndEmpty: true } },
+        { $unwind: { path: '$product', preserveNullAndEmptyArrays: true } },
         {
           $project: {
             product_id: '$_id',
@@ -530,6 +791,7 @@ router.get(
             sku: { $ifNull: ['$product.sku', '—'] },
             total_qty: 1,
             total_revenue: 1,
+            total_profit: 1,
             order_count: 1,
             current_stock: { $ifNull: ['$product.stock_qty', 0] },
           },
@@ -538,6 +800,7 @@ router.get(
 
       return res.json({
         period: { from: from.toISOString(), to: to.toISOString() },
+        sort: sortBy === 'total_profit' ? 'profit' : 'qty',
         data: agg,
       });
     } catch (err) {
@@ -610,6 +873,7 @@ router.get(
               store_id: storeIdObj,
               status: 'confirmed',
               invoice_at: { $gte: windowStart, $lt: windowEnd },
+              ...PAID_TRANSFER_FILTER,
             },
           },
           { $unwind: '$items' },
@@ -619,24 +883,33 @@ router.get(
             },
           },
           {
+            $lookup: {
+              from: 'products',
+              localField: 'items.product_id',
+              foreignField: '_id',
+              as: '__p',
+            },
+          },
+          { $unwind: { path: '$__p', preserveNullAndEmptyArrays: true } },
+          {
+            $addFields: {
+              __unitCost: {
+                $cond: [
+                  { $gt: [{ $ifNull: ['$items.cost_price', 0] }, 0] },
+                  '$items.cost_price',
+                  { $ifNull: ['$__p.cost_price', 0] },
+                ],
+              },
+            },
+          },
+          {
             $group: {
               _id: null,
               qty: { $sum: '$items.quantity' },
               revenue: { $sum: '$items.line_total' },
               orders: { $sum: 1 },
-              // Lợi nhuận thực: dùng cost_price đã snapshot trên từng dòng hóa đơn
               actual_profit: {
-                $sum: {
-                  $ifNull: [
-                    '$items.line_profit',
-                    {
-                      $subtract: [
-                        '$items.line_total',
-                        { $multiply: [{ $ifNull: ['$items.cost_price', 0] }, '$items.quantity'] },
-                      ],
-                    },
-                  ],
-                },
+                $sum: aggLineGrossRounded('$items.line_total', '$items.quantity', '$__unitCost'),
               },
             },
           },

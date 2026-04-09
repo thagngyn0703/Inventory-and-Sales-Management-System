@@ -1,6 +1,8 @@
 import { useNavigate } from "react-router-dom";
-import { useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Sidebar from "../../components/Sidebar";
+import { getAdminDashboard } from "../../services/adminApi";
+import AdminMonthlyStatsChart from "./AdminMonthlyStatsChart";
 import "../ManagerDashboard/ManagerDashboard.css";
 import "../ManagerDashboard/ManagerProducts.css";
 import "./AdminDashBoard.css";
@@ -16,6 +18,26 @@ function readStoredUser() {
 export default function AdminDashboard() {
     const navigate = useNavigate();
     const user = readStoredUser();
+    const [monthlyRows, setMonthlyRows] = useState([]);
+    const [statsLoading, setStatsLoading] = useState(true);
+    const [statsError, setStatsError] = useState("");
+
+    const loadDashboard = useCallback(async () => {
+        const token = localStorage.getItem("token");
+        if (!token) return;
+        setStatsLoading(true);
+        setStatsError("");
+        try {
+            const data = await getAdminDashboard({ months: 12 });
+            const rows = data?.monthlyStoreStats?.rows || [];
+            setMonthlyRows(rows);
+        } catch (e) {
+            setStatsError(e.message || "Không thể tải thống kê");
+            setMonthlyRows([]);
+        } finally {
+            setStatsLoading(false);
+        }
+    }, []);
 
     useEffect(() => {
         if (!localStorage.getItem("token") || !user) {
@@ -26,6 +48,10 @@ export default function AdminDashboard() {
             navigate("/home", { replace: true });
         }
     }, [user, navigate]);
+
+    useEffect(() => {
+        if (user?.role === "admin") loadDashboard();
+    }, [user?.role, loadDashboard]);
 
     if (!user || user.role !== "admin") return null;
 
@@ -75,8 +101,30 @@ export default function AdminDashboard() {
                                     <span>Quản lý tài khoản</span>
                                     <small>Trạng thái, gán nhân viên vào cửa hàng</small>
                                 </button>
+                                <button
+                                    type="button"
+                                    className="admin-dash-quick__btn"
+                                    onClick={() => navigate("/admin/support")}
+                                >
+                                    <i className="fa-solid fa-headset" />
+                                    <span>Phiếu hỗ trợ</span>
+                                    <small>Yêu cầu từ quản lý cửa hàng</small>
+                                </button>
                             </div>
                         </div>
+                    </div>
+
+                    <div className="manager-panel-card admin-dash-stats">
+                        <div className="manager-panel-header manager-panel-header--space">
+                            <h2 className="manager-panel-title">Biểu đồ thống kê theo tháng (toàn hệ thống)</h2>
+                        </div>
+                        <p className="admin-dash-stats-hint">
+                            Số liệu gộp mọi cửa hàng: <strong>sản phẩm</strong> là số SKU được tạo trong tháng;
+                            <strong> đơn hàng</strong> là số hóa đơn bán (không tính đã hủy), theo ngày trên hóa đơn.
+                            Trục trái: sản phẩm mới; trục phải: đơn hàng (12 tháng gần nhất, theo lịch Việt Nam).
+                        </p>
+                        {statsError && <div className="manager-products-error">{statsError}</div>}
+                        <AdminMonthlyStatsChart rows={monthlyRows} loading={statsLoading} />
                     </div>
                 </div>
             </div>

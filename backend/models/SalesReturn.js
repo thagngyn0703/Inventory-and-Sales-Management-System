@@ -23,6 +23,10 @@ const salesReturnSchema = new Schema(
             ref: 'User',
             required: true,
         },
+        supplier_id: {
+            type: Schema.Types.ObjectId,
+            ref: 'Supplier',
+        },
         status: {
             type: String,
             enum: ['pending', 'approved', 'rejected'],

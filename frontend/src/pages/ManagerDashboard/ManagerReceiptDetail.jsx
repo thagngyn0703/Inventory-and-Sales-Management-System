@@ -1,16 +1,35 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import ManagerSidebar from './ManagerSidebar';
+import { useParams, useNavigate, Link } from 'react-router-dom';
+import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
 import { getGoodsReceipt, setGoodsReceiptStatus } from '../../services/goodsReceiptsApi';
+import { useToast } from '../../contexts/ToastContext';
+import { ConfirmDialog } from '../../components/ui/confirm-dialog';
+import { StaffPageShell } from '../../components/staff/StaffPageShell';
+import { Button } from '../../components/ui/button';
+import { ArrowLeft, ClipboardList, CreditCard } from 'lucide-react';
 import './ManagerDashboard.css';
+
+const PAYMENT_TYPE_LABEL = {
+    cash: 'Trả đủ ngay',
+    partial: 'Trả một phần',
+    credit: 'Ghi nợ (trả sau)',
+};
 
 export default function ManagerReceiptDetail() {
     const { id } = useParams();
     const navigate = useNavigate();
+    const { toast } = useToast();
     const [receipt, setReceipt] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [submitting, setSubmitting] = useState(false);
+    const [confirmOpen, setConfirmOpen] = useState(false);
+    const [confirmType, setConfirmType] = useState(null);
+    const [rejectionReason, setRejectionReason] = useState('');
+    // Thanh toán NCC khi duyệt
+    const [paymentType, setPaymentType] = useState('credit');
+    const [amountPaid, setAmountPaid] = useState('');
+    const [dueDatePayable, setDueDatePayable] = useState('');
 
     const fetchReceipt = useCallback(async () => {
         setLoading(true);
@@ -29,29 +48,36 @@ export default function ManagerReceiptDetail() {
         fetchReceipt();
     }, [fetchReceipt]);
 
-    const handleApprove = async () => {
-        if (!window.confirm('Xác nhận duyệt phiếu nhập này? Kho hàng sẽ được tăng lên tương ứng.')) return;
-        setSubmitting(true);
-        try {
-            await setGoodsReceiptStatus(id, 'approved');
-            alert('Đã duyệt thành công.');
-            navigate('/manager/receipts');
-        } catch (e) {
-            alert(e.message || 'Lỗi khi duyệt');
-            setSubmitting(false);
-            fetchReceipt();
+    const runStatusChange = async () => {
+        if (!confirmType) return;
+        if (confirmType === 'reject' && !rejectionReason.trim()) {
+            toast('Vui lòng nhập lý do từ chối', 'error');
+            return;
         }
-    };
-
-    const handleReject = async () => {
-        if (!window.confirm('Bạn có chắc chắn muốn từ chối phiếu nhập này?')) return;
+        if (confirmType === 'approve' && paymentType === 'partial') {
+            const v = Number(amountPaid);
+            if (!v || v <= 0) { toast('Vui lòng nhập số tiền đã trả', 'error'); return; }
+            if (v >= Number(receipt?.total_amount)) { toast('Nếu trả đủ, hãy chọn "Trả đủ ngay"', 'error'); return; }
+        }
         setSubmitting(true);
         try {
-            await setGoodsReceiptStatus(id, 'rejected');
-            alert('Đã từ chối phiếu nhập.');
+            const status = confirmType === 'approve' ? 'approved' : 'rejected';
+            const extra = confirmType === 'approve' ? {
+                payment_type: paymentType,
+                amount_paid_at_approval: paymentType === 'cash' ? Number(receipt?.total_amount) : (paymentType === 'partial' ? Number(amountPaid) : 0),
+                due_date_payable: (paymentType === 'credit' || paymentType === 'partial') && dueDatePayable ? dueDatePayable : undefined,
+            } : {};
+            await setGoodsReceiptStatus(id, status, rejectionReason.trim() || undefined, extra);
+            toast(
+                status === 'approved' ? 'Đã duyệt phiếu nhập thành công.' : 'Đã từ chối phiếu nhập.',
+                'success'
+            );
+            setConfirmOpen(false);
+            setConfirmType(null);
+            setRejectionReason('');
             navigate('/manager/receipts');
         } catch (e) {
-            alert(e.message || 'Lỗi khi từ chối');
+            toast(e.message || 'Thao tác thất bại', 'error');
             setSubmitting(false);
             fetchReceipt();
         }
@@ -66,34 +92,48 @@ export default function ManagerReceiptDetail() {
         }
     };
 
-    if (loading) return <div style={{ padding: 24, fontSize: 16 }}>Đang tải chi tiết phiếu nhập...</div>;
-    if (error) return <div style={{ backgroundColor: '#fee2e2', color: '#b91c1c', padding: 12, borderRadius: 6, margin: 24 }}>{error}</div>;
+    if (loading) {
+        return (
+            <ManagerPageFrame showNotificationBell={false}>
+                <p className="py-12 text-center text-slate-600">Đang tải chi tiết phiếu nhập...</p>
+            </ManagerPageFrame>
+        );
+    }
+    if (error) {
+        return (
+            <ManagerPageFrame showNotificationBell={false}>
+                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800">{error}</div>
+            </ManagerPageFrame>
+        );
+    }
     if (!receipt) return null;
 
-    return (
-        <div className="manager-page-with-sidebar">
-            <ManagerSidebar />
-            <div className="manager-main">
-                <header className="manager-topbar">
-                    <div className="manager-topbar-actions" style={{ marginLeft: 'auto' }}>
-                        <div className="manager-user-badge">
-                            <i className="fa-solid fa-circle-user" />
-                            <span>Quản lý</span>
-                        </div>
-                    </div>
-                </header>
-                <div className="manager-content">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
-                        <button
-                            style={{ padding: '6px 12px', border: '1px solid #d1d5db', backgroundColor: 'white', borderRadius: 4, cursor: 'pointer', fontSize: 14 }}
-                            onClick={() => navigate(-1)}
-                        >
-                            <i className="fa-solid fa-arrow-left" style={{ marginRight: 6 }} /> Quay lại
-                        </button>
-                        <h1 style={{ margin: 0, fontSize: 24, fontWeight: 600 }}>Chi tiết xét duyệt phiếu nhập kho</h1>
-                    </div>
+    const shortId = receipt._id.substring(receipt._id.length - 6).toUpperCase();
+    const sp = receipt.supplier_payable;
+    const payTotal = Number(receipt.total_amount) || 0;
+    const paidAtApproval = Number(receipt.amount_paid_at_approval) || 0;
+    const paidTotalNcc =
+        sp != null ? Number(sp.paid_amount) || 0 : (receipt.payment_type === 'cash' ? payTotal : paidAtApproval);
+    const remainingNcc =
+        sp != null ? Number(sp.remaining_amount) || 0 : Math.max(0, payTotal - paidAtApproval);
+    const dueStr = receipt.due_date_payable || sp?.due_date;
+    const showSupplierPaySection = receipt.status === 'approved' && (receipt.payment_type || sp);
 
-            <div style={{ backgroundColor: 'white', padding: 20, borderRadius: 8, boxShadow: '0 1px 3px rgba(0,0,0,0.1)', marginBottom: 24 }}>
+    return (
+        <ManagerPageFrame showNotificationBell={false}>
+            <StaffPageShell
+                eyebrow="Kho & nhập hàng"
+                eyebrowIcon={ClipboardList}
+                title="Chi tiết xét duyệt phiếu nhập kho"
+                subtitle={`Mã phiếu: ${shortId}`}
+                headerActions={
+                    <Button type="button" variant="outline" className="gap-2" onClick={() => navigate(-1)}>
+                        <ArrowLeft className="h-4 w-4" />
+                        Quay lại
+                    </Button>
+                }
+            >
+            <div className="mb-6 rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[0_4px_24px_-4px_rgba(15,23,42,0.08)] sm:p-6">
                 <h2 style={{ fontSize: 18, marginBottom: 16, borderBottom: '1px solid #e5e7eb', paddingBottom: 8 }}>Thông tin chung</h2>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 20 }}>
                     <div>
@@ -133,14 +173,88 @@ export default function ManagerReceiptDetail() {
                              receipt.status === 'approved' ? 'Đã duyệt' : 'Từ chối'}
                         </span>
                     </div>
-                    {receipt.status === 'approved' && receipt.approved_by && (
+                    {(receipt.status === 'approved' || receipt.status === 'rejected') && receipt.approved_by && (
                         <div>
-                            <p style={{ margin: '0 0 6px 0', fontSize: 13, color: '#6b7280' }}>Người duyệt</p>
+                            <p style={{ margin: '0 0 6px 0', fontSize: 13, color: '#6b7280' }}>
+                                {receipt.status === 'approved' ? 'Người duyệt' : 'Người từ chối'}
+                            </p>
                             <p style={{ margin: 0, fontWeight: 500, fontSize: 15 }}>{receipt.approved_by?.fullName || receipt.approved_by?.email || '—'}</p>
+                        </div>
+                    )}
+                    {receipt.status === 'rejected' && receipt.rejection_reason && (
+                        <div style={{ gridColumn: '1 / -1' }}>
+                            <p style={{ margin: '0 0 6px 0', fontSize: 13, color: '#6b7280' }}>Lý do từ chối</p>
+                            <p style={{ margin: 0, fontWeight: 500, fontSize: 15, color: '#991b1b' }}>{receipt.rejection_reason}</p>
                         </div>
                     )}
                 </div>
             </div>
+
+            {showSupplierPaySection && (
+                <div className="mb-6 rounded-2xl border border-sky-200/80 bg-sky-50/60 p-5 sm:p-6">
+                    <div className="flex items-center gap-2 mb-4">
+                        <CreditCard className="h-5 w-5 text-sky-600" />
+                        <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0, color: '#0369a1' }}>Thanh toán nhà cung cấp</h2>
+                    </div>
+                    {sp && (
+                        <p style={{ margin: '0 0 14px', fontSize: 12, color: '#0369a1', lineHeight: 1.45 }}>
+                            Số liệu <strong>tổng đã trả / còn nợ</strong> lấy từ sổ công nợ NCC (cập nhật khi ghi nhận thanh toán sau duyệt).
+                        </p>
+                    )}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 16 }}>
+                        {receipt.payment_type && (
+                        <div>
+                            <p style={{ margin: '0 0 4px', fontSize: 12, color: '#6b7280', textTransform: 'uppercase', fontWeight: 600 }}>Hình thức lúc duyệt</p>
+                            <p style={{ margin: 0, fontWeight: 500, fontSize: 14 }}>
+                                {PAYMENT_TYPE_LABEL[receipt.payment_type] ?? receipt.payment_type}
+                            </p>
+                        </div>
+                        )}
+                        <div>
+                            <p style={{ margin: '0 0 4px', fontSize: 12, color: '#6b7280', textTransform: 'uppercase', fontWeight: 600 }}>Tổng phiếu</p>
+                            <p style={{ margin: 0, fontWeight: 600, fontSize: 14 }}>{payTotal.toLocaleString('vi-VN')} đ</p>
+                        </div>
+                        {(receipt.payment_type !== 'cash' || sp) && (
+                            <>
+                                <div>
+                                    <p style={{ margin: '0 0 4px', fontSize: 12, color: '#6b7280', textTransform: 'uppercase', fontWeight: 600 }}>Tổng đã trả NCC</p>
+                                    <p style={{ margin: 0, fontWeight: 600, fontSize: 14, color: '#059669' }}>
+                                        {paidTotalNcc.toLocaleString('vi-VN')} đ
+                                    </p>
+                                </div>
+                                <div>
+                                    <p style={{ margin: '0 0 4px', fontSize: 12, color: '#6b7280', textTransform: 'uppercase', fontWeight: 600 }}>Còn nợ</p>
+                                    <p style={{ margin: 0, fontWeight: 600, fontSize: 14, color: remainingNcc > 0 ? '#dc2626' : '#059669' }}>
+                                        {remainingNcc.toLocaleString('vi-VN')} đ
+                                        {remainingNcc <= 0 && ' (đã trả đủ)'}
+                                    </p>
+                                </div>
+                                {receipt.payment_type && receipt.payment_type !== 'cash' && paidAtApproval > 0 && paidAtApproval !== paidTotalNcc && (
+                                    <div style={{ gridColumn: '1 / -1' }}>
+                                        <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>
+                                            Trả khi duyệt phiếu: <strong>{paidAtApproval.toLocaleString('vi-VN')} đ</strong>
+                                            {sp ? ' — các khoản trả sau được cộng vào “Tổng đã trả NCC”.' : null}
+                                        </p>
+                                    </div>
+                                )}
+                                {dueStr && (
+                                    <div>
+                                        <p style={{ margin: '0 0 4px', fontSize: 12, color: '#6b7280', textTransform: 'uppercase', fontWeight: 600 }}>Hạn thanh toán</p>
+                                        <p style={{ margin: 0, fontWeight: 500, fontSize: 14 }}>
+                                            {new Date(dueStr).toLocaleDateString('vi-VN')}
+                                        </p>
+                                    </div>
+                                )}
+                            </>
+                        )}
+                        <div>
+                            <Link to="/manager/supplier-payables" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#0369a1', fontWeight: 500, textDecoration: 'none', marginTop: 4 }}>
+                                Xem công nợ NCC →
+                            </Link>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             <div style={{ backgroundColor: 'white', padding: 20, borderRadius: 8, boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
                 <h2 style={{ fontSize: 18, marginBottom: 16, borderBottom: '1px solid #e5e7eb', paddingBottom: 8 }}>Sản phẩm nhập kho</h2>
@@ -189,22 +303,114 @@ export default function ManagerReceiptDetail() {
                         <button
                             disabled={submitting}
                             style={{ padding: '10px 20px', borderRadius: 6, cursor: submitting ? 'not-allowed' : 'pointer', backgroundColor: '#ef4444', color: 'white', border: 'none', fontSize: 15, fontWeight: 500 }}
-                            onClick={handleReject}
+                            onClick={() => { setRejectionReason(''); setConfirmType('reject'); setConfirmOpen(true); }}
                         >
                             Từ chối phiếu nhập
                         </button>
                         <button
                             disabled={submitting}
                             style={{ padding: '10px 20px', borderRadius: 6, cursor: submitting ? 'not-allowed' : 'pointer', backgroundColor: '#10b981', color: 'white', border: 'none', fontSize: 15, fontWeight: 500 }}
-                            onClick={handleApprove}
+                            onClick={() => { setConfirmType('approve'); setConfirmOpen(true); }}
                         >
                             Duyệt phiếu nhập (Nhập kho)
                         </button>
                     </div>
                 )}
             </div>
-        </div>
-      </div>
-    </div>
+      </StaffPageShell>
+
+      <ConfirmDialog
+        open={confirmOpen}
+        onOpenChange={(open) => {
+            setConfirmOpen(open);
+            if (!open) { setConfirmType(null); setRejectionReason(''); }
+        }}
+        title={confirmType === 'approve' ? 'Duyệt phiếu nhập kho' : 'Từ chối phiếu nhập?'}
+        description={
+            confirmType === 'approve'
+                ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                        <p style={{ margin: 0, fontSize: 14, color: '#374151' }}>
+                            Kho hàng sẽ được tăng. Vui lòng chọn hình thức thanh toán nhà cung cấp.
+                        </p>
+                        <div>
+                            <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>
+                                Thanh toán nhà cung cấp <span style={{ color: '#ef4444' }}>*</span>
+                            </label>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                {[
+                                    { value: 'cash', label: 'Trả đủ ngay', desc: 'Thanh toán toàn bộ ngay hôm nay' },
+                                    { value: 'partial', label: 'Trả một phần', desc: 'Trả trước một phần, còn lại ghi nợ' },
+                                    { value: 'credit', label: 'Ghi nợ (trả sau)', desc: 'Chưa thanh toán, sẽ trả theo hạn' },
+                                ].map((opt) => (
+                                    <label key={opt.value} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer', padding: '8px 10px', borderRadius: 8, border: `1.5px solid ${paymentType === opt.value ? '#0ea5e9' : '#e5e7eb'}`, backgroundColor: paymentType === opt.value ? '#f0f9ff' : 'white' }}>
+                                        <input type="radio" name="paymentType" value={opt.value} checked={paymentType === opt.value} onChange={() => setPaymentType(opt.value)} style={{ marginTop: 2 }} />
+                                        <div>
+                                            <p style={{ margin: 0, fontWeight: 600, fontSize: 14 }}>{opt.label}</p>
+                                            <p style={{ margin: 0, fontSize: 12, color: '#6b7280' }}>{opt.desc}</p>
+                                        </div>
+                                    </label>
+                                ))}
+                            </div>
+                        </div>
+                        {paymentType === 'partial' && (
+                            <div>
+                                <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>
+                                    Số tiền trả ngay (đ) <span style={{ color: '#ef4444' }}>*</span>
+                                </label>
+                                <input
+                                    type="number" min="1"
+                                    placeholder={`Tối đa ${Number(receipt?.total_amount || 0).toLocaleString('vi-VN')} đ`}
+                                    value={amountPaid}
+                                    onChange={(e) => setAmountPaid(e.target.value)}
+                                    style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 14, outline: 'none' }}
+                                />
+                            </div>
+                        )}
+                        {(paymentType === 'credit' || paymentType === 'partial') && (
+                            <div>
+                                <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>
+                                    Hạn thanh toán
+                                </label>
+                                <input
+                                    type="date"
+                                    value={dueDatePayable}
+                                    onChange={(e) => setDueDatePayable(e.target.value)}
+                                    min={new Date().toISOString().split('T')[0]}
+                                    style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 14, outline: 'none' }}
+                                />
+                                <p style={{ margin: '4px 0 0', fontSize: 12, color: '#6b7280' }}>Để trống sẽ dùng kỳ hạn mặc định của nhà cung cấp</p>
+                            </div>
+                        )}
+                    </div>
+                )
+                : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <span>Vui lòng nhập lý do từ chối để nhân viên biết cần điều chỉnh gì.</span>
+                        <textarea
+                            autoFocus
+                            rows={3}
+                            placeholder="VD: Sai số lượng, thiếu chứng từ, sản phẩm không hợp lệ..."
+                            value={rejectionReason}
+                            onChange={(e) => setRejectionReason(e.target.value)}
+                            style={{
+                                width: '100%',
+                                padding: '8px 10px',
+                                borderRadius: 8,
+                                border: '1px solid #d1d5db',
+                                fontSize: 14,
+                                resize: 'vertical',
+                                outline: 'none',
+                            }}
+                        />
+                    </div>
+                )
+        }
+        confirmLabel={confirmType === 'approve' ? 'Duyệt nhập kho' : 'Xác nhận từ chối'}
+        confirmVariant={confirmType === 'reject' ? 'destructive' : 'default'}
+        loading={submitting}
+        onConfirm={runStatusChange}
+      />
+    </ManagerPageFrame>
     );
 }
