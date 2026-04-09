@@ -10,6 +10,16 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
+function assertStoreScope(req, res) {
+    const role = String(req.user?.role || '').toLowerCase();
+    if (role === 'admin') return true;
+    if (!req.user?.storeId || !mongoose.isValidObjectId(req.user.storeId)) {
+        res.status(403).json({ message: 'Tài khoản chưa được gán cửa hàng.', code: 'STORE_REQUIRED' });
+        return false;
+    }
+    return true;
+}
+
 function newLineId() {
     if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
     return crypto.randomBytes(16).toString('hex');
@@ -282,6 +292,12 @@ function generatePaymentRef() {
     return `IMS-${hex}`;
 }
 
+function getInvoiceRefLabel(invoiceId) {
+    const id = String(invoiceId || '').trim();
+    if (!id) return '#N/A';
+    return `#${id}`;
+}
+
 // POST /api/invoices — create a confirmed outbound invoice
 router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
@@ -377,7 +393,9 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
                         status: 'confirmed', 
                         payment_status: 'paid',
                         paid_at: new Date(),
-                        updated_at: new Date() 
+                        updated_at: new Date(),
+                        debt_settlement_note: `Trả nợ thông qua đơn hàng ${getInvoiceRefLabel(invoice._id)}`,
+                        debt_settlement_by_invoice_id: invoice._id,
                       } 
                     }
                 );
@@ -419,6 +437,7 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
 // GET /api/invoices?page=&limit=&status=
 router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
+        if (!assertStoreScope(req, res)) return;
         const { page = '1', limit = '20', status, dateFrom, dateTo, searchKey, customer_id, payment_method } = req.query;
         const pageNum = Math.max(1, parseInt(page, 10) || 1);
         const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
@@ -562,6 +581,7 @@ router.get('/stats/daily-sales', requireAuth, requireRole(['staff', 'manager', '
 // GET /api/invoices/:id
 router.get('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
+        if (!assertStoreScope(req, res)) return;
         const { id } = req.params;
         if (!mongoose.isValidObjectId(id)) {
             return res.status(400).json({ message: 'Invalid invoice id' });
@@ -595,6 +615,7 @@ router.get('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), asyn
 // PATCH /api/invoices/:id — update invoice (staff, manager)
 router.patch('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
+        if (!assertStoreScope(req, res)) return;
         const { id } = req.params;
         if (!mongoose.isValidObjectId(id)) {
             return res.status(400).json({ message: 'Invalid invoice id' });
@@ -708,6 +729,7 @@ router.patch('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), as
 // POST /api/invoices/:id/cancel — Simplify cancel
 router.post('/:id/cancel', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
+        if (!assertStoreScope(req, res)) return;
         const { id } = req.params;
         const invoice = await SalesInvoice.findById(id);
         if (!invoice) return res.status(404).json({ message: 'Invoice not found' });

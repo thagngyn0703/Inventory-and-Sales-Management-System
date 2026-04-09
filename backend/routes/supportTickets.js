@@ -45,7 +45,7 @@ router.get('/', requireAuth, requireRole(['admin', 'manager']), async (req, res)
 
     const [items, total] = await Promise.all([
       SupportTicket.find(filter)
-        .sort({ updatedAt: -1 })
+        .sort({ createdAt: -1 })
         .skip((page - 1) * limit)
         .limit(limit)
         .populate(listPopulate)

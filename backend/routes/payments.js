@@ -7,6 +7,16 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
+function assertStoreScope(req, res) {
+  const role = String(req.user?.role || '').toLowerCase();
+  if (role === 'admin') return true;
+  if (!req.user?.storeId) {
+    res.status(403).json({ message: 'Tài khoản chưa được gán cửa hàng.', code: 'STORE_REQUIRED' });
+    return false;
+  }
+  return true;
+}
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 /**
@@ -261,6 +271,7 @@ router.post('/sepay/webhook', express.raw({ type: 'application/json' }), async (
 // Staff dùng để poll xem hóa đơn đã được thanh toán chưa
 router.get('/status/:paymentRef', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
   try {
+    if (!assertStoreScope(req, res)) return;
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     res.set('Pragma', 'no-cache');
     res.set('Expires', '0');
@@ -305,6 +316,7 @@ router.get('/status/:paymentRef', requireAuth, requireRole(['staff', 'manager', 
 // GET /api/payments/unmatched
 router.get('/unmatched', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
   try {
+    if (!assertStoreScope(req, res)) return;
     const filter = { status: 'unmatched' };
     if (String(req.user?.role || '').toLowerCase() !== 'admin' && req.user.storeId) {
       filter.storeId = req.user.storeId;

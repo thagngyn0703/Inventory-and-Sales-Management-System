@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
-import { getGoodsReceipt, setGoodsReceiptStatus } from '../../services/goodsReceiptsApi';
+import { getGoodsReceipt, setGoodsReceiptStatus, updateGoodsReceiptItems } from '../../services/goodsReceiptsApi';
 import { useToast } from '../../contexts/ToastContext';
 import { ConfirmDialog } from '../../components/ui/confirm-dialog';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
@@ -11,7 +11,6 @@ import './ManagerDashboard.css';
 
 const PAYMENT_TYPE_LABEL = {
     cash: 'Trả đủ ngay',
-    partial: 'Trả một phần',
     credit: 'Ghi nợ (trả sau)',
 };
 
@@ -28,8 +27,8 @@ export default function ManagerReceiptDetail() {
     const [rejectionReason, setRejectionReason] = useState('');
     // Thanh toán NCC khi duyệt
     const [paymentType, setPaymentType] = useState('credit');
-    const [amountPaid, setAmountPaid] = useState('');
     const [dueDatePayable, setDueDatePayable] = useState('');
+    const [editItems, setEditItems] = useState([]);
 
     const fetchReceipt = useCallback(async () => {
         setLoading(true);
@@ -37,12 +36,35 @@ export default function ManagerReceiptDetail() {
         try {
             const data = await getGoodsReceipt(id);
             setReceipt(data);
+            const initialEdit = (data?.items || []).map((it) => ({
+                product_id: it.product_id?._id || it.product_id,
+                quantity: Number(it.quantity) || 0,
+                unit_cost: Number(it.unit_cost) || 0,
+                sale_price:
+                    (Array.isArray(it.product_id?.selling_units)
+                    && it.product_id?.selling_units?.find((u) => u.name === it.unit_name)?.sale_price != null)
+                        ? Number(it.product_id.selling_units.find((u) => u.name === it.unit_name).sale_price)
+                        : Number(it.product_id?.sale_price) || 0,
+                price_gap_note: it.price_gap_note || '',
+            }));
+            setEditItems(initialEdit);
         } catch (e) {
             setError(e.message || 'Không thể tải phiếu nhập kho');
         } finally {
             setLoading(false);
         }
     }, [id]);
+
+    const handleEditItemChange = (productId, field, value) => {
+        setEditItems((prev) =>
+            prev.map((it) => {
+                if (String(it.product_id) !== String(productId)) return it;
+                if (field === 'price_gap_note') return { ...it, price_gap_note: value };
+                const n = Number(value);
+                return { ...it, [field]: Number.isFinite(n) && n >= 0 ? n : 0 };
+            })
+        );
+    };
 
     useEffect(() => {
         fetchReceipt();
@@ -54,18 +76,27 @@ export default function ManagerReceiptDetail() {
             toast('Vui lòng nhập lý do từ chối', 'error');
             return;
         }
-        if (confirmType === 'approve' && paymentType === 'partial') {
-            const v = Number(amountPaid);
-            if (!v || v <= 0) { toast('Vui lòng nhập số tiền đã trả', 'error'); return; }
-            if (v >= Number(receipt?.total_amount)) { toast('Nếu trả đủ, hãy chọn "Trả đủ ngay"', 'error'); return; }
-        }
         setSubmitting(true);
         try {
+            let effectiveReceipt = receipt;
+            if (confirmType === 'approve' && receipt?.status === 'pending') {
+                const payload = editItems.map((it) => ({
+                    product_id: it.product_id,
+                    quantity: it.quantity,
+                    unit_cost: it.unit_cost,
+                    sale_price: it.sale_price,
+                    price_gap_note: it.price_gap_note,
+                }));
+                const updated = await updateGoodsReceiptItems(receipt._id, payload);
+                setReceipt(updated);
+                effectiveReceipt = updated;
+            }
+
             const status = confirmType === 'approve' ? 'approved' : 'rejected';
             const extra = confirmType === 'approve' ? {
                 payment_type: paymentType,
-                amount_paid_at_approval: paymentType === 'cash' ? Number(receipt?.total_amount) : (paymentType === 'partial' ? Number(amountPaid) : 0),
-                due_date_payable: (paymentType === 'credit' || paymentType === 'partial') && dueDatePayable ? dueDatePayable : undefined,
+                amount_paid_at_approval: paymentType === 'cash' ? Number(effectiveReceipt?.total_amount) : 0,
+                due_date_payable: paymentType === 'credit' && dueDatePayable ? dueDatePayable : undefined,
             } : {};
             await setGoodsReceiptStatus(id, status, rejectionReason.trim() || undefined, extra);
             toast(
@@ -118,6 +149,7 @@ export default function ManagerReceiptDetail() {
         sp != null ? Number(sp.remaining_amount) || 0 : Math.max(0, payTotal - paidAtApproval);
     const dueStr = receipt.due_date_payable || sp?.due_date;
     const showSupplierPaySection = receipt.status === 'approved' && (receipt.payment_type || sp);
+    const editByProductId = new Map(editItems.map((it) => [String(it.product_id), it]));
 
     return (
         <ManagerPageFrame showNotificationBell={false}>
@@ -257,7 +289,12 @@ export default function ManagerReceiptDetail() {
             )}
 
             <div style={{ backgroundColor: 'white', padding: 20, borderRadius: 8, boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
-                <h2 style={{ fontSize: 18, marginBottom: 16, borderBottom: '1px solid #e5e7eb', paddingBottom: 8 }}>Sản phẩm nhập kho</h2>
+                <h2 style={{ fontSize: 18, marginBottom: 8, borderBottom: '1px solid #e5e7eb', paddingBottom: 8 }}>Sản phẩm nhập kho</h2>
+                {receipt.status === 'pending' && (
+                    <p style={{ margin: '0 0 16px', fontSize: 13, color: '#64748b', lineHeight: 1.5 }}>
+                        Khi bấm <strong>Duyệt phiếu nhập</strong>, hệ thống sẽ tự lưu đơn giá đã điều chỉnh và cập nhật <strong>giá gốc</strong> / <strong>giá bán</strong> trên từng sản phẩm trước khi nhập kho.
+                    </p>
+                )}
                 <div style={{ overflowX: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 16 }}>
                         <thead style={{ backgroundColor: '#f9fafb' }}>
@@ -266,12 +303,37 @@ export default function ManagerReceiptDetail() {
                                 <th style={{ padding: '12px', textAlign: 'left', fontSize: 13, color: '#6b7280', borderBottom: '1px solid #e5e7eb' }}>SKU</th>
                                 <th style={{ padding: '12px', textAlign: 'left', fontSize: 13, color: '#6b7280', borderBottom: '1px solid #e5e7eb' }}>Đơn vị / HSQĐ</th>
                                 <th style={{ padding: '12px', textAlign: 'right', fontSize: 13, color: '#6b7280', borderBottom: '1px solid #e5e7eb' }}>Số lượng</th>
-                                <th style={{ padding: '12px', textAlign: 'right', fontSize: 13, color: '#6b7280', borderBottom: '1px solid #e5e7eb' }}>Đơn giá (đ)</th>
+                                <th style={{ padding: '12px', textAlign: 'right', fontSize: 13, color: '#6b7280', borderBottom: '1px solid #e5e7eb' }} title="Giá gốc × HSQĐ mà staff thấy lúc tạo phiếu">
+                                    HS lúc lập (đ)
+                                </th>
+                                <th style={{ padding: '12px', textAlign: 'right', fontSize: 13, color: '#6b7280', borderBottom: '1px solid #e5e7eb' }}>Đơn giá nhập (đ)</th>
+                                {receipt.status === 'pending' && (
+                                    <th style={{ padding: '12px', textAlign: 'right', fontSize: 13, color: '#6b7280', borderBottom: '1px solid #e5e7eb' }}>
+                                        Giá bán (đ)
+                                    </th>
+                                )}
                                 <th style={{ padding: '12px', textAlign: 'right', fontSize: 13, color: '#6b7280', borderBottom: '1px solid #e5e7eb' }}>Thành tiền (đ)</th>
+                                <th style={{ padding: '12px', textAlign: 'left', fontSize: 13, color: '#6b7280', borderBottom: '1px solid #e5e7eb' }}>
+                                    Ghi chú chênh lệch
+                                </th>
                             </tr>
                         </thead>
                         <tbody>
                             {receipt.items?.map((item, idx) => (
+                                (() => {
+                                    const pid = item.product_id?._id || item.product_id;
+                                    const editItem = editByProductId.get(String(pid));
+                                    const displayQty = editItem ? Number(editItem.quantity) : Number(item.quantity);
+                                    const displayUnitCost = editItem ? Number(editItem.unit_cost) : Number(item.unit_cost);
+                                    const displaySalePrice = editItem
+                                        ? Number(editItem.sale_price)
+                                        : Number(item.product_id?.sale_price) || 0;
+                                    const displayNote = editItem?.price_gap_note ?? item.price_gap_note ?? '';
+                                    const staffSnapshot =
+                                        item.system_unit_cost != null
+                                            ? Number(item.system_unit_cost)
+                                            : (item.system_sale_price != null ? Number(item.system_sale_price) : null);
+                                    return (
                                 <tr key={idx} style={{ borderBottom: '1px solid #f3f4f6' }}>
                                     <td style={{ padding: '12px', fontSize: 14, fontWeight: 500 }}>{item.product_id?.name || 'Sản phẩm không xác định'}</td>
                                     <td style={{ padding: '12px', fontSize: 14, color: '#4b5563' }}>{item.product_id?.sku || '—'}</td>
@@ -279,16 +341,65 @@ export default function ManagerReceiptDetail() {
                                         {item.unit_name || item.product_id?.base_unit || 'Cái'} 
                                         {item.ratio > 1 && <span style={{ color: '#6b7280', fontSize: 13, marginLeft: 6 }}>(x{item.ratio})</span>}
                                     </td>
-                                    <td style={{ padding: '12px', textAlign: 'right', fontSize: 14 }}>{Number(item.quantity).toLocaleString()}</td>
-                                    <td style={{ padding: '12px', textAlign: 'right', fontSize: 14 }}>{Number(item.unit_cost).toLocaleString()}</td>
-                                    <td style={{ padding: '12px', textAlign: 'right', fontSize: 14, fontWeight: 500 }}>{(item.quantity * item.unit_cost).toLocaleString()}</td>
+                                    <td style={{ padding: '12px', textAlign: 'right', fontSize: 14 }}>{Number(displayQty).toLocaleString()}</td>
+                                    <td style={{ padding: '12px', textAlign: 'right', fontSize: 14, color: '#64748b' }}>
+                                        {staffSnapshot != null && !Number.isNaN(staffSnapshot)
+                                            ? staffSnapshot.toLocaleString('vi-VN')
+                                            : '—'}
+                                    </td>
+                                    <td style={{ padding: '12px', textAlign: 'right', fontSize: 14 }}>
+                                        {receipt.status === 'pending' ? (
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                value={displayUnitCost}
+                                                onChange={(e) => handleEditItemChange(pid, 'unit_cost', e.target.value)}
+                                                style={{ width: 120, textAlign: 'right', padding: '6px 8px', borderRadius: 8, border: '1px solid #d1d5db' }}
+                                            />
+                                        ) : (
+                                            Number(displayUnitCost).toLocaleString()
+                                        )}
+                                    </td>
+                                    {receipt.status === 'pending' && (
+                                        <td style={{ padding: '12px', textAlign: 'right', fontSize: 14 }}>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                value={displaySalePrice}
+                                                onChange={(e) => handleEditItemChange(pid, 'sale_price', e.target.value)}
+                                                style={{ width: 120, textAlign: 'right', padding: '6px 8px', borderRadius: 8, border: '1px solid #d1d5db' }}
+                                            />
+                                        </td>
+                                    )}
+                                    <td style={{ padding: '12px', textAlign: 'right', fontSize: 14, fontWeight: 500 }}>
+                                        {(displayQty * displayUnitCost).toLocaleString()}
+                                    </td>
+                                    <td style={{ padding: '12px', fontSize: 13, color: '#7c2d12', minWidth: 220 }}>
+                                        {receipt.status === 'pending' ? (
+                                            <input
+                                                type="text"
+                                                value={displayNote}
+                                                onChange={(e) => handleEditItemChange(pid, 'price_gap_note', e.target.value)}
+                                                placeholder="Ghi chú chênh lệch giá"
+                                                style={{ width: '100%', padding: '6px 8px', borderRadius: 8, border: '1px solid #fed7aa', background: '#fff7ed' }}
+                                            />
+                                        ) : (
+                                            displayNote || '—'
+                                        )}
+                                    </td>
                                 </tr>
+                                    );
+                                })()
                             ))}
                         </tbody>
                     </table>
                 </div>
                 <div style={{ textAlign: 'right', fontSize: 20, fontWeight: 600, marginTop: 16 }}>
-                    Tổng cộng: {Number(receipt.total_amount).toLocaleString()} đ
+                    Tổng cộng: {Number(
+                        receipt.status === 'pending'
+                            ? editItems.reduce((sum, it) => sum + (Number(it.quantity) || 0) * (Number(it.unit_cost) || 0), 0)
+                            : receipt.total_amount
+                    ).toLocaleString()} đ
                 </div>
 
                 {receipt.status === 'pending' && (
@@ -340,7 +451,6 @@ export default function ManagerReceiptDetail() {
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                                 {[
                                     { value: 'cash', label: 'Trả đủ ngay', desc: 'Thanh toán toàn bộ ngay hôm nay' },
-                                    { value: 'partial', label: 'Trả một phần', desc: 'Trả trước một phần, còn lại ghi nợ' },
                                     { value: 'credit', label: 'Ghi nợ (trả sau)', desc: 'Chưa thanh toán, sẽ trả theo hạn' },
                                 ].map((opt) => (
                                     <label key={opt.value} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer', padding: '8px 10px', borderRadius: 8, border: `1.5px solid ${paymentType === opt.value ? '#0ea5e9' : '#e5e7eb'}`, backgroundColor: paymentType === opt.value ? '#f0f9ff' : 'white' }}>
@@ -353,21 +463,7 @@ export default function ManagerReceiptDetail() {
                                 ))}
                             </div>
                         </div>
-                        {paymentType === 'partial' && (
-                            <div>
-                                <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>
-                                    Số tiền trả ngay (đ) <span style={{ color: '#ef4444' }}>*</span>
-                                </label>
-                                <input
-                                    type="number" min="1"
-                                    placeholder={`Tối đa ${Number(receipt?.total_amount || 0).toLocaleString('vi-VN')} đ`}
-                                    value={amountPaid}
-                                    onChange={(e) => setAmountPaid(e.target.value)}
-                                    style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 14, outline: 'none' }}
-                                />
-                            </div>
-                        )}
-                        {(paymentType === 'credit' || paymentType === 'partial') && (
+                        {paymentType === 'credit' && (
                             <div>
                                 <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>
                                     Hạn thanh toán

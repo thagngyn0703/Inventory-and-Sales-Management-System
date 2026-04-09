@@ -295,6 +295,7 @@ export default function ManagerIncomingTransactionsBySupplier() {
                         <th>Mã</th>
                         <th>Nhà cung cấp</th>
                         <th>Ngày nhận</th>
+                        <th>Chênh lệch giá</th>
                         <th>Trạng thái</th>
                         <th>Tổng tiền</th>
                         <th></th>
@@ -303,7 +304,7 @@ export default function ManagerIncomingTransactionsBySupplier() {
                     <tbody>
                       {goodsReceipts.length === 0 ? (
                         <tr>
-                          <td colSpan={6} className="manager-products-empty">
+                          <td colSpan={7} className="manager-products-empty">
                             Không có phiếu nhập kho nào.
                           </td>
                         </tr>
@@ -321,6 +322,13 @@ export default function ManagerIncomingTransactionsBySupplier() {
                             </td>
                             <td>{gr.supplier_id?.name ?? '—'}</td>
                             <td>{formatDate(gr.received_at)}</td>
+                            <td>
+                              {Array.isArray(gr.items) && gr.items.some((it) => String(it.price_gap_note || '').trim()) ? (
+                                <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-800">
+                                  Có ghi chú
+                                </span>
+                              ) : '—'}
+                            </td>
                             <td>
                               <span
                                 className={cn(

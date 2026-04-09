@@ -1,6 +1,7 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const PurchaseOrder = require('../models/PurchaseOrder');
+const User = require('../models/User');
 const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
@@ -12,6 +13,17 @@ router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (
         const pageNum = Math.max(1, parseInt(page, 10) || 1);
         const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
         const filter = {};
+        const role = String(req.user?.role || '').toLowerCase();
+        if (role !== 'admin') {
+            if (!req.user?.storeId || !mongoose.isValidObjectId(req.user.storeId)) {
+                return res.status(403).json({ message: 'Forbidden: user chưa được gán cửa hàng' });
+            }
+            const creatorIds = await User.find({ storeId: req.user.storeId }).distinct('_id');
+            if (!creatorIds.length) {
+                return res.json({ purchaseOrders: [], total: 0, page: pageNum, limit: limitNum, totalPages: 1 });
+            }
+            filter.created_by = { $in: creatorIds };
+        }
         if (status && ['draft', 'pending', 'approved', 'received', 'cancelled'].includes(status)) {
             filter.status = status;
         }
@@ -56,6 +68,16 @@ router.get('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), asyn
             .populate('items.product_id', 'name sku')
             .lean();
         if (!po) return res.status(404).json({ message: 'Purchase order not found' });
+        const role = String(req.user?.role || '').toLowerCase();
+        if (role !== 'admin') {
+            if (!req.user?.storeId || !mongoose.isValidObjectId(req.user.storeId)) {
+                return res.status(403).json({ message: 'Forbidden: user chưa được gán cửa hàng' });
+            }
+            const creator = await User.findById(po.created_by?._id || po.created_by).select('storeId').lean();
+            if (!creator || String(creator.storeId) !== String(req.user.storeId)) {
+                return res.status(403).json({ message: 'Forbidden: đơn không thuộc cửa hàng của bạn' });
+            }
+        }
         return res.json({ purchaseOrder: po });
     } catch (err) {
         console.error(err);

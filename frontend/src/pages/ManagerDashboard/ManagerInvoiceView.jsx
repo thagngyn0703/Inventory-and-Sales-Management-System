@@ -27,6 +27,12 @@ const PAYMENT_LABEL = {
   debt: 'Ghi nợ',
 };
 
+function getInvoiceStatusView(invoice) {
+  const isDebtUnpaid = invoice?.payment_method === 'debt' && invoice?.payment_status !== 'paid';
+  if (isDebtUnpaid) return 'debt_unpaid';
+  return invoice?.status;
+}
+
 /** Màn xem hóa đơn chỉ đọc (có thể gắn route riêng nếu cần). */
 export default function ManagerInvoiceView() {
   const { id } = useParams();
@@ -51,6 +57,11 @@ export default function ManagerInvoiceView() {
   }, [id]);
 
   const shortId = invoice?._id ? String(invoice._id).slice(-8).toUpperCase() : '';
+  const statusView = getInvoiceStatusView(invoice);
+  const debtSettlementNote =
+    invoice?.debt_settlement_by_invoice_id
+      ? `Trả nợ thông qua đơn hàng #${invoice.debt_settlement_by_invoice_id}`
+      : invoice?.debt_settlement_note;
 
   return (
     <ManagerPageFrame showNotificationBell={false}>
@@ -145,21 +156,31 @@ export default function ManagerInvoiceView() {
                     <dd>
                       <span
                         className={
-                          invoice.status === 'confirmed'
+                          statusView === 'confirmed'
                             ? 'inline-block rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-bold text-emerald-900'
-                            : invoice.status === 'pending'
+                            : statusView === 'pending'
                               ? 'inline-block rounded-md border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-xs font-bold text-amber-900'
-                              : 'inline-block rounded-md border border-red-200 bg-red-50 px-2.5 py-0.5 text-xs font-bold text-red-900'
+                              : statusView === 'debt_unpaid'
+                                ? 'inline-block rounded-md border border-red-200 bg-red-50 px-2.5 py-0.5 text-xs font-bold text-red-900'
+                                : 'inline-block rounded-md border border-red-200 bg-red-50 px-2.5 py-0.5 text-xs font-bold text-red-900'
                         }
                       >
-                        {invoice.status === 'confirmed'
+                        {statusView === 'confirmed'
                           ? 'Đã thanh toán'
-                          : invoice.status === 'pending'
+                          : statusView === 'pending'
                             ? 'Chờ / nợ'
+                            : statusView === 'debt_unpaid'
+                              ? 'Nợ'
                             : 'Trả hàng'}
                       </span>
                     </dd>
                   </div>
+                  {debtSettlementNote ? (
+                    <div className="flex justify-between gap-2">
+                      <dt className="text-slate-500">Ghi chú</dt>
+                      <dd className="max-w-[65%] text-right font-medium text-slate-900">{debtSettlementNote}</dd>
+                    </div>
+                  ) : null}
                 </dl>
               </div>
 
@@ -173,16 +194,16 @@ export default function ManagerInvoiceView() {
                   <div className="border-t border-slate-100 pt-3">
                     <div className="flex items-center justify-between">
                       <span className="font-semibold text-slate-800">
-                        {invoice.status === 'pending' ? 'Số tiền ghi nợ' : 'Khách đã trả'}
+                        {statusView === 'debt_unpaid' || statusView === 'pending' ? 'Số tiền ghi nợ' : 'Khách đã trả'}
                       </span>
                       <span
-                        className={`text-xl font-bold ${invoice.status === 'pending' ? 'text-amber-700' : 'text-teal-700'}`}
+                        className={`text-xl font-bold ${statusView === 'debt_unpaid' || statusView === 'pending' ? 'text-red-700' : 'text-teal-700'}`}
                       >
                         {formatMoney(invoice.total_amount)}
                       </span>
                     </div>
                   </div>
-                  {invoice.status === 'pending' && (
+                  {(statusView === 'debt_unpaid' || statusView === 'pending') && (
                     <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-900">
                       <i className="fa-solid fa-triangle-exclamation mt-0.5 shrink-0" aria-hidden />
                       <span>

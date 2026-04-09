@@ -1,6 +1,12 @@
 const SalesInvoice = require('../models/SalesInvoice');
 const { applyCustomerDebtAfterNewInvoice } = require('./customerDebt');
 
+function getInvoiceRefLabel(invoiceId) {
+    const id = String(invoiceId || '').trim();
+    if (!id) return '#N/A';
+    return `#${id}`;
+}
+
 /**
  * Sau khi hóa đơn chuyển khoản được đánh dấu paid (SePay), mới trừ nợ khách và
  * chốt các hóa đơn ghi nợ pending — tránh trạng thái "đã thanh toán" khi chưa có tiền.
@@ -43,6 +49,8 @@ async function settlePreviousDebtIfNeeded(invoiceId) {
                     payment_status: 'paid',
                     paid_at: new Date(),
                     updated_at: new Date(),
+                    debt_settlement_note: `Trả nợ thông qua đơn hàng ${getInvoiceRefLabel(inv._id)}`,
+                    debt_settlement_by_invoice_id: inv._id,
                 },
             }
         );

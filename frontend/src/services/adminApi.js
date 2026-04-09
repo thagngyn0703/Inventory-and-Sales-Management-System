@@ -1,4 +1,4 @@
-const API_BASE = process.env.REACT_APP_API_URL || '/api';
+const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
 
 function getToken() {
   return localStorage.getItem('token') || '';
@@ -11,7 +11,7 @@ async function parseJson(res, fallback) {
 }
 
 function apiPath(segment) {
-  const base = (API_BASE || '/api').replace(/\/$/, '');
+  const base = API_BASE.replace(/\/$/, '');
   return `${base}${segment.startsWith('/') ? segment : `/${segment}`}`;
 }
 

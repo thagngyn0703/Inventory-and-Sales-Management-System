@@ -12,9 +12,9 @@ async function parseError(res, fallback) {
 /**
  * getSuppliers()
  * - Không truyền tham số: trả về mảng suppliers (phục vụ dropdown)
- * - Có truyền (page, limit, q, status, sort): trả về object { suppliers, total, page, limit, totalPages }
+ * - Có truyền (page, limit, q, status): trả về object { suppliers, total, page, limit, totalPages }
  */
-export async function getSuppliers(page, limit, q, status = 'active', sort = 'name') {
+export async function getSuppliers(page, limit, q, status = 'active') {
   const token = getToken();
 
   // Backward-compatible: dropdown calls with no args
@@ -28,8 +28,6 @@ export async function getSuppliers(page, limit, q, status = 'active', sort = 'na
   if (status) params.set('status', status);
   if (pageNum) params.set('page', String(pageNum));
   if (limitNum) params.set('limit', String(limitNum));
-  if (sort) params.set('sort', sort);
-
   const res = await fetch(`${API_BASE}/suppliers?${params.toString()}`, {
     headers: { Authorization: `Bearer ${token}` },
   });

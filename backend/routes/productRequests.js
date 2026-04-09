@@ -12,6 +12,13 @@ function escapeRegex(s) {
   return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function getStoreScopeFilter(req) {
+  const role = String(req.user?.role || '').toLowerCase();
+  if (role === 'admin') return {};
+  if (!req.user?.storeId || !mongoose.isValidObjectId(req.user.storeId)) return null;
+  return { storeId: req.user.storeId };
+}
+
 function normalizeProduct(p) {
   if (!p) return p;
   const base = p.base_unit || 'Cái';
@@ -27,6 +34,10 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
   console.log('POST /api/product-requests called by', req.user?.id, req.user?.role);
   console.log('body:', JSON.stringify(req.body).slice(0, 1000));
   try {
+    const storeFilter = getStoreScopeFilter(req);
+    if (storeFilter == null) {
+      return res.status(403).json({ message: 'Tài khoản chưa được gán cửa hàng.', code: 'STORE_REQUIRED' });
+    }
     const {
       category_id,
       name,
@@ -52,7 +63,7 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
     }
 
     // Check if sku already exists in Product or ProductRequest (pending/approved)
-    const existingProduct = await Product.findOne({ sku: String(sku).trim() });
+    const existingProduct = await Product.findOne({ sku: String(sku).trim(), ...(storeFilter.storeId ? { storeId: storeFilter.storeId } : {}) });
     if (existingProduct) {
       return res.status(409).json({ message: 'sku already exists in Products' });
     }
@@ -91,7 +102,7 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
 
     const doc = await ProductRequest.create({
       category_id: category_id && mongoose.isValidObjectId(category_id) ? category_id : undefined,
-      storeId: req.user.storeId,
+      storeId: storeFilter.storeId || undefined,
       name: String(name).trim(),
       sku: String(sku).trim(),
       barcode: barcode ? String(barcode).trim() : undefined,
@@ -123,15 +134,14 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
 // GET /api/product-requests (staff, manager, admin)
 router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
   try {
-    const { q = '', page = '1', limit = '20', status, sortBy = 'created_at', order = 'desc' } = req.query;
+    const { q = '', page = '1', limit = '20', status } = req.query;
     const query = String(q || '').trim();
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
 
-    const filter = {};
-    const role = String(req.user.role).toLowerCase();
-    if (['manager', 'staff'].includes(role) && req.user.storeId) {
-        filter.storeId = req.user.storeId;
+    const filter = getStoreScopeFilter(req);
+    if (filter == null) {
+      return res.status(403).json({ message: 'Tài khoản chưa được gán cửa hàng.', code: 'STORE_REQUIRED' });
     }
 
     if (status) {
@@ -142,15 +152,12 @@ router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (
       filter.$or = [{ name: re }, { sku: re }, { barcode: re }];
     }
 
-    const sortObj = {};
-    sortObj[sortBy] = order === 'asc' ? 1 : -1;
-
     const total = await ProductRequest.countDocuments(filter);
     const skip = (pageNum - 1) * limitNum;
     const requests = await ProductRequest.find(filter)
       .populate('requested_by', 'fullName email role')
       .populate('approved_by', 'fullName email role')
-      .sort(sortObj)
+      .sort({ created_at: -1 })
       .skip(skip)
       .limit(limitNum)
       .lean();
@@ -177,7 +184,11 @@ router.get('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
     if (!mongoose.isValidObjectId(id)) {
       return res.status(400).json({ message: 'Invalid request id' });
     }
-    const request = await ProductRequest.findById(id)
+    const scope = getStoreScopeFilter(req);
+    if (scope == null) {
+      return res.status(403).json({ message: 'Tài khoản chưa được gán cửa hàng.', code: 'STORE_REQUIRED' });
+    }
+    const request = await ProductRequest.findOne({ _id: id, ...scope })
       .populate('requested_by', 'name email role')
       .populate('approved_by', 'name email role')
       .lean();
@@ -196,7 +207,11 @@ router.post('/:id/approve', requireAuth, requireRole(['manager', 'admin']), asyn
       return res.status(400).json({ message: 'Invalid request id' });
     }
 
-    const request = await ProductRequest.findById(id);
+    const scope = getStoreScopeFilter(req);
+    if (scope == null) {
+      return res.status(403).json({ message: 'Tài khoản chưa được gán cửa hàng.', code: 'STORE_REQUIRED' });
+    }
+    const request = await ProductRequest.findOne({ _id: id, ...scope });
     if (!request) return res.status(404).json({ message: 'Product request not found' });
     if (request.status !== 'pending') {
       return res.status(400).json({ message: `Request is already ${request.status}` });
@@ -248,7 +263,11 @@ router.post('/:id/reject', requireAuth, requireRole(['manager', 'admin']), async
       return res.status(400).json({ message: 'Invalid request id' });
     }
 
-    const request = await ProductRequest.findById(id);
+    const scope = getStoreScopeFilter(req);
+    if (scope == null) {
+      return res.status(403).json({ message: 'Tài khoản chưa được gán cửa hàng.', code: 'STORE_REQUIRED' });
+    }
+    const request = await ProductRequest.findOne({ _id: id, ...scope });
     if (!request) return res.status(404).json({ message: 'Product request not found' });
     if (request.status !== 'pending') {
       return res.status(400).json({ message: `Request is already ${request.status}` });

@@ -2,9 +2,12 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
-import { Handshake } from 'lucide-react';
+import { Handshake, Loader2, Plus, Search } from 'lucide-react';
 import { getSuppliers, setSupplierStatus } from '../../services/suppliersApi';
 import { useToast } from '../../contexts/ToastContext';
+import { Button } from '../../components/ui/button';
+import { Card, CardContent } from '../../components/ui/card';
+import { Badge } from '../../components/ui/badge';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
 
@@ -18,7 +21,6 @@ export default function ManagerSupplierList() {
     const [totalPages, setTotalPages] = useState(1);
     const [page, setPage] = useState(1);
     const [search, setSearch] = useState('');
-    const [searchInput, setSearchInput] = useState('');
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [togglingId, setTogglingId] = useState(null);
@@ -54,11 +56,12 @@ export default function ManagerSupplierList() {
         }
     }, [location.state, location.pathname, location.search, toast]);
 
-    const handleSearchSubmit = (e) => {
-        e.preventDefault();
-        setSearch(searchInput.trim());
-        setPage(1);
-    };
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setPage(1);
+        }, 250);
+        return () => clearTimeout(timer);
+    }, [search]);
 
     const handleToggleStatus = async (s) => {
         if (togglingId) return;
@@ -92,92 +95,97 @@ export default function ManagerSupplierList() {
                 title="Nhà cung cấp"
                 subtitle="Quản lý danh sách nhà cung cấp, công nợ và trạng thái hợp tác."
                 headerActions={
-                    <div className="manager-supplier-header-actions flex flex-wrap items-center gap-2">
-                        <form onSubmit={handleSearchSubmit} className="manager-supplier-search-form">
-                            <input
-                                type="search"
-                                className="manager-supplier-search-input"
-                                placeholder="Tên nhà cung cấp"
-                                value={searchInput}
-                                onChange={(e) => setSearchInput(e.target.value)}
-                            />
-                            <button type="submit" className="manager-btn-secondary manager-supplier-search-btn" aria-label="Tìm kiếm">
-                                <i className="fa-solid fa-search" /> Tìm
-                            </button>
-                        </form>
-                        <button
+                    <div className="flex flex-wrap items-center gap-2">
+                        <Button
                             type="button"
-                            className="manager-btn-primary"
+                            className="h-11 gap-2 rounded-xl bg-teal-600 px-4 text-sm font-semibold text-white hover:bg-teal-700"
                             onClick={() => navigate('/manager/suppliers/new')}
                         >
-                            <i className="fa-solid fa-plus" /> Thêm nhà cung cấp
-                        </button>
+                            <Plus className="h-4 w-4" />
+                            Thêm nhà cung cấp
+                        </Button>
                     </div>
                 }
             >
-                    {error && <div className="manager-products-error">{error}</div>}
+                    {error && <div className="manager-products-error mb-4">{error}</div>}
 
-                    <div className="manager-panel-card manager-products-card rounded-2xl border border-slate-200/80 shadow-sm">
+                    <Card className="mb-4 border-slate-200/80 shadow-sm">
+                        <CardContent className="p-4">
+                            <div className="relative max-w-[420px]">
+                                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                                <input
+                                    type="search"
+                                    placeholder="Tìm theo tên nhà cung cấp..."
+                                    value={search}
+                                    onChange={(e) => setSearch(e.target.value)}
+                                    className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-3 text-sm outline-none ring-teal-200/80 focus:ring-2"
+                                />
+                            </div>
+                        </CardContent>
+                    </Card>
+
+                    <Card className="overflow-hidden border-slate-200/80 shadow-sm">
+                        <CardContent className="p-0">
                         {loading ? (
-                            <p className="manager-products-loading">Đang tải...</p>
+                            <div className="flex justify-center py-16 text-slate-500">
+                                <Loader2 className="h-8 w-8 animate-spin" />
+                            </div>
                         ) : (
                             <>
-                                <div className="manager-products-table-wrap">
-                                    <table className="manager-products-table">
+                                <div className="overflow-x-auto rounded-xl border border-slate-200/80">
+                                    <table className="w-full min-w-[980px] text-sm text-slate-700">
                                         <thead>
-                                            <tr>
-                                                <th>Tên nhà cung cấp</th>
-                                                <th>Điện thoại</th>
-                                                <th>Email</th>
-                                                <th>Địa chỉ</th>
-                                                <th>Công nợ</th>
-                                                <th>Trạng thái</th>
-                                                <th>Thao tác</th>
+                                            <tr className="border-b border-slate-200 bg-slate-50/80 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                                                <th className="px-4 py-3">Tên nhà cung cấp</th>
+                                                <th className="px-4 py-3">Điện thoại</th>
+                                                <th className="px-4 py-3">Email</th>
+                                                <th className="px-4 py-3">Địa chỉ</th>
+                                                <th className="px-4 py-3 text-right">Công nợ</th>
+                                                <th className="px-4 py-3">Trạng thái</th>
+                                                <th className="px-4 py-3 text-right">Thao tác</th>
                                             </tr>
                                         </thead>
-                                        <tbody>
+                                        <tbody className="divide-y divide-slate-100 bg-white">
                                             {suppliers.length === 0 ? (
                                                 <tr>
-                                                    <td colSpan={7} className="manager-products-empty">
+                                                    <td colSpan={7} className="px-4 py-10 text-center text-slate-500">
                                                         {search ? 'Không có nhà cung cấp nào phù hợp.' : 'Chưa có nhà cung cấp.'}
                                                     </td>
                                                 </tr>
                                             ) : (
                                                 suppliers.map((s) => (
-                                                    <tr key={s._id}>
-                                                        <td>{s.name || '—'}</td>
-                                                        <td>{s.phone || '—'}</td>
-                                                        <td>{s.email || '—'}</td>
-                                                        <td>{s.address || '—'}</td>
-                                                        <td>{formatMoney(s.payable_account)}</td>
-                                                        <td>
-                                                            <span className={`manager-products-status manager-products-status--${s.status || 'active'}`}>
+                                                    <tr key={s._id} className="transition-colors odd:bg-white even:bg-slate-50/30 hover:bg-teal-50/40">
+                                                        <td className="px-4 py-3.5 font-medium text-slate-900">{s.name || '—'}</td>
+                                                        <td className="px-4 py-3.5 text-slate-700">{s.phone || '—'}</td>
+                                                        <td className="px-4 py-3.5 text-slate-700">{s.email || '—'}</td>
+                                                        <td className="max-w-[260px] truncate px-4 py-3.5 text-slate-600">{s.address || '—'}</td>
+                                                        <td className="px-4 py-3.5 text-right tabular-nums font-semibold text-slate-800">{formatMoney(s.payable_account)}</td>
+                                                        <td className="px-4 py-3.5">
+                                                            <Badge className={`border font-medium ${s.status === 'inactive' ? 'bg-rose-100 text-rose-900 border-rose-200/80' : 'bg-emerald-100 text-emerald-900 border-emerald-200/80'}`}>
                                                                 {s.status === 'inactive' ? 'Ngừng' : 'Hoạt động'}
-                                                            </span>
+                                                            </Badge>
                                                         </td>
-                                                        <td>
-                                                            <div className="manager-products-actions">
-                                                                <button
+                                                        <td className="px-4 py-3.5">
+                                                            <div className="flex items-center justify-end gap-2">
+                                                                <Button
                                                                     type="button"
-                                                                    className="manager-btn-icon"
-                                                                    title="Cập nhật"
+                                                                    className="h-9 rounded-lg border border-slate-300 bg-white px-4 text-xs font-semibold text-slate-700 hover:bg-slate-100"
                                                                     onClick={() => navigate(`/manager/suppliers/${s._id}/edit`)}
                                                                 >
-                                                                    <i className="fa-solid fa-pen" />
-                                                                </button>
-                                                                <button
+                                                                    Cập nhật
+                                                                </Button>
+                                                                <Button
                                                                     type="button"
-                                                                    className="manager-btn-icon"
-                                                                    title="Đổi trạng thái"
+                                                                    className={
+                                                                        s.status === 'active'
+                                                                            ? 'h-9 rounded-lg border border-amber-200 bg-amber-500 px-4 text-xs font-semibold text-white hover:bg-amber-600'
+                                                                            : 'h-9 rounded-lg border border-emerald-200 bg-emerald-600 px-4 text-xs font-semibold text-white hover:bg-emerald-700'
+                                                                    }
                                                                     onClick={() => handleToggleStatus(s)}
                                                                     disabled={togglingId === s._id}
                                                                 >
-                                                                    {s.status === 'active' ? (
-                                                                        <i className="fa-solid fa-pause" />
-                                                                    ) : (
-                                                                        <i className="fa-solid fa-play" />
-                                                                    )}
-                                                                </button>
+                                                                    {s.status === 'active' ? 'Ngừng' : 'Kích hoạt'}
+                                                                </Button>
                                                             </div>
                                                         </td>
                                                     </tr>
@@ -187,36 +195,39 @@ export default function ManagerSupplierList() {
                                     </table>
                                 </div>
                                 {totalPages > 1 && (
-                                    <div className="manager-pagination">
-                                        <span className="manager-pagination-info">
+                                    <div className="flex items-center justify-between border-t border-slate-100 px-4 py-3 text-sm text-slate-600">
+                                        <span>
                                             Hiển thị {start}–{end} / {total}
                                         </span>
-                                        <div className="manager-pagination-btns">
-                                            <button
+                                        <div className="flex items-center gap-2">
+                                            <Button
                                                 type="button"
-                                                className="manager-btn-secondary manager-pagination-btn"
+                                                variant="outline"
+                                                size="sm"
                                                 disabled={page <= 1}
                                                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                                             >
                                                 Trước
-                                            </button>
-                                            <span className="manager-pagination-page">
+                                            </Button>
+                                            <span>
                                                 Trang {page} / {totalPages}
                                             </span>
-                                            <button
+                                            <Button
                                                 type="button"
-                                                className="manager-btn-secondary manager-pagination-btn"
+                                                variant="outline"
+                                                size="sm"
                                                 disabled={page >= totalPages}
                                                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                                             >
                                                 Sau
-                                            </button>
+                                            </Button>
                                         </div>
                                     </div>
                                 )}
                             </>
                         )}
-                    </div>
+                    </CardContent>
+                    </Card>
             </StaffPageShell>
         </ManagerPageFrame>
     );

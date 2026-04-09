@@ -20,7 +20,7 @@ export async function getSupplierPayableSummary() {
 
 /**
  * Danh sách khoản phải trả
- * @param {{ supplier_id?, status?, page?, limit? }} params
+ * @param {{ supplier_id?, status?, page?, limit?, created_from?, created_to? }} params
  */
 export async function getSupplierPayables(params = {}) {
     const url = new URL(`${API_BASE}/supplier-payables`);
@@ -28,6 +28,8 @@ export async function getSupplierPayables(params = {}) {
     if (params.status) url.searchParams.set('status', params.status);
     if (params.page) url.searchParams.set('page', String(params.page));
     if (params.limit) url.searchParams.set('limit', String(params.limit));
+    if (params.created_from) url.searchParams.set('created_from', String(params.created_from));
+    if (params.created_to) url.searchParams.set('created_to', String(params.created_to));
 
     const res = await fetch(url.toString(), {
         headers: { Authorization: `Bearer ${getToken()}` },

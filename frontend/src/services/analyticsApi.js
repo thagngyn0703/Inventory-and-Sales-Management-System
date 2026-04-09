@@ -82,13 +82,15 @@ export async function getTopProducts({ from, to, limit = 10, sort } = {}) {
 
 /**
  * Báo cáo tác động theo từng lần đổi giá sản phẩm.
- * @param {Object} params - { from, to, productId }
+ * @param {Object} params - { from, to, productId, supplierId, costDirection }
  */
-export async function getPriceChangeImpactReport({ from, to, productId } = {}) {
+export async function getPriceChangeImpactReport({ from, to, productId, supplierId, costDirection } = {}) {
   const url = new URL(`${API_BASE}/analytics/price-change-impact`);
   if (from) url.searchParams.set('from', from);
   if (to) url.searchParams.set('to', to);
   if (productId) url.searchParams.set('productId', productId);
+  if (supplierId) url.searchParams.set('supplierId', supplierId);
+  if (costDirection) url.searchParams.set('costDirection', costDirection);
   const res = await fetch(url.toString(), { headers: authHeaders() });
   return parseResponse(res, 'Không thể tải báo cáo thay đổi giá');
 }

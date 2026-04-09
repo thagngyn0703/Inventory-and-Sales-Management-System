@@ -2,8 +2,11 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
-import { FileStack } from 'lucide-react';
+import { FileStack, Loader2, Search, SlidersHorizontal } from 'lucide-react';
 import { getProductRequests, approveProductRequest, rejectProductRequest } from '../../services/productsApi';
+import { Button } from '../../components/ui/button';
+import { Card, CardContent } from '../../components/ui/card';
+import { Badge } from '../../components/ui/badge';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
 
@@ -121,6 +124,12 @@ export default function ManagerProductRequests() {
         return Number(n).toLocaleString('vi-VN') + '₫';
     };
 
+    const statusBadgeClass = (status) => {
+        if (status === 'pending') return 'bg-amber-100 text-amber-900 border-amber-200/80';
+        if (status === 'approved') return 'bg-emerald-100 text-emerald-900 border-emerald-200/80';
+        return 'bg-rose-100 text-rose-900 border-rose-200/80';
+    };
+
     const start = total === 0 ? 0 : (page - 1) * LIMIT + 1;
     const end = Math.min(page * LIMIT, total);
 
@@ -132,158 +141,135 @@ export default function ManagerProductRequests() {
                 title="Yêu cầu tạo sản phẩm mới"
                 subtitle="Duyệt hoặc từ chối sản phẩm do nhân viên kho đề xuất."
             >
-                    <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm sm:p-5">
-                        <div style={{ display: 'flex', gap: 16, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-                            <div style={{ flex: 1, maxWidth: 350 }}>
-                                <label style={{ display: 'block', fontSize: 13, color: '#6b7280', marginBottom: 4 }}>Tìm kiếm</label>
-                                <form onSubmit={handleSearchSubmit} style={{ position: 'relative', margin: 0 }}>
-                                    <i className="fa-solid fa-search" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }}></i>
+                    <Card className="border-slate-200/80 shadow-sm">
+                        <CardContent className="space-y-4 p-4 sm:p-6">
+                            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:gap-4">
+                                <form onSubmit={handleSearchSubmit} className="relative min-w-0 flex-1">
+                                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                                     <input
                                         type="search"
                                         placeholder="Tìm theo tên, SKU..."
-                                        style={{ width: '100%', padding: '8px 12px 8px 36px', border: '1px solid #d1d5db', borderRadius: 6, boxSizing: 'border-box', outline: 'none' }}
+                                        className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-3 text-sm outline-none ring-teal-200/80 focus:ring-2"
                                         value={searchInput}
                                         onChange={(e) => setSearchInput(e.target.value)}
                                     />
                                 </form>
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <select
+                                        className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-teal-200/80 focus:ring-2"
+                                        value={statusFilter}
+                                        onChange={handleFilterChange}
+                                    >
+                                        <option value="">Tất cả trạng thái</option>
+                                        <option value="pending">Chờ duyệt</option>
+                                        <option value="approved">Đã duyệt</option>
+                                        <option value="rejected">Đã từ chối</option>
+                                    </select>
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        className="h-11 gap-2"
+                                        onClick={() => {
+                                            if (sortBy === 'created_at') {
+                                                setSortBy('cost_price');
+                                                setOrder('desc');
+                                            } else if (sortBy === 'cost_price' && order === 'desc') {
+                                                setSortBy('cost_price');
+                                                setOrder('asc');
+                                            } else {
+                                                setSortBy('created_at');
+                                                setOrder('desc');
+                                            }
+                                            setPage(1);
+                                        }}
+                                    >
+                                        <SlidersHorizontal className="h-4 w-4" />
+                                        {sortBy === 'created_at' ? 'Mặc định (Mới nhất)' : (order === 'desc' ? 'Giá vốn (Cao nhất)' : 'Giá vốn (Thấp nhất)')}
+                                    </Button>
+                                </div>
                             </div>
-
-                            <div style={{ width: 200 }}>
-                                <label style={{ display: 'block', fontSize: 13, color: '#6b7280', marginBottom: 4 }}>Trạng thái</label>
-                                <select
-                                    className="manager-select"
-                                    value={statusFilter}
-                                    onChange={handleFilterChange}
-                                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 6, height: 38 }}
-                                >
-                                    <option value="">Tất cả</option>
-                                    <option value="pending">Chờ duyệt</option>
-                                    <option value="approved">Đã duyệt</option>
-                                    <option value="rejected">Đã từ chối</option>
-                                </select>
-                            </div>
-
-                            <div style={{ width: 220 }}>
-                                <label style={{ display: 'block', fontSize: 13, color: '#6b7280', marginBottom: 4 }}>Sắp xếp giá trị</label>
-                                <button
-                                    type="button"
-                                    onClick={() => { 
-                                        if (sortBy === 'created_at') {
-                                            setSortBy('cost_price');
-                                            setOrder('desc');
-                                        } else if (sortBy === 'cost_price' && order === 'desc') {
-                                            setSortBy('cost_price');
-                                            setOrder('asc');
-                                        } else {
-                                            setSortBy('created_at');
-                                            setOrder('desc');
-                                        }
-                                        setPage(1); 
-                                    }}
-                                    style={{
-                                        width: '100%',
-                                        height: 38,
-                                        padding: '0 12px',
-                                        border: '1px solid #d1d5db',
-                                        borderRadius: 6,
-                                        backgroundColor: 'white',
-                                        cursor: 'pointer',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'space-between',
-                                        fontSize: 14,
-                                        color: '#374151'
-                                    }}
-                                >
-                                    <span>
-                                        {sortBy === 'created_at' ? 'Mặc định (Mới nhất)' : 
-                                         (order === 'desc' ? 'Giá vốn (Cao nhất)' : 'Giá vốn (Thấp nhất)')}
-                                    </span>
-                                    <i className={`fa-solid ${sortBy === 'created_at' ? 'fa-calendar-days' : (order === 'desc' ? 'fa-arrow-down-wide-short' : 'fa-arrow-up-wide-short')}`} style={{ color: '#6b7280' }} />
-                                </button>
-                            </div>
-                        </div>
-                    </div>
+                        </CardContent>
+                    </Card>
 
                     {successMessage && (
                         <div className="manager-products-success">{successMessage}</div>
                     )}
                     {error && <div className="manager-products-error">{error}</div>}
 
-                    <div className="manager-panel-card manager-products-card">
+                    <Card className="border-slate-200/80 shadow-sm">
+                        <CardContent className="p-0">
                         {loading ? (
-                            <p className="manager-products-loading">Đang tải...</p>
+                            <div className="flex justify-center py-16 text-slate-500">
+                                <Loader2 className="h-8 w-8 animate-spin" />
+                            </div>
                         ) : (
                             <>
-                                <div className="manager-products-table-wrap">
-                                    <table className="manager-products-table">
+                                <div className="overflow-x-auto rounded-xl border border-slate-200/80">
+                                    <table className="w-full min-w-[980px] text-sm text-slate-700">
                                         <thead>
-                                            <tr>
-                                                <th>SKU</th>
-                                                <th>Tên sản phẩm</th>
-                                                <th>Giá vốn</th>
-                                                <th>Giá bán</th>
-                                                <th>Người gửi</th>
-                                                <th>Ngày gửi</th>
-                                                <th>Ghi chú</th>
-                                                <th>Trạng thái</th>
-                                                <th>Thao tác</th>
+                                            <tr className="border-b border-slate-200 bg-slate-50/80 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                                                <th className="px-4 py-3">SKU</th>
+                                                <th className="px-4 py-3">Tên sản phẩm</th>
+                                                <th className="px-4 py-3">Giá vốn</th>
+                                                <th className="px-4 py-3">Giá bán</th>
+                                                <th className="px-4 py-3">Người gửi</th>
+                                                <th className="px-4 py-3">Ngày gửi</th>
+                                                <th className="px-4 py-3">Ghi chú</th>
+                                                <th className="px-4 py-3">Trạng thái</th>
+                                                <th className="px-4 py-3 text-right">Thao tác</th>
                                             </tr>
                                         </thead>
-                                        <tbody>
+                                        <tbody className="divide-y divide-slate-100 bg-white">
                                             {requests.length === 0 ? (
                                                 <tr>
-                                                    <td colSpan={8} className="manager-products-empty">
+                                                    <td colSpan={9} className="px-4 py-10 text-center text-slate-500">
                                                         {search ? 'Không có yêu cầu nào phù hợp.' : 'Chưa có yêu cầu tạo sản phẩm nào.'}
                                                     </td>
                                                 </tr>
                                             ) : (
                                                 requests.map((r) => (
-                                                    <tr key={r._id}>
-                                                        <td>{r.sku || '—'}</td>
-                                                        <td><strong>{r.name || '—'}</strong></td>
-                                                        <td>{formatMoney(r.cost_price)}</td>
-                                                        <td>{formatMoney(r.sale_price)}</td>
-                                                        <td>
-                                                            <strong>{r.requested_by?.fullName || '—'}</strong>
+                                                    <tr key={r._id} className="hover:bg-slate-50/60">
+                                                        <td className="px-4 py-3 font-mono text-xs text-slate-500">{r.sku || '—'}</td>
+                                                        <td className="px-4 py-3 font-medium text-slate-900">{r.name || '—'}</td>
+                                                        <td className="px-4 py-3 tabular-nums text-slate-700">{formatMoney(r.cost_price)}</td>
+                                                        <td className="px-4 py-3 tabular-nums text-slate-700">{formatMoney(r.sale_price)}</td>
+                                                        <td className="px-4 py-3 font-medium text-slate-800">
+                                                            {r.requested_by?.fullName || '—'}
                                                         </td>
-                                                        <td>
+                                                        <td className="px-4 py-3 whitespace-nowrap text-slate-600">
                                                             {new Date(r.created_at).toLocaleDateString('vi-VN')}
                                                         </td>
-                                                        <td style={{ maxWidth: 150 }}>
-                                                            <div style={{ wordWrap: 'break-word', whiteSpace: 'normal', fontSize: 12, color: '#4b5563' }}>
-                                                                {r.note || ''}
+                                                        <td className="max-w-[180px] px-4 py-3">
+                                                            <div className="truncate text-xs text-slate-500">
+                                                                {r.note || '—'}
                                                             </div>
                                                         </td>
-                                                        <td>
-                                                            <span className={`manager-products-status manager-products-status--${r.status || 'pending'}`}>
+                                                        <td className="px-4 py-3">
+                                                            <Badge className={`border font-medium ${statusBadgeClass(r.status || 'pending')}`}>
                                                                 {r.status === 'pending' ? 'Chờ duyệt' : r.status === 'approved' ? 'Đã duyệt' : 'Từ chối'}
-                                                            </span>
+                                                            </Badge>
                                                         </td>
-                                                        <td>
-                                                            <div className="manager-products-actions">
+                                                        <td className="whitespace-nowrap px-4 py-3 text-right">
+                                                            <div className="flex items-center justify-end gap-2">
                                                                 {r.status === 'pending' && (
                                                                     <>
-                                                                        <button
+                                                                        <Button
                                                                             type="button"
-                                                                            className="manager-btn-icon"
-                                                                            style={{ color: '#059669', borderColor: '#a7f3d0' }}
-                                                                            title="Duyệt"
+                                                                            className="h-8 bg-emerald-600 px-3 text-xs hover:bg-emerald-700"
                                                                             onClick={() => openConfirm('approve', r._id, 'Xác nhận duyệt', 'Bạn có chắc chắn muốn duyệt yêu cầu này? Sản phẩm sẽ được tạo trong hệ thống.')}
                                                                             disabled={processingId === r._id}
                                                                         >
-                                                                            <i className="fa-solid fa-check" />
-                                                                        </button>
-                                                                        <button
+                                                                            Duyệt
+                                                                        </Button>
+                                                                        <Button
                                                                             type="button"
-                                                                            className="manager-btn-icon"
-                                                                            style={{ color: '#dc2626', borderColor: '#fecaca' }}
-                                                                            title="Từ chối"
+                                                                            variant="warning"
+                                                                            className="h-8 px-3 text-xs"
                                                                             onClick={() => openConfirm('reject', r._id, 'Từ chối yêu cầu', 'Bạn có chắc chắn muốn từ chối yêu cầu tạo sản phẩm này?')}
                                                                             disabled={processingId === r._id}
                                                                         >
-                                                                            <i className="fa-solid fa-xmark" />
-                                                                        </button>
+                                                                            Từ chối
+                                                                        </Button>
                                                                     </>
                                                                 )}
                                                             </div>
@@ -295,36 +281,39 @@ export default function ManagerProductRequests() {
                                     </table>
                                 </div>
                                 {totalPages > 1 && (
-                                    <div className="manager-pagination">
-                                        <span className="manager-pagination-info">
+                                    <div className="flex items-center justify-between border-t border-slate-100 px-4 py-3 text-sm text-slate-600">
+                                        <span>
                                             Hiển thị {start}–{end} / {total}
                                         </span>
-                                        <div className="manager-pagination-btns">
-                                            <button
+                                        <div className="flex items-center gap-2">
+                                            <Button
                                                 type="button"
-                                                className="manager-btn-secondary manager-pagination-btn"
+                                                variant="outline"
+                                                size="sm"
                                                 disabled={page <= 1}
                                                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                                             >
                                                 Trước
-                                            </button>
-                                            <span className="manager-pagination-page">
+                                            </Button>
+                                            <span>
                                                 Trang {page} / {totalPages}
                                             </span>
-                                            <button
+                                            <Button
                                                 type="button"
-                                                className="manager-btn-secondary manager-pagination-btn"
+                                                variant="outline"
+                                                size="sm"
                                                 disabled={page >= totalPages}
                                                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                                             >
                                                 Sau
-                                            </button>
+                                            </Button>
                                         </div>
                                     </div>
                                 )}
                             </>
                         )}
-                    </div>
+                        </CardContent>
+                    </Card>
             </StaffPageShell>
 
             {confirmModal.show && (

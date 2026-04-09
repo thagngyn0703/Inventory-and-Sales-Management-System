@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Sidebar from '../../components/Sidebar';
+import { useToast } from '../../contexts/ToastContext';
 import {
     getAdminUsers,
     patchAdminUserStatus,
@@ -34,6 +35,7 @@ function canAssignToStore(u) {
 const PAGE_SIZE = 10;
 
 export default function AdminUserList() {
+    const { toast } = useToast();
     const [users, setUsers] = useState([]);
     const [stores, setStores] = useState([]);
     const [summary, setSummary] = useState({ totalAll: 0, totalActive: 0, totalInactive: 0, totalAdmin: 0 });
@@ -155,8 +157,14 @@ export default function AdminUserList() {
         try {
             await patchAdminUserStatus(userId, newStatus);
             await fetchUsers();
+            toast(
+                newStatus === 'active'
+                    ? 'Đã kích hoạt tài khoản thành công'
+                    : 'Đã vô hiệu hóa tài khoản thành công',
+                'success'
+            );
         } catch (err) {
-            alert(err.message || 'Lỗi khi cập nhật');
+            toast(err.message || 'Lỗi khi cập nhật', 'error');
         }
         setToggling(null);
     };
@@ -173,7 +181,7 @@ export default function AdminUserList() {
     const confirmAssignStore = async () => {
         const { userId, storeId } = assignModal;
         if (!storeId) {
-            alert('Vui lòng chọn cửa hàng');
+            toast('Vui lòng chọn cửa hàng', 'error');
             return;
         }
         setAssigning(true);
@@ -181,8 +189,9 @@ export default function AdminUserList() {
             await assignUserToStore(userId, storeId);
             setAssignModal({ show: false, userId: null, userName: '', storeId: '' });
             await fetchUsers();
+            toast('Đã gán cửa hàng thành công', 'success');
         } catch (err) {
-            alert(err.message || 'Không thể gán cửa hàng');
+            toast(err.message || 'Không thể gán cửa hàng', 'error');
         }
         setAssigning(false);
     };

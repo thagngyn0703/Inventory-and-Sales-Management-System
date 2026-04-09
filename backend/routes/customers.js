@@ -5,9 +5,20 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
+function assertStoreScope(req, res) {
+    const role = String(req.user?.role || '').toLowerCase();
+    if (role === 'admin') return true;
+    if (!req.user?.storeId || !mongoose.isValidObjectId(req.user.storeId)) {
+        res.status(403).json({ message: 'Tài khoản chưa được gán cửa hàng.', code: 'STORE_REQUIRED' });
+        return false;
+    }
+    return true;
+}
+
 // GET /api/customers - List/Search customers (Scoped by Store)
 router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
+        if (!assertStoreScope(req, res)) return;
         const { searchKey, status, is_regular, limit = 50 } = req.query;
         const filter = {};
 
@@ -43,6 +54,7 @@ router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (
 // POST /api/customers - Create a new customer (Attach Store ID)
 router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
+        if (!assertStoreScope(req, res)) return;
         const { full_name, phone, email, address, is_regular, credit_limit } = req.body;
         
         if (!full_name || !full_name.trim()) {
@@ -84,6 +96,7 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
 // PATCH /api/customers/:id - Update customer info
 router.patch('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
+        if (!assertStoreScope(req, res)) return;
         const { id } = req.params;
         const { full_name, phone, email, address, is_regular, debt_account } = req.body;
 
@@ -130,6 +143,7 @@ router.patch('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), as
 // POST /api/customers/:id/pay-debt - Pay customer debt
 router.post('/:id/pay-debt', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
+        if (!assertStoreScope(req, res)) return;
         const { id } = req.params;
         const { amount, payment_method = 'cash' } = req.body;
         

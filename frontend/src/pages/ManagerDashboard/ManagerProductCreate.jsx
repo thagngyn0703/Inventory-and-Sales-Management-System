@@ -530,7 +530,7 @@ export default function ManagerProductCreate() {
                                                             <input
                                                                 type="number"
                                                                 min="0"
-                                                step="any"
+                                                                step="1"
                                                                 value={u.sale_price}
                                                                 onChange={(e) => updateSellingUnit(i, 'sale_price', e.target.value)}
                                                                 placeholder="0"
@@ -577,7 +577,7 @@ export default function ManagerProductCreate() {
                                             <input
                                                 type="number"
                                                 min="0"
-                                                step="any"
+                                                step="1"
                                                 value={form.cost_price}
                                                 onChange={(e) => setForm((prev) => ({ ...prev, cost_price: e.target.value }))}
                                                 placeholder="0"

@@ -5,7 +5,8 @@ import { getInvoices } from '../../services/invoicesApi';
 import { useToast } from '../../contexts/ToastContext';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { Button } from '../../components/ui/button';
-import { Users } from 'lucide-react';
+import { Card, CardContent } from '../../components/ui/card';
+import { Loader2, Search, Users } from 'lucide-react';
 
 export default function SalesCustomerPage({ managerMode = false }) {
     const navigate = useNavigate();
@@ -242,54 +243,66 @@ export default function SalesCustomerPage({ managerMode = false }) {
             <main className="flex-1">
                     {error && <div className="warehouse-alert warehouse-alert-error" style={{ marginBottom: 16 }}>{error}</div>}
 
-                    <div style={{ background: 'white', borderRadius: 8, border: '1px solid #e2e8f0', padding: 20 }}>
-                        <div style={{ marginBottom: 20 }}>
-                            <input 
-                                type="text" 
-                                placeholder="Tìm khách hàng theo Tên, SĐT..." 
-                                value={searchKey}
-                                onChange={(e) => setSearchKey(e.target.value)}
-                                style={{ width: 300, padding: '10px 14px', borderRadius: 6, border: '1px solid #cbd5e1', outline: 'none' }}
-                            />
-                        </div>
+                    <Card className="mb-4 border-slate-200/80 shadow-sm">
+                        <CardContent className="p-4">
+                            <div className="relative max-w-[380px]">
+                                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                                <input
+                                    type="text"
+                                    placeholder="Tìm khách hàng theo tên, SĐT..."
+                                    value={searchKey}
+                                    onChange={(e) => setSearchKey(e.target.value)}
+                                    className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-3 text-sm outline-none ring-teal-200/80 focus:ring-2"
+                                />
+                            </div>
+                        </CardContent>
+                    </Card>
 
+                    <Card className="overflow-hidden border-slate-200/80 shadow-sm">
+                        <CardContent className="p-0">
                         {loading ? (
-                            <div style={{ padding: 40, textAlign: 'center', color: '#64748b' }}>Đang tải dữ liệu...</div>
+                            <div className="flex justify-center py-14 text-slate-500">
+                                <Loader2 className="h-7 w-7 animate-spin" />
+                            </div>
                         ) : (
-                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                            <div className="overflow-x-auto rounded-xl border border-slate-200/80">
+                            <table className="w-full min-w-[980px] text-sm text-slate-700">
                                 <thead>
-                                    <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                                        <th style={{ padding: '12px 16px', textAlign: 'left', color: '#475569', fontSize: 13, width: 60 }}>STT</th>
-                                        <th style={{ padding: '12px 16px', textAlign: 'left', color: '#475569', fontSize: 13 }}>Tên khách hàng</th>
-                                        <th style={{ padding: '12px 16px', textAlign: 'left', color: '#475569', fontSize: 13 }}>Số điện thoại</th>
-                                        <th style={{ padding: '12px 16px', textAlign: 'right', color: '#475569', fontSize: 13, width: 120 }}>Dư nợ (VNĐ)</th>
-                                        <th style={{ padding: '12px 16px', textAlign: 'center', color: '#475569', fontSize: 13, width: 100 }}>Ngày tạo</th>
-                                        <th style={{ padding: '12px 16px', textAlign: 'center', color: '#475569', fontSize: 13, width: 180 }}>Thao tác</th>
+                                    <tr className="border-b border-slate-200 bg-slate-50/80 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                                        <th className="px-4 py-3">STT</th>
+                                        <th className="px-4 py-3">Tên khách hàng</th>
+                                        <th className="px-4 py-3">Số điện thoại</th>
+                                        <th className="px-4 py-3 text-right">Dư nợ (VNĐ)</th>
+                                        <th className="px-4 py-3 text-center">Ngày tạo</th>
+                                        <th className="px-4 py-3 text-right">Thao tác</th>
                                     </tr>
                                 </thead>
-                                <tbody>
+                                <tbody className="divide-y divide-slate-100 bg-white">
                                     {customers.length === 0 ? (
-                                        <tr><td colSpan="6" style={{ padding: '30px', textAlign: 'center', color: '#94a3b8' }}>Chưa có khách hàng nào</td></tr>
+                                        <tr><td colSpan="6" className="px-4 py-10 text-center text-slate-500">Chưa có khách hàng nào</td></tr>
                                     ) : (
                                         customers.map((c, idx) => (
-                                            <tr key={c._id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                                <td style={{ padding: '16px', color: '#64748b' }}>{idx + 1}</td>
-                                                <td style={{ padding: '16px', fontWeight: 600, color: '#0f172a' }}>{c.full_name}</td>
-                                                <td style={{ padding: '16px', color: '#334155' }}>{c.phone || '-'}</td>
-                                                <td style={{ padding: '16px', textAlign: 'right', fontWeight: 600, color: (c.debt_account > 0) ? '#ef4444' : '#10b981' }}>
+                                            <tr key={c._id} className="transition-colors odd:bg-white even:bg-slate-50/30 hover:bg-teal-50/40">
+                                                <td className="px-4 py-3.5 text-slate-500">{idx + 1}</td>
+                                                <td className="px-4 py-3.5 font-semibold text-slate-900">{c.full_name}</td>
+                                                <td className="px-4 py-3.5 text-slate-700">{c.phone || '-'}</td>
+                                                <td className={`px-4 py-3.5 text-right tabular-nums font-semibold ${c.debt_account > 0 ? 'text-red-600' : 'text-emerald-700'}`}>
                                                     {Number(c.debt_account || 0).toLocaleString('vi-VN')}
                                                 </td>
-                                                <td style={{ padding: '16px', textAlign: 'center', color: '#64748b' }}>
+                                                <td className="px-4 py-3.5 text-center text-slate-500">
                                                     {new Date(c.created_at).toLocaleDateString('vi-VN')}
                                                 </td>
-                                                <td style={{ padding: '12px 16px', textAlign: 'center', whiteSpace: 'nowrap' }}>
-                                                    <button 
+                                                <td className="px-4 py-3.5 whitespace-nowrap text-right">
+                                                    <div className="flex items-center justify-end gap-2">
+                                                    <Button
                                                         onClick={() => fetchDebtHistory(c)}
-                                                        style={{ background: '#eff6ff', color: '#0081ff', border: '1px solid #dbeafe', padding: '4px 8px', borderRadius: 4, cursor: 'pointer', fontSize: 11, fontWeight: 600, marginRight: 4 }}
+                                                        type="button"
+                                                        className="h-9 min-w-[88px] rounded-lg border border-sky-200 bg-sky-50 px-3 text-xs font-semibold text-sky-700 hover:bg-sky-100"
                                                     >
                                                         Lịch sử nợ
-                                                    </button>
-                                                    <button 
+                                                    </Button>
+                                                    <Button
+                                                        type="button"
                                                         onClick={() => setEditCustomerModal({ 
                                                             show: true, 
                                                             customer: { 
@@ -301,26 +314,30 @@ export default function SalesCustomerPage({ managerMode = false }) {
                                                             saving: false, 
                                                             error: '' 
                                                         })}
-                                                        style={{ background: '#f1f5f9', color: '#64748b', border: '1px solid #e2e8f0', padding: '4px 8px', borderRadius: 4, cursor: 'pointer', fontSize: 11, fontWeight: 600, marginRight: 4 }}
+                                                        className="h-9 min-w-[70px] rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-100"
                                                     >
                                                         Sửa
-                                                    </button>
+                                                    </Button>
                                                     {c.debt_account > 0 && (
-                                                        <button 
+                                                        <Button
+                                                            type="button"
                                                             onClick={() => setPayDebtModal({ show: true, customer: c, amount: c.debt_account, paymentMethod: 'cash' })}
-                                                            style={{ background: '#fef2f2', color: '#ef4444', border: '1px solid #fee2e2', padding: '4px 8px', borderRadius: 4, cursor: 'pointer', fontSize: 11, fontWeight: 700 }}
+                                                            className="h-9 min-w-[74px] rounded-lg border border-rose-200 bg-rose-600 px-3 text-xs font-semibold text-white hover:bg-rose-700"
                                                         >
                                                             Thu nợ
-                                                        </button>
+                                                        </Button>
                                                     )}
+                                                    </div>
                                                 </td>
                                             </tr>
                                         ))
                                     )}
                                 </tbody>
                             </table>
+                            </div>
                         )}
-                    </div>
+                    </CardContent>
+                    </Card>
                 </main>
 
             {/* Create Customer Modal */}

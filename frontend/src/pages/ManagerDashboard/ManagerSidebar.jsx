@@ -10,11 +10,12 @@ import {
   ClipboardCheck,
   ClipboardList,
   CreditCard,
+  Drill,
   FileStack,
   FileText,
-  FolderTree,
   Handshake,
   History,
+  LifeBuoy,
   LayoutDashboard,
   LogOut,
   Package,
@@ -23,7 +24,6 @@ import {
   Settings,
   Sparkles,
   Store,
-  Truck,
   UserPlus,
   Users,
   UsersRound,
@@ -32,24 +32,24 @@ import {
 const overviewItems = [
   { label: 'Tổng quan', path: '/manager', icon: LayoutDashboard },
   { label: 'Trợ lý AI', path: '/manager/ai-assistant', icon: Sparkles },
-  { label: 'Đơn hàng', path: '/manager/invoices', icon: FileText },
   { label: 'Sản phẩm', path: '/manager/products', icon: Package },
-  { label: 'Danh mục', path: '/manager/categories', icon: FolderTree },
   { label: 'Yêu cầu tạo sản phẩm', path: '/manager/product-requests', icon: FileStack },
   { label: 'Hóa đơn', path: '/manager/invoices', icon: Receipt },
-  { label: 'Giao dịch đến (NCC)', path: '/manager/incoming-transactions', icon: Truck },
   { label: 'Công nợ NCC', path: '/manager/supplier-payables', icon: CreditCard },
+  { label: 'Báo cáo chi tiền NCC', path: '/manager/supplier-payables/report', icon: BarChart3 },
   { label: 'Nhà cung cấp', path: '/manager/suppliers', icon: Handshake },
   { label: 'Thêm nhà cung cấp', path: '/manager/suppliers/new', icon: Plus },
   { label: 'Khách hàng', path: '/manager/customers', icon: Users },
-  { label: 'Báo cáo', path: '/manager/reports', icon: BarChart3 },
+  { label: 'Báo cáo thay đổi giá', path: '/manager/reports', icon: BarChart3 },
   { label: 'Thông báo', path: '/manager/notifications', icon: Bell },
+  { label: 'Phiếu hỗ trợ', path: '/manager/support', icon: LifeBuoy },
 ];
 
 const manageItems = [
   { label: 'Kiểm kê chờ duyệt', path: '/manager/stocktakes/pending', icon: ClipboardCheck },
   { label: 'Phiếu nhập chờ duyệt', path: '/manager/receipts', icon: ClipboardList },
   { label: 'Lịch sử điều chỉnh', path: '/manager/adjustments', icon: History },
+  { label: 'Chuyển sang chế độ Staff', path: '/staff', icon: Drill },
   { label: 'Tạo tài khoản nhân viên', path: '/manager/staff/new', icon: UserPlus },
   { label: 'Quản lý nhân viên', path: '/manager/staff/manage', icon: UsersRound },
   { label: 'Cài đặt', path: '/manager/settings', icon: Settings },
@@ -62,12 +62,15 @@ function getActivePath(pathname) {
   if (pathname.startsWith('/manager/stocktakes/')) return '/manager/stocktakes/pending';
   if (pathname.startsWith('/manager/adjustments/')) return '/manager/adjustments';
   if (pathname.startsWith('/manager/notifications/')) return '/manager/notifications';
+  if (pathname.startsWith('/manager/support')) return '/manager/support';
   if (pathname.startsWith('/manager/suppliers/')) return '/manager/suppliers';
   if (pathname.startsWith('/manager/categories')) return '/manager/categories';
   if (pathname.startsWith('/manager/settings')) return '/manager/settings';
   if (pathname.startsWith('/manager/customers')) return '/manager/customers';
   if (pathname.startsWith('/manager/invoices')) return '/manager/invoices';
+  if (pathname.startsWith('/manager/supplier-payables/report')) return '/manager/supplier-payables/report';
   if (pathname.startsWith('/manager/supplier-payables')) return '/manager/supplier-payables';
+  if (pathname.startsWith('/staff')) return '/staff';
   return pathname;
 }
 
