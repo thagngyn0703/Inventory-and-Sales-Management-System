@@ -24,6 +24,13 @@ const salesInvoiceSchema = new Schema(
             ref: 'User',
             required: true,
         },
+        /**
+         * Snapshot bất biến tại thời điểm bán — không bị ảnh hưởng khi user đổi tên/role sau này.
+         * Dùng cho audit trail, báo cáo doanh số theo người bán, in hóa đơn.
+         */
+        seller_name: { type: String, default: '' },
+        seller_role: { type: String, default: '' },
+        seller_code: { type: String, default: '' },
         status: {
             type: String,
             enum: ['confirmed', 'cancelled', 'pending'],

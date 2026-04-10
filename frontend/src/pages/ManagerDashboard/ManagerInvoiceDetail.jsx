@@ -232,8 +232,21 @@ export default function ManagerInvoiceDetail() {
                     <p style={{ margin: 0 }}>
                       Ngày tạo: {invoice?.invoice_at ? new Date(invoice.invoice_at).toLocaleString('vi-VN') : '—'}
                     </p>
-                    <p style={{ margin: 0 }}>
-                      Người tạo: {invoice?.created_by?.email ?? '—'}
+                    <p style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span>Người bán: <strong>{invoice?.seller_name || invoice?.created_by?.fullName || invoice?.created_by?.email || '—'}</strong></span>
+                      {invoice?.seller_role && (
+                        <span style={{
+                          fontSize: 11,
+                          fontWeight: 700,
+                          color: invoice.seller_role === 'Quản lý' ? '#0d9488' : '#64748b',
+                          background: invoice.seller_role === 'Quản lý' ? '#f0fdfa' : '#f8fafc',
+                          border: `1px solid ${invoice.seller_role === 'Quản lý' ? '#99f6e4' : '#e2e8f0'}`,
+                          borderRadius: 4,
+                          padding: '1px 6px',
+                        }}>
+                          {invoice.seller_role}
+                        </span>
+                      )}
                     </p>
                   </>
                 )}

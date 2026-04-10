@@ -56,6 +56,7 @@ import ManagerSupplierPayableDetail from "./pages/ManagerDashboard/ManagerSuppli
 import ManagerSupplierPaymentsReport from "./pages/ManagerDashboard/ManagerSupplierPaymentsReport";
 import ManagerSupportTickets from "./pages/ManagerDashboard/ManagerSupportTickets";
 import ManagerSupportTicketDetail from "./pages/ManagerDashboard/ManagerSupportTicketDetail";
+import ManagerPOSPage from "./pages/ManagerDashboard/ManagerPOSPage";
 import AdminSupportTickets from "./pages/AdminHome/AdminSupportTickets";
 import AdminSupportTicketDetail from "./pages/AdminHome/AdminSupportTicketDetail";
 import RequireManagerStore from "./components/RequireManagerStore";
@@ -163,6 +164,19 @@ function App() {
       <Route path="/manager/support" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerSupportTickets /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/support/:id" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerSupportTicketDetail /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/reports" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerPriceChangeReport /></RequireManagerStore></RequireRole></RequireAuth>} />
+      {/* Manager POS — bán hàng trực tiếp trong layout Manager */}
+      <Route
+        path="/manager/pos"
+        element={
+          <RequireAuth>
+            <RequireRole allowedRoles={["manager"]}>
+              <RequireManagerStore>
+                <ManagerPOSPage />
+              </RequireManagerStore>
+            </RequireRole>
+          </RequireAuth>
+        }
+      />
       <Route path="/manager/settings" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerSettings /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/customers" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerCustomersPage /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/supplier-payables" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerSupplierPayables /></RequireManagerStore></RequireRole></RequireAuth>} />

@@ -49,7 +49,7 @@ const manageItems = [
   { label: 'Kiểm kê chờ duyệt', path: '/manager/stocktakes/pending', icon: ClipboardCheck },
   { label: 'Phiếu nhập chờ duyệt', path: '/manager/receipts', icon: ClipboardList },
   { label: 'Lịch sử điều chỉnh', path: '/manager/adjustments', icon: History },
-  { label: 'Chuyển sang chế độ Staff', path: '/staff', icon: Drill },
+  { label: 'Bán hàng trực tiếp', path: '/manager/pos', icon: Drill },
   { label: 'Tạo tài khoản nhân viên', path: '/manager/staff/new', icon: UserPlus },
   { label: 'Quản lý nhân viên', path: '/manager/staff/manage', icon: UsersRound },
   { label: 'Cài đặt', path: '/manager/settings', icon: Settings },
@@ -70,11 +70,11 @@ function getActivePath(pathname) {
   if (pathname.startsWith('/manager/invoices')) return '/manager/invoices';
   if (pathname.startsWith('/manager/supplier-payables/report')) return '/manager/supplier-payables/report';
   if (pathname.startsWith('/manager/supplier-payables')) return '/manager/supplier-payables';
-  if (pathname.startsWith('/staff')) return '/staff';
+  if (pathname.startsWith('/manager/pos')) return '/manager/pos';
   return pathname;
 }
 
-export default function ManagerSidebar() {
+export default function ManagerSidebar({ collapsed = false, ...restProps }) {
   const navigate = useNavigate();
   const location = useLocation();
   const [currentUser, setCurrentUser] = useState(() => {
@@ -155,7 +155,13 @@ export default function ManagerSidebar() {
   return (
     <>
       <StoreLockedNotice visible={currentUser?.storeStatus === 'inactive'} />
-      <aside className="manager-sidebar fixed left-0 top-0 z-[100] flex h-screen w-[250px] flex-col border-r border-slate-200/70 bg-gradient-to-b from-white via-slate-50/90 to-sky-50/35 shadow-[4px_0_24px_-8px_rgba(15,23,42,0.12)]">
+      <aside
+        className={cn(
+          'manager-sidebar fixed left-0 top-0 z-[100] flex h-screen w-[250px] flex-col border-r border-slate-200/70 bg-gradient-to-b from-white via-slate-50/90 to-sky-50/35 shadow-[4px_0_24px_-8px_rgba(15,23,42,0.12)] transition-transform duration-300 ease-out',
+          collapsed && '-translate-x-full'
+        )}
+        {...restProps}
+      >
         <div className="flex shrink-0 items-center gap-3 border-b border-slate-200/60 bg-white/60 px-5 py-5 backdrop-blur-sm">
           <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[linear-gradient(135deg,#0d9488_0%,#0ea5e9_55%,#0284c7_100%)] text-white shadow-md shadow-teal-600/30">
             <LayoutDashboard className="h-5 w-5" strokeWidth={2.2} aria-hidden />

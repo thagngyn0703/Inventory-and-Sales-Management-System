@@ -301,7 +301,8 @@ function getInvoiceRefLabel(invoiceId) {
 // POST /api/invoices — create a confirmed outbound invoice
 router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
-        const { customer_id, items: reqItems, payment_method, recipient_name, previous_debt_paid } = req.body || {};
+        const { customer_id, items: reqItems, payment_method, recipient_name, previous_debt_paid,
+                seller_name, seller_role, seller_code } = req.body || {};
         if (!Array.isArray(reqItems) || reqItems.length === 0) {
             return res.status(400).json({ message: 'items (array) is required' });
         }
@@ -354,11 +355,20 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
         const paymentRef = method === 'bank_transfer' ? generatePaymentRef() : null;
         let paymentStatus = method === 'cash' ? 'paid' : 'unpaid';
 
+        // Snapshot người bán tại thời điểm bán — lấy từ DB để đảm bảo chính xác
+        const sellerUser = await User.findById(req.user.id).select('fullName email role employeeCode').lean();
+        const sellerNameSnap = seller_name?.trim() || sellerUser?.fullName || sellerUser?.email || '';
+        const sellerRoleSnap = seller_role?.trim() || (sellerUser?.role === 'manager' ? 'Quản lý' : 'Nhân viên');
+        const sellerCodeSnap = seller_code?.trim() || sellerUser?.employeeCode || '';
+
         const invoice = new SalesInvoice({
             store_id: req.user.storeId || null,
             customer_id,
             recipient_name,
             created_by: req.user.id,
+            seller_name: sellerNameSnap,
+            seller_role: sellerRoleSnap,
+            seller_code: sellerCodeSnap,
             status,
             payment_method: method,
             payment_ref: paymentRef,
