@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { getInvoice } from '../../services/invoicesApi';
 import { createReturn } from '../../services/returnsApi';
 import { useToast } from '../../contexts/ToastContext';
@@ -19,9 +19,11 @@ function formatDate(d) {
   try { return new Date(d).toLocaleString('vi-VN'); } catch { return '—'; }
 }
 
-export default function SalesReturnPage() {
+export default function SalesReturnPage({ backPathOverride = null }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const { toast } = useToast();
+  const backPath = backPathOverride || (location.pathname.startsWith('/manager') ? '/manager/returns' : '/staff/invoices');
 
   // Step 1: search invoice
   const [invoiceInput, setInvoiceInput] = useState('');
@@ -129,7 +131,7 @@ export default function SalesReturnPage() {
       title="Trả hàng bán"
       subtitle="Nhập mã hóa đơn gốc, chọn số lượng trả và xác nhận — đồng bộ giao diện với các màn staff khác."
       headerActions={
-        <Button type="button" variant="outline" className="gap-2" onClick={() => navigate('/staff/invoices')}>
+        <Button type="button" variant="outline" className="gap-2" onClick={() => navigate(backPath)}>
           <ArrowLeft className="h-4 w-4" />
           Quay lại
         </Button>

@@ -8,6 +8,9 @@ import { useLocation } from 'react-router-dom';
  */
 export function useWarehouseBase() {
   const location = useLocation();
+  if (location.pathname.startsWith('/manager')) {
+    return '/manager';
+  }
   if (location.pathname.startsWith('/staff') || location.pathname.startsWith('/sales')) {
     return '/staff';
   }

@@ -37,7 +37,7 @@ function getInvoiceStatusView(inv) {
   return isDebtUnpaid ? 'debt_unpaid' : inv?.status;
 }
 
-export default function SalesInvoicesList() {
+export default function SalesInvoicesList({ basePathOverride = null, detailPathBuilder = null }) {
   const navigate = useNavigate();
   const location = useLocation();
   const [invoices, setInvoices] = useState([]);
@@ -47,7 +47,7 @@ export default function SalesInvoicesList() {
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
 
-  const basePath = '/staff';
+  const basePath = basePathOverride || (location.pathname.startsWith('/manager') ? '/manager' : '/staff');
   const isReturnsPage = location.pathname.includes('/returns');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
@@ -251,7 +251,12 @@ export default function SalesInvoicesList() {
                             variant="outline"
                             size="default"
                             className="h-9"
-                            onClick={() => navigate(`${basePath}/${inv._id}`)}
+                            onClick={() => {
+                              const nextPath = detailPathBuilder
+                                ? detailPathBuilder(inv)
+                                : `${basePath}/${inv._id}`;
+                              navigate(nextPath);
+                            }}
                           >
                             Xem
                           </Button>

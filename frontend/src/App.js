@@ -58,6 +58,10 @@ import ManagerSupportTickets from "./pages/ManagerDashboard/ManagerSupportTicket
 import ManagerSupportTicketDetail from "./pages/ManagerDashboard/ManagerSupportTicketDetail";
 import ManagerPOSPage from "./pages/ManagerDashboard/ManagerPOSPage";
 import ManagerQuickGoodsReceipt from "./pages/ManagerDashboard/ManagerQuickGoodsReceipt";
+import ManagerStocktakingListPage from "./pages/ManagerDashboard/ManagerStocktakingListPage";
+import ManagerStocktakingCreatePage from "./pages/ManagerDashboard/ManagerStocktakingCreatePage";
+import ManagerReturnsListPage from "./pages/ManagerDashboard/ManagerReturnsListPage";
+import ManagerReturnCreatePage from "./pages/ManagerDashboard/ManagerReturnCreatePage";
 import AdminSupportTickets from "./pages/AdminHome/AdminSupportTickets";
 import AdminSupportTicketDetail from "./pages/AdminHome/AdminSupportTicketDetail";
 import RequireManagerStore from "./components/RequireManagerStore";
@@ -151,7 +155,11 @@ function App() {
       <Route path="/manager/invoices/:id/view" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerInvoiceView /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/invoices/:id" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerInvoiceDetail /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/stocktakes/pending" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerStocktakePending /></RequireManagerStore></RequireRole></RequireAuth>} />
+      <Route path="/manager/stocktakes" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerStocktakingListPage /></RequireManagerStore></RequireRole></RequireAuth>} />
+      <Route path="/manager/stocktakes/new" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerStocktakingCreatePage /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/stocktakes/:id" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerStocktakeDetail /></RequireManagerStore></RequireRole></RequireAuth>} />
+      <Route path="/manager/returns" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerReturnsListPage /></RequireManagerStore></RequireRole></RequireAuth>} />
+      <Route path="/manager/returns/new" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerReturnCreatePage /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/adjustments" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerAdjustmentList /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/adjustments/:id" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerAdjustmentDetail /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/receipts" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerReceiptList /></RequireManagerStore></RequireRole></RequireAuth>} />

@@ -21,6 +21,7 @@ import {
   Package,
   Plus,
   Receipt,
+  RotateCcw,
   Settings,
   Sparkles,
   Store,
@@ -48,7 +49,11 @@ const overviewItems = [
 
 const manageItems = [
   { label: 'Nhập hàng', path: '/manager/quick-receipt', icon: Zap },
+  { label: 'Danh sách kiểm kê', path: '/manager/stocktakes', icon: ClipboardList },
+  { label: 'Tạo phiếu kiểm kê', path: '/manager/stocktakes/new', icon: ClipboardCheck },
   { label: 'Kiểm kê chờ duyệt', path: '/manager/stocktakes/pending', icon: ClipboardCheck },
+  { label: 'Danh sách trả hàng', path: '/manager/returns', icon: RotateCcw },
+  { label: 'Tạo trả hàng', path: '/manager/returns/new', icon: RotateCcw },
   { label: 'Phiếu nhập chờ duyệt', path: '/manager/receipts', icon: ClipboardList },
   { label: 'Lịch sử điều chỉnh', path: '/manager/adjustments', icon: History },
   { label: 'Bán hàng trực tiếp', path: '/manager/pos', icon: Drill },
@@ -61,6 +66,10 @@ function getActivePath(pathname) {
   if (pathname === '/manager/suppliers/new') return '/manager/suppliers/new';
   if (pathname.startsWith('/manager/staff/manage')) return '/manager/staff/manage';
   if (pathname.startsWith('/manager/staff/new')) return '/manager/staff/new';
+  if (pathname.startsWith('/manager/returns/new')) return '/manager/returns/new';
+  if (pathname.startsWith('/manager/returns')) return '/manager/returns';
+  if (pathname === '/manager/stocktakes/new') return '/manager/stocktakes/new';
+  if (pathname === '/manager/stocktakes') return '/manager/stocktakes';
   if (pathname.startsWith('/manager/stocktakes/')) return '/manager/stocktakes/pending';
   if (pathname.startsWith('/manager/adjustments/')) return '/manager/adjustments';
   if (pathname.startsWith('/manager/notifications/')) return '/manager/notifications';
