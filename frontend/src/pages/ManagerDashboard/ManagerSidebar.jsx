@@ -27,6 +27,7 @@ import {
   UserPlus,
   Users,
   UsersRound,
+  Zap,
 } from 'lucide-react';
 
 const overviewItems = [
@@ -46,6 +47,7 @@ const overviewItems = [
 ];
 
 const manageItems = [
+  { label: 'Nhập hàng', path: '/manager/quick-receipt', icon: Zap },
   { label: 'Kiểm kê chờ duyệt', path: '/manager/stocktakes/pending', icon: ClipboardCheck },
   { label: 'Phiếu nhập chờ duyệt', path: '/manager/receipts', icon: ClipboardList },
   { label: 'Lịch sử điều chỉnh', path: '/manager/adjustments', icon: History },

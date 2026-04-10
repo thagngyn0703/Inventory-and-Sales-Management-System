@@ -10,7 +10,7 @@ const goodsReceiptSchema = new Schema(
         supplier_id: {
             type: Schema.Types.ObjectId,
             ref: 'Supplier',
-            required: true,
+            required: false,
         },
         storeId: {
             type: Schema.Types.ObjectId,

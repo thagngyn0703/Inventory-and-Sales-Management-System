@@ -690,4 +690,163 @@ router.patch('/:id/status', requireAuth, requireRole(['manager', 'admin']), asyn
     }
 });
 
+/**
+ * POST /api/goods-receipts/quick  (manager only)
+ * Manager nhập hàng nhanh cho sản phẩm ĐÃ CÓ trong hệ thống, tự động duyệt luôn.
+ * Body: { supplier_id?, items: [{ product_id, quantity, unit_cost, unit_name?, ratio?, expiry_date? }],
+ *         payment_type: 'cash'|'credit', due_date_payable?, reason? }
+ */
+router.post('/quick', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
+    const session = await mongoose.startSession();
+    try {
+        const {
+            supplier_id,
+            items = [],
+            payment_type,
+            due_date_payable,
+            reason,
+        } = req.body || {};
+
+        if (!Array.isArray(items) || items.length === 0) {
+            return res.status(400).json({ message: 'Vui lòng chọn ít nhất 1 sản phẩm' });
+        }
+        for (const it of items) {
+            if (!it.product_id || !mongoose.isValidObjectId(it.product_id)) {
+                return res.status(400).json({ message: 'product_id không hợp lệ' });
+            }
+            if (!it.quantity || Number(it.quantity) <= 0) {
+                return res.status(400).json({ message: 'Số lượng phải lớn hơn 0' });
+            }
+            if (it.unit_cost == null || Number(it.unit_cost) < 0) {
+                return res.status(400).json({ message: 'Giá nhập không hợp lệ' });
+            }
+        }
+
+        const safePayType = ['cash', 'credit'].includes(payment_type) ? payment_type : 'credit';
+        const resolvedSupplierId = supplier_id && mongoose.isValidObjectId(supplier_id) ? supplier_id : undefined;
+
+        // Kiểm tra và chuẩn hóa items
+        const productIds = [...new Set(items.map((it) => String(it.product_id)))];
+        const products = await Product.find({ _id: { $in: productIds } })
+            .select('name cost_price stock_qty base_unit selling_units storeId')
+            .lean();
+        const productMap = new Map(products.map((p) => [String(p._id), p]));
+
+        const normalizedItems = [];
+        let computedTotal = 0;
+        for (const it of items) {
+            const product = productMap.get(String(it.product_id));
+            if (!product) {
+                return res.status(400).json({ message: `Sản phẩm không tồn tại: ${String(it.product_id)}` });
+            }
+            const qty = Number(it.quantity);
+            const unitCost = Math.round(Number(it.unit_cost) || 0);
+            const itemRatio = Number(it.ratio) > 0 ? Number(it.ratio) : 1;
+            const unitName = String(it.unit_name || '').trim() || product.base_unit || 'Cái';
+            computedTotal += qty * unitCost;
+            normalizedItems.push({
+                product_id: it.product_id,
+                quantity: qty,
+                unit_cost: unitCost,
+                system_unit_cost: unitCost,
+                unit_name: unitName,
+                ratio: itemRatio,
+                expiry_date: it.expiry_date ? new Date(it.expiry_date) : undefined,
+            });
+        }
+
+        const storeId = req.user.storeId;
+        if (req.user.role !== 'admin' && !storeId) {
+            return res.status(403).json({ message: 'Tài khoản chưa được gán cửa hàng', code: 'STORE_REQUIRED' });
+        }
+
+        session.startTransaction();
+
+        const amountPaid = safePayType === 'cash' ? computedTotal : 0;
+        const gr = await GoodsReceipt.create([{
+            supplier_id: resolvedSupplierId,
+            storeId: storeId || req.user.storeId,
+            received_by: req.user.id,
+            approved_by: req.user.id,
+            status: 'approved',
+            received_at: new Date(),
+            items: normalizedItems,
+            total_amount: computedTotal,
+            payment_type: safePayType,
+            amount_paid_at_approval: amountPaid,
+            due_date_payable: due_date_payable ? new Date(due_date_payable) : undefined,
+            reason: reason ? String(reason).trim() : 'Nhập hàng nhanh',
+        }], { session });
+        const grDoc = gr[0];
+
+        // Cập nhật tồn kho + giá vốn bình quân
+        for (const it of normalizedItems) {
+            const product = productMap.get(String(it.product_id));
+            const addQty = it.quantity * it.ratio;
+            const unitCost = it.unit_cost;
+            const currentQty = Number(product.stock_qty ?? 0);
+            const currentCost = Number(product.cost_price || 0);
+            const newQty = currentQty + addQty;
+            const newCostPrice = newQty > 0
+                ? (currentQty * currentCost + addQty * unitCost) / newQty
+                : unitCost;
+
+            await adjustStockFIFO(it.product_id, storeId || req.user.storeId, addQty, {
+                session,
+                unitCost,
+                receivedAt: new Date(),
+                receiptId: grDoc._id,
+                note: `Nhập hàng nhanh (Phiếu #${String(grDoc._id).slice(-6).toUpperCase()})`,
+                newCostPrice: Math.round(newCostPrice),
+            });
+        }
+
+        // Tạo SupplierPayable chỉ khi có NCC
+        if (resolvedSupplierId) {
+            const paid = amountPaid;
+            const remaining = computedTotal - paid;
+            let finalDueDate = due_date_payable ? new Date(due_date_payable) : null;
+            if (!finalDueDate && safePayType === 'credit') {
+                const supplierDoc = await Supplier.findById(resolvedSupplierId).session(session);
+                const termDays = Number(supplierDoc?.default_payment_term_days) || 0;
+                if (termDays > 0) {
+                    finalDueDate = new Date();
+                    finalDueDate.setDate(finalDueDate.getDate() + termDays);
+                }
+            }
+            await SupplierPayable.create([{
+                supplier_id: resolvedSupplierId,
+                storeId: storeId || req.user.storeId,
+                source_type: 'goods_receipt',
+                source_id: grDoc._id,
+                total_amount: computedTotal,
+                paid_amount: paid,
+                remaining_amount: remaining,
+                status: safePayType === 'cash' ? 'paid' : 'open',
+                due_date: finalDueDate || undefined,
+                created_by: req.user.id,
+            }], { session });
+        }
+
+        await session.commitTransaction();
+
+        await refreshSupplierPayableCache(resolvedSupplierId, storeId || req.user.storeId);
+
+        const saved = await GoodsReceipt.findById(grDoc._id)
+            .populate('supplier_id', 'name phone email')
+            .populate('received_by', 'fullName email')
+            .populate('approved_by', 'fullName email')
+            .populate('items.product_id', 'name sku cost_price sale_price base_unit')
+            .lean();
+
+        return res.status(201).json({ goodsReceipt: saved });
+    } catch (err) {
+        if (session.inTransaction()) await session.abortTransaction();
+        console.error('Quick GR error:', err);
+        return res.status(500).json({ message: err.message || 'Server error' });
+    } finally {
+        session.endSession();
+    }
+});
+
 module.exports = router;

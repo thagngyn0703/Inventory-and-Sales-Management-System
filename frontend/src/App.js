@@ -57,6 +57,7 @@ import ManagerSupplierPaymentsReport from "./pages/ManagerDashboard/ManagerSuppl
 import ManagerSupportTickets from "./pages/ManagerDashboard/ManagerSupportTickets";
 import ManagerSupportTicketDetail from "./pages/ManagerDashboard/ManagerSupportTicketDetail";
 import ManagerPOSPage from "./pages/ManagerDashboard/ManagerPOSPage";
+import ManagerQuickGoodsReceipt from "./pages/ManagerDashboard/ManagerQuickGoodsReceipt";
 import AdminSupportTickets from "./pages/AdminHome/AdminSupportTickets";
 import AdminSupportTicketDetail from "./pages/AdminHome/AdminSupportTicketDetail";
 import RequireManagerStore from "./components/RequireManagerStore";
@@ -142,6 +143,7 @@ function App() {
         }
       />
       <Route path="/manager/products/new" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerProductCreate /></RequireManagerStore></RequireRole></RequireAuth>} />
+      <Route path="/manager/quick-receipt" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerQuickGoodsReceipt /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/products/:id/edit" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerProductEdit /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/products/:id" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerProductDetail /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/invoices" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerInvoicesList /></RequireManagerStore></RequireRole></RequireAuth>} />

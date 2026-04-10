@@ -40,6 +40,7 @@ export default function ManagerProductList() {
     const [importCommitting, setImportCommitting] = useState(false);
     const [importError, setImportError] = useState('');
     const [priceChangeConfirmed, setPriceChangeConfirmed] = useState(false);
+    const [importMode, setImportMode] = useState('catalog');
     const fileInputRef = useRef(null);
     const toastTimerRef = useRef(null);
 
@@ -143,6 +144,7 @@ export default function ManagerProductList() {
         setImportLoading(false);
         setImportCommitting(false);
         setPriceChangeConfirmed(false);
+        setImportMode('catalog');
         if (fileInputRef.current) fileInputRef.current.value = '';
     };
 
@@ -153,6 +155,14 @@ export default function ManagerProductList() {
         } catch (e) {
             setImportError(e.message || 'Không tải được file mẫu');
         }
+    };
+
+    const handleImportModeChange = (newMode) => {
+        setImportMode(newMode);
+        setImportPreview(null);
+        setImportError('');
+        setPriceChangeConfirmed(false);
+        if (fileInputRef.current) fileInputRef.current.value = '';
     };
 
     const handleImportFileChange = async (e) => {
@@ -196,7 +206,7 @@ export default function ManagerProductList() {
         setImportCommitting(true);
         setImportError('');
         try {
-            const result = await commitProductImport(payload, priceChangeConfirmed);
+            const result = await commitProductImport(payload, priceChangeConfirmed, importMode);
 
             // Backend trả 409 — cần xác nhận (double-check an toàn)
             if (result.needsConfirmation) {
@@ -207,7 +217,12 @@ export default function ManagerProductList() {
 
             const parts = [];
             if (result.createdCount > 0) parts.push(`tạo mới ${result.createdCount} sản phẩm`);
-            if (result.updatedCount > 0) parts.push(`cập nhật ${result.updatedCount} sản phẩm (cộng tồn kho)`);
+            if (result.updatedCount > 0) {
+                const updateLabel = importMode === 'opening_balance'
+                    ? `đặt lại tồn kho đầu kỳ ${result.updatedCount} sản phẩm`
+                    : `cập nhật giá bán ${result.updatedCount} sản phẩm`;
+                parts.push(updateLabel);
+            }
             const msg =
                 parts.length > 0
                     ? `Đã ${parts.join(', ')}.${result.failedCount > 0 ? ` (${result.failedCount} dòng lỗi.)` : ''}`
@@ -258,24 +273,25 @@ export default function ManagerProductList() {
                 eyebrowIcon={Package}
                 title="Sản phẩm"
                 subtitle={`Xem danh sách và tìm kiếm sản phẩm. ${Platform.select({ web: 'Giao diện đồng bộ với trang thêm/sửa sản phẩm.', default: 'Danh sách sản phẩm.' })}`}
-                headerActions={
-                    <>
-                        <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => {
-                                setImportOpen(true);
-                                setImportPreview(null);
-                                setImportError('');
-                            }}
-                        >
-                            Import Excel
-                        </Button>
-                        <Button type="button" onClick={() => navigate('/manager/products/new')}>
-                            Thêm sản phẩm
-                        </Button>
-                    </>
-                }
+                    headerActions={
+                        <>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => {
+                                    setImportOpen(true);
+                                    setImportPreview(null);
+                                    setImportError('');
+                                    setImportMode('catalog');
+                                }}
+                            >
+                                Import Excel
+                            </Button>
+                            <Button type="button" onClick={() => navigate('/manager/quick-receipt')}>
+                                Nhập hàng
+                            </Button>
+                        </>
+                    }
             >
                     {error && <div className="manager-products-error">{error}</div>}
 
@@ -442,13 +458,51 @@ export default function ManagerProductList() {
                                 onClick={(e) => e.stopPropagation()}
                             >
                                 <h2 id="import-modal-title">Import sản phẩm từ Excel</h2>
+
+                                {/* Chọn chế độ import */}
+                                <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleImportModeChange('catalog')}
+                                        style={{
+                                            flex: 1, padding: '10px 12px', borderRadius: 10, border: '2px solid',
+                                            borderColor: importMode === 'catalog' ? '#0ea5e9' : '#e2e8f0',
+                                            background: importMode === 'catalog' ? '#f0f9ff' : '#f8fafc',
+                                            cursor: 'pointer', textAlign: 'left',
+                                        }}
+                                    >
+                                        <div style={{ fontWeight: 700, fontSize: 13, color: importMode === 'catalog' ? '#0369a1' : '#334155' }}>
+                                            Cập nhật danh mục &amp; giá bán
+                                        </div>
+                                        <div style={{ fontSize: 12, color: '#64748b', marginTop: 3 }}>
+                                            Chỉ cập nhật giá bán cho sản phẩm đã có. Tồn kho và giá vốn không đổi.
+                                        </div>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleImportModeChange('opening_balance')}
+                                        style={{
+                                            flex: 1, padding: '10px 12px', borderRadius: 10, border: '2px solid',
+                                            borderColor: importMode === 'opening_balance' ? '#10b981' : '#e2e8f0',
+                                            background: importMode === 'opening_balance' ? '#f0fdf4' : '#f8fafc',
+                                            cursor: 'pointer', textAlign: 'left',
+                                        }}
+                                    >
+                                        <div style={{ fontWeight: 700, fontSize: 13, color: importMode === 'opening_balance' ? '#065f46' : '#334155' }}>
+                                            Nhập tồn kho đầu kỳ
+                                        </div>
+                                        <div style={{ fontSize: 12, color: '#64748b', marginTop: 3 }}>
+                                            Chuyển dữ liệu từ Excel/sổ tay cũ. SET lại tồn kho và cập nhật giá vốn.
+                                        </div>
+                                    </button>
+                                </div>
+
                                 <p className="manager-import-hint">
                                     Dòng đầu tiên là tiêu đề. Bắt buộc: <strong>Tên sản phẩm</strong>,{' '}
-                                    <strong>Giá gốc</strong>, <strong>Giá bán</strong>. Tùy chọn: SKU, Tồn kho, Đơn vị,
-                                    Barcode.                                     Ưu tiên khớp theo <strong>tên sản phẩm</strong> (đúng như trên hệ thống, không phân
-                                    biệt hoa thường); nếu không trùng tên thì mới xét <strong>SKU</strong> (khi đã có mã
-                                    trên hệ thống). Khi khớp, hệ thống <strong>cộng tồn kho</strong> và cập nhật giá —
-                                    không tạo bản ghi trùng.
+                                    <strong>Giá gốc</strong>, <strong>Giá bán</strong>. Tùy chọn: SKU, Tồn kho, Đơn vị, Barcode.
+                                    {importMode === 'opening_balance'
+                                        ? ' Chế độ đầu kỳ: tồn kho được đặt về đúng số trong file (không cộng dồn).'
+                                        : ' Chế độ cập nhật: chỉ giá bán thay đổi, tồn kho và giá vốn giữ nguyên.'}
                                 </p>
                                 <div className="manager-import-actions">
                                     <button
@@ -562,7 +616,7 @@ export default function ManagerProductList() {
                                                         <th>Giá gốc</th>
                                                         <th>Giá bán</th>
                                                         <th>SKU</th>
-                                                        <th>Tồn (+)</th>
+                                                        <th>{importMode === 'opening_balance' ? 'Tồn (SET)' : 'Tồn (+)'}</th>
                                                         <th>Đơn vị</th>
                                                         <th>Barcode</th>
                                                         <th>Ghi chú lỗi</th>

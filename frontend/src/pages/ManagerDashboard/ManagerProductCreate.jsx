@@ -4,7 +4,7 @@ import { Platform } from 'react-bits/lib/modules/Platform';
 import { Search, Plus, X, Barcode, Package } from 'lucide-react';
 import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
-import { createProduct, getProducts, updateProduct, uploadProductImages } from '../../services/productsApi';
+import { createProduct, getProducts, uploadProductImages } from '../../services/productsApi';
 import { minExpiryDateString, isExpiryDateNotInPast } from '../../utils/dateInput';
 import {
     trimString,
@@ -31,6 +31,7 @@ const createDefaultForm = () => ({
     supplier_id: '',
     cost_price: '',
     stock_qty: '',
+    payment_type: 'cash',
     reorder_level: '',
     expiry_date: '',
     base_unit: 'Cái',
@@ -266,6 +267,7 @@ export default function ManagerProductCreate() {
                 supplier_id: trimString(form.supplier_id) || undefined,
                 cost_price: costCheck.value,
                 stock_qty: stockCheck.value,
+                payment_type: form.payment_type || 'cash',
                 reorder_level: reorderCheck.value,
                 expiry_date: form.expiry_date || undefined,
                 base_unit: baseUnitCheck.value,
@@ -274,20 +276,15 @@ export default function ManagerProductCreate() {
                 status: form.status === 'inactive' ? 'inactive' : 'active',
             };
 
-            if (selectedExistingId) {
-                const existing = existingProducts.find((x) => x._id === selectedExistingId);
-                const currentStock = Number(existing?.stock_qty) || 0;
-                const incomingQty = Number(form.stock_qty) || 0;
-                await updateProduct(selectedExistingId, {
-                    ...payload,
-                    stock_qty: currentStock + incomingQty,
-                });
-                navigate('/manager/products', { state: { success: 'Da cap nhat san pham hien co va cong don ton kho.' } });
-                return;
-            }
-
             await createProduct(payload);
-            navigate('/manager/products', { state: { success: 'Thêm sản phẩm thành công.' } });
+            const hasStock = stockCheck.value > 0;
+            navigate('/manager/products', {
+                state: {
+                    success: hasStock
+                        ? 'Thêm sản phẩm thành công. Phiếu nhập kho ban đầu đã được tạo tự động.'
+                        : 'Thêm sản phẩm vào danh mục thành công.',
+                },
+            });
         } catch (err) {
             const msg = err.message || 'Không thể tạo sản phẩm.';
             setError(msg);
@@ -366,8 +363,8 @@ export default function ManagerProductCreate() {
             <StaffPageShell
                 eyebrow="Sản phẩm"
                 eyebrowIcon={Package}
-                title="Thêm sản phẩm"
-                subtitle="Điền nhanh từ mẫu có sẵn, sau đó chỉnh lại để tạo sản phẩm mới."
+                    title="Thêm sản phẩm mới"
+                    subtitle="Thêm sản phẩm vào danh mục. Nếu có tồn kho ban đầu, hệ thống tự tạo phiếu nhập kho."
                 headerActions={
                     <Button type="button" variant="outline" onClick={() => navigate('/manager/products')}>
                         Quay lại danh sách
@@ -383,6 +380,10 @@ export default function ManagerProductCreate() {
                                         <h2 className="text-sm font-semibold text-slate-700">Điền nhanh từ sản phẩm có sẵn</h2>
                                         {selectedExistingId ? <Badge>Đang dùng mẫu có sẵn</Badge> : <Badge className="bg-slate-100 text-slate-600">Không chọn</Badge>}
                                     </div>
+                                    <p className="rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-700">
+                                        Tính năng này chỉ để <strong>điền nhanh thông tin mẫu</strong> — hệ thống vẫn tạo sản phẩm MỚI khi bạn lưu.
+                                        Nếu muốn nhập thêm hàng cho sản phẩm đã có, hãy dùng tính năng <strong>Nhập hàng nhanh</strong>.
+                                    </p>
                                     <div className="grid gap-3 md:grid-cols-2">
                                         <div className="relative">
                                             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -591,11 +592,27 @@ export default function ManagerProductCreate() {
                                                 min="0"
                                                 value={form.stock_qty}
                                                 onChange={(e) => update('stock_qty', e.target.value)}
-                                                placeholder="vd: 24"
+                                                placeholder="Để trống nếu chưa có hàng"
                                                 className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
                                             />
                                         </div>
-                                        <div>
+                                        {Number(form.stock_qty) > 0 && (
+                                            <div>
+                                                <label className="mb-1 block text-sm font-medium text-slate-600">Thanh toán NCC</label>
+                                                <select
+                                                    value={form.payment_type}
+                                                    onChange={(e) => update('payment_type', e.target.value)}
+                                                    className="h-10 w-full rounded-lg border border-teal-300 bg-teal-50/50 px-3 text-sm outline-none ring-teal-200 transition focus:ring-2"
+                                                >
+                                                    <option value="cash">Đã thanh toán (tiền mặt)</option>
+                                                    <option value="credit">Ghi nợ NCC</option>
+                                                </select>
+                                                <p className="mt-1 text-xs text-teal-700">
+                                                    Hệ thống sẽ tự tạo phiếu nhập kho để theo dõi chứng từ.
+                                                </p>
+                                            </div>
+                                        )}
+                                        <div className={Number(form.stock_qty) > 0 ? '' : ''}>
                                             <label className="mb-1 block text-sm font-medium text-slate-600">Mức tồn tối thiểu</label>
                                             <input
                                                 type="number"

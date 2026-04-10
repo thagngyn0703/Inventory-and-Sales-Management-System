@@ -150,8 +150,9 @@ export async function previewProductImport(file) {
 /**
  * @param {Array} rows
  * @param {boolean} confirmPriceChanges - true nếu manager đã xác nhận thay đổi giá
+ * @param {'catalog'|'opening_balance'} mode - chế độ import
  */
-export async function commitProductImport(rows, confirmPriceChanges = false) {
+export async function commitProductImport(rows, confirmPriceChanges = false, mode = 'catalog') {
     const token = getToken();
     const res = await fetch(`${API_BASE}/products/import/commit`, {
         method: 'POST',
@@ -159,7 +160,7 @@ export async function commitProductImport(rows, confirmPriceChanges = false) {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ rows, confirmPriceChanges }),
+        body: JSON.stringify({ rows, confirmPriceChanges, mode }),
     });
     const data = await res.json().catch(() => ({}));
     // 409 = cần xác nhận thay đổi giá — trả về data thay vì throw để FE xử lý
@@ -168,6 +169,25 @@ export async function commitProductImport(rows, confirmPriceChanges = false) {
     }
     if (!res.ok) throw new Error(data.message || 'Import thất bại');
     return data;
+}
+
+/**
+ * Manager nhập hàng nhanh (auto-approved GoodsReceipt) cho sản phẩm đã có
+ * @param {{ supplier_id?: string, items: Array, payment_type: string, reason?: string }} body
+ */
+export async function createQuickGoodsReceipt(body) {
+    const token = getToken();
+    const res = await fetch(`${API_BASE}/goods-receipts/quick`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.message || 'Không thể tạo phiếu nhập hàng nhanh');
+    return data.goodsReceipt;
 }
 
 // --- Product requests (warehouse -> manager) ---
