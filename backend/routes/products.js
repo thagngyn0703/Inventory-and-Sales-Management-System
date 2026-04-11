@@ -249,11 +249,12 @@ function getRoleStoreFilter(req) {
   return { storeId };
 }
 
-// POST /api/products/upload-images (manager, admin) - tối đa 3 ảnh
+// POST /api/products/upload-images (staff, manager, admin) - tối đa 3 ảnh
+// staff: ảnh kèm yêu cầu đăng ký sản phẩm (Warehouse); manager/admin: tạo/sửa sản phẩm trực tiếp
 router.post(
   '/upload-images',
   requireAuth,
-  requireRole(['manager', 'admin']),
+  requireRole(['staff', 'manager', 'admin']),
   (req, res, next) => {
     uploadProductImages.array('images', 3)(req, res, (err) => {
       if (err) return res.status(400).json({ message: err.message || 'Lỗi upload ảnh' });
