@@ -6,6 +6,7 @@ import { useToast } from '../../contexts/ToastContext';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
+import { InlineNotice } from '../../components/ui/inline-notice';
 import { ArrowLeft, RotateCcw } from 'lucide-react';
 import './SalesPOS.css';
 
@@ -163,9 +164,7 @@ export default function SalesReturnPage({ backPathOverride = null }) {
             {loadingInvoice ? 'Đang tải...' : 'Tải hóa đơn'}
           </button>
         </div>
-        {invoiceError && (
-          <div className="warehouse-alert warehouse-alert-error" style={{ marginTop: 12 }}>{invoiceError}</div>
-        )}
+        <InlineNotice message={invoiceError} type="error" className="mt-3" />
         </CardContent>
       </Card>
 
@@ -257,9 +256,7 @@ export default function SalesReturnPage({ backPathOverride = null }) {
             rows={3}
             style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: 14, resize: 'vertical', outline: 'none', boxSizing: 'border-box', fontFamily: 'Inter, sans-serif', color: '#334155' }}
           />
-          {submitError && (
-            <div className="warehouse-alert warehouse-alert-error" style={{ marginTop: 12 }}>{submitError}</div>
-          )}
+          <InlineNotice message={submitError} type="error" className="mt-3" />
           <div style={{ marginTop: 16, display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
             <button
               onClick={() => { setInvoice(null); setInvoiceInput(''); setReturnQty({}); }}

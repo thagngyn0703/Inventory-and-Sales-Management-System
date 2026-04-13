@@ -15,6 +15,7 @@ import { useToast } from '../../contexts/ToastContext';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
 import { Badge } from '../../components/ui/badge';
+import { InlineNotice } from '../../components/ui/inline-notice';
 
 const PRODUCT_BASE_UNITS = ['Cái', 'Chai', 'Lon', 'Thùng', 'Hộp', 'Kg', 'Gói', 'Lít'];
 
@@ -395,14 +396,7 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
         </div>
 
         <div className="max-h-[min(78vh,720px)] overflow-y-auto px-5 py-4">
-          {error && (
-            <div
-              className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
-              role="alert"
-            >
-              {error}
-            </div>
-          )}
+          <InlineNotice message={error} type="error" className="mb-4" />
 
           <form id="warehouse-product-request-form" onSubmit={handleSubmit} className="space-y-4">
             <Card className="border-slate-200/80">

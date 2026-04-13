@@ -7,6 +7,7 @@ import { ConfirmDialog } from '../../components/ui/confirm-dialog';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
+import { InlineNotice } from '../../components/ui/inline-notice';
 import { ArrowLeft, ClipboardList, Loader2, Send } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
@@ -97,9 +98,7 @@ export default function WarehouseGoodsReceiptDetail() {
   }
   if (error && !receipt) {
     return (
-      <div className="mx-auto max-w-lg rounded-xl border border-red-200 bg-red-50 px-4 py-4 text-red-800" role="alert">
-        {error}
-      </div>
+      <InlineNotice message={error} type="error" className="mx-auto max-w-lg" />
     );
   }
   if (!receipt) return null;
@@ -132,9 +131,7 @@ export default function WarehouseGoodsReceiptDetail() {
           </div>
         }
       >
-        {error && (
-          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>
-        )}
+        <InlineNotice message={error} type="error" />
 
         <Card className="border-slate-200/80 shadow-sm">
           <CardContent className="grid gap-4 p-5 sm:grid-cols-2">

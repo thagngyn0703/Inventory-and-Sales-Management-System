@@ -6,6 +6,7 @@ import { useToast } from '../../contexts/ToastContext';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
+import { InlineNotice } from '../../components/ui/inline-notice';
 import { Loader2, Search, Users } from 'lucide-react';
 
 export default function SalesCustomerPage({ managerMode = false }) {
@@ -241,7 +242,7 @@ export default function SalesCustomerPage({ managerMode = false }) {
         >
             <div className="flex min-h-0 flex-1 flex-col">
             <main className="flex-1">
-                    {error && <div className="warehouse-alert warehouse-alert-error" style={{ marginBottom: 16 }}>{error}</div>}
+                    <InlineNotice message={error} type="error" className="mb-4" />
 
                     <Card className="mb-4 border-slate-200/80 shadow-sm">
                         <CardContent className="p-4">
@@ -352,7 +353,7 @@ export default function SalesCustomerPage({ managerMode = false }) {
                         width: '400px', maxWidth: '90%', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)'
                     }}>
                         <h3 style={{ marginTop: 0, marginBottom: '20px', fontSize: '18px', color: '#1e293b' }}>Thêm Khách hàng Mới</h3>
-                        {customerModalError && <div className="warehouse-alert warehouse-alert-error" style={{ marginBottom: '16px', color: '#ef4444', fontSize: 14 }}>{customerModalError}</div>}
+                        <InlineNotice message={customerModalError} type="error" className="mb-4" />
                         <div style={{ marginBottom: '16px' }}>
                             <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>Tên khách hàng <span style={{ color: '#ef4444' }}>*</span></label>
                             <input 
@@ -489,7 +490,7 @@ export default function SalesCustomerPage({ managerMode = false }) {
                     }}>
                         <h3 style={{ marginTop: 0, marginBottom: '24px', fontSize: '20px', color: '#1e293b', fontWeight: 800 }}>Cập nhật thông tin: {editCustomerModal.customer?.full_name}</h3>
                         
-                        {editCustomerModal.error && <div className="warehouse-alert warehouse-alert-error" style={{ marginBottom: 16 }}>{editCustomerModal.error}</div>}
+                        <InlineNotice message={editCustomerModal.error} type="error" className="mb-4" />
 
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
                             <div>

@@ -6,6 +6,7 @@ import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
 import { Badge } from '../../components/ui/badge';
+import { InlineNotice } from '../../components/ui/inline-notice';
 import { ClipboardCheck, Loader2 } from 'lucide-react';
 
 const STATUS_LABEL = {
@@ -124,7 +125,7 @@ export default function WarehouseStocktakingDetail() {
   if (error && !stocktake) {
     return (
       <>
-        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">{error}</div>
+        <InlineNotice message={error} type="error" className="mb-4" />
         <Button type="button" variant="outline" onClick={() => navigate(`${warehouseBase}/stocktakes`)}>
           Quay lại danh sách
         </Button>
@@ -164,9 +165,7 @@ export default function WarehouseStocktakingDetail() {
       }
     >
       {stocktake?.status === 'cancelled' && stocktake?.reject_reason && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-          <strong>Lý do từ chối:</strong> {stocktake.reject_reason}
-        </div>
+        <InlineNotice message={`Lý do từ chối: ${stocktake.reject_reason}`} type="error" />
       )}
 
       {isDraft && (
@@ -176,16 +175,8 @@ export default function WarehouseStocktakingDetail() {
         </p>
       )}
 
-      {successMessage && (
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800" role="status">
-          {successMessage}
-        </div>
-      )}
-      {error && stocktake && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800" role="alert">
-          {error}
-        </div>
-      )}
+      <InlineNotice message={successMessage} type="success" />
+      <InlineNotice message={stocktake ? error : ''} type="error" />
 
       <Card className="border-slate-200/80 shadow-sm shadow-slate-900/5">
         <CardContent className="p-0">

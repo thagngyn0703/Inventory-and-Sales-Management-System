@@ -5,6 +5,7 @@ import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { Card, CardContent } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Badge } from '../../components/ui/badge';
+import { InlineNotice } from '../../components/ui/inline-notice';
 import { FileText, Loader2, Receipt, Search } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
@@ -136,11 +137,7 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
           : 'Theo dõi toàn bộ hóa đơn bán lẻ và trạng thái thanh toán.'
       }
     >
-      {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800" role="alert">
-          {error}
-        </div>
-      )}
+      <InlineNotice message={error} type="error" />
 
       <Card className="border-slate-200/80 shadow-sm shadow-slate-900/5">
         <CardContent className="p-4 sm:p-6">
