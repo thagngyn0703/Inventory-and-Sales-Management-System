@@ -8,6 +8,7 @@ import { getStocktake, approveStocktake, rejectStocktake } from '../../services/
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
 import { Badge } from '../../components/ui/badge';
+import { InlineNotice } from '../../components/ui/inline-notice';
 import './ManagerDashboard.css';
 
 const STATUS_LABEL = {
@@ -132,7 +133,7 @@ export default function ManagerStocktakeDetail() {
   if (error && !stocktake) {
     return (
       <ManagerPageFrame showNotificationBell={false}>
-        <div className="warehouse-alert warehouse-alert-error">{error}</div>
+        <InlineNotice message={error} type="error" />
         <button type="button" className="warehouse-btn warehouse-btn-secondary" onClick={() => navigate('/manager/stocktakes/pending')}>
           Quay lại kiểm kê chờ duyệt
         </button>
@@ -226,9 +227,7 @@ export default function ManagerStocktakeDetail() {
           </div>
 
           {stocktake?.status === 'cancelled' && stocktake?.reject_reason && (
-            <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-              <strong>Lý do từ chối:</strong> {stocktake.reject_reason}
-            </div>
+            <InlineNotice message={`Lý do từ chối: ${stocktake.reject_reason}`} type="error" className="mb-4" />
           )}
 
           <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
@@ -284,13 +283,7 @@ export default function ManagerStocktakeDetail() {
       </StaffPageShell>
       {toast && (
         <div className="fixed right-4 top-4 z-[2500]">
-          <div className={`rounded-lg border px-4 py-3 text-sm font-medium shadow-lg ${
-            toast.type === 'success'
-              ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-              : 'border-red-200 bg-red-50 text-red-700'
-          }`}>
-            {toast.message}
-          </div>
+          <InlineNotice message={toast.message} type={toast.type === 'success' ? 'success' : 'error'} />
         </div>
       )}
     </ManagerPageFrame>

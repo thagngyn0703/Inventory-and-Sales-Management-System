@@ -16,6 +16,7 @@ import {
 import { getSuppliers } from '../../services/suppliersApi';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
+import { InlineNotice } from '../../components/ui/inline-notice';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
 
@@ -318,7 +319,7 @@ export default function ManagerProductEdit() {
                 }
             >
                 <div className="manager-product-create-fullwidth">
-                    {error && <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-600">{error}</div>}
+                    <InlineNotice message={error} type="error" className="mb-4" />
 
                     <form onSubmit={handleSubmit} className="space-y-4">
                         <div className="grid gap-4 xl:grid-cols-12">

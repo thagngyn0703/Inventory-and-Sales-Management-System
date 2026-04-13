@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
+import { InlineNotice } from "../../components/ui/inline-notice";
 
 const API_BASE = process.env.REACT_APP_API_URL || "/api";
 
@@ -198,14 +199,7 @@ export default function ManagerStoreRegister() {
                   />
                 </div>
 
-                {error ? (
-                  <div
-                    className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"
-                    role="alert"
-                  >
-                    {error}
-                  </div>
-                ) : null}
+                <InlineNotice message={error} type="error" />
 
                 <div className="flex justify-end pt-2">
                   <Button

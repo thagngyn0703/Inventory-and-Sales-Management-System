@@ -10,6 +10,7 @@ import { ConfirmDialog } from '../../components/ui/confirm-dialog';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
 import { Badge } from '../../components/ui/badge';
+import { InlineNotice } from '../../components/ui/inline-notice';
 import { Loader2, Search, SlidersHorizontal } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import './ManagerDashboard.css';
@@ -147,9 +148,7 @@ export default function ManagerReceiptList() {
         title="Duyệt phiếu nhập kho"
         subtitle="Phê duyệt hoặc từ chối phiếu từ nhân viên kho."
       >
-            {error && (
-              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>
-            )}
+            <InlineNotice message={error} type="error" />
 
             <Card className="border-slate-200/80 shadow-sm">
               <CardContent className="space-y-4 p-4 sm:p-6">

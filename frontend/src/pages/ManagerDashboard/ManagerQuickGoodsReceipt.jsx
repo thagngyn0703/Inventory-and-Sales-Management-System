@@ -5,6 +5,7 @@ import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
+import { InlineNotice } from '../../components/ui/inline-notice';
 import { createProduct, createQuickGoodsReceipt, getProducts, uploadProductImages } from '../../services/productsApi';
 import { getSuppliers } from '../../services/suppliersApi';
 
@@ -174,11 +175,7 @@ export default function ManagerQuickGoodsReceipt() {
                 }
             >
                 <div className="space-y-4">
-                    {error && (
-                        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                            {error}
-                        </div>
-                    )}
+                    <InlineNotice message={error} type="error" />
 
                     {/* Tìm kiếm trung tâm */}
                     <Card>

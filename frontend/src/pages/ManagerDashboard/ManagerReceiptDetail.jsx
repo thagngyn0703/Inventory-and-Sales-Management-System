@@ -6,6 +6,7 @@ import { useToast } from '../../contexts/ToastContext';
 import { ConfirmDialog } from '../../components/ui/confirm-dialog';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { Button } from '../../components/ui/button';
+import { InlineNotice } from '../../components/ui/inline-notice';
 import { ArrowLeft, ClipboardList, CreditCard } from 'lucide-react';
 import './ManagerDashboard.css';
 
@@ -133,7 +134,7 @@ export default function ManagerReceiptDetail() {
     if (error) {
         return (
             <ManagerPageFrame showNotificationBell={false}>
-                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800">{error}</div>
+                <InlineNotice message={error} type="error" />
             </ManagerPageFrame>
         );
     }

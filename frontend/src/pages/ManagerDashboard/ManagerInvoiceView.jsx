@@ -4,6 +4,7 @@ import { getInvoice } from '../../services/invoicesApi';
 import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { Button } from '../../components/ui/button';
+import { InlineNotice } from '../../components/ui/inline-notice';
 import { Receipt, ArrowLeft } from 'lucide-react';
 import './ManagerDashboard.css';
 import '../SaleDashboard/SalesPOS.css';
@@ -94,14 +95,7 @@ export default function ManagerInvoiceView() {
             Đang tải dữ liệu…
           </p>
         )}
-        {!loading && error && (
-          <div
-            className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-center text-sm text-red-800"
-            role="alert"
-          >
-            {error}
-          </div>
-        )}
+        {!loading && error && <InlineNotice message={error} type="error" />}
         {!loading && !error && invoice && (
           <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
             <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm sm:p-6">

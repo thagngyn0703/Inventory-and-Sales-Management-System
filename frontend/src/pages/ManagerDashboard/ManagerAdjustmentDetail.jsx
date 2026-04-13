@@ -8,6 +8,7 @@ import { getAdjustment, revertAdjustment } from '../../services/adjustmentsApi';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
 import { Badge } from '../../components/ui/badge';
+import { InlineNotice } from '../../components/ui/inline-notice';
 import './ManagerDashboard.css';
 import '../WarehouseDashboard/WarehouseDashboard.css';
 
@@ -87,7 +88,7 @@ export default function ManagerAdjustmentDetail() {
   if (error || !adjustment) {
     return (
       <ManagerPageFrame showNotificationBell={false}>
-        <div className="warehouse-alert warehouse-alert-error">{error || 'Không tìm thấy phiếu điều chỉnh.'}</div>
+        <InlineNotice message={error || 'Không tìm thấy phiếu điều chỉnh.'} type="error" />
         <button type="button" className="warehouse-btn warehouse-btn-secondary" onClick={() => navigate('/manager/adjustments')}>
           Quay lại danh sách
         </button>
@@ -307,13 +308,7 @@ export default function ManagerAdjustmentDetail() {
         </div>
       {toast && (
         <div className="fixed right-4 top-4 z-[2500]">
-          <div className={`rounded-lg border px-4 py-3 text-sm font-medium shadow-lg ${
-            toast.type === 'success'
-              ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-              : 'border-red-200 bg-red-50 text-red-700'
-          }`}>
-            {toast.message}
-          </div>
+          <InlineNotice message={toast.message} type={toast.type === 'success' ? 'success' : 'error'} />
         </div>
       )}
     </ManagerPageFrame>
