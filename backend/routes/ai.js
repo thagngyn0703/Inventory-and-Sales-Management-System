@@ -20,6 +20,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const OpenAI = require('openai');
 const Product = require('../models/Product');
 const Store = require('../models/Store');
+const SalesInvoice = require('../models/SalesInvoice');
 const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
@@ -171,6 +172,124 @@ function getSeasonContext(month) {
   return 'Giao mùa (tháng 2–3): thời tiết ổn định, chuẩn bị hàng Tết, mùng lễ, văn phòng phẩm đầu năm.';
 }
 
+/** Tín hiệu tham khảo từ thị trường (không giới hạn SKU nội bộ). */
+function getMarketSignalsByMonth(month) {
+  if (month >= 4 && month <= 8) {
+    return [
+      'Nhu cầu cao theo mùa nóng: nước điện giải, chống nắng, sản phẩm làm mát cá nhân.',
+      'Nhóm tiêu dùng nhanh theo xu hướng: đồ uống tiện lợi ít đường, snack gọn nhẹ cho du lịch ngắn ngày.',
+    ];
+  }
+  if (month === 9 || month === 10) {
+    return [
+      'Mùa mưa: nhóm áo mưa, khăn giấy, đồ uống ấm đóng chai thường tăng nhu cầu.',
+      'Mùa tựu trường: văn phòng phẩm, đồ ăn nhanh tiện lợi cho học sinh/sinh viên.',
+    ];
+  }
+  if (month === 11 || month === 12 || month === 1) {
+    return [
+      'Cuối năm/lễ Tết: quà tặng tiêu dùng, bánh kẹo đóng hộp, đồ uống dùng trong tụ họp.',
+      'Nhóm hàng mùa lạnh: đồ uống nóng hòa tan, sản phẩm chăm sóc sức khỏe gia đình.',
+    ];
+  }
+  return [
+    'Giao mùa: nhu cầu ổn định, phù hợp thử SKU mới số lượng nhỏ để đo phản hồi.',
+    'Ưu tiên SKU quay vòng nhanh và biên lợi nhuận ổn định để giữ dòng tiền.',
+  ];
+}
+
+function decodeXmlEntities(text) {
+  return String(text || '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/<!\[CDATA\[|\]\]>/g, '');
+}
+
+function stripHtmlTags(text) {
+  return decodeXmlEntities(text).replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+}
+
+function extractRssItems(xml = '') {
+  const items = [];
+  const itemRe = /<item>([\s\S]*?)<\/item>/gi;
+  let m;
+  while ((m = itemRe.exec(xml)) !== null) {
+    const item = m[1];
+    const title = (item.match(/<title>([\s\S]*?)<\/title>/i) || [])[1] || '';
+    const link = (item.match(/<link>([\s\S]*?)<\/link>/i) || [])[1] || '';
+    const pubDate = (item.match(/<pubDate>([\s\S]*?)<\/pubDate>/i) || [])[1] || '';
+    const cleanTitle = stripHtmlTags(title);
+    const cleanLink = decodeXmlEntities(link).trim();
+    if (!cleanTitle || !cleanLink) continue;
+    items.push({ title: cleanTitle, link: cleanLink, pubDate: stripHtmlTags(pubDate) });
+  }
+  return items;
+}
+
+function fetchRss(url) {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (value) => {
+      if (done) return;
+      done = true;
+      resolve(value);
+    };
+    const req = https.get(url, (res) => {
+      let raw = '';
+      res.on('data', (chunk) => { raw += chunk; });
+      res.on('end', () => {
+        if (res.statusCode && res.statusCode >= 400) {
+          finish('');
+          return;
+        }
+        finish(raw);
+      });
+    });
+    req.on('error', () => finish(''));
+    req.setTimeout(4500, () => {
+      req.destroy();
+      finish('');
+    });
+  });
+}
+
+async function fetchLiveMarketSignals({ city = 'Việt Nam', events = [] } = {}) {
+  const queryParts = [
+    'xu hướng tiêu dùng tạp hóa Việt Nam',
+    `${city} bán lẻ hàng tiêu dùng`,
+    ...events.slice(0, 2).map((e) => `nhu cầu mua sắm ${e.name} Việt Nam`),
+  ];
+  const unique = [];
+  const seen = new Set();
+  for (const q of queryParts) {
+    const k = String(q || '').trim().toLowerCase();
+    if (!k || seen.has(k)) continue;
+    seen.add(k);
+    unique.push(q);
+  }
+
+  const rssUrls = unique.map((q) => (
+    `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=vi&gl=VN&ceid=VN:vi`
+  ));
+
+  const xmlList = await Promise.all(rssUrls.map((u) => fetchRss(u)));
+  const collected = xmlList.flatMap((xml) => extractRssItems(xml));
+
+  const out = [];
+  const seenTitle = new Set();
+  for (const item of collected) {
+    const key = item.title.toLowerCase();
+    if (seenTitle.has(key)) continue;
+    seenTitle.add(key);
+    out.push(`(Live) ${item.title} — nguồn: ${item.link}`);
+    if (out.length >= 5) break;
+  }
+  return out;
+}
+
 // ─── 2. Weather Helper ────────────────────────────────────────────────────────
 /**
  * Lấy dự báo thời tiết từ OpenWeatherMap (free tier).
@@ -284,6 +403,130 @@ async function getInventoryContext(storeId) {
   return { lowStock, deadStock, expiringSoon };
 }
 
+async function getBusinessConsultingContext(storeId) {
+  const now = new Date();
+  const thirtyDaysAgo = new Date(now);
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  const sevenDaysAgo = new Date(now);
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+  const baseMatch = {
+    status: 'confirmed',
+    invoice_at: { $gte: thirtyDaysAgo, $lte: now },
+  };
+  if (storeId) baseMatch.store_id = new mongoose.Types.ObjectId(storeId);
+
+  const [topProfitProducts, peakHours, dailyRevenue7d, soldProductIds] = await Promise.all([
+    SalesInvoice.aggregate([
+      { $match: baseMatch },
+      { $unwind: '$items' },
+      {
+        $group: {
+          _id: '$items.product_id',
+          qty: { $sum: { $ifNull: ['$items.quantity', 0] } },
+          revenue: { $sum: { $ifNull: ['$items.line_total', 0] } },
+          profit: {
+            $sum: {
+              $ifNull: [
+                '$items.line_profit',
+                {
+                  $subtract: [
+                    { $ifNull: ['$items.line_total', 0] },
+                    { $multiply: [{ $ifNull: ['$items.cost_price', 0] }, { $ifNull: ['$items.quantity', 0] }] },
+                  ],
+                },
+              ],
+            },
+          },
+        },
+      },
+      { $sort: { profit: -1 } },
+      { $limit: 5 },
+      {
+        $lookup: {
+          from: 'products',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'product',
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          product_id: '$_id',
+          name: { $ifNull: [{ $arrayElemAt: ['$product.name', 0] }, 'Sản phẩm không xác định'] },
+          qty: 1,
+          revenue: 1,
+          profit: 1,
+        },
+      },
+    ]),
+    SalesInvoice.aggregate([
+      { $match: baseMatch },
+      {
+        $project: {
+          hour: { $hour: { date: '$invoice_at', timezone: 'Asia/Ho_Chi_Minh' } },
+          total_amount: { $ifNull: ['$total_amount', 0] },
+        },
+      },
+      {
+        $group: {
+          _id: '$hour',
+          invoices: { $sum: 1 },
+          revenue: { $sum: '$total_amount' },
+        },
+      },
+      { $sort: { invoices: -1, revenue: -1 } },
+      { $limit: 3 },
+      {
+        $project: {
+          _id: 0,
+          hour: '$_id',
+          invoices: 1,
+          revenue: 1,
+        },
+      },
+    ]),
+    SalesInvoice.aggregate([
+      {
+        $match: {
+          ...baseMatch,
+          invoice_at: { $gte: sevenDaysAgo, $lte: now },
+        },
+      },
+      {
+        $group: {
+          _id: { $dateToString: { format: '%Y-%m-%d', date: '$invoice_at', timezone: 'Asia/Ho_Chi_Minh' } },
+          revenue: { $sum: { $ifNull: ['$total_amount', 0] } },
+        },
+      },
+      { $sort: { _id: 1 } },
+      { $limit: 7 },
+    ]),
+    SalesInvoice.aggregate([
+      { $match: baseMatch },
+      { $unwind: '$items' },
+      { $group: { _id: '$items.product_id' } },
+      { $project: { _id: 1 } },
+    ]),
+  ]);
+
+  const soldIds = soldProductIds.map((x) => x._id).filter(Boolean);
+  const productMatch = storeId
+    ? { storeId: new mongoose.Types.ObjectId(storeId), status: 'active' }
+    : { status: 'active' };
+  const unsoldProducts30d = await Product.find({
+    ...productMatch,
+    _id: { $nin: soldIds.length ? soldIds : [] },
+  })
+    .select('name sku stock_qty')
+    .sort({ stock_qty: -1 })
+    .limit(8)
+    .lean();
+
+  return { topProfitProducts, peakHours, unsoldProducts30d, dailyRevenue7d };
+}
+
 /** Định dạng ngày YYYY-MM-DD theo lịch VN (hạn dùng). */
 function formatVNDateYMD(d) {
   if (!d) return '—';
@@ -297,7 +540,9 @@ function formatVNDateYMD(d) {
 }
 
 // ─── 4. Context block (dùng chung insights + chat) ───────────────────────────
-function buildContextBlock({ vnDateStr, events, yearEvents, season, weather, lowStock, deadStock, expiringSoon }) {
+function buildContextBlock({
+  vnDateStr, events, yearEvents, season, weather, lowStock, deadStock, expiringSoon, marketSignals = [], businessStats = {},
+}) {
   const events30Text = events.length
     ? events.map(e => `- ${e.date} — ${e.name}`).join('\n')
     : '- Không có sự kiện lớn trong 30 ngày tới';
@@ -319,6 +564,27 @@ function buildContextBlock({ vnDateStr, events, yearEvents, season, weather, low
     : '- Không có mặt hàng nào có hạn sử dụng trong vòng 30 ngày tới';
 
   const weatherLine = weather ? `Thời tiết 24-48h tới: ${weather}` : '';
+  const marketSignalsText = marketSignals.length
+    ? marketSignals.map((s) => `- ${s}`).join('\n')
+    : '- Chưa có tín hiệu thị trường mở rộng';
+  const topProfitText = (businessStats.topProfitProducts || []).length
+    ? businessStats.topProfitProducts
+      .map((p) => `- ${p.name}: doanh thu ~${Math.round(p.revenue || 0).toLocaleString('vi-VN')}đ; lợi nhuận ~${Math.round(p.profit || 0).toLocaleString('vi-VN')}đ; SL bán ${Math.round(p.qty || 0)}`)
+      .join('\n')
+    : '- Chưa đủ dữ liệu để xác định top lợi nhuận tháng này';
+  const peakHoursText = (businessStats.peakHours || []).length
+    ? businessStats.peakHours
+      .map((h) => `- ${String(h.hour).padStart(2, '0')}:00-${String((Number(h.hour) + 1) % 24).padStart(2, '0')}:00: ${h.invoices} hóa đơn, doanh thu ~${Math.round(h.revenue || 0).toLocaleString('vi-VN')}đ`)
+      .join('\n')
+    : '- Chưa đủ dữ liệu để xác định khung giờ cao điểm';
+  const unsoldText = (businessStats.unsoldProducts30d || []).length
+    ? businessStats.unsoldProducts30d
+      .map((p) => `- ${p.name} (SKU: ${p.sku || 'N/A'}): tồn ${p.stock_qty}`)
+      .join('\n')
+    : '- Không có mặt hàng tồn kho chưa phát sinh đơn trong 30 ngày qua';
+  const rev7dText = (businessStats.dailyRevenue7d || []).length
+    ? businessStats.dailyRevenue7d.map((d) => `- ${d._id}: ~${Math.round(d.revenue || 0).toLocaleString('vi-VN')}đ`).join('\n')
+    : '- Chưa có dữ liệu doanh thu 7 ngày gần đây';
 
   return `Ngày hôm nay: ${vnDateStr}
 Bối cảnh mùa vụ (mô tả chung, không thay thế ngày lễ cụ thể): ${season}
@@ -337,29 +603,74 @@ Hàng sắp hết hạn SỬ DỤNG — hạn trong 30 ngày tới (khác với 
 ${expiringText}
 
 Hàng tồn nhiều (rủi ro vốn đọng — top tồn cao):
-${deadStockText}`;
+${deadStockText}
+
+Tín hiệu thị trường tham khảo (có thể bao gồm sản phẩm chưa có trong hệ thống):
+${marketSignalsText}
+
+Hiệu suất kinh doanh nội bộ (để tư vấn thực chiến):
+Top mặt hàng lợi nhuận cao tháng này:
+${topProfitText}
+
+Khung giờ bận rộn:
+${peakHoursText}
+
+Mặt hàng chưa có đơn trong 30 ngày:
+${unsoldText}
+
+Doanh thu 7 ngày gần đây:
+${rev7dText}`;
 }
 
-function buildPrompt({ vnDateStr, events, yearEvents, season, weather, lowStock, deadStock, expiringSoon }) {
-  const ctx = buildContextBlock({ vnDateStr, events, yearEvents, season, weather, lowStock, deadStock, expiringSoon });
+function buildPrompt({
+  vnDateStr, events, yearEvents, season, weather, lowStock, deadStock, expiringSoon, marketSignals = [], businessStats = {},
+}) {
+  const ctx = buildContextBlock({
+    vnDateStr, events, yearEvents, season, weather, lowStock, deadStock, expiringSoon, marketSignals, businessStats,
+  });
 
   return `Bạn là chuyên gia tư vấn kho vận và kinh doanh cho tiệm tạp hóa tại Việt Nam.
 
 ${ctx}
 
 NHIỆM VỤ: Dựa CHÍNH XÁC vào dữ liệu trên, đưa ra 3 lời khuyên thực tế cho chủ tiệm.
-- Mỗi lời khuyên tối đa 25 từ, ngắn gọn, hành động rõ ràng.
+- Mỗi lời khuyên cần có số liệu cụ thể từ dữ liệu (tồn kho, ngưỡng nhập, ngày hết hạn, vốn tồn, mốc sự kiện...).
+- Nội dung phải trả lời được "Vì sao làm ngay bây giờ?" và "Làm gì tiếp theo?".
+- Mỗi lời khuyên tối đa 40 từ, ngắn gọn, hành động rõ ràng.
+- Ít nhất 1 lời khuyên phải là tư duy liên kết (correlation): kết nối vốn đọng/tồn kho cao với nhu cầu nhập mới để tối ưu dòng tiền.
 - Chỉ đề cập mặt hàng/SKU có trong dữ liệu trên. Nếu không có SKU cụ thể thì nói theo nhóm hàng phù hợp mùa/sự kiện.
+- Type "tip": chỉ dành cho mẹo chiến lược tối ưu doanh thu/lợi nhuận (ví dụ cơ cấu hàng, biên lợi nhuận, nhịp bán).
+- Type "warning": chỉ dành cho cảnh báo hàng tồn nhiều khó bán hoặc hàng sắp hết hạn trong 30 ngày tới.
+- Type "opportunity": chỉ dành cho cơ hội theo thời tiết, ngày lễ/sự kiện và xu hướng thị trường.
+- Không dùng type "urgent".
+- Cho phép tối đa 1 khuyến nghị mở rộng thị trường cho sản phẩm CHƯA có trong hệ thống, nhưng phải ghi rõ đây là "đề xuất mở rộng danh mục" và không gán type "urgent".
+- Ưu tiên sử dụng mục "Tín hiệu thị trường tham khảo" nếu có để tư vấn mặt hàng mới đang lên xu hướng; khi dùng phải nêu rõ nguồn tham khảo ngắn gọn trong source_note.
 - Nếu mục "Hàng sắp hết hạn SỬ DỤNG" có dòng cụ thể, phải nhắc hết hạn dùng — không được báo "không có" khi danh sách không trống.
 - type phải là một trong: "urgent" (nhập gấp), "warning" (cảnh báo vốn/hạn), "opportunity" (cơ hội kinh doanh), "tip" (lời khuyên chung).
+- Mỗi lời khuyên PHẢI có source_note ngắn gọn để nêu nguồn dữ liệu tin cậy.
 
 Trả về JSON hợp lệ, ĐÚNG CẤU TRÚC SAU, KHÔNG giải thích thêm:
 {
   "seasonal_trend": "1 câu mô tả xu hướng mùa và sự kiện chính sắp tới",
   "recommendations": [
-    { "type": "urgent|warning|opportunity|tip", "content": "Lời khuyên ngắn gọn" },
-    { "type": "urgent|warning|opportunity|tip", "content": "Lời khuyên ngắn gọn" },
-    { "type": "urgent|warning|opportunity|tip", "content": "Lời khuyên ngắn gọn" }
+    {
+      "type": "warning|opportunity|tip",
+      "content": "Lời khuyên ngắn gọn có số liệu",
+      "source_note": "Dựa trên dữ liệu bán/tồn kho ...",
+      "action": { "label": "Xử lý ngay", "route": "/manager/quick-receipt|/manager/products|/manager/reports" }
+    },
+    {
+      "type": "warning|opportunity|tip",
+      "content": "Lời khuyên ngắn gọn có số liệu",
+      "source_note": "Dựa trên dữ liệu bán/tồn kho ...",
+      "action": { "label": "Xử lý ngay", "route": "/manager/quick-receipt|/manager/products|/manager/reports" }
+    },
+    {
+      "type": "warning|opportunity|tip",
+      "content": "Lời khuyên ngắn gọn có số liệu",
+      "source_note": "Dựa trên dữ liệu bán/tồn kho ...",
+      "action": { "label": "Xử lý ngay", "route": "/manager/quick-receipt|/manager/products|/manager/reports" }
+    }
   ]
 }`;
 }
@@ -406,7 +717,8 @@ TRỌNG TÂM (đa lượt):
 
 DỮ LIỆU:
 - Mỗi lượt, khối «DỮ LIỆU NỀN» nằm ở đầu tin nhắn user mới nhất (do hệ thống ghép vào); đó là nguồn sự thật mới nhất về kho và lịch cho yêu cầu hiện tại.
-- Chỉ khẳng định tên sản phẩm/SKU có trong khối đó. Không bịa mặt hàng.
+- Khi tư vấn vận hành nội bộ (nhập hàng, tồn kho, hết hạn): chỉ dùng SKU có trong khối dữ liệu.
+- Khi user hỏi mở rộng thị trường/xu hướng bên ngoài: được phép đề xuất mặt hàng chưa có trong hệ thống, nhưng phải ghi rõ đó là "đề xuất tham khảo thị trường" và tách riêng với phần nội bộ.
 - Hết hạn SỬ DỤNG: chỉ theo mục "Hàng sắp hết hạn SỬ DỤNG". Nếu có dòng cụ thể thì không được nói "không có".
 
 SỰ KIỆN THEO THÁNG (dương lịch):
@@ -425,6 +737,15 @@ NHẬP HÀNG / TỐI ƯU DOANH SỐ:
 - Nếu dữ liệu cho thấy tồn cao một SKU (hàng tồn nhiều), cảnh báo trùng lặp / vốn đọng; không khuyên nhập thêm đúng loại đó trừ khi user hỏi riêng.
 
 THỜI TIẾT: chỉ dùng nếu có trong dữ liệu; không bịa số đo.
+
+THỊ TRƯỜNG MỞ RỘNG:
+- Nếu khối dữ liệu có "Tín hiệu thị trường tham khảo", bạn được phép tổng hợp thêm mặt hàng chưa có trong hệ thống.
+- Luôn tách rõ "nội bộ" và "tham khảo thị trường" để manager biết cái nào dựa trên dữ liệu cửa hàng, cái nào là xu hướng bên ngoài.
+- Khi nêu xu hướng bên ngoài, cố gắng nhắc nguồn ngắn gọn (ví dụ: Google News/RSS live) trong câu trả lời.
+
+TRÌNH BÀY CHO CÂU HỎI VẬN HÀNH:
+- Nếu user hỏi về lợi nhuận cao nhất, khung giờ bận nhất, hoặc mặt hàng chưa có đơn 30 ngày: trả lời theo dạng BẢNG tóm tắt (cột rõ ràng), sau đó mới đưa 2-3 gợi ý hành động.
+- Nếu có dữ liệu doanh thu 7 ngày: thêm một dòng "Biểu đồ mini" dạng text để người dùng nhìn xu hướng nhanh.
 
 Định dạng: tiếng Việt, rõ ràng, gạch đầu dòng khi liệt kê. Không bọc JSON hay markdown code fence.`;
 
@@ -700,16 +1021,25 @@ function parseLLMResponse(text, fallbackData) {
     const parsed = JSON.parse(cleaned);
 
     const recs = Array.isArray(parsed.recommendations) ? parsed.recommendations : [];
-    const validTypes = ['urgent', 'warning', 'opportunity', 'tip'];
+    const validTypes = ['warning', 'opportunity', 'tip'];
+    const validRoutes = new Set(['/manager/quick-receipt', '/manager/products', '/manager/reports']);
 
     return {
       seasonal_trend: typeof parsed.seasonal_trend === 'string' ? parsed.seasonal_trend : fallbackData.seasonal_trend,
       recommendations: recs
         .filter(r => r && typeof r.content === 'string')
         .map(r => ({
-          type: validTypes.includes(r.type) ? r.type : 'tip',
+          type: (r.type === 'urgent' ? 'warning' : (validTypes.includes(r.type) ? r.type : 'tip')),
           content: r.content.slice(0, 200),
+          source_note: typeof r.source_note === 'string' ? r.source_note.slice(0, 140) : '',
+          action: (r.action && typeof r.action === 'object' && validRoutes.has(String(r.action.route || '')))
+            ? {
+              label: typeof r.action.label === 'string' ? r.action.label.slice(0, 30) : 'Xử lý ngay',
+              route: String(r.action.route),
+            }
+            : undefined,
         }))
+        .map((r) => refineRecommendationByInventory(r, fallbackData.lowStock || []))
         .slice(0, 5),
     };
   } catch {
@@ -717,43 +1047,295 @@ function parseLLMResponse(text, fallbackData) {
   }
 }
 
+function uniqByContent(items) {
+  const seen = new Set();
+  const out = [];
+  for (const it of items || []) {
+    const c = String(it?.content || '').trim();
+    if (!c) continue;
+    const key = c.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      type: ['urgent', 'warning', 'opportunity', 'tip'].includes(it?.type) ? it.type : 'tip',
+      content: c.slice(0, 220),
+      source_note: typeof it?.source_note === 'string' ? it.source_note.slice(0, 140) : '',
+      action: (it?.action && typeof it.action === 'object' && typeof it.action.route === 'string')
+        ? {
+          label: typeof it.action.label === 'string' ? it.action.label.slice(0, 30) : 'Xử lý ngay',
+          route: it.action.route,
+        }
+        : undefined,
+    });
+  }
+  return out;
+}
+
+function daysUntil(dateValue) {
+  if (!dateValue) return null;
+  const now = new Date();
+  const target = new Date(dateValue);
+  const diff = target.getTime() - now.getTime();
+  return Math.ceil(diff / 86400000);
+}
+
+function normalizeSkuToken(raw) {
+  return String(raw || '').trim().toUpperCase();
+}
+
+function buildCriticalLowSkuSet(lowStock = []) {
+  const critical = new Set();
+  for (const p of lowStock) {
+    const reorder = Number(p?.reorder_level || 0);
+    const stock = Number(p?.stock_qty || 0);
+    const sku = normalizeSkuToken(p?.sku);
+    if (!sku) continue;
+    const criticalThreshold = Math.max(10, Math.floor(reorder * 0.25));
+    if (stock <= criticalThreshold) critical.add(sku);
+  }
+  return critical;
+}
+
+function extractSkusFromText(text) {
+  const out = new Set();
+  const s = String(text || '');
+  const re = /SKU[:\s-]*([A-Za-z0-9_-]+)/gi;
+  let m;
+  while ((m = re.exec(s)) !== null) {
+    out.add(normalizeSkuToken(m[1]));
+  }
+  return [...out];
+}
+
+function refineRecommendationByInventory(rec, lowStock = []) {
+  if (!rec || rec.type !== 'urgent') return rec;
+  const criticalSkus = buildCriticalLowSkuSet(lowStock);
+  if (!criticalSkus.size) return { ...rec, type: 'tip' };
+  const mentioned = extractSkusFromText(rec.content);
+  if (!mentioned.length) return { ...rec, type: 'tip' };
+  const hasCriticalMention = mentioned.some((sku) => criticalSkus.has(sku));
+  if (!hasCriticalMention) return { ...rec, type: 'tip' };
+  return rec;
+}
+
+function buildRestockDetails(lowStock = []) {
+  return lowStock.slice(0, 5).map((p) => {
+    const reorder = Number(p.reorder_level || 0);
+    const stock = Number(p.stock_qty || 0);
+    const suggested = Math.max(reorder * 2 - stock, reorder - stock, 1);
+    const criticalThreshold = Math.max(10, Math.floor(reorder * 0.25));
+    const isUrgent = stock <= criticalThreshold;
+    return {
+      type: 'warning',
+      content: [
+        `SKU ${p.sku || 'N/A'} - ${p.name}`,
+        `Ton hien tai: ${stock}; nguong toi thieu: ${reorder}.`,
+        `${isUrgent ? 'Can bo sung sớm' : 'Nen theo doi va lap ke hoach nhap'}: ~${suggested} don vi de dat muc an toan.`,
+      ].join('\n'),
+      source_note: `Dua tren ton kho hien tai, nguong toi thieu va nguong gap <= ${criticalThreshold}.`,
+      action: {
+        label: 'Xem sản phẩm',
+        route: '/manager/products',
+      },
+    };
+  });
+}
+
+function buildExpiryDetails(expiringSoon = []) {
+  return expiringSoon.slice(0, 5).map((p) => {
+    const d = daysUntil(p.expiry_date);
+    return {
+      type: 'warning',
+      content: [
+        `SKU ${p.sku || 'N/A'} - ${p.name}`,
+        `Han su dung: ${formatVNDateYMD(p.expiry_date)} (${d != null ? `con ~${d} ngay` : 'sap den han'}).`,
+        `Hanh dong: giam nhap, uu tien ban nhanh, co the gom combo/xa hang.`,
+      ].join('\n'),
+      source_note: 'Dua tren du lieu han su dung trong 30 ngay toi.',
+      action: { label: 'Xem sản phẩm', route: '/manager/products' },
+    };
+  });
+}
+
+function buildDeadStockDetails(deadStock = []) {
+  return deadStock.slice(0, 4).map((p) => {
+    const capital = p.cost_price ? Math.round(Number(p.cost_price) * Number(p.stock_qty || 0)) : null;
+    return {
+      type: 'warning',
+      content: [
+        `SKU ${p.sku || 'N/A'} - ${p.name}`,
+        `Ton cao: ${p.stock_qty}${capital ? `; von ton uoc tinh: ${capital.toLocaleString('vi-VN')}d` : ''}.`,
+        'Hanh dong: dat muc khuyen mai theo tuan, han che nhap bo sung SKU nay.',
+      ].join('\n'),
+      source_note: 'Dua tren top SKU ton cao va gia von hien co.',
+      action: { label: 'Xem báo cáo', route: '/manager/reports' },
+    };
+  });
+}
+
+function buildCashflowCorrelation(lowStock = [], deadStock = [], events = []) {
+  if (!lowStock.length || !deadStock.length) return [];
+  const urgent = lowStock[0];
+  const blocked = deadStock[0];
+  const blockedCapital = blocked.cost_price
+    ? Math.round(Number(blocked.cost_price) * Number(blocked.stock_qty || 0))
+    : null;
+  const event = events[0];
+  const eventText = event ? `truoc dip ${event.name} (${event.date})` : 'trong 7 ngay toi';
+
+  return [{
+    type: 'warning',
+    content: [
+      `Dong tien dang dong o ${blocked.name} (SKU ${blocked.sku}, ton ${blocked.stock_qty}${blockedCapital ? `, von ~${blockedCapital.toLocaleString('vi-VN')}d` : ''}).`,
+      `Nen xa nhom nay de uu tien von nhap ${urgent.name} (SKU ${urgent.sku}) ${eventText}.`,
+    ].join(' '),
+    source_note: 'Tong hop tu ton cao + SKU can nhap gap + su kien sap toi.',
+    action: { label: 'Xem báo cáo', route: '/manager/reports' },
+  }];
+}
+
+function buildEventDetails(events = [], deadStock = [], expiringSoon = []) {
+  const expiringSku = new Set(expiringSoon.map((p) => String(p.sku || '')));
+  const promotable = deadStock.filter((p) => !expiringSku.has(String(p.sku || ''))).slice(0, 3);
+
+  return events.slice(0, 3).map((e) => {
+    const picked = promotable.slice(0, 2);
+    const pickedText = picked.length
+      ? picked.map((p) => `${p.name} (SKU ${p.sku}, ton ${p.stock_qty})`).join('; ')
+      : 'Chua co SKU ton cao phu hop de day trong dip nay';
+    const whyText = picked.length
+      ? picked.map((p) => `${p.name}: ton kho dang cao, can tang toc do ban`).join(' | ')
+      : 'Uu tien chon san pham co ton cao nhung chua sat han su dung';
+
+    return {
+      type: 'opportunity',
+      content: [
+        `Su kien: ${e.name} (${e.date})`,
+        `Goi y tap trung: ${pickedText}.`,
+        `Vi sao chon: ${whyText}.`,
+        'Phuong an khac: neu da du ton nhom nay, chuyen sang SKU co ton cao tiep theo va giu nguyen nguyen tac chon.',
+      ].join('\n'),
+      source_note: 'Dua tren lich su kien va nhom SKU ton cao co the day ban.',
+      action: { label: 'Xem báo cáo', route: '/manager/reports' },
+    };
+  });
+}
+
+/**
+ * Chuẩn hóa dữ liệu insights thành nhiều "góc nhìn" để frontend hiển thị dạng tab.
+ */
+function composeInsightViews(baseData, context = {}) {
+  const seasonalTrend = String(baseData?.seasonal_trend || context.season || '').trim();
+  const baseRecs = uniqByContent(baseData?.recommendations || []);
+  const { lowStock = [], deadStock = [], expiringSoon = [], events = [] } = context;
+  const correlationRecs = buildCashflowCorrelation(lowStock, deadStock, events);
+
+  const riskRecs = uniqByContent([
+    ...correlationRecs,
+    ...buildExpiryDetails(expiringSoon),
+    ...buildDeadStockDetails(deadStock),
+    ...baseRecs.filter((r) => r.type === 'warning').slice(0, 2),
+  ]).slice(0, 4);
+
+  const eventRecs = uniqByContent([
+    ...buildEventDetails(events, deadStock, expiringSoon),
+    ...baseRecs.filter((r) => r.type === 'opportunity' || r.type === 'tip').slice(0, 3),
+  ]).slice(0, 4);
+
+  const restockRecs = uniqByContent([
+    ...buildRestockDetails(lowStock),
+    ...baseRecs.filter((r) => r.type === 'warning').slice(0, 3),
+  ]).slice(0, 4);
+
+  const views = [
+    {
+      id: 'overview',
+      title: 'Tổng quan AI',
+      description: 'Bức tranh chung theo mùa vụ, tồn kho và cơ hội ngắn hạn',
+      recommendations: uniqByContent([...correlationRecs, ...baseRecs]).slice(0, 5),
+    },
+    {
+      id: 'restock',
+      title: 'Kế hoạch nhập hàng',
+      description: 'Nhóm mặt hàng có nguy cơ thiếu và cần bổ sung sớm',
+      recommendations: restockRecs.length ? restockRecs : [{ type: 'tip', content: 'Hiện chưa có SKU dưới ngưỡng nhập lại.' }],
+    },
+    {
+      id: 'risk',
+      title: 'Rủi ro tồn kho / hạn dùng',
+      description: 'Theo dõi vốn đọng và sản phẩm gần hết hạn sử dụng',
+      recommendations: riskRecs.length ? riskRecs : [{ type: 'tip', content: 'Chưa ghi nhận rủi ro lớn về hạn dùng hoặc tồn đọng.' }],
+    },
+    {
+      id: 'event',
+      title: 'Cơ hội theo sự kiện',
+      description: 'Gợi ý bán hàng theo dịp lễ và nhu cầu mùa',
+      recommendations: eventRecs.length ? eventRecs : [{ type: 'tip', content: 'Không có sự kiện lớn trong 30 ngày tới.' }],
+    },
+  ];
+
+  return {
+    seasonal_trend: seasonalTrend,
+    recommendations: baseRecs.slice(0, 5),
+    analysis_views: views,
+  };
+}
+
 /** Fallback rule-based nếu LLM lỗi hoàn toàn. */
-function buildFallback({ season, events, lowStock, deadStock, expiringSoon }) {
+function buildFallback({
+  season, events, lowStock, deadStock, expiringSoon, marketSignals = [], businessStats = {},
+}) {
   const recs = [];
 
   if (lowStock.length > 0) {
     recs.push({
-      type: 'urgent',
+      type: 'warning',
       content: `Kiểm tra và nhập thêm: ${lowStock.slice(0, 2).map(p => p.name).join(', ')} đang gần hết hàng.`,
+      source_note: 'Dựa trên tồn kho hiện tại và ngưỡng nhập lại.',
+      action: { label: 'Tạo phiếu nhập', route: '/manager/quick-receipt' },
     });
   }
   if (expiringSoon && expiringSoon.length > 0) {
     recs.push({
       type: 'warning',
       content: `Sắp hết hạn dùng: ${expiringSoon.slice(0, 2).map(p => `${p.name} (${formatVNDateYMD(p.expiry_date)})`).join(', ')} — ưu tiên bán hoặc giảm nhập.`,
+      source_note: 'Dựa trên dữ liệu hạn sử dụng trong 30 ngày tới.',
+      action: { label: 'Xem sản phẩm', route: '/manager/products' },
     });
   }
   if (deadStock.length > 0) {
     recs.push({
       type: 'warning',
       content: `Xem xét xả hàng: ${deadStock.slice(0, 2).map(p => p.name).join(', ')} đang tồn kho nhiều.`,
+      source_note: 'Dựa trên danh sách SKU tồn kho cao.',
+      action: { label: 'Xem báo cáo', route: '/manager/reports' },
     });
   }
   if (events.length > 0) {
     recs.push({
       type: 'opportunity',
       content: `Sắp có ${events[0].name} — chuẩn bị hàng phù hợp để đón dịp này.`,
+      source_note: 'Dựa trên lịch sự kiện 30 ngày tới.',
+      action: { label: 'Xem báo cáo', route: '/manager/reports' },
     });
   }
 
   while (recs.length < 3) {
-    recs.push({ type: 'tip', content: 'Kiểm tra tồn kho định kỳ để tối ưu vốn và tránh cháy hàng.' });
+    recs.push({
+      type: 'tip',
+      content: 'Kiểm tra tồn kho định kỳ để tối ưu vốn và tránh cháy hàng.',
+      source_note: 'Dựa trên dữ liệu tồn kho hiện tại.',
+      action: { label: 'Xem sản phẩm', route: '/manager/products' },
+    });
   }
 
-  return {
+  const data = {
     seasonal_trend: season,
     recommendations: recs.slice(0, 3),
   };
+  return composeInsightViews(data, {
+    season, events, lowStock, deadStock, expiringSoon, marketSignals, businessStats,
+  });
 }
 
 // ─── Route ────────────────────────────────────────────────────────────────────
@@ -776,7 +1358,12 @@ router.get(
       if (!forceRefresh) {
         const cached = getFromCache(cacheKey);
         if (cached) {
-          return res.json({ status: 'success', cached: true, data: cached, generatedAt: vnDateStr });
+          return res.json({
+            status: 'success',
+            cached: true,
+            data: composeInsightViews(cached),
+            generatedAt: vnDateStr,
+          });
         }
       }
 
@@ -793,22 +1380,27 @@ router.get(
         if (store?.address) city = extractCityFromAddress(store.address);
       }
 
-      // Parallel: thời tiết + tồn kho
-      const [weather, { lowStock, deadStock, expiringSoon }] = await Promise.all([
+      // Parallel: thời tiết + tồn kho + tín hiệu thị trường live + dữ liệu vận hành
+      const [weather, { lowStock, deadStock, expiringSoon }, liveMarketSignals, businessStats] = await Promise.all([
         fetchWeather(city),
         getInventoryContext(storeId === 'admin' ? null : storeId),
+        fetchLiveMarketSignals({ city, events }),
+        getBusinessConsultingContext(storeId === 'admin' ? null : storeId),
       ]);
+      const marketSignals = [...getMarketSignalsByMonth(m), ...liveMarketSignals].slice(0, 8);
 
-      const fallbackContext = { season, events, lowStock, deadStock, expiringSoon };
+      const fallbackContext = {
+        season, events, lowStock, deadStock, expiringSoon, marketSignals, businessStats,
+      };
       const prompt = buildPrompt({
-        vnDateStr, events, yearEvents, season, weather, lowStock, deadStock, expiringSoon,
+        vnDateStr, events, yearEvents, season, weather, lowStock, deadStock, expiringSoon, marketSignals, businessStats,
       });
 
       // ── Gọi LLM ──
       let insightData;
       try {
         const llmText = await callLLM(prompt);
-        insightData = parseLLMResponse(llmText, { seasonal_trend: season });
+        insightData = parseLLMResponse(llmText, { seasonal_trend: season, lowStock });
 
         // Nếu parse lỗi hoặc trả về thiếu recommendations → fallback
         if (!insightData || insightData.recommendations.length === 0) {
@@ -818,6 +1410,8 @@ router.get(
         console.error('[AI Insights] LLM error:', llmErr.message);
         insightData = buildFallback(fallbackContext);
       }
+
+      insightData = composeInsightViews(insightData, fallbackContext);
 
       // Cache kết quả
       setCache(cacheKey, insightData);
@@ -874,6 +1468,7 @@ router.post(
       const events = getUpcomingEvents(30);
       const yearEvents = getAllYearEventsForContext();
       const season = getSeasonContext(m);
+      const marketSignalsBase = getMarketSignalsByMonth(m);
 
       let city = 'Ho Chi Minh City';
       if (storeId !== 'admin' && mongoose.isValidObjectId(storeId)) {
@@ -881,18 +1476,24 @@ router.post(
         if (store?.address) city = extractCityFromAddress(store.address);
       }
 
-      const [weather, { lowStock, deadStock, expiringSoon }] = await Promise.all([
+      const [weather, { lowStock, deadStock, expiringSoon }, liveMarketSignals, businessStats] = await Promise.all([
         fetchWeather(city),
         getInventoryContext(storeId === 'admin' ? null : storeId),
+        fetchLiveMarketSignals({ city, events }),
+        getBusinessConsultingContext(storeId === 'admin' ? null : storeId),
       ]);
+      const marketSignals = [...marketSignalsBase, ...liveMarketSignals].slice(0, 8);
 
       const ctxParams = {
-        vnDateStr, events, yearEvents, season, weather, lowStock, deadStock, expiringSoon,
+        vnDateStr, events, yearEvents, season, weather, lowStock, deadStock, expiringSoon, marketSignals, businessStats,
       };
       const ctx = buildContextBlock(ctxParams);
       const askedMonths = parseAskedMonthsFromQuestion(message);
       const monthBlock = buildMonthFilteredEventsBlock(yearEvents, askedMonths);
-      const augmentedUserMessage = `[DỮ LIỆU NỀN — cập nhật cho yêu cầu này; chỉ dùng SKU có liệt kê, không bịa tên]\n${ctx}${monthBlock}\n\n---\nCÂU HỎI / YÊU CẦU CỦA CHỦ TIỆM:\n${message}`;
+      const augmentedUserMessage = `[DỮ LIỆU NỀN — cập nhật cho yêu cầu này]\n${ctx}${monthBlock}\n\nYÊU CẦU TRÌNH BÀY:
+- Tách rõ 2 phần: (1) Theo dữ liệu nội bộ trong hệ thống, (2) Tham khảo xu hướng thị trường mở rộng.
+- Với phần (2), được phép nêu mặt hàng chưa có trong hệ thống nhưng phải ghi nhãn "tham khảo thị trường".
+\n---\nCÂU HỎI / YÊU CẦU CỦA CHỦ TIỆM:\n${message}`;
 
       let reply;
       let source = 'llm';

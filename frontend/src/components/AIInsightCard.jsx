@@ -45,10 +45,10 @@ const TYPE_CONFIG = {
   },
   warning: {
     icon: AlertTriangle,
-    bg: 'bg-amber-50/90',
-    border: 'border-amber-200/80',
-    iconColor: 'text-amber-600',
-    badgeClass: 'bg-amber-100 text-amber-900 border-amber-200/60',
+    bg: 'bg-amber-50/95',
+    border: 'border-amber-300/90',
+    iconColor: 'text-amber-700',
+    badgeClass: 'bg-amber-200 text-amber-950 border-amber-300/80',
     label: 'Lưu ý',
   },
   opportunity: {
@@ -94,6 +94,9 @@ function InsightSkeleton() {
 function RecommendationItem({ rec }) {
   const cfg = getConfig(rec.type);
   const Icon = cfg.icon;
+  const metricTokens = String(rec?.content || '')
+    .match(/(\d+%|~?\d+\s*ngay|SKU\s*[A-Za-z0-9-_]+|~?\d[\d.,]*\s*(?:d|đ))/gi)
+    ?.slice(0, 3) || [];
 
   return (
     <div
@@ -108,7 +111,26 @@ function RecommendationItem({ rec }) {
       </div>
       <div className="flex-1 min-w-0 pt-0.5">
         <Badge className={cn('mb-1.5 border font-semibold', cfg.badgeClass)}>{cfg.label}</Badge>
-        <p className="text-sm text-slate-700 leading-relaxed">{rec.content}</p>
+        <p className={cn('whitespace-pre-line text-sm leading-relaxed', rec.type === 'warning' ? 'text-amber-950' : 'text-slate-700')}>
+          {rec.content}
+        </p>
+        {metricTokens.length > 0 ? (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {metricTokens.map((token, idx) => (
+              <Badge
+                key={`${token}-${idx}`}
+                className="border border-slate-300/70 bg-white/90 px-2 py-0.5 text-[10px] font-semibold text-slate-700"
+              >
+                {token}
+              </Badge>
+            ))}
+          </div>
+        ) : null}
+        {rec?.source_note ? (
+          <p className="mt-2 text-[11px] font-medium text-slate-500">
+            {rec.source_note}
+          </p>
+        ) : null}
       </div>
     </div>
   );
@@ -139,6 +161,10 @@ export default function AIInsightCard({ className = '' }) {
   useEffect(() => {
     load(false);
   }, [load]);
+
+  const analysisViews = data?.analysis_views || [];
+  const overviewView = analysisViews.find((view) => view.id === 'overview') || analysisViews[0];
+  const displayedRecommendations = overviewView?.recommendations || data?.recommendations || [];
 
   return (
     <div className={cn('relative h-full min-h-[320px]', className)}>
@@ -208,8 +234,19 @@ export default function AIInsightCard({ className = '' }) {
                 </div>
               )}
 
+              {!!analysisViews.length && (
+                <div className="rounded-xl border border-slate-200/80 bg-slate-50/70 px-3 py-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    {overviewView?.title}
+                  </p>
+                  <p className="mt-0.5 text-xs text-slate-600">
+                    {overviewView?.description}
+                  </p>
+                </div>
+              )}
+
               <div className="space-y-2.5">
-                {(data.recommendations || []).map((rec, idx) => (
+                {displayedRecommendations.map((rec, idx) => (
                   <RecommendationItem key={idx} rec={rec} />
                 ))}
               </div>
