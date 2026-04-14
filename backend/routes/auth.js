@@ -461,6 +461,45 @@ router.post('/reset-password', async (req, res) => {
     }
 });
 
+// POST /api/auth/change-password — Đổi mật khẩu bằng email + mật khẩu cũ
+router.post('/change-password', async (req, res) => {
+    try {
+        const { email, oldPassword, newPassword } = req.body;
+
+        if (!email || !oldPassword || !newPassword) {
+            return res.status(400).json({ message: 'Vui lòng nhập đủ email, mật khẩu cũ và mật khẩu mới' });
+        }
+        if (newPassword.length < 6) {
+            return res.status(400).json({ message: 'Mật khẩu mới phải >= 6 ký tự' });
+        }
+
+        const normalizedEmail = email.toLowerCase().trim();
+        const user = await User.findOne({ email: normalizedEmail });
+        if (!user) {
+            return res.status(400).json({ message: 'Không tìm thấy tài khoản với email này' });
+        }
+
+        const isOldPasswordMatch = await bcrypt.compare(oldPassword, user.password);
+        if (!isOldPasswordMatch) {
+            return res.status(400).json({ message: 'Mật khẩu cũ không đúng' });
+        }
+
+        const isSamePassword = await bcrypt.compare(newPassword, user.password);
+        if (isSamePassword) {
+            return res.status(400).json({ message: 'Mật khẩu mới phải khác mật khẩu cũ' });
+        }
+
+        const salt = await bcrypt.genSalt(10);
+        user.password = await bcrypt.hash(newPassword, salt);
+        await user.save();
+
+        return res.json({ message: 'Đổi mật khẩu thành công. Vui lòng đăng nhập bằng mật khẩu mới.' });
+    } catch (err) {
+        console.error('Lỗi change-password:', err);
+        return res.status(500).json({ message: err.message || 'Lỗi máy chủ. Thử lại sau.' });
+    }
+});
+
 // POST /api/auth/login — Chỉ User đã xác minh mới đăng nhập được
 router.post('/login', async (req, res) => {
     try {
