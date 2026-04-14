@@ -7,6 +7,8 @@ const SupplierPayable = require('../models/SupplierPayable');
 const SupplierPayment = require('../models/SupplierPayment');
 const SupplierPaymentAllocation = require('../models/SupplierPaymentAllocation');
 const { recalculatePayable, refreshSupplierPayableCache } = require('../utils/supplierPayableUtils');
+const { emitManagerBadgeRefresh } = require('../socket');
+const { notifyManagersInStore } = require('../services/managerNotificationService');
 
 const router = express.Router();
 
@@ -316,6 +318,18 @@ router.post('/', requireAuth, requireRole(['staff', 'manager']), async (req, res
             .populate('items.product_id', 'name sku cost_price sale_price base_unit selling_units')
             .lean();
 
+        if (safeStatus === 'pending') {
+            await notifyManagersInStore({
+                storeId: doc.storeId ? String(doc.storeId) : null,
+                type: 'goods_receipt_pending',
+                title: 'Có phiếu nhập chờ duyệt',
+                message: `Phiếu nhập #${shortReceiptCode(doc._id)} đang chờ duyệt.`,
+                relatedEntity: 'goods_receipt',
+                relatedId: doc._id,
+            }).catch(() => {});
+            await emitManagerBadgeRefresh({ storeId: doc.storeId ? String(doc.storeId) : null });
+        }
+
         return res.status(201).json({ goodsReceipt: saved });
     } catch (err) {
         console.error('Create GR error:', err);
@@ -440,6 +454,7 @@ router.patch('/:id/items', requireAuth, requireRole(['manager', 'admin']), async
             .populate('approved_by', 'fullName email')
             .populate('items.product_id', 'name sku cost_price sale_price base_unit selling_units')
             .lean();
+        await emitManagerBadgeRefresh({ storeId: gr.storeId ? String(gr.storeId) : null });
         return res.json({ goodsReceipt: updated });
     } catch (err) {
         console.error('Patch GR items error:', err);
@@ -476,6 +491,8 @@ router.put('/:id', requireAuth, requireRole(['staff', 'manager']), async (req, r
             .populate('approved_by', 'fullName email')
             .populate('items.product_id', 'name sku cost_price sale_price base_unit selling_units')
             .lean();
+
+        await emitManagerBadgeRefresh({ storeId: gr.storeId ? String(gr.storeId) : null });
 
         return res.json({ goodsReceipt: updated });
     } catch (err) {
@@ -679,6 +696,7 @@ router.patch('/:id/status', requireAuth, requireRole(['manager', 'admin']), asyn
             .populate('approved_by', 'fullName email')
             .populate('items.product_id', 'name sku cost_price sale_price base_unit selling_units')
             .lean();
+        await emitManagerBadgeRefresh({ storeId: gr.storeId ? String(gr.storeId) : null });
 
         return res.json({ goodsReceipt: updated });
     } catch (err) {

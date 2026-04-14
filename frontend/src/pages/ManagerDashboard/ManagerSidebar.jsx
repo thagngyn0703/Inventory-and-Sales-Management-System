@@ -4,6 +4,8 @@ import { motion } from 'framer-motion';
 import { logout } from '../../utils/auth';
 import { cn } from '../../lib/utils';
 import StoreLockedNotice from '../../components/StoreLockedNotice';
+import { getManagerBadgeCounts } from '../../services/notificationsApi';
+import { getRealtimeSocket } from '../../services/realtimeSocket';
 import {
   BarChart3,
   Bell,
@@ -159,6 +161,53 @@ export default function ManagerSidebar({ collapsed = false, ...restProps }) {
       return acc;
     }, {})
   );
+  const [pendingBadges, setPendingBadges] = useState({
+    pendingStocktakes: 0,
+    pendingProductRequests: 0,
+    pendingGoodsReceipts: 0,
+    pendingSupportTickets: 0,
+  });
+
+  useEffect(() => {
+    let mounted = true;
+    const loadBadges = async () => {
+      try {
+        const data = await getManagerBadgeCounts();
+        if (!mounted) return;
+        setPendingBadges({
+          pendingStocktakes: Number(data?.pendingStocktakes || 0),
+          pendingProductRequests: Number(data?.pendingProductRequests || 0),
+          pendingGoodsReceipts: Number(data?.pendingGoodsReceipts || 0),
+          pendingSupportTickets: Number(data?.pendingSupportTickets || 0),
+        });
+      } catch (_) {
+        if (!mounted) return;
+        setPendingBadges({
+          pendingStocktakes: 0,
+          pendingProductRequests: 0,
+          pendingGoodsReceipts: 0,
+          pendingSupportTickets: 0,
+        });
+      }
+    };
+
+    loadBadges();
+    const socket = getRealtimeSocket();
+    const onManagerBadgeUpdated = (payload) => {
+      if (!mounted) return;
+      setPendingBadges({
+        pendingStocktakes: Number(payload?.pendingStocktakes || 0),
+        pendingProductRequests: Number(payload?.pendingProductRequests || 0),
+        pendingGoodsReceipts: Number(payload?.pendingGoodsReceipts || 0),
+        pendingSupportTickets: Number(payload?.pendingSupportTickets || 0),
+      });
+    };
+    socket?.on('manager:badge-counts-updated', onManagerBadgeUpdated);
+    return () => {
+      mounted = false;
+      socket?.off('manager:badge-counts-updated', onManagerBadgeUpdated);
+    };
+  }, []);
 
   useEffect(() => {
     setExpandedGroups((prev) => {
@@ -179,6 +228,14 @@ export default function ManagerSidebar({ collapsed = false, ...restProps }) {
   const handleLogout = () => {
     logout();
     navigate('/login');
+  };
+
+  const getItemBadgeCount = (itemPath) => {
+    if (itemPath === '/manager/stocktakes/pending') return pendingBadges.pendingStocktakes;
+    if (itemPath === '/manager/product-requests') return pendingBadges.pendingProductRequests;
+    if (itemPath === '/manager/receipts') return pendingBadges.pendingGoodsReceipts;
+    if (itemPath === '/manager/support') return pendingBadges.pendingSupportTickets;
+    return 0;
   };
 
   const renderNavItem = (item, nested = false) => {
@@ -212,7 +269,14 @@ export default function ManagerSidebar({ collapsed = false, ...restProps }) {
             strokeWidth={2}
             aria-hidden
           />
-          <span className="relative z-[1]">{item.label}</span>
+          <span className="relative z-[1] flex min-w-0 flex-1 items-center gap-2">
+            <span className="truncate">{item.label}</span>
+            {getItemBadgeCount(item.path) > 0 && (
+              <span className="inline-flex min-h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-600 px-1 text-[11px] font-bold leading-none text-white">
+                {getItemBadgeCount(item.path) > 99 ? '99+' : getItemBadgeCount(item.path)}
+              </span>
+            )}
+          </span>
         </Link>
       );
     };

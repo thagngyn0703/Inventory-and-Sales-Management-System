@@ -3,6 +3,8 @@ const mongoose = require('mongoose');
 const ProductRequest = require('../models/ProductRequest');
 const Product = require('../models/Product');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const { emitManagerBadgeRefresh } = require('../socket');
+const { notifyManagersInStore } = require('../services/managerNotificationService');
 
 const router = express.Router();
 
@@ -119,6 +121,15 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
       status: 'pending',
       note: note ? String(note).trim() : undefined
     });
+    await notifyManagersInStore({
+      storeId: doc.storeId ? String(doc.storeId) : null,
+      type: 'product_request_pending',
+      title: 'Có yêu cầu tạo sản phẩm mới',
+      message: `Yêu cầu tạo sản phẩm "${doc.name}" đang chờ duyệt.`,
+      relatedEntity: 'product_request',
+      relatedId: doc._id,
+    }).catch(() => {});
+    await emitManagerBadgeRefresh({ storeId: doc.storeId ? String(doc.storeId) : null });
 
     return res.status(201).json({ productRequest: normalizeProduct(doc.toObject()) });
   } catch (err) {
@@ -247,6 +258,7 @@ router.post('/:id/approve', requireAuth, requireRole(['manager', 'admin']), asyn
     request.approved_by = req.user.id;
     request.updated_at = new Date();
     await request.save();
+    await emitManagerBadgeRefresh({ storeId: request.storeId ? String(request.storeId) : null });
 
     return res.json({ message: 'Product approved and created successfully', product: normalizeProduct(newProduct.toObject()) });
   } catch (err) {
@@ -278,6 +290,7 @@ router.post('/:id/reject', requireAuth, requireRole(['manager', 'admin']), async
     request.approved_by = req.user.id;
     request.updated_at = new Date();
     await request.save();
+    await emitManagerBadgeRefresh({ storeId: request.storeId ? String(request.storeId) : null });
 
     return res.json({ message: 'Product request rejected successfully', productRequest: normalizeProduct(request.toObject()) });
   } catch (err) {

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getNotificationUnreadCount } from '../services/notificationsApi';
+import { getRealtimeSocket } from '../services/realtimeSocket';
 import { cn } from '../lib/utils';
 
 export default function ManagerNotificationBell({ variant = 'default' }) {
@@ -18,10 +19,16 @@ export default function ManagerNotificationBell({ variant = 'default' }) {
       }
     };
     load();
-    const timer = setInterval(load, 30000);
+    const socket = getRealtimeSocket();
+    const onUnreadUpdated = (payload) => {
+      const next = Number(payload?.unreadCount || 0);
+      if (!stop) setCount(next);
+    };
+    socket?.on('manager:notification-unread-updated', onUnreadUpdated);
+
     return () => {
       stop = true;
-      clearInterval(timer);
+      socket?.off('manager:notification-unread-updated', onUnreadUpdated);
     };
   }, []);
 
