@@ -97,6 +97,8 @@ export default function AuthPage({ forcedMode = null }) {
         }
         if (location.pathname === "/login") {
             setMode("login");
+        } else if (location.pathname === "/register") {
+            setMode("register");
         }
     }, [forcedMode, location.pathname, location.search]);
 
@@ -378,17 +380,20 @@ export default function AuthPage({ forcedMode = null }) {
     };
 
     const switchMode = () => {
-        setMode((m) => (m === "login" ? "register" : "login"));
         resetFields();
         setPendingVerifyEmail("");
+        navigate(mode === "login" ? "/register" : "/login");
     };
 
     const backToRegister = () => {
-        setMode("register");
-        setEmail(pendingVerifyEmail);
+        const registerEmail = pendingVerifyEmail;
         setPendingVerifyEmail("");
         setVerificationToken("");
         setError("");
+        navigate("/register", {
+            replace: true,
+            state: registerEmail ? { email: registerEmail } : null,
+        });
     };
 
     const toForgotMode = () => {
