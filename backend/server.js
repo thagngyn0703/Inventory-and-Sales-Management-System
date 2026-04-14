@@ -26,6 +26,8 @@ const paymentRoutes = require('./routes/payments');
 const aiRoutes = require('./routes/ai');
 const supplierPayableRoutes = require('./routes/supplierPayables');
 const supportTicketRoutes = require('./routes/supportTickets');
+const backupRoutes = require('./routes/backup');
+const { startBackupScheduler } = require('./services/backupScheduler');
 const { hasSmtpConfig } = require('./services/emailService');
 
 const app = express();
@@ -74,6 +76,7 @@ app.use('/api/payments', paymentRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/supplier-payables', supplierPayableRoutes);
 app.use('/api/support-tickets', supportTicketRoutes);
+app.use('/api/backup', backupRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -87,6 +90,8 @@ mongoose
         console.log('Đã kết nối MongoDB');
         app.listen(PORT, () => {
             console.log(`Server chạy tại http://localhost:${PORT}`);
+            // Khởi động backup scheduler sau khi server đã kết nối DB thành công
+            startBackupScheduler();
         });
     })
     .catch((err) => {
