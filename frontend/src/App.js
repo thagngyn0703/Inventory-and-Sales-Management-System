@@ -72,6 +72,10 @@ function App() {
     <Routes>
       <Route path="/" element={<Navigate to="/login" />} />
       <Route path="/login" element={<AuthPage />} />
+      <Route path="/register" element={<AuthPage />} />
+      <Route path="/forgot-password" element={<AuthPage forcedMode="forgot" />} />
+      <Route path="/reset-password" element={<AuthPage forcedMode="reset" />} />
+      <Route path="/change-password" element={<AuthPage forcedMode="change" />} />
       <Route
         path="/no-store-assigned"
         element={

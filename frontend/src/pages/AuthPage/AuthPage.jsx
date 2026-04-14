@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { X, Eye, EyeOff, CheckCircle2, Sparkles } from "lucide-react";
 import { motion } from "framer-motion";
 import { normalizeRole } from "../../utils/auth";
@@ -24,8 +24,9 @@ function getPostLoginPath(user) {
     return "/home";
 }
 
-export default function AuthPage() {
+export default function AuthPage({ forcedMode = null }) {
     const navigate = useNavigate();
+    const location = useLocation();
     const [mode, setMode] = useState("login");
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
@@ -37,9 +38,23 @@ export default function AuthPage() {
 
     const [pendingVerifyEmail, setPendingVerifyEmail] = useState("");
     const [verificationToken, setVerificationToken] = useState("");
+    const [forgotEmail, setForgotEmail] = useState("");
+    const [resetEmail, setResetEmail] = useState("");
+    const [resetToken, setResetToken] = useState("");
+    const [newPassword, setNewPassword] = useState("");
+    const [confirmNewPassword, setConfirmNewPassword] = useState("");
+    const [changeEmail, setChangeEmail] = useState("");
+    const [oldPassword, setOldPassword] = useState("");
+    const [changeNewPassword, setChangeNewPassword] = useState("");
+    const [confirmChangeNewPassword, setConfirmChangeNewPassword] = useState("");
 
     const [showPw, setShowPw] = useState(false);
     const [showConfirmPw, setShowConfirmPw] = useState(false);
+    const [showNewPw, setShowNewPw] = useState(false);
+    const [showConfirmNewPw, setShowConfirmNewPw] = useState(false);
+    const [showOldPw, setShowOldPw] = useState(false);
+    const [showChangeNewPw, setShowChangeNewPw] = useState(false);
+    const [showConfirmChangeNewPw, setShowConfirmChangeNewPw] = useState(false);
 
     const [verifySuccessUser, setVerifySuccessUser] = useState(null);
     const verifyRedirectTimerRef = useRef(null);
@@ -71,16 +86,70 @@ export default function AuthPage() {
         };
     }, [verifySuccessUser, completeEmailVerification]);
 
+    useEffect(() => {
+        if (forcedMode) {
+            setMode(forcedMode);
+            if (forcedMode === "reset") {
+                const resetEmailFromQuery = new URLSearchParams(location.search).get("email") || "";
+                if (resetEmailFromQuery) setResetEmail(resetEmailFromQuery);
+            }
+            return;
+        }
+        if (location.pathname === "/login") {
+            setMode("login");
+        } else if (location.pathname === "/register") {
+            setMode("register");
+        }
+    }, [forcedMode, location.pathname, location.search]);
+
+    useEffect(() => {
+        if (forcedMode) return;
+        const authMessage = location.state?.authMessage;
+        const prefillEmail = location.state?.email;
+        if (authMessage) setError(authMessage);
+        if (prefillEmail) setEmail(prefillEmail);
+        if (authMessage || prefillEmail) {
+            navigate(location.pathname, { replace: true, state: null });
+        }
+    }, [forcedMode, location.state, location.pathname, navigate]);
+
     const title =
         mode === "login"
             ? "Đăng nhập tài khoản"
             : mode === "register"
                 ? "Tạo tài khoản"
-                : "Xác minh email";
+                : mode === "verify"
+                    ? "Xác minh email"
+                    : mode === "forgot"
+                        ? "Quên mật khẩu"
+                        : mode === "reset"
+                            ? "Đặt lại mật khẩu"
+                            : "Đổi mật khẩu";
 
     const canSubmit = useMemo(() => {
         if (mode === "verify") {
             return pendingVerifyEmail.trim() && verificationToken.trim().length >= 4;
+        }
+        if (mode === "forgot") {
+            return forgotEmail.trim() && isEmail(forgotEmail.trim());
+        }
+        if (mode === "reset") {
+            return (
+                resetEmail.trim() &&
+                isEmail(resetEmail.trim()) &&
+                resetToken.trim().length >= 4 &&
+                newPassword.length >= 6 &&
+                confirmNewPassword === newPassword
+            );
+        }
+        if (mode === "change") {
+            return (
+                changeEmail.trim() &&
+                isEmail(changeEmail.trim()) &&
+                oldPassword.length >= 1 &&
+                changeNewPassword.length >= 6 &&
+                confirmChangeNewPassword === changeNewPassword
+            );
         }
         if (!email.trim() || !password) return false;
         if (!isEmail(email.trim())) return false;
@@ -90,11 +159,53 @@ export default function AuthPage() {
             if (confirmPassword !== password) return false;
         }
         return true;
-    }, [mode, fullName, email, password, confirmPassword, pendingVerifyEmail, verificationToken]);
+    }, [
+        mode,
+        fullName,
+        email,
+        password,
+        confirmPassword,
+        pendingVerifyEmail,
+        verificationToken,
+        forgotEmail,
+        resetEmail,
+        resetToken,
+        newPassword,
+        confirmNewPassword,
+        changeEmail,
+        oldPassword,
+        changeNewPassword,
+        confirmChangeNewPassword,
+    ]);
 
     const validate = () => {
         if (mode === "verify") {
             if (!verificationToken.trim()) return "Vui lòng nhập mã xác minh.";
+            return "";
+        }
+        if (mode === "forgot") {
+            const forgot = forgotEmail.trim();
+            if (!forgot) return "Vui lòng nhập email.";
+            if (!isEmail(forgot)) return "Email không hợp lệ.";
+            return "";
+        }
+        if (mode === "reset") {
+            const resetMail = resetEmail.trim();
+            if (!resetMail) return "Vui lòng nhập email.";
+            if (!isEmail(resetMail)) return "Email không hợp lệ.";
+            if (!resetToken.trim()) return "Vui lòng nhập mã xác nhận.";
+            if (newPassword.length < 6) return "Mật khẩu mới phải >= 6 ký tự.";
+            if (confirmNewPassword !== newPassword) return "Mật khẩu nhập lại không khớp.";
+            return "";
+        }
+        if (mode === "change") {
+            const cEmail = changeEmail.trim();
+            if (!cEmail) return "Vui lòng nhập email.";
+            if (!isEmail(cEmail)) return "Email không hợp lệ.";
+            if (!oldPassword) return "Vui lòng nhập mật khẩu cũ.";
+            if (changeNewPassword.length < 6) return "Mật khẩu mới phải >= 6 ký tự.";
+            if (confirmChangeNewPassword !== changeNewPassword) return "Mật khẩu nhập lại không khớp.";
+            if (oldPassword === changeNewPassword) return "Mật khẩu mới phải khác mật khẩu cũ.";
             return "";
         }
         const e = email.trim();
@@ -136,6 +247,76 @@ export default function AuthPage() {
                 if (data.token) localStorage.setItem("token", data.token);
                 if (data.user) localStorage.setItem("user", JSON.stringify(data.user));
                 setVerifySuccessUser(data.user || {});
+                return;
+            }
+
+            if (mode === "forgot") {
+                const res = await fetch(`${API_BASE}/auth/forgot-password`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        email: forgotEmail.trim(),
+                    }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    throw new Error(data.message || data.error || "Gửi mã thất bại");
+                }
+                setResetEmail(data.email || forgotEmail.trim());
+                setResetToken("");
+                setNewPassword("");
+                setConfirmNewPassword("");
+                navigate(`/reset-password?email=${encodeURIComponent(data.email || forgotEmail.trim())}`, {
+                    replace: true,
+                });
+                return;
+            }
+
+            if (mode === "reset") {
+                const res = await fetch(`${API_BASE}/auth/reset-password`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        email: resetEmail.trim(),
+                        token: resetToken.trim(),
+                        newPassword,
+                    }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    throw new Error(data.message || data.error || "Đặt lại mật khẩu thất bại");
+                }
+                navigate("/login", {
+                    replace: true,
+                    state: {
+                        authMessage: data.message || "Đặt lại mật khẩu thành công. Vui lòng đăng nhập lại.",
+                        email: resetEmail.trim(),
+                    },
+                });
+                return;
+            }
+
+            if (mode === "change") {
+                const res = await fetch(`${API_BASE}/auth/change-password`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        email: changeEmail.trim(),
+                        oldPassword,
+                        newPassword: changeNewPassword,
+                    }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    throw new Error(data.message || data.error || "Đổi mật khẩu thất bại");
+                }
+                navigate("/login", {
+                    replace: true,
+                    state: {
+                        authMessage: data.message || "Đổi mật khẩu thành công. Vui lòng đăng nhập lại.",
+                        email: changeEmail.trim(),
+                    },
+                });
                 return;
             }
 
@@ -182,23 +363,88 @@ export default function AuthPage() {
         setShowPw(false);
         setShowConfirmPw(false);
         setVerificationToken("");
+        setForgotEmail("");
+        setResetEmail("");
+        setResetToken("");
+        setNewPassword("");
+        setConfirmNewPassword("");
+        setShowNewPw(false);
+        setShowConfirmNewPw(false);
+        setChangeEmail("");
+        setOldPassword("");
+        setChangeNewPassword("");
+        setConfirmChangeNewPassword("");
+        setShowOldPw(false);
+        setShowChangeNewPw(false);
+        setShowConfirmChangeNewPw(false);
     };
 
     const switchMode = () => {
-        setMode((m) => (m === "login" ? "register" : "login"));
         resetFields();
         setPendingVerifyEmail("");
+        navigate(mode === "login" ? "/register" : "/login");
     };
 
     const backToRegister = () => {
-        setMode("register");
-        setEmail(pendingVerifyEmail);
+        const registerEmail = pendingVerifyEmail;
         setPendingVerifyEmail("");
         setVerificationToken("");
         setError("");
+        navigate("/register", {
+            replace: true,
+            state: registerEmail ? { email: registerEmail } : null,
+        });
+    };
+
+    const toForgotMode = () => {
+        setForgotEmail(email.trim());
+        setError("");
+        setPassword("");
+        setShowPw(false);
+        navigate("/forgot-password");
+    };
+
+    const toChangePasswordMode = () => {
+        setChangeEmail(email.trim());
+        setOldPassword("");
+        setChangeNewPassword("");
+        setConfirmChangeNewPassword("");
+        setError("");
+        setPassword("");
+        setShowPw(false);
+        setShowOldPw(false);
+        setShowChangeNewPw(false);
+        setShowConfirmChangeNewPw(false);
+        navigate("/change-password");
+    };
+
+    const backToLogin = () => {
+        const loginEmail = resetEmail || forgotEmail || changeEmail || email;
+        setError("");
+        setForgotEmail("");
+        setResetEmail("");
+        setResetToken("");
+        setNewPassword("");
+        setConfirmNewPassword("");
+        setShowNewPw(false);
+        setShowConfirmNewPw(false);
+        setChangeEmail("");
+        setOldPassword("");
+        setChangeNewPassword("");
+        setConfirmChangeNewPassword("");
+        setShowOldPw(false);
+        setShowChangeNewPw(false);
+        setShowConfirmChangeNewPw(false);
+        navigate("/login", {
+            replace: true,
+            state: loginEmail ? { email: loginEmail } : null,
+        });
     };
 
     const showVerifyForm = mode === "verify";
+    const showForgotForm = mode === "forgot";
+    const showResetForm = mode === "reset";
+    const showChangePasswordForm = mode === "change";
 
     return (
         <>
@@ -254,6 +500,10 @@ export default function AuthPage() {
                                 {mode === "register" && "Tạo tài khoản mới để bắt đầu."}
                                 {mode === "verify" &&
                                     "Nhập mã đã gửi đến email của bạn để kích hoạt tài khoản."}
+                                {mode === "forgot" && "Nhập email để nhận mã xác nhận đặt lại mật khẩu."}
+                                {mode === "reset" && "Nhập mã xác nhận từ email và đặt mật khẩu mới."}
+                                {mode === "change" &&
+                                    "Nhập mật khẩu cũ và mật khẩu mới để đổi mật khẩu tài khoản."}
                             </p>
                         </div>
 
@@ -308,6 +558,264 @@ export default function AuthPage() {
                                         disabled={!canSubmit || loading}
                                     >
                                         {loading ? "Đang xử lý..." : "Xác minh"}
+                                    </Button>
+                                </div>
+                            </form>
+                        ) : showForgotForm ? (
+                            <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+                                <div className="space-y-2">
+                                    <Label htmlFor="forgot-email">Email</Label>
+                                    <Input
+                                        id="forgot-email"
+                                        value={forgotEmail}
+                                        onChange={(e) => setForgotEmail(e.target.value)}
+                                        placeholder="you@example.com"
+                                        autoComplete="email"
+                                        inputMode="email"
+                                    />
+                                </div>
+                                {error && (
+                                    <div
+                                        className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"
+                                        role="alert"
+                                    >
+                                        {error}
+                                    </div>
+                                )}
+                                <div className="flex flex-col gap-3 pt-2 sm:flex-row sm:justify-end">
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        onClick={backToLogin}
+                                        className="order-2 sm:order-1"
+                                    >
+                                        Quay lại đăng nhập
+                                    </Button>
+                                    <Button
+                                        type="submit"
+                                        variant="auth"
+                                        size="pill"
+                                        className="order-1 min-w-[170px] sm:order-2"
+                                        disabled={!canSubmit || loading}
+                                    >
+                                        {loading ? "Đang gửi mã..." : "Gửi mã xác nhận"}
+                                    </Button>
+                                </div>
+                            </form>
+                        ) : showResetForm ? (
+                            <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+                                <div className="space-y-2">
+                                    <Label htmlFor="reset-email">Email</Label>
+                                    <Input
+                                        id="reset-email"
+                                        value={resetEmail}
+                                        onChange={(e) => setResetEmail(e.target.value)}
+                                        placeholder="you@example.com"
+                                        autoComplete="email"
+                                        inputMode="email"
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="reset-token">Mã xác nhận</Label>
+                                    <Input
+                                        id="reset-token"
+                                        value={resetToken}
+                                        onChange={(e) => setResetToken(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                                        placeholder="123456"
+                                        inputMode="numeric"
+                                        maxLength={6}
+                                        autoComplete="one-time-code"
+                                    />
+                                    <p className="text-xs text-slate-500">Mã có hiệu lực 1 giờ.</p>
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="new-password">Mật khẩu mới</Label>
+                                    <div className="relative flex gap-2">
+                                        <Input
+                                            id="new-password"
+                                            className="pr-11"
+                                            type={showNewPw ? "text" : "password"}
+                                            value={newPassword}
+                                            onChange={(e) => setNewPassword(e.target.value)}
+                                            placeholder="••••••"
+                                            autoComplete="new-password"
+                                        />
+                                        <button
+                                            type="button"
+                                            className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                                            onClick={() => setShowNewPw((s) => !s)}
+                                            aria-label={showNewPw ? "Ẩn mật khẩu mới" : "Hiện mật khẩu mới"}
+                                        >
+                                            {showNewPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="confirm-new-password">Nhập lại mật khẩu mới</Label>
+                                    <div className="relative flex gap-2">
+                                        <Input
+                                            id="confirm-new-password"
+                                            className="pr-11"
+                                            type={showConfirmNewPw ? "text" : "password"}
+                                            value={confirmNewPassword}
+                                            onChange={(e) => setConfirmNewPassword(e.target.value)}
+                                            placeholder="••••••"
+                                            autoComplete="new-password"
+                                        />
+                                        <button
+                                            type="button"
+                                            className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                                            onClick={() => setShowConfirmNewPw((s) => !s)}
+                                            aria-label={showConfirmNewPw ? "Ẩn mật khẩu mới" : "Hiện mật khẩu mới"}
+                                        >
+                                            {showConfirmNewPw ? (
+                                                <EyeOff className="h-4 w-4" />
+                                            ) : (
+                                                <Eye className="h-4 w-4" />
+                                            )}
+                                        </button>
+                                    </div>
+                                </div>
+                                {error && (
+                                    <div
+                                        className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"
+                                        role="alert"
+                                    >
+                                        {error}
+                                    </div>
+                                )}
+                                <div className="flex flex-col gap-3 pt-2 sm:flex-row sm:justify-end">
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        onClick={backToLogin}
+                                        className="order-2 sm:order-1"
+                                    >
+                                        Quay lại đăng nhập
+                                    </Button>
+                                    <Button
+                                        type="submit"
+                                        variant="auth"
+                                        size="pill"
+                                        className="order-1 min-w-[170px] sm:order-2"
+                                        disabled={!canSubmit || loading}
+                                    >
+                                        {loading ? "Đang xử lý..." : "Đặt lại mật khẩu"}
+                                    </Button>
+                                </div>
+                            </form>
+                        ) : showChangePasswordForm ? (
+                            <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+                                <div className="space-y-2">
+                                    <Label htmlFor="change-email">Email</Label>
+                                    <Input
+                                        id="change-email"
+                                        value={changeEmail}
+                                        onChange={(e) => setChangeEmail(e.target.value)}
+                                        placeholder="you@example.com"
+                                        autoComplete="email"
+                                        inputMode="email"
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="old-password">Mật khẩu cũ</Label>
+                                    <div className="relative flex gap-2">
+                                        <Input
+                                            id="old-password"
+                                            className="pr-11"
+                                            type={showOldPw ? "text" : "password"}
+                                            value={oldPassword}
+                                            onChange={(e) => setOldPassword(e.target.value)}
+                                            placeholder="••••••"
+                                            autoComplete="current-password"
+                                        />
+                                        <button
+                                            type="button"
+                                            className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                                            onClick={() => setShowOldPw((s) => !s)}
+                                            aria-label={showOldPw ? "Ẩn mật khẩu cũ" : "Hiện mật khẩu cũ"}
+                                        >
+                                            {showOldPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="change-new-password">Mật khẩu mới</Label>
+                                    <div className="relative flex gap-2">
+                                        <Input
+                                            id="change-new-password"
+                                            className="pr-11"
+                                            type={showChangeNewPw ? "text" : "password"}
+                                            value={changeNewPassword}
+                                            onChange={(e) => setChangeNewPassword(e.target.value)}
+                                            placeholder="••••••"
+                                            autoComplete="new-password"
+                                        />
+                                        <button
+                                            type="button"
+                                            className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                                            onClick={() => setShowChangeNewPw((s) => !s)}
+                                            aria-label={showChangeNewPw ? "Ẩn mật khẩu mới" : "Hiện mật khẩu mới"}
+                                        >
+                                            {showChangeNewPw ? (
+                                                <EyeOff className="h-4 w-4" />
+                                            ) : (
+                                                <Eye className="h-4 w-4" />
+                                            )}
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="confirm-change-new-password">Nhập lại mật khẩu mới</Label>
+                                    <div className="relative flex gap-2">
+                                        <Input
+                                            id="confirm-change-new-password"
+                                            className="pr-11"
+                                            type={showConfirmChangeNewPw ? "text" : "password"}
+                                            value={confirmChangeNewPassword}
+                                            onChange={(e) => setConfirmChangeNewPassword(e.target.value)}
+                                            placeholder="••••••"
+                                            autoComplete="new-password"
+                                        />
+                                        <button
+                                            type="button"
+                                            className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                                            onClick={() => setShowConfirmChangeNewPw((s) => !s)}
+                                            aria-label={showConfirmChangeNewPw ? "Ẩn mật khẩu mới" : "Hiện mật khẩu mới"}
+                                        >
+                                            {showConfirmChangeNewPw ? (
+                                                <EyeOff className="h-4 w-4" />
+                                            ) : (
+                                                <Eye className="h-4 w-4" />
+                                            )}
+                                        </button>
+                                    </div>
+                                </div>
+                                {error && (
+                                    <div
+                                        className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"
+                                        role="alert"
+                                    >
+                                        {error}
+                                    </div>
+                                )}
+                                <div className="flex flex-col gap-3 pt-2 sm:flex-row sm:justify-end">
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        onClick={backToLogin}
+                                        className="order-2 sm:order-1"
+                                    >
+                                        Quay lại đăng nhập
+                                    </Button>
+                                    <Button
+                                        type="submit"
+                                        variant="auth"
+                                        size="pill"
+                                        className="order-1 min-w-[170px] sm:order-2"
+                                        disabled={!canSubmit || loading}
+                                    >
+                                        {loading ? "Đang xử lý..." : "Đổi mật khẩu"}
                                     </Button>
                                 </div>
                             </form>
@@ -425,6 +933,25 @@ export default function AuthPage() {
                                 >
                                     {mode === "login" ? "Chưa có tài khoản? Đăng ký" : "Đã có tài khoản? Đăng nhập"}
                                 </button>
+                                {mode === "login" && (
+                                    <div className="mt-3 flex items-center justify-center gap-4 text-sm font-semibold">
+                                        <button
+                                            type="button"
+                                            onClick={toForgotMode}
+                                            className="text-slate-600 hover:underline"
+                                        >
+                                            Quên mật khẩu?
+                                        </button>
+                                        <span className="text-slate-300">|</span>
+                                        <button
+                                            type="button"
+                                            onClick={toChangePasswordMode}
+                                            className="text-slate-600 hover:underline"
+                                        >
+                                            Đổi mật khẩu
+                                        </button>
+                                    </div>
+                                )}
                             </>
                         )}
                     </div>
