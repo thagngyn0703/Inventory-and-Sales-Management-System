@@ -30,6 +30,16 @@ const storeSchema = new Schema(
             default: 'active',
             index: true,
         },
+        tax_rate: {
+            type: Number,
+            default: 0,
+            min: 0,
+            max: 100,
+        },
+        price_includes_tax: {
+            type: Boolean,
+            default: true,
+        },
     },
     { timestamps: true }
 );

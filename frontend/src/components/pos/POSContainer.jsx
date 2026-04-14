@@ -20,11 +20,25 @@ import {
 } from '../../services/invoicesApi';
 import { getProducts } from '../../services/productsApi';
 import { getCustomers, createCustomer } from '../../services/customersApi';
+import { getStoreTaxSettings } from '../../services/adminApi';
 import PaymentWaitModal from '../payment/PaymentWaitModal';
 import { Button } from '../ui/button';
 import { useToast } from '../../contexts/ToastContext';
 import { Barcode, Loader2, Menu, Plus, Receipt, X } from 'lucide-react';
 import '../../pages/SaleDashboard/SalesPOS.css';
+
+/** Tính subtotal và tax từ grand_total — mirror công thức backend. */
+function calcTaxBreakdown(grandTotal, taxRate, priceIncludesTax) {
+  const total = Number(grandTotal) || 0;
+  const rate = Number(taxRate) || 0;
+  if (rate === 0) return { subtotal: total, tax: 0 };
+  if (priceIncludesTax) {
+    const subtotal = Math.round(total / (1 + rate / 100));
+    return { subtotal, tax: total - subtotal };
+  }
+  const tax = Math.round(total * (rate / 100));
+  return { subtotal: total, tax };
+}
 
 function formatMoney(n) {
   if (n == null || isNaN(n)) return '0';
@@ -71,6 +85,7 @@ export default function POSContainer({
   const bankCode = String(configuredBankCode || 'MB').toUpperCase();
   const bankAccountNumber = String(configuredAccountNumber || '0000000000');
 
+  const [storeTax, setStoreTax] = useState({ tax_rate: 0, price_includes_tax: true });
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -233,8 +248,18 @@ export default function POSContainer({
                 .join('')}
             </tbody>
           </table>
+          ${(() => {
+            const rate = invoice.tax_rate_snapshot || 0;
+            const tax = invoice.tax_amount || 0;
+            const subtotal = invoice.subtotal_amount || invoice.total_amount || 0;
+            if (rate > 0) {
+              return `<div class="text-right" style="margin-top:8px;">Tạm tính: ${Number(subtotal).toLocaleString('vi-VN')}₫</div>
+              <div class="text-right" style="color:#64748b;">VAT (${rate}%): ${Number(tax).toLocaleString('vi-VN')}₫</div>`;
+            }
+            return `<div class="text-right">Tổng tiền hàng: ${Number(invoice.total_amount || 0).toLocaleString('vi-VN')}₫</div>`;
+          })()}
           <div class="text-right total-row">
-            Tổng tiền hàng: ${Number(invoice.total_amount || 0).toLocaleString('vi-VN')}₫
+            TỔNG CỘNG: ${Number(invoice.total_amount || 0).toLocaleString('vi-VN')}₫
           </div>
           ${
             tab.payOldDebt
@@ -359,6 +384,12 @@ export default function POSContainer({
       setLoading(false);
     }
   }, [id, isNew]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    getStoreTaxSettings()
+      .then((data) => setStoreTax({ tax_rate: data.tax_rate, price_includes_tax: data.price_includes_tax }))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     loadProducts();
@@ -506,6 +537,11 @@ export default function POSContainer({
   const totalWithDebt = useMemo(
     () => totalAmount + (activeTab.payOldDebt ? activeTab.customerData?.debt_account || 0 : 0),
     [totalAmount, activeTab.payOldDebt, activeTab.customerData]
+  );
+
+  const taxBreakdown = useMemo(
+    () => calcTaxBreakdown(totalWithDebt, storeTax.tax_rate, storeTax.price_includes_tax),
+    [totalWithDebt, storeTax]
   );
 
   const customerPaidNum = Number(activeTab.customerPaid) || 0;
@@ -1013,10 +1049,23 @@ export default function POSContainer({
                 <span>Giá trị</span>
               </div>
               <div className="pos-summary-panel-lines">
-                <div className="pos-summary-line">
-                  <span>Tổng tiền hàng</span>
-                  <span className="pos-summary-amount">{formatMoney(totalAmount)}</span>
-                </div>
+                {storeTax.tax_rate > 0 ? (
+                  <>
+                    <div className="pos-summary-line">
+                      <span>Tạm tính</span>
+                      <span className="pos-summary-amount">{formatMoney(taxBreakdown.subtotal)}</span>
+                    </div>
+                    <div className="pos-summary-line">
+                      <span>VAT ({storeTax.tax_rate}%)</span>
+                      <span className="pos-summary-amount" style={{ color: '#64748b' }}>{formatMoney(taxBreakdown.tax)}</span>
+                    </div>
+                  </>
+                ) : (
+                  <div className="pos-summary-line">
+                    <span>Tổng tiền hàng</span>
+                    <span className="pos-summary-amount">{formatMoney(totalAmount)}</span>
+                  </div>
+                )}
               </div>
               <div className="pos-total-banner">
                 <span>{activeTab.payOldDebt ? 'Tổng thanh toán (+Nợ)' : 'Khách cần trả'}</span>

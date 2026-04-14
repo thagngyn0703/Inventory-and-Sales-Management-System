@@ -476,6 +476,11 @@ export default function ManagerDashboard() {
                     <div className="manager-kpi-item">
                       <p className="manager-kpi-label">Tổng doanh thu</p>
                       <p className="manager-kpi-value">{fmtVND(summary?.revenue)}</p>
+                      {summary?.revenue_net != null && summary?.total_vat_collected != null && (
+                        <p style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                          Doanh thu thuần: {fmtVND(summary.revenue_net)} · VAT thu hộ: {fmtVND(summary.total_vat_collected)}
+                        </p>
+                      )}
                     </div>
                     <div className="manager-kpi-item">
                       <p className="manager-kpi-label">Tổng đơn hàng</p>
@@ -506,9 +511,9 @@ export default function ManagerDashboard() {
                     </div>
                     <div className="manager-kpi-item">
                       <p className="manager-kpi-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                        Lợi nhuận thực tế (đã chốt)
+                        Lợi nhuận gộp
                         <span
-                          title="Ưu tiên giá vốn đã lưu trên từng dòng bán (snapshot). Nếu dòng đó không có vốn (0), báo cáo dùng giá vốn sản phẩm hiện tại để biên lãi có ý nghĩa — không phải lỗi đổi giá."
+                          title="Lợi nhuận được tính bằng: Doanh thu (đã trừ VAT) - Giá vốn hàng bán. Ưu tiên giá vốn snapshot trên dòng; nếu dòng vốn = 0 thì dùng giá vốn sản phẩm hiện tại."
                           style={{ cursor: 'help', color: '#6366f1', fontSize: 13, lineHeight: 1 }}
                         >
                           <i className="fa-solid fa-circle-question" />
@@ -521,7 +526,7 @@ export default function ManagerDashboard() {
                         {fmtVND(summary?.gross_profit)}
                       </p>
                       <p style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
-                        Snapshot dòng; dòng vốn 0 → dùng giá vốn SP hiện tại (tổng hợp)
+                        Tính trên doanh thu thuần (không VAT)
                       </p>
                       {summary?.gross_profit_estimate != null && (
                         <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 1 }}>
@@ -630,7 +635,15 @@ export default function ManagerDashboard() {
                             <tr>
                               <th>#</th>
                               <th>Sản phẩm</th>
-                              <th style={{ textAlign: 'right' }}>Lợi nhuận</th>
+                              <th style={{ textAlign: 'right' }}>
+                                <span
+                                  title="Lợi nhuận gộp = Doanh thu thuần (đã trừ VAT) - Giá vốn hàng bán"
+                                  style={{ cursor: 'help' }}
+                                >
+                                  Lợi nhuận
+                                  <i className="fa-solid fa-circle-question" style={{ marginLeft: 6, fontSize: 11, color: '#64748b' }} />
+                                </span>
+                              </th>
                               <th style={{ textAlign: 'right' }}>Doanh thu</th>
                               <th style={{ textAlign: 'right' }}>Biên lãi</th>
                             </tr>

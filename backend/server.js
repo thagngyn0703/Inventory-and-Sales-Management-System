@@ -29,6 +29,7 @@ const aiRoutes = require('./routes/ai');
 const supplierPayableRoutes = require('./routes/supplierPayables');
 const supportTicketRoutes = require('./routes/supportTickets');
 const backupRoutes = require('./routes/backup');
+const storeSettingsRoutes = require('./routes/storeSettings');
 const { startBackupScheduler } = require('./services/backupScheduler');
 const { hasSmtpConfig } = require('./services/emailService');
 
@@ -80,6 +81,7 @@ app.use('/api/ai', aiRoutes);
 app.use('/api/supplier-payables', supplierPayableRoutes);
 app.use('/api/support-tickets', supportTicketRoutes);
 app.use('/api/backup', backupRoutes);
+app.use('/api/store-settings', storeSettingsRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

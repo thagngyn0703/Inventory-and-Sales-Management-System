@@ -92,7 +92,7 @@ export default function RevenueProfitChart({ data = [], loading = false }) {
                 <span style="font-weight:600">${Number(rev).toLocaleString('vi-VN')}₫</span>
               </div>
               <div style="display:flex;justify-content:space-between;gap:16px">
-                <span style="color:#10b981">● Lợi nhuận</span>
+                <span style="color:#10b981">● Lợi nhuận gộp</span>
                 <span style="font-weight:600">${Number(profit).toLocaleString('vi-VN')}₫</span>
               </div>
               <div style="display:flex;justify-content:space-between;gap:16px;margin-top:4px;border-top:1px solid #e2e8f0;padding-top:4px">
@@ -110,7 +110,7 @@ export default function RevenueProfitChart({ data = [], loading = false }) {
   const series = useMemo(
     () => [
       { name: 'Doanh thu', data: revenueData },
-      { name: 'Lợi nhuận thực', data: profitData },
+      { name: 'Lợi nhuận gộp', data: profitData },
     ],
     [revenueData, profitData]
   );

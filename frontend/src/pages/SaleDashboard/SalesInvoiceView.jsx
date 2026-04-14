@@ -172,10 +172,24 @@ export default function SalesInvoiceView() {
                 <span style={{ color: '#64748b' }}>Phương thức:</span>
                 <span style={{ fontWeight: 500, color: '#1e293b' }}>{paymentMethodMap[invoice.payment_method] || invoice.payment_method}</span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: '#64748b' }}>Tổng tiền hàng ({invoice.items?.length || 0} món):</span>
-                <span style={{ fontWeight: 500, color: '#1e293b' }}>{formatMoney(invoice.total_amount)}</span>
-              </div>
+
+              {invoice.tax_rate_snapshot > 0 ? (
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: '#64748b' }}>Tạm tính ({invoice.items?.length || 0} món):</span>
+                    <span style={{ fontWeight: 500, color: '#1e293b' }}>{formatMoney(invoice.subtotal_amount)}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: '#64748b' }}>VAT ({invoice.tax_rate_snapshot}%):</span>
+                    <span style={{ fontWeight: 500, color: '#64748b' }}>{formatMoney(invoice.tax_amount)}</span>
+                  </div>
+                </>
+              ) : (
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#64748b' }}>Tổng tiền hàng ({invoice.items?.length || 0} món):</span>
+                  <span style={{ fontWeight: 500, color: '#1e293b' }}>{formatMoney(invoice.total_amount)}</span>
+                </div>
+              )}
               
               <div style={{ borderTop: '1px solid #f1f5f9', margin: '8px 0' }}></div>
               
