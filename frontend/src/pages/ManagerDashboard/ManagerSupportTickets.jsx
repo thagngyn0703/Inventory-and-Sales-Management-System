@@ -14,6 +14,12 @@ function statusLabel(s) {
   return 'Mở';
 }
 
+function statusClassName(s) {
+  if (s === 'answered') return 'manager-ticket-status manager-ticket-status--answered';
+  if (s === 'closed') return 'manager-ticket-status manager-ticket-status--closed';
+  return 'manager-ticket-status manager-ticket-status--open';
+}
+
 export default function ManagerSupportTickets() {
   const [tickets, setTickets] = useState([]);
   const [page, setPage] = useState(1);
@@ -93,17 +99,16 @@ export default function ManagerSupportTickets() {
 
           {error && <div className="manager-products-error">{error}</div>}
 
-          <div className="manager-panel-card manager-products-card" style={{ marginBottom: 24 }}>
+          <div className="manager-panel-card manager-products-card manager-ticket-form-card">
             <div className="manager-panel-header manager-panel-header--space">
               <h2 className="manager-panel-title">Gửi phiếu mới</h2>
             </div>
-            <form onSubmit={onSubmit} style={{ padding: '0 1rem 1rem', maxWidth: 720 }}>
-              <label className="manager-form-label" style={{ display: 'block', marginBottom: 8 }}>
+            <form onSubmit={onSubmit} className="manager-ticket-form">
+              <label className="manager-form-label manager-ticket-form-label">
                 Tiêu đề
                 <input
                   type="text"
                   className="manager-input"
-                  style={{ width: '100%', marginTop: 6 }}
                   value={subject}
                   onChange={(ev) => setSubject(ev.target.value)}
                   placeholder="Ví dụ: Cần mở khóa cửa hàng"
@@ -111,30 +116,28 @@ export default function ManagerSupportTickets() {
                   required
                 />
               </label>
-              <label className="manager-form-label" style={{ display: 'block', marginBottom: 12 }}>
+              <label className="manager-form-label manager-ticket-form-label">
                 Nội dung
                 <textarea
-                  className="manager-input"
-                  style={{ width: '100%', marginTop: 6, minHeight: 120, resize: 'vertical' }}
+                  className="manager-input manager-ticket-textarea"
                   value={body}
                   onChange={(ev) => setBody(ev.target.value)}
                   placeholder="Mô tả chi tiết vấn đề cần hỗ trợ…"
                   required
                 />
               </label>
-              <button type="submit" className="manager-btn-primary" disabled={submitting}>
+              <button type="submit" className="manager-btn-primary manager-ticket-submit-btn" disabled={submitting}>
                 {submitting ? 'Đang gửi…' : 'Gửi phiếu'}
               </button>
             </form>
           </div>
 
-          <div className="manager-products-header" style={{ alignItems: 'center' }}>
-            <h2 className="manager-page-title" style={{ fontSize: '1.25rem' }}>
+          <div className="manager-products-header manager-ticket-list-header">
+            <h2 className="manager-page-title manager-ticket-list-title">
               Phiếu đã gửi
             </h2>
             <select
-              className="manager-input"
-              style={{ maxWidth: 200 }}
+              className="manager-input manager-ticket-filter-select"
               value={statusFilter}
               onChange={(ev) => {
                 setPage(1);
@@ -150,11 +153,11 @@ export default function ManagerSupportTickets() {
 
           <div className="manager-panel-card manager-products-card">
             {loading ? (
-              <p className="manager-products-loading" style={{ padding: '1rem' }}>
+              <p className="manager-products-loading manager-ticket-table-state">
                 Đang tải…
               </p>
             ) : tickets.length === 0 ? (
-              <p className="manager-products-empty" style={{ padding: '1rem' }}>
+              <p className="manager-products-empty manager-ticket-table-state">
                 Chưa có phiếu hỗ trợ nào.
               </p>
             ) : (
@@ -172,14 +175,16 @@ export default function ManagerSupportTickets() {
                     {tickets.map((t) => (
                       <tr key={t._id}>
                         <td>{t.subject}</td>
-                        <td>{statusLabel(t.status)}</td>
+                        <td>
+                          <span className={statusClassName(t.status)}>{statusLabel(t.status)}</span>
+                        </td>
                         <td>
                           {t.updatedAt
                             ? new Date(t.updatedAt).toLocaleString('vi-VN')
                             : '—'}
                         </td>
                         <td>
-                          <Link to={`/manager/support/${t._id}`} className="manager-btn-outline" style={{ textDecoration: 'none', display: 'inline-block', padding: '6px 12px' }}>
+                          <Link to={`/manager/support/${t._id}`} className="manager-btn-outline manager-ticket-detail-link">
                             Chi tiết
                           </Link>
                         </td>
@@ -190,7 +195,7 @@ export default function ManagerSupportTickets() {
               </div>
             )}
             {totalPages > 1 && (
-              <div style={{ padding: '1rem', display: 'flex', gap: 8, alignItems: 'center' }}>
+              <div className="manager-ticket-pagination">
                 <button
                   type="button"
                   className="manager-btn-outline"
