@@ -37,9 +37,16 @@ export default function AuthPage() {
 
     const [pendingVerifyEmail, setPendingVerifyEmail] = useState("");
     const [verificationToken, setVerificationToken] = useState("");
+    const [forgotEmail, setForgotEmail] = useState("");
+    const [resetEmail, setResetEmail] = useState("");
+    const [resetToken, setResetToken] = useState("");
+    const [newPassword, setNewPassword] = useState("");
+    const [confirmNewPassword, setConfirmNewPassword] = useState("");
 
     const [showPw, setShowPw] = useState(false);
     const [showConfirmPw, setShowConfirmPw] = useState(false);
+    const [showNewPw, setShowNewPw] = useState(false);
+    const [showConfirmNewPw, setShowConfirmNewPw] = useState(false);
 
     const [verifySuccessUser, setVerifySuccessUser] = useState(null);
     const verifyRedirectTimerRef = useRef(null);
@@ -76,11 +83,27 @@ export default function AuthPage() {
             ? "Đăng nhập tài khoản"
             : mode === "register"
                 ? "Tạo tài khoản"
-                : "Xác minh email";
+                : mode === "verify"
+                    ? "Xác minh email"
+                    : mode === "forgot"
+                        ? "Quên mật khẩu"
+                        : "Đặt lại mật khẩu";
 
     const canSubmit = useMemo(() => {
         if (mode === "verify") {
             return pendingVerifyEmail.trim() && verificationToken.trim().length >= 4;
+        }
+        if (mode === "forgot") {
+            return forgotEmail.trim() && isEmail(forgotEmail.trim());
+        }
+        if (mode === "reset") {
+            return (
+                resetEmail.trim() &&
+                isEmail(resetEmail.trim()) &&
+                resetToken.trim().length >= 4 &&
+                newPassword.length >= 6 &&
+                confirmNewPassword === newPassword
+            );
         }
         if (!email.trim() || !password) return false;
         if (!isEmail(email.trim())) return false;
@@ -90,11 +113,39 @@ export default function AuthPage() {
             if (confirmPassword !== password) return false;
         }
         return true;
-    }, [mode, fullName, email, password, confirmPassword, pendingVerifyEmail, verificationToken]);
+    }, [
+        mode,
+        fullName,
+        email,
+        password,
+        confirmPassword,
+        pendingVerifyEmail,
+        verificationToken,
+        forgotEmail,
+        resetEmail,
+        resetToken,
+        newPassword,
+        confirmNewPassword,
+    ]);
 
     const validate = () => {
         if (mode === "verify") {
             if (!verificationToken.trim()) return "Vui lòng nhập mã xác minh.";
+            return "";
+        }
+        if (mode === "forgot") {
+            const forgot = forgotEmail.trim();
+            if (!forgot) return "Vui lòng nhập email.";
+            if (!isEmail(forgot)) return "Email không hợp lệ.";
+            return "";
+        }
+        if (mode === "reset") {
+            const resetMail = resetEmail.trim();
+            if (!resetMail) return "Vui lòng nhập email.";
+            if (!isEmail(resetMail)) return "Email không hợp lệ.";
+            if (!resetToken.trim()) return "Vui lòng nhập mã xác nhận.";
+            if (newPassword.length < 6) return "Mật khẩu mới phải >= 6 ký tự.";
+            if (confirmNewPassword !== newPassword) return "Mật khẩu nhập lại không khớp.";
             return "";
         }
         const e = email.trim();
@@ -136,6 +187,53 @@ export default function AuthPage() {
                 if (data.token) localStorage.setItem("token", data.token);
                 if (data.user) localStorage.setItem("user", JSON.stringify(data.user));
                 setVerifySuccessUser(data.user || {});
+                return;
+            }
+
+            if (mode === "forgot") {
+                const res = await fetch(`${API_BASE}/auth/forgot-password`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        email: forgotEmail.trim(),
+                    }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    throw new Error(data.message || data.error || "Gửi mã thất bại");
+                }
+                setResetEmail(data.email || forgotEmail.trim());
+                setResetToken("");
+                setNewPassword("");
+                setConfirmNewPassword("");
+                setMode("reset");
+                return;
+            }
+
+            if (mode === "reset") {
+                const res = await fetch(`${API_BASE}/auth/reset-password`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        email: resetEmail.trim(),
+                        token: resetToken.trim(),
+                        newPassword,
+                    }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    throw new Error(data.message || data.error || "Đặt lại mật khẩu thất bại");
+                }
+                setMode("login");
+                setEmail(resetEmail.trim());
+                setPassword("");
+                setConfirmPassword("");
+                setForgotEmail("");
+                setResetEmail("");
+                setResetToken("");
+                setNewPassword("");
+                setConfirmNewPassword("");
+                setError(data.message || "Đặt lại mật khẩu thành công. Vui lòng đăng nhập lại.");
                 return;
             }
 
@@ -182,6 +280,13 @@ export default function AuthPage() {
         setShowPw(false);
         setShowConfirmPw(false);
         setVerificationToken("");
+        setForgotEmail("");
+        setResetEmail("");
+        setResetToken("");
+        setNewPassword("");
+        setConfirmNewPassword("");
+        setShowNewPw(false);
+        setShowConfirmNewPw(false);
     };
 
     const switchMode = () => {
@@ -198,7 +303,30 @@ export default function AuthPage() {
         setError("");
     };
 
+    const toForgotMode = () => {
+        setMode("forgot");
+        setForgotEmail(email.trim());
+        setError("");
+        setPassword("");
+        setShowPw(false);
+    };
+
+    const backToLogin = () => {
+        setMode("login");
+        setEmail(resetEmail || forgotEmail || email);
+        setError("");
+        setForgotEmail("");
+        setResetEmail("");
+        setResetToken("");
+        setNewPassword("");
+        setConfirmNewPassword("");
+        setShowNewPw(false);
+        setShowConfirmNewPw(false);
+    };
+
     const showVerifyForm = mode === "verify";
+    const showForgotForm = mode === "forgot";
+    const showResetForm = mode === "reset";
 
     return (
         <>
@@ -254,6 +382,8 @@ export default function AuthPage() {
                                 {mode === "register" && "Tạo tài khoản mới để bắt đầu."}
                                 {mode === "verify" &&
                                     "Nhập mã đã gửi đến email của bạn để kích hoạt tài khoản."}
+                                {mode === "forgot" && "Nhập email để nhận mã xác nhận đặt lại mật khẩu."}
+                                {mode === "reset" && "Nhập mã xác nhận từ email và đặt mật khẩu mới."}
                             </p>
                         </div>
 
@@ -308,6 +438,149 @@ export default function AuthPage() {
                                         disabled={!canSubmit || loading}
                                     >
                                         {loading ? "Đang xử lý..." : "Xác minh"}
+                                    </Button>
+                                </div>
+                            </form>
+                        ) : showForgotForm ? (
+                            <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+                                <div className="space-y-2">
+                                    <Label htmlFor="forgot-email">Email</Label>
+                                    <Input
+                                        id="forgot-email"
+                                        value={forgotEmail}
+                                        onChange={(e) => setForgotEmail(e.target.value)}
+                                        placeholder="you@example.com"
+                                        autoComplete="email"
+                                        inputMode="email"
+                                    />
+                                </div>
+                                {error && (
+                                    <div
+                                        className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"
+                                        role="alert"
+                                    >
+                                        {error}
+                                    </div>
+                                )}
+                                <div className="flex flex-col gap-3 pt-2 sm:flex-row sm:justify-end">
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        onClick={backToLogin}
+                                        className="order-2 sm:order-1"
+                                    >
+                                        Quay lại đăng nhập
+                                    </Button>
+                                    <Button
+                                        type="submit"
+                                        variant="auth"
+                                        size="pill"
+                                        className="order-1 min-w-[170px] sm:order-2"
+                                        disabled={!canSubmit || loading}
+                                    >
+                                        {loading ? "Đang gửi mã..." : "Gửi mã xác nhận"}
+                                    </Button>
+                                </div>
+                            </form>
+                        ) : showResetForm ? (
+                            <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+                                <div className="space-y-2">
+                                    <Label htmlFor="reset-email">Email</Label>
+                                    <Input
+                                        id="reset-email"
+                                        value={resetEmail}
+                                        onChange={(e) => setResetEmail(e.target.value)}
+                                        placeholder="you@example.com"
+                                        autoComplete="email"
+                                        inputMode="email"
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="reset-token">Mã xác nhận</Label>
+                                    <Input
+                                        id="reset-token"
+                                        value={resetToken}
+                                        onChange={(e) => setResetToken(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                                        placeholder="123456"
+                                        inputMode="numeric"
+                                        maxLength={6}
+                                        autoComplete="one-time-code"
+                                    />
+                                    <p className="text-xs text-slate-500">Mã có hiệu lực 1 giờ.</p>
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="new-password">Mật khẩu mới</Label>
+                                    <div className="relative flex gap-2">
+                                        <Input
+                                            id="new-password"
+                                            className="pr-11"
+                                            type={showNewPw ? "text" : "password"}
+                                            value={newPassword}
+                                            onChange={(e) => setNewPassword(e.target.value)}
+                                            placeholder="••••••"
+                                            autoComplete="new-password"
+                                        />
+                                        <button
+                                            type="button"
+                                            className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                                            onClick={() => setShowNewPw((s) => !s)}
+                                            aria-label={showNewPw ? "Ẩn mật khẩu mới" : "Hiện mật khẩu mới"}
+                                        >
+                                            {showNewPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="confirm-new-password">Nhập lại mật khẩu mới</Label>
+                                    <div className="relative flex gap-2">
+                                        <Input
+                                            id="confirm-new-password"
+                                            className="pr-11"
+                                            type={showConfirmNewPw ? "text" : "password"}
+                                            value={confirmNewPassword}
+                                            onChange={(e) => setConfirmNewPassword(e.target.value)}
+                                            placeholder="••••••"
+                                            autoComplete="new-password"
+                                        />
+                                        <button
+                                            type="button"
+                                            className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                                            onClick={() => setShowConfirmNewPw((s) => !s)}
+                                            aria-label={showConfirmNewPw ? "Ẩn mật khẩu mới" : "Hiện mật khẩu mới"}
+                                        >
+                                            {showConfirmNewPw ? (
+                                                <EyeOff className="h-4 w-4" />
+                                            ) : (
+                                                <Eye className="h-4 w-4" />
+                                            )}
+                                        </button>
+                                    </div>
+                                </div>
+                                {error && (
+                                    <div
+                                        className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"
+                                        role="alert"
+                                    >
+                                        {error}
+                                    </div>
+                                )}
+                                <div className="flex flex-col gap-3 pt-2 sm:flex-row sm:justify-end">
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        onClick={backToLogin}
+                                        className="order-2 sm:order-1"
+                                    >
+                                        Quay lại đăng nhập
+                                    </Button>
+                                    <Button
+                                        type="submit"
+                                        variant="auth"
+                                        size="pill"
+                                        className="order-1 min-w-[170px] sm:order-2"
+                                        disabled={!canSubmit || loading}
+                                    >
+                                        {loading ? "Đang xử lý..." : "Đặt lại mật khẩu"}
                                     </Button>
                                 </div>
                             </form>
@@ -425,6 +698,15 @@ export default function AuthPage() {
                                 >
                                     {mode === "login" ? "Chưa có tài khoản? Đăng ký" : "Đã có tài khoản? Đăng nhập"}
                                 </button>
+                                {mode === "login" && (
+                                    <button
+                                        type="button"
+                                        onClick={toForgotMode}
+                                        className="mt-3 w-full text-center text-sm font-semibold text-slate-600 hover:underline"
+                                    >
+                                        Quên mật khẩu?
+                                    </button>
+                                )}
                             </>
                         )}
                     </div>
