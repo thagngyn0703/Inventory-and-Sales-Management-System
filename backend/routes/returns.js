@@ -5,6 +5,7 @@ const SalesInvoice = require('../models/SalesInvoice');
 const Product = require('../models/Product');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { adjustCustomerDebtAccount } = require('../utils/customerDebt');
+const { upsertSystemCashFlow } = require('../utils/cashflowUtils');
 
 const router = express.Router();
 const RETURN_REASON_OPTIONS = [
@@ -295,6 +296,25 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
             if (customerId) {
                 await adjustCustomerDebtAccount(customerId, -returnTotalAmount, {});
             }
+        }
+        const eligibleRefundMethods = ['cash', 'bank_transfer', 'card', 'credit'];
+        if (
+            invoice.payment_status === 'paid'
+            && eligibleRefundMethods.includes(String(invoice.payment_method || '').toLowerCase())
+            && Number(returnTotalAmount) > 0
+        ) {
+            await upsertSystemCashFlow({
+                storeId: salesReturn.store_id,
+                type: 'EXPENSE',
+                category: 'SALES_RETURN',
+                amount: returnTotalAmount,
+                paymentMethod: invoice.payment_method,
+                referenceModel: 'sales_return',
+                referenceId: salesReturn._id,
+                note: `Hoan tien tra hang #${String(salesReturn._id).slice(-6).toUpperCase()}`,
+                actorId: req.user.id,
+                transactedAt: salesReturn.created_at || new Date(),
+            });
         }
 
         const populated = await SalesReturn.findById(salesReturn._id)

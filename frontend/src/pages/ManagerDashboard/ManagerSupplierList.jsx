@@ -176,6 +176,13 @@ export default function ManagerSupplierList() {
                                                                 </Button>
                                                                 <Button
                                                                     type="button"
+                                                                    className="h-9 rounded-lg border border-indigo-200 bg-indigo-50 px-4 text-xs font-semibold text-indigo-700 hover:bg-indigo-100"
+                                                                    onClick={() => navigate(`/manager/suppliers/${s._id}/debt-ledger`)}
+                                                                >
+                                                                    Sổ nợ
+                                                                </Button>
+                                                                <Button
+                                                                    type="button"
                                                                     className={
                                                                         s.status === 'active'
                                                                             ? 'h-9 rounded-lg border border-amber-200 bg-amber-500 px-4 text-xs font-semibold text-white hover:bg-amber-600'

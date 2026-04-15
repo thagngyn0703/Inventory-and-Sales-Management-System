@@ -105,3 +105,106 @@ export async function setSupplierStatus(id, status) {
   const data = await res.json();
   return data.supplier;
 }
+
+export async function getSupplierDebtHistory(id, params = {}) {
+  const token = getToken();
+  const url = new URL(`${API_BASE}/suppliers/${id}/debt-history`);
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '') return;
+    url.searchParams.set(key, String(value));
+  });
+  const res = await fetch(url.toString(), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw await parseError(res, 'Không thể tải sổ nợ nhà cung cấp');
+  return res.json();
+}
+
+export async function createSupplierDebtPayment(id, payload) {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/suppliers/${id}/payments`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload || {}),
+  });
+  if (!res.ok) throw await parseError(res, 'Không thể ghi nhận thanh toán nợ');
+  return res.json();
+}
+
+export async function createSupplierReturn(id, payload) {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/suppliers/${id}/returns`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload || {}),
+  });
+  if (!res.ok) throw await parseError(res, 'Không thể ghi nhận trả hàng nhà cung cấp');
+  return res.json();
+}
+
+export async function exportSupplierDebtHistoryExcel(id, params = {}) {
+  const token = getToken();
+  const url = new URL(`${API_BASE}/suppliers/${id}/debt-history/export.xlsx`);
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '') return;
+    url.searchParams.set(key, String(value));
+  });
+  const res = await fetch(url.toString(), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw await parseError(res, 'Không thể xuất Excel sổ nợ');
+  return res.blob();
+}
+
+export async function getSupplierReturn(id) {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/supplier-returns/${id}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw await parseError(res, 'Không thể tải chi tiết phiếu trả NCC');
+  const data = await res.json();
+  return data.supplier_return;
+}
+
+export async function getSupplierReturnDetail(id) {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/supplier-returns/${id}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw await parseError(res, 'Không thể tải chi tiết phiếu trả NCC');
+  return res.json();
+}
+
+export async function getSupplierReturns(params = {}) {
+  const token = getToken();
+  const url = new URL(`${API_BASE}/supplier-returns`);
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '') return;
+    url.searchParams.set(key, String(value));
+  });
+  const res = await fetch(url.toString(), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw await parseError(res, 'Không thể tải danh sách phiếu trả NCC');
+  return res.json();
+}
+
+export async function exportSupplierReturnsExcel(params = {}) {
+  const token = getToken();
+  const url = new URL(`${API_BASE}/supplier-returns/export.xlsx`);
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '') return;
+    url.searchParams.set(key, String(value));
+  });
+  const res = await fetch(url.toString(), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw await parseError(res, 'Không thể xuất Excel phiếu trả NCC');
+  return res.blob();
+}

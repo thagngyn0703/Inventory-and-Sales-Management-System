@@ -97,6 +97,11 @@ const goodsReceiptSchema = new Schema(
             default: 0,
             min: 0,
         },
+        debt_amount: {
+            type: Number,
+            default: 0,
+            min: 0,
+        },
         due_date_payable: {
             type: Date,
         },

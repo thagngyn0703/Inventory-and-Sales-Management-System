@@ -6,6 +6,7 @@ const { adjustStockFIFO } = require('../utils/inventoryUtils');
 const SupplierPayable = require('../models/SupplierPayable');
 const SupplierPayment = require('../models/SupplierPayment');
 const SupplierPaymentAllocation = require('../models/SupplierPaymentAllocation');
+const SupplierDebtHistory = require('../models/SupplierDebtHistory');
 const { recalculatePayable, refreshSupplierPayableCache } = require('../utils/supplierPayableUtils');
 const { emitManagerBadgeRefresh } = require('../socket');
 const { notifyManagersInStore } = require('../services/managerNotificationService');
@@ -36,6 +37,31 @@ function resolveUnitCostFromProductCost(productDoc, ratio) {
     return Math.round(baseCost * safeRatio);
 }
 
+/** Giá theo đơn vị cơ sở = giá đơn vị dòng / hệ số quy đổi. */
+function resolveBaseUnitCostFromLineUnitCost(lineUnitCost, ratio) {
+    const safeRatio = Number(ratio) > 0 ? Number(ratio) : 1;
+    return Number(lineUnitCost) / safeRatio;
+}
+
+function roundTo4(value) {
+    return Math.round((Number(value) || 0) * 10000) / 10000;
+}
+
+function roundTo2(value) {
+    return Math.round((Number(value) || 0) * 100) / 100;
+}
+
+function computeSafeAverageCost({ currentQty, currentCost, addQty, baseUnitCost }) {
+    const safeBaseCost = roundTo4(baseUnitCost);
+    const normalizedCurrentQty = Math.max(0, Number(currentQty) || 0);
+    const normalizedCurrentCost = roundTo4(currentCost);
+    const normalizedAddQty = Number(addQty) || 0;
+    const totalQty = normalizedCurrentQty + normalizedAddQty;
+    if (totalQty <= 0) return safeBaseCost;
+    const weighted = (normalizedCurrentQty * normalizedCurrentCost) + (normalizedAddQty * safeBaseCost);
+    return roundTo4(weighted / totalQty);
+}
+
 function shortReceiptCode(id) {
     const s = String(id || '');
     return s.slice(-6).toUpperCase();
@@ -53,8 +79,8 @@ async function logPriceHistory({
     newSale,
     session,
 }) {
-    const safeOldCost = Math.round(Number(oldCost) || 0);
-    const safeNewCost = Math.round(Number(newCost) || 0);
+    const safeOldCost = roundTo4(oldCost);
+    const safeNewCost = roundTo4(newCost);
     const safeOldSale = Math.round(Number(oldSale) || 0);
     const safeNewSale = Math.round(Number(newSale) || 0);
     if (safeOldCost === safeNewCost && safeOldSale === safeNewSale) return;
@@ -263,7 +289,7 @@ router.post('/', requireAuth, requireRole(['staff', 'manager']), async (req, res
         // Staff không được sửa giá nhập: luôn lấy theo giá gốc (cost_price) × HSQĐ — khớp hóa đơn NCC theo đơn vị cơ sở.
         // unit_cost được server override để tránh client tự sửa payload.
         const productIds = [...new Set(items.map((it) => String(it.product_id)))];
-        const products = await Product.find({ _id: { $in: productIds } })
+        const products = await Product.find({ _id: { $in: productIds }, storeId: req.user.storeId })
             .select('name cost_price base_unit selling_units')
             .lean();
         const productMap = new Map(products.map((p) => [String(p._id), p]));
@@ -291,6 +317,11 @@ router.post('/', requireAuth, requireRole(['staff', 'manager']), async (req, res
             });
         }
 
+        const supplierDoc = await Supplier.findOne({ _id: supplier_id, storeId: req.user.storeId }).lean();
+        if (!supplierDoc) {
+            return res.status(400).json({ message: 'Nhà cung cấp không tồn tại hoặc không thuộc cửa hàng của bạn' });
+        }
+
         // compute total từ giá đã chuẩn hóa
         const computedTotal = normalizedItems.reduce((s, it) => s + Number(it.quantity) * Number(it.unit_cost), 0);
 
@@ -300,7 +331,7 @@ router.post('/', requireAuth, requireRole(['staff', 'manager']), async (req, res
 
         const doc = await GoodsReceipt.create({
             po_id: po_id && mongoose.isValidObjectId(po_id) ? po_id : undefined,
-            supplier_id,
+            supplier_id: supplierDoc._id,
             storeId: req.user.storeId,
             received_by: req.user.id,
             status: safeStatus,
@@ -401,7 +432,7 @@ router.patch('/:id/items', requireAuth, requireRole(['manager', 'admin']), async
             }
             updatedItems.push(next);
 
-            const product = await Product.findById(curr.product_id);
+            const product = await Product.findOne({ _id: curr.product_id, storeId: gr.storeId });
             if (product) {
                 const prevCost = Number(product.cost_price) || 0;
                 const prevSale = Number(product.sale_price) || 0;
@@ -521,60 +552,88 @@ router.patch('/:id/status', requireAuth, requireRole(['manager', 'admin']), asyn
             return res.status(400).json({ message: 'Vui lòng nhập lý do từ chối' });
         }
 
-        const gr = await GoodsReceipt.findById(id).session(session);
-        if (!gr) return res.status(404).json({ message: 'Goods receipt not found' });
-
-        // Kiểm tra phạm vi cửa hàng
-        if (req.user.role !== 'admin' && String(gr.storeId) !== String(req.user.storeId)) {
-            return res.status(403).json({ message: 'Forbidden: phiếu không thuộc cửa hàng của bạn' });
+        const scopeFilter = { _id: id };
+        if (req.user.role !== 'admin') scopeFilter.storeId = req.user.storeId;
+        const existedInScope = await GoodsReceipt.findOne(scopeFilter).lean();
+        if (!existedInScope) {
+            return res.status(req.user.role === 'admin' ? 404 : 403).json({
+                message: req.user.role === 'admin'
+                    ? 'Goods receipt not found'
+                    : 'Forbidden: phiếu không thuộc cửa hàng của bạn',
+            });
         }
-
-        // Chỉ cho phép duyệt/từ chối khi phiếu đang ở trạng thái pending
-        if (gr.status !== 'pending') {
-            return res.status(400).json({ message: `Phiếu đang ở trạng thái "${gr.status}", không thể thay đổi` });
+        if (existedInScope.status !== 'pending') {
+            return res.status(409).json({ message: `Phiếu đang ở trạng thái "${existedInScope.status}", không thể xử lý lặp` });
         }
 
         if (status === 'approved') {
+            session.startTransaction();
+            const gr = await GoodsReceipt.findOneAndUpdate(
+                { ...scopeFilter, status: 'pending' },
+                {
+                    $set: {
+                        status: 'approved',
+                        approved_by: req.user.id,
+                        updated_at: new Date(),
+                    },
+                },
+                { new: true, session }
+            );
+            if (!gr) {
+                await session.abortTransaction();
+                return res.status(409).json({ message: 'Phiếu đã được xử lý trước đó. Vui lòng tải lại danh sách.' });
+            }
+
+            const supplierDoc = await Supplier.findOne({ _id: gr.supplier_id, storeId: gr.storeId }).session(session);
+            if (!supplierDoc) {
+                await session.abortTransaction();
+                return res.status(400).json({ message: 'Nhà cung cấp của phiếu nhập không hợp lệ theo cửa hàng' });
+            }
             // Validate: mọi product_id phải tồn tại trước khi bắt đầu transaction
             for (const it of gr.items) {
-                const exists = await Product.exists({ _id: it.product_id });
+                const exists = await Product.exists({ _id: it.product_id, storeId: gr.storeId });
                 if (!exists) {
+                    await session.abortTransaction();
                     return res.status(400).json({
                         message: `Sản phẩm không tồn tại trên hệ thống (id: ${String(it.product_id)}). Vui lòng duyệt yêu cầu tạo sản phẩm trước.`,
                     });
                 }
             }
 
-            session.startTransaction();
-
             // Cập nhật tồn kho + giá vốn bình quân trong cùng transaction (adjustStockFIFO dùng session)
             for (const it of gr.items) {
-                const product = await Product.findById(it.product_id).session(session);
+                const product = await Product.findOne({ _id: it.product_id, storeId: gr.storeId }).session(session);
                 if (!product) {
                     await session.abortTransaction();
                     return res.status(404).json({ message: `Product not found: ${String(it.product_id)}` });
                 }
                 const addQty = Number(it.quantity) * (Number(it.ratio) || 1);
-                const unitCost = Number(it.unit_cost) || 0;
+                const lineUnitCost = Number(it.unit_cost) || 0;
+                const baseUnitCost = roundTo4(resolveBaseUnitCostFromLineUnitCost(lineUnitCost, it.ratio));
                 const currentQty = Number(product.stock_qty) || 0;
                 const currentCost = Number(product.cost_price) || 0;
                 const prevSale = Number(product.sale_price) || 0;
-
-                const newQty = currentQty + addQty;
-                const newCostPrice = newQty > 0
-                    ? (currentQty * currentCost + addQty * unitCost) / newQty
-                    : unitCost;
+                const newCostPrice = computeSafeAverageCost({
+                    currentQty,
+                    currentCost,
+                    addQty,
+                    baseUnitCost,
+                });
 
                 await adjustStockFIFO(it.product_id, gr.storeId || req.user.storeId, addQty, {
                     session,
-                    unitCost,
+                    unitCost: baseUnitCost,
                     receivedAt: gr.received_at,
                     receiptId: gr._id,
                     note: `Nhập hàng (Phiếu #${id.substring(id.length - 6).toUpperCase()})`,
-                    newCostPrice: Math.round(newCostPrice),
+                    newCostPrice,
+                    movementType: 'IN_GR',
+                    referenceType: 'goods_receipt',
+                    referenceId: gr._id,
+                    actorId: req.user.id,
                 });
 
-                const productAfter = await Product.findById(it.product_id).session(session);
+                const productAfter = await Product.findOne({ _id: it.product_id, storeId: gr.storeId }).session(session);
                 if (productAfter) {
                     await logPriceHistory({
                         productId: productAfter._id,
@@ -591,17 +650,15 @@ router.patch('/:id/status', requireAuth, requireRole(['manager', 'admin']), asyn
                 }
             }
 
-            gr.approved_by = req.user.id;
-            gr.status = 'approved';
-            gr.updated_at = new Date();
-
             // Ghi nhận thông tin thanh toán lên phiếu nhập
             const safePayType = ['cash', 'credit'].includes(payment_type) ? payment_type : 'credit';
             const requestedPaid = Math.max(0, Number(amount_paid_at_approval) || 0);
             const receiptTotal = Number(gr.total_amount) || 0;
             const amountPaid = safePayType === 'cash' ? Math.min(requestedPaid || receiptTotal, receiptTotal) : 0;
+            const debtAmount = roundTo2(Math.max(0, receiptTotal - amountPaid));
             gr.payment_type = safePayType;
             gr.amount_paid_at_approval = amountPaid;
+            gr.debt_amount = debtAmount;
             gr.due_date_payable = due_date_payable ? new Date(due_date_payable) : undefined;
 
             await gr.save({ session });
@@ -612,7 +669,6 @@ router.patch('/:id/status', requireAuth, requireRole(['manager', 'admin']), asyn
             // Tính due_date: từ body → default từ NCC
             let finalDueDate = due_date_payable ? new Date(due_date_payable) : null;
             if (!finalDueDate && safePayType !== 'cash') {
-                const supplierDoc = await Supplier.findById(gr.supplier_id).session(session);
                 const termDays = Number(supplierDoc?.default_payment_term_days) || 0;
                 if (termDays > 0) {
                     finalDueDate = new Date(gr.received_at || new Date());
@@ -677,30 +733,77 @@ router.patch('/:id/status', requireAuth, requireRole(['manager', 'admin']), asyn
                 );
             }
 
+            if (payableRemaining > 0) {
+                const currentDebt = roundTo2(Number(supplierDoc.current_debt) || 0);
+                const afterDebt = roundTo2(currentDebt + roundTo2(payableRemaining));
+                supplierDoc.current_debt = afterDebt;
+                supplierDoc.updated_at = new Date();
+                await supplierDoc.save({ session });
+                await SupplierDebtHistory.create(
+                    [
+                        {
+                            supplier_id: supplierDoc._id,
+                            storeId: gr.storeId,
+                            type: 'DEBT_INCREASE_GR',
+                            reference_type: 'goods_receipt',
+                            reference_id: gr._id,
+                            before_debt: currentDebt,
+                            change_amount: roundTo2(payableRemaining),
+                            after_debt: afterDebt,
+                            note: `Phát sinh công nợ từ duyệt phiếu nhập #${shortReceiptCode(gr._id)}`,
+                            actor_id: req.user.id,
+                            created_at: new Date(),
+                        },
+                    ],
+                    { session }
+                );
+            }
+
             await session.commitTransaction();
 
             // Cập nhật cache Supplier.payable_account (ngoài transaction)
             await refreshSupplierPayableCache(gr.supplier_id, gr.storeId);
+            const updated = await GoodsReceipt.findById(id)
+                .populate('supplier_id', 'name phone email')
+                .populate('received_by', 'fullName email')
+                .populate('approved_by', 'fullName email')
+                .populate('items.product_id', 'name sku cost_price sale_price base_unit selling_units')
+                .lean();
+            await emitManagerBadgeRefresh({ storeId: gr.storeId ? String(gr.storeId) : null });
+            return res.json({ goodsReceipt: updated });
         } else {
-            // rejected
-            gr.status = 'rejected';
-            gr.rejection_reason = String(rejection_reason).trim();
-            gr.approved_by = req.user.id;
-            gr.updated_at = new Date();
-            await gr.save();
+            const gr = await GoodsReceipt.findOneAndUpdate(
+                { ...scopeFilter, status: 'pending' },
+                {
+                    $set: {
+                        status: 'rejected',
+                        rejection_reason: String(rejection_reason).trim(),
+                        approved_by: req.user.id,
+                        updated_at: new Date(),
+                    },
+                },
+                { new: true }
+            );
+            if (!gr) {
+                return res.status(409).json({ message: 'Phiếu đã được xử lý trước đó. Vui lòng tải lại danh sách.' });
+            }
+            const updated = await GoodsReceipt.findById(id)
+                .populate('supplier_id', 'name phone email')
+                .populate('received_by', 'fullName email')
+                .populate('approved_by', 'fullName email')
+                .populate('items.product_id', 'name sku cost_price sale_price base_unit selling_units')
+                .lean();
+            await emitManagerBadgeRefresh({ storeId: gr.storeId ? String(gr.storeId) : null });
+            return res.json({ goodsReceipt: updated });
         }
-
-        const updated = await GoodsReceipt.findById(id)
-            .populate('supplier_id', 'name phone email')
-            .populate('received_by', 'fullName email')
-            .populate('approved_by', 'fullName email')
-            .populate('items.product_id', 'name sku cost_price sale_price base_unit selling_units')
-            .lean();
-        await emitManagerBadgeRefresh({ storeId: gr.storeId ? String(gr.storeId) : null });
-
-        return res.json({ goodsReceipt: updated });
     } catch (err) {
         if (session.inTransaction()) await session.abortTransaction();
+        if (err?.code === 'INSUFFICIENT_STOCK' || String(err?.message || '') === 'INSUFFICIENT_STOCK') {
+            return res.status(409).json({
+                message: 'Không thể duyệt phiếu nhập vì tồn kho hiện tại không nhất quán để xử lý an toàn.',
+                code: 'INSUFFICIENT_STOCK',
+            });
+        }
         console.error('Update GR status error:', err);
         return res.status(500).json({ message: err.message || 'Server error' });
     } finally {
@@ -784,13 +887,29 @@ router.post('/quick', requireAuth, requireRole(['manager', 'admin']), async (req
         if (req.user.role !== 'admin' && !storeId) {
             return res.status(403).json({ message: 'Tài khoản chưa được gán cửa hàng', code: 'STORE_REQUIRED' });
         }
+        const storeScope = storeId ? String(storeId) : null;
+        if (storeScope && products.some((p) => String(p.storeId) !== storeScope)) {
+            return res.status(400).json({ message: 'Có sản phẩm không thuộc cửa hàng của bạn' });
+        }
+        if (!storeScope) {
+            const productStoreIds = [...new Set(products.map((p) => String(p.storeId || '')))].filter(Boolean);
+            if (productStoreIds.length !== 1) {
+                return res.status(400).json({ message: 'Không thể xác định cửa hàng do danh sách sản phẩm không đồng nhất' });
+            }
+        }
+        const resolvedStoreId = storeScope || String(products[0].storeId);
+        const supplierDoc = await Supplier.findOne({ _id: resolvedSupplierId, storeId: resolvedStoreId }).lean();
+        if (!supplierDoc) {
+            return res.status(400).json({ message: 'Nhà cung cấp không tồn tại hoặc không thuộc cùng cửa hàng với sản phẩm' });
+        }
 
         session.startTransaction();
 
         const amountPaid = safePayType === 'cash' ? computedTotal : 0;
+        const debtAmount = roundTo2(Math.max(0, computedTotal - amountPaid));
         const gr = await GoodsReceipt.create([{
             supplier_id: resolvedSupplierId,
-            storeId: storeId || req.user.storeId,
+            storeId: resolvedStoreId,
             received_by: req.user.id,
             approved_by: req.user.id,
             status: 'approved',
@@ -799,6 +918,7 @@ router.post('/quick', requireAuth, requireRole(['manager', 'admin']), async (req
             total_amount: computedTotal,
             payment_type: safePayType,
             amount_paid_at_approval: amountPaid,
+            debt_amount: debtAmount,
             due_date_payable: due_date_payable ? new Date(due_date_payable) : undefined,
             reason: reason ? String(reason).trim() : 'Nhập hàng nhanh',
         }], { session });
@@ -808,29 +928,35 @@ router.post('/quick', requireAuth, requireRole(['manager', 'admin']), async (req
         for (const it of normalizedItems) {
             const product = productMap.get(String(it.product_id));
             const addQty = it.quantity * it.ratio;
-            const unitCost = it.unit_cost;
+            const lineUnitCost = it.unit_cost;
+            const baseUnitCost = roundTo4(resolveBaseUnitCostFromLineUnitCost(lineUnitCost, it.ratio));
             const currentQty = Number(product.stock_qty ?? 0);
             const currentCost = Number(product.cost_price || 0);
-            const newQty = currentQty + addQty;
-            const newCostPrice = newQty > 0
-                ? (currentQty * currentCost + addQty * unitCost) / newQty
-                : unitCost;
+            const newCostPrice = computeSafeAverageCost({
+                currentQty,
+                currentCost,
+                addQty,
+                baseUnitCost,
+            });
 
-            await adjustStockFIFO(it.product_id, storeId || req.user.storeId, addQty, {
+            await adjustStockFIFO(it.product_id, resolvedStoreId, addQty, {
                 session,
-                unitCost,
+                unitCost: baseUnitCost,
                 receivedAt: new Date(),
                 receiptId: grDoc._id,
                 note: `Nhập hàng nhanh (Phiếu #${String(grDoc._id).slice(-6).toUpperCase()})`,
-                newCostPrice: Math.round(newCostPrice),
+                newCostPrice,
+                movementType: 'IN_GR',
+                referenceType: 'goods_receipt',
+                referenceId: grDoc._id,
+                actorId: req.user.id,
             });
         }
 
         const paid = amountPaid;
-        const remaining = computedTotal - paid;
+        const remaining = roundTo2(computedTotal - paid);
         let finalDueDate = due_date_payable ? new Date(due_date_payable) : null;
         if (!finalDueDate && safePayType === 'credit') {
-            const supplierDoc = await Supplier.findById(resolvedSupplierId).session(session);
             const termDays = Number(supplierDoc?.default_payment_term_days) || 0;
             if (termDays > 0) {
                 finalDueDate = new Date();
@@ -839,7 +965,7 @@ router.post('/quick', requireAuth, requireRole(['manager', 'admin']), async (req
         }
         const [newPayable] = await SupplierPayable.create([{
             supplier_id: resolvedSupplierId,
-            storeId: storeId || req.user.storeId,
+            storeId: resolvedStoreId,
             source_type: 'goods_receipt',
             source_id: grDoc._id,
             total_amount: computedTotal,
@@ -855,7 +981,7 @@ router.post('/quick', requireAuth, requireRole(['manager', 'admin']), async (req
                 [
                     {
                         supplier_id: resolvedSupplierId,
-                        storeId: storeId || req.user.storeId,
+                        storeId: resolvedStoreId,
                         total_amount: paid,
                         payment_date: new Date(),
                         payment_method: safePaymentMethod,
@@ -877,9 +1003,40 @@ router.post('/quick', requireAuth, requireRole(['manager', 'admin']), async (req
             );
         }
 
+        if (remaining > 0) {
+            const supplierInTx = await Supplier.findOne({ _id: resolvedSupplierId, storeId: resolvedStoreId }).session(session);
+            if (!supplierInTx) {
+                await session.abortTransaction();
+                return res.status(400).json({ message: 'Nhà cung cấp không hợp lệ khi hạch toán công nợ' });
+            }
+            const currentDebt = roundTo2(Number(supplierInTx.current_debt) || 0);
+            const afterDebt = roundTo2(currentDebt + remaining);
+            supplierInTx.current_debt = afterDebt;
+            supplierInTx.updated_at = new Date();
+            await supplierInTx.save({ session });
+            await SupplierDebtHistory.create(
+                [
+                    {
+                        supplier_id: supplierInTx._id,
+                        storeId: resolvedStoreId,
+                        type: 'DEBT_INCREASE_GR',
+                        reference_type: 'goods_receipt',
+                        reference_id: grDoc._id,
+                        before_debt: currentDebt,
+                        change_amount: remaining,
+                        after_debt: afterDebt,
+                        note: `Phát sinh công nợ từ nhập hàng nhanh #${shortReceiptCode(grDoc._id)}`,
+                        actor_id: req.user.id,
+                        created_at: new Date(),
+                    },
+                ],
+                { session }
+            );
+        }
+
         await session.commitTransaction();
 
-        await refreshSupplierPayableCache(resolvedSupplierId, storeId || req.user.storeId);
+        await refreshSupplierPayableCache(resolvedSupplierId, resolvedStoreId);
 
         const saved = await GoodsReceipt.findById(grDoc._id)
             .populate('supplier_id', 'name phone email')

@@ -2,7 +2,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const StockAdjustment = require('../models/StockAdjustment');
 const Stocktake = require('../models/Stocktake');
-const Product = require('../models/Product');
+const { adjustStockFIFO } = require('../utils/inventoryUtils');
 const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
@@ -125,10 +125,18 @@ router.post('/:id/revert', requireAuth, requireRole(['manager', 'admin']), async
       for (const it of adjustment.items || []) {
         const qty = Number(it.adjusted_qty) || 0;
         if (!qty) continue;
-        await Product.findByIdAndUpdate(it.product_id, {
-          $inc: { stock_qty: -qty },
-          updated_at: new Date(),
-        });
+        await adjustStockFIFO(
+          it.product_id,
+          stocktake.storeId || req.user.storeId,
+          -qty,
+          {
+            note: `Hoàn tác điều chỉnh kiểm kê #${String(adjustment._id).slice(-6).toUpperCase()}`,
+            movementType: 'REV_STOCKTAKE',
+            referenceType: 'stock_adjustment',
+            referenceId: adjustment._id,
+            actorId: req.user.id,
+          }
+        );
       }
     }
 
@@ -160,6 +168,12 @@ router.post('/:id/revert', requireAuth, requireRole(['manager', 'admin']), async
       adjustment: populated,
     });
   } catch (err) {
+    if (err?.code === 'INSUFFICIENT_STOCK' || String(err?.message || '') === 'INSUFFICIENT_STOCK') {
+      return res.status(409).json({
+        message: 'Không thể hoàn tác vì tồn kho hiện tại không đủ để đảo ngược điều chỉnh.',
+        code: 'INSUFFICIENT_STOCK',
+      });
+    }
     return res.status(500).json({ message: err.message || 'Server error' });
   }
 });

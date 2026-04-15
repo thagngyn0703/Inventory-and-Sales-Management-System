@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const SalesInvoice = require('../models/SalesInvoice');
 const PaymentTransaction = require('../models/PaymentTransaction');
 const { settlePreviousDebtIfNeeded } = require('../utils/invoiceDebtSettlement');
+const { upsertSystemCashFlow } = require('../utils/cashflowUtils');
 const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
@@ -121,6 +122,17 @@ async function reconcileInvoiceFromSepay(invoice) {
   invoice.payment_status = 'paid';
   invoice.paid_at = new Date();
   await invoice.save();
+  await upsertSystemCashFlow({
+    storeId: invoice.store_id,
+    type: 'INCOME',
+    category: 'SALES',
+    amount: invoice.total_amount,
+    paymentMethod: invoice.payment_method,
+    referenceModel: 'sales_invoice',
+    referenceId: invoice._id,
+    note: `Thu tien hoa don #${String(invoice._id).slice(-6).toUpperCase()} (SePay poll)`,
+    transactedAt: invoice.paid_at || new Date(),
+  });
 
   await settlePreviousDebtIfNeeded(invoice._id);
 
@@ -247,6 +259,17 @@ router.post('/sepay/webhook', express.raw({ type: 'application/json' }), async (
       matchedInvoice.payment_status = 'paid';
       matchedInvoice.paid_at = new Date();
       await matchedInvoice.save();
+      await upsertSystemCashFlow({
+        storeId: matchedInvoice.store_id,
+        type: 'INCOME',
+        category: 'SALES',
+        amount: matchedInvoice.total_amount,
+        paymentMethod: matchedInvoice.payment_method,
+        referenceModel: 'sales_invoice',
+        referenceId: matchedInvoice._id,
+        note: `Thu tien hoa don #${String(matchedInvoice._id).slice(-6).toUpperCase()} (SePay webhook)`,
+        transactedAt: matchedInvoice.paid_at || new Date(),
+      });
 
       await settlePreviousDebtIfNeeded(matchedInvoice._id);
 

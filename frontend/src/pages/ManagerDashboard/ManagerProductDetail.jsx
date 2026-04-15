@@ -5,6 +5,7 @@ import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { Package } from 'lucide-react';
 import { getProduct, setProductStatus } from '../../services/productsApi';
+import { getStockHistories } from '../../services/stockHistoriesApi';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
 import { Badge } from '../../components/ui/badge';
@@ -22,6 +23,14 @@ export default function ManagerProductDetail() {
 
     const [batches, setBatches] = useState([]);
     const [loadingBatches, setLoadingBatches] = useState(false);
+    const [histories, setHistories] = useState([]);
+    const [loadingHistories, setLoadingHistories] = useState(false);
+    const [historyError, setHistoryError] = useState('');
+    const [historyPage, setHistoryPage] = useState(1);
+    const [historyTotalPages, setHistoryTotalPages] = useState(1);
+    const [historyType, setHistoryType] = useState('');
+    const [historyFromDate, setHistoryFromDate] = useState('');
+    const [historyToDate, setHistoryToDate] = useState('');
 
     const user = JSON.parse(localStorage.getItem('user') || '{}');
     const isManager = user.role === 'manager' || user.role === 'admin';
@@ -45,6 +54,29 @@ export default function ManagerProductDetail() {
             .finally(() => setLoadingBatches(false));
     }, [id]);
 
+    useEffect(() => {
+        if (!id) return;
+        setLoadingHistories(true);
+        setHistoryError('');
+        getStockHistories({
+            product_id: id,
+            page: historyPage,
+            limit: 10,
+            type: historyType || undefined,
+            from_date: historyFromDate || undefined,
+            to_date: historyToDate || undefined,
+        })
+            .then((data) => {
+                setHistories(data.histories || []);
+                setHistoryTotalPages(data.totalPages || 1);
+            })
+            .catch((e) => {
+                setHistoryError(e.message || 'Không tải được lịch sử kho');
+                setHistories([]);
+            })
+            .finally(() => setLoadingHistories(false));
+    }, [id, historyPage, historyType, historyFromDate, historyToDate]);
+
     const handleToggleStatus = async () => {
         if (!product || toggling) return;
         const nextStatus = product.status === 'active' ? 'inactive' : 'active';
@@ -63,6 +95,23 @@ export default function ManagerProductDetail() {
     const formatMoney = (n) => {
         if (n == null || isNaN(n)) return '0';
         return Number(n).toLocaleString('vi-VN') + '₫';
+    };
+
+    const getReferencePath = (historyRow) => {
+        const refId = historyRow?.reference_id;
+        if (!refId) return null;
+        switch (String(historyRow?.type || '').toUpperCase()) {
+            case 'OUT_SALES':
+            case 'IN_SALES_RETURN':
+                return `/manager/invoices/${refId}`;
+            case 'IN_GR':
+                return `/manager/receipts/${refId}`;
+            case 'ADJ_STOCKTAKE':
+            case 'REV_STOCKTAKE':
+                return `/manager/stocktakes/${refId}`;
+            default:
+                return null;
+        }
     };
 
     if (loading) {
@@ -246,6 +295,98 @@ export default function ManagerProductDetail() {
                         ) : (
                             <div className="rounded-lg border border-dashed border-slate-200 py-8 text-center">
                                 <p className="text-sm text-slate-400">Chưa có lô hàng nào được ghi nhận cho sản phẩm này.</p>
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+
+                <Card className="xl:col-span-12">
+                    <CardContent className="space-y-4">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Lịch sử kho (Thẻ kho)</h3>
+                            <div className="flex flex-wrap items-center gap-2">
+                                <select
+                                    value={historyType}
+                                    onChange={(e) => { setHistoryType(e.target.value); setHistoryPage(1); }}
+                                    className="h-9 rounded-md border border-slate-300 bg-white px-3 text-sm"
+                                >
+                                    <option value="">Tất cả loại</option>
+                                    <option value="IN_GR">Nhập hàng</option>
+                                    <option value="OUT_SALES">Bán hàng</option>
+                                    <option value="IN_SALES_RETURN">Trả hàng</option>
+                                    <option value="ADJ_STOCKTAKE">Điều chỉnh kiểm kê</option>
+                                    <option value="REV_STOCKTAKE">Hoàn tác kiểm kê</option>
+                                </select>
+                                <input
+                                    type="date"
+                                    value={historyFromDate}
+                                    onChange={(e) => { setHistoryFromDate(e.target.value); setHistoryPage(1); }}
+                                    className="h-9 rounded-md border border-slate-300 bg-white px-3 text-sm"
+                                />
+                                <input
+                                    type="date"
+                                    value={historyToDate}
+                                    onChange={(e) => { setHistoryToDate(e.target.value); setHistoryPage(1); }}
+                                    className="h-9 rounded-md border border-slate-300 bg-white px-3 text-sm"
+                                />
+                            </div>
+                        </div>
+                        {historyError && <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{historyError}</div>}
+                        {loadingHistories ? (
+                            <p className="py-4 text-center text-sm text-slate-400">Đang tải lịch sử kho...</p>
+                        ) : histories.length > 0 ? (
+                            <>
+                                <div className="overflow-x-auto rounded-lg border border-slate-100">
+                                    <table className="w-full text-left text-sm">
+                                        <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                                            <tr>
+                                                <th className="px-4 py-3 font-semibold">Thời gian</th>
+                                                <th className="px-4 py-3 font-semibold">Loại</th>
+                                                <th className="px-4 py-3 font-semibold">Mã chứng từ</th>
+                                                <th className="px-4 py-3 font-semibold text-right">Biến động</th>
+                                                <th className="px-4 py-3 font-semibold text-right">Tồn sau</th>
+                                                <th className="px-4 py-3 font-semibold">Người thao tác</th>
+                                                <th className="px-4 py-3 font-semibold">Ghi chú</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100">
+                                            {histories.map((h) => (
+                                                <tr key={h._id} className="hover:bg-slate-50/50">
+                                                    <td className="px-4 py-3 text-slate-600">{new Date(h.timestamp || h.created_at).toLocaleString('vi-VN')}</td>
+                                                    <td className="px-4 py-3"><Badge variant="outline">{h.type}</Badge></td>
+                                                    <td className="px-4 py-3 font-mono text-xs text-teal-700">
+                                                        {h.reference_code ? (
+                                                            getReferencePath(h) ? (
+                                                                <button
+                                                                    type="button"
+                                                                    className="underline hover:text-teal-500"
+                                                                    onClick={() => navigate(getReferencePath(h))}
+                                                                >
+                                                                    {h.reference_code}
+                                                                </button>
+                                                            ) : h.reference_code
+                                                        ) : '—'}
+                                                    </td>
+                                                    <td className={`px-4 py-3 text-right font-semibold ${String(h.change || '').startsWith('-') ? 'text-rose-700' : 'text-emerald-700'}`}>{h.change}</td>
+                                                    <td className="px-4 py-3 text-right font-semibold text-slate-800">{h.balance}</td>
+                                                    <td className="px-4 py-3 text-slate-600">{h.actor_name || 'Hệ thống'}</td>
+                                                    <td className="px-4 py-3 text-slate-500">{h.note || ''}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <p className="text-xs text-slate-500">Trang {historyPage}/{historyTotalPages}</p>
+                                    <div className="flex gap-2">
+                                        <Button type="button" variant="outline" disabled={historyPage <= 1} onClick={() => setHistoryPage((p0) => Math.max(1, p0 - 1))}>Trước</Button>
+                                        <Button type="button" variant="outline" disabled={historyPage >= historyTotalPages} onClick={() => setHistoryPage((p0) => p0 + 1)}>Sau</Button>
+                                    </div>
+                                </div>
+                            </>
+                        ) : (
+                            <div className="rounded-lg border border-dashed border-slate-200 py-8 text-center">
+                                <p className="text-sm text-slate-400">Chưa có biến động kho cho sản phẩm này theo bộ lọc hiện tại.</p>
                             </div>
                         )}
                     </CardContent>

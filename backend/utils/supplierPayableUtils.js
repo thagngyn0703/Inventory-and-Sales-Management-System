@@ -63,6 +63,7 @@ async function refreshSupplierPayableCache(supplierId, storeId) {
 
     await Supplier.findByIdAndUpdate(supplierId, {
         payable_account: Math.round(totalRemaining * 100) / 100,
+        current_debt: Math.round(totalRemaining * 100) / 100,
         updated_at: new Date(),
     });
 }

@@ -4,8 +4,11 @@ const SupplierPayable = require('../models/SupplierPayable');
 const SupplierPayment = require('../models/SupplierPayment');
 const SupplierPaymentAllocation = require('../models/SupplierPaymentAllocation');
 const Supplier = require('../models/Supplier');
+const SupplierDebtHistory = require('../models/SupplierDebtHistory');
+const SupplierReturn = require('../models/SupplierReturn');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { recalculatePayable, refreshSupplierPayableCache } = require('../utils/supplierPayableUtils');
+const { upsertSystemCashFlow } = require('../utils/cashflowUtils');
 
 const router = express.Router();
 
@@ -18,6 +21,10 @@ function getStoreOidFromUser(req) {
     if (role === 'admin') return null;
     const oid = toOid(req.user?.storeId);
     return oid || '__FORBIDDEN__';
+}
+
+function round2(v) {
+    return Math.round((Number(v) || 0) * 100) / 100;
 }
 
 // ─── GET /api/supplier-payables ─────────────────────────────────────────────
@@ -255,6 +262,24 @@ router.get('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
             })
             .sort({ created_at: -1 })
             .lean();
+        const paymentIds = allocations
+            .map((a) => a.payment_id?._id)
+            .filter((pid) => mongoose.isValidObjectId(pid));
+        const linkedReturns = paymentIds.length
+            ? await SupplierReturn.find({
+                payment_id: { $in: paymentIds },
+                ...(req.user.role === 'admin' ? {} : { storeId: payable.storeId }),
+            })
+                .select('_id payment_id return_date reference_code')
+                .lean()
+            : [];
+        const returnByPayment = new Map(linkedReturns.map((row) => [String(row.payment_id), row]));
+        const allocationsWithRefs = allocations.map((a) => ({
+            ...a,
+            supplier_return: a.payment_id?._id
+                ? (returnByPayment.get(String(a.payment_id._id)) || null)
+                : null,
+        }));
 
         const now = new Date();
         return res.json({
@@ -262,7 +287,7 @@ router.get('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
                 ...payable,
                 is_overdue: payable.remaining_amount > 0 && payable.due_date && new Date(payable.due_date) < now,
             },
-            allocations,
+            allocations: allocationsWithRefs,
         });
     } catch (err) {
         console.error('GET /supplier-payables/:id error:', err);
@@ -297,6 +322,7 @@ router.post('/payments', requireAuth, requireRole(['manager', 'admin']), async (
             return res.status(403).json({ message: 'Tài khoản chưa được gán cửa hàng.', code: 'STORE_REQUIRED' });
         }
         const supplierOid = toOid(supplier_id);
+        const supplierBefore = await Supplier.findById(supplierOid).select('current_debt').lean();
 
         // Lấy các khoản nợ còn dư — FIFO: due_date ASC, created_at ASC
         const openPayables = await SupplierPayable.find({
@@ -364,6 +390,34 @@ router.post('/payments', requireAuth, requireRole(['manager', 'admin']), async (
             await recalculatePayable(pid);
         }
         await refreshSupplierPayableCache(supplierOid, storeOid);
+        const supplierAfter = await Supplier.findById(supplierOid).select('current_debt').lean();
+        const beforeDebt = round2(supplierBefore?.current_debt);
+        const afterDebt = round2(supplierAfter?.current_debt);
+        await SupplierDebtHistory.create({
+            supplier_id: supplierOid,
+            storeId: storeOid,
+            type: 'DEBT_DECREASE_PAYMENT',
+            reference_type: 'supplier_payment',
+            reference_id: payment._id,
+            before_debt: beforeDebt,
+            change_amount: -round2(amount),
+            after_debt: afterDebt,
+            note: note || `Thanh toán công nợ NCC`,
+            actor_id: req.user.id,
+            created_at: new Date(),
+        });
+        await upsertSystemCashFlow({
+            storeId: storeOid,
+            type: 'EXPENSE',
+            category: 'PURCHASE_PAYMENT',
+            amount,
+            paymentMethod: payment.payment_method,
+            referenceModel: 'supplier_payment',
+            referenceId: payment._id,
+            note: `Thanh toan NCC #${String(payment._id).slice(-6).toUpperCase()}`,
+            actorId: req.user.id,
+            transactedAt: payment.payment_date || new Date(),
+        });
 
         const populated = await SupplierPayment.findById(payment._id)
             .populate('supplier_id', 'name')

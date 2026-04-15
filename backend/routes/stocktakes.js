@@ -47,6 +47,9 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
     const productFilter = { _id: { $in: validIds } };
     if (requesterStoreId) productFilter.storeId = requesterStoreId;
     const products = await Product.find(productFilter).lean();
+    if (products.length !== validIds.length) {
+      return res.status(400).json({ message: 'Có sản phẩm không tồn tại hoặc không thuộc phạm vi cửa hàng' });
+    }
     const productMap = new Map(products.map((p) => [String(p._id), p]));
     const items = validIds.map((id) => {
       const p = productMap.get(String(id));
@@ -75,6 +78,12 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
 
     return res.status(201).json({ stocktake: populated });
   } catch (err) {
+    if (err?.code === 'INSUFFICIENT_STOCK' || String(err?.message || '') === 'INSUFFICIENT_STOCK') {
+      return res.status(409).json({
+        message: 'Không thể duyệt kiểm kê vì tồn kho không đủ để trừ theo chênh lệch.',
+        code: 'INSUFFICIENT_STOCK',
+      });
+    }
     return res.status(500).json({ message: err.message || 'Server error' });
   }
 });
@@ -131,10 +140,21 @@ router.post('/:id/approve', requireAuth, requireRole(['manager', 'admin']), asyn
         code: 'STORE_REQUIRED',
       });
     }
-    const stocktake = await Stocktake.findOne({ _id: id, ...storeFilter }).lean();
-    if (!stocktake) return res.status(404).json({ message: 'Stocktake not found' });
-    if (stocktake.status !== 'submitted') {
-      return res.status(400).json({ message: 'Chỉ được duyệt phiếu ở trạng thái Đã gửi' });
+    const stocktake = await Stocktake.findOneAndUpdate(
+      { _id: id, ...storeFilter, status: 'submitted' },
+      {
+        $set: {
+          status: 'completed',
+          completed_at: new Date(),
+          updated_at: new Date(),
+        },
+      },
+      { new: true }
+    ).lean();
+    if (!stocktake) {
+      const existing = await Stocktake.findOne({ _id: id, ...storeFilter }).lean();
+      if (!existing) return res.status(404).json({ message: 'Stocktake not found' });
+      return res.status(400).json({ message: `Phiếu đang ở trạng thái "${existing.status}", không thể xử lý lặp` });
     }
 
     const reasonText = req.body?.reason != null ? String(req.body.reason).trim() : '';
@@ -164,11 +184,14 @@ router.post('/:id/approve', requireAuth, requireRole(['manager', 'admin']), asyn
 
     for (const it of adjustmentItems) {
       await adjustStockFIFO(it.product_id, stocktake.storeId || req.user.storeId, it.adjusted_qty, {
-        note: `Kiểm kê (Phiếu #${id.substring(id.length - 6).toUpperCase()})`
+        note: `Kiểm kê (Phiếu #${id.substring(id.length - 6).toUpperCase()})`,
+        movementType: 'ADJ_STOCKTAKE',
+        referenceType: 'stocktake',
+        referenceId: stocktake._id,
+        actorId: req.user.id,
       });
     }
 
-    await Stocktake.findByIdAndUpdate(id, { status: 'completed', completed_at: new Date(), updated_at: new Date() });
     await emitManagerBadgeRefresh({ storeId: stocktake.storeId ? String(stocktake.storeId) : null });
 
     const populated = await StockAdjustment.findById(adjustment._id)
@@ -179,6 +202,18 @@ router.post('/:id/approve', requireAuth, requireRole(['manager', 'admin']), asyn
 
     return res.json({ adjustment: populated, message: 'Đã duyệt và cập nhật tồn kho' });
   } catch (err) {
+    if (mongoose.isValidObjectId(req.params?.id)) {
+      await Stocktake.findOneAndUpdate(
+        { _id: req.params.id, status: 'completed' },
+        { $set: { status: 'submitted', updated_at: new Date() }, $unset: { completed_at: 1 } }
+      ).catch(() => {});
+    }
+    if (err?.code === 'INSUFFICIENT_STOCK' || String(err?.message || '') === 'INSUFFICIENT_STOCK') {
+      return res.status(409).json({
+        message: 'Không thể duyệt kiểm kê vì tồn kho hiện tại không đủ để trừ theo chênh lệch.',
+        code: 'INSUFFICIENT_STOCK',
+      });
+    }
     return res.status(500).json({ message: err.message || 'Server error' });
   }
 });
@@ -293,6 +328,9 @@ router.patch('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), as
           const pid = row.product_id;
           const actual = row.actual_qty;
           const numActual = actual !== undefined && actual !== null && actual !== '' ? Number(actual) : null;
+          if (numActual !== null && (!Number.isFinite(numActual) || numActual < 0)) {
+            throw new Error(`INVALID_ACTUAL_QTY:${String(pid)}`);
+          }
           return [
             String(pid),
             {
@@ -320,6 +358,10 @@ router.patch('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), as
     }
 
     if (newStatus === 'submitted') {
+      const hasUncountedItem = (doc.items || []).some((it) => it.actual_qty === null || it.actual_qty === undefined);
+      if (hasUncountedItem) {
+        return res.status(400).json({ message: 'Không thể gửi duyệt: cần nhập số lượng thực tế cho tất cả sản phẩm' });
+      }
       doc.status = 'submitted';
     }
     doc.updated_at = new Date();
@@ -343,6 +385,9 @@ router.patch('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), as
 
     return res.json({ stocktake: populated });
   } catch (err) {
+    if (String(err.message || '').startsWith('INVALID_ACTUAL_QTY:')) {
+      return res.status(400).json({ message: 'actual_qty phải là số và không được âm' });
+    }
     return res.status(500).json({ message: err.message || 'Server error' });
   }
 });

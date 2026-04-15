@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { Button } from '../../components/ui/button';
@@ -131,6 +131,7 @@ export default function ManagerSupplierPayableDetail() {
                                 <thead>
                                     <tr className="border-b border-slate-100 bg-slate-50/70 text-xs font-semibold uppercase text-slate-500">
                                         <th className="px-4 py-3 text-left">Ngày</th>
+                                        <th className="px-4 py-3 text-left">Chứng từ</th>
                                         <th className="px-4 py-3 text-right">Số tiền phân bổ</th>
                                         <th className="px-4 py-3 text-left">Hình thức</th>
                                         <th className="px-4 py-3 text-left">Mã tham chiếu</th>
@@ -142,6 +143,18 @@ export default function ManagerSupplierPayableDetail() {
                                     {allocations.map((a) => (
                                         <tr key={a._id} className="hover:bg-slate-50/60">
                                             <td className="px-4 py-3 whitespace-nowrap">{fmtDT(a.payment_id?.payment_date)}</td>
+                                            <td className="px-4 py-3 whitespace-nowrap">
+                                                <div className="flex flex-col gap-1">
+                                                    <Link to="/manager/supplier-payables/report" className="text-xs text-sky-700 hover:underline">
+                                                        Phiếu chi NCC
+                                                    </Link>
+                                                    {a.supplier_return?._id ? (
+                                                        <Link to={`/manager/supplier-returns/${a.supplier_return._id}`} className="text-xs text-teal-700 hover:underline">
+                                                            Phiếu trả NCC
+                                                        </Link>
+                                                    ) : null}
+                                                </div>
+                                            </td>
                                             <td className="px-4 py-3 text-right tabular-nums font-semibold text-emerald-700">{fmt(a.amount)}</td>
                                             <td className="px-4 py-3">{METHOD_LABEL[a.payment_id?.payment_method] ?? a.payment_id?.payment_method ?? '—'}</td>
                                             <td className="px-4 py-3 font-mono text-xs">{a.payment_id?.reference_code || '—'}</td>

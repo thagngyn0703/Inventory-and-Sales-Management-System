@@ -470,6 +470,10 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
         receiptId: gr._id,
         note: 'Nhập kho ban đầu khi tạo sản phẩm',
         newCostPrice: unitCost,
+        movementType: 'IN_GR',
+        referenceType: 'goods_receipt',
+        referenceId: gr._id,
+        actorId: req.user.id,
       });
 
       // Tạo SupplierPayable chỉ khi có NCC được chọn

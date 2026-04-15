@@ -7,6 +7,7 @@ const User = require('../models/User');
 const Store = require('../models/Store');
 const { adjustStockFIFO } = require('../utils/inventoryUtils');
 const { applyCustomerDebtAfterNewInvoice } = require('../utils/customerDebt');
+const { upsertSystemCashFlow } = require('../utils/cashflowUtils');
 const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
@@ -252,7 +253,9 @@ async function adjustInventory(items, direction = -1, storeId = null) {
 
         const quantity = Math.abs(item.quantity || 0);
         await adjustStockFIFO(pid, storeId, quantity * direction, {
-            note: direction === -1 ? 'Bán hàng (Hóa đơn)' : 'Khách trả hàng/Hủy hóa đơn'
+            note: direction === -1 ? 'Bán hàng (Hóa đơn)' : 'Khách trả hàng/Hủy hóa đơn',
+            movementType: direction === -1 ? 'OUT_SALES' : 'IN_SALES_RETURN',
+            referenceType: 'sales_invoice',
         });
     }
 }
@@ -429,6 +432,20 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
         try {
             await syncInventory(invoice, status, normalizedItems);
             await invoice.save();
+            if (invoice.payment_status === 'paid' && invoice.status === 'confirmed') {
+                await upsertSystemCashFlow({
+                    storeId: invoice.store_id,
+                    type: 'INCOME',
+                    category: 'SALES',
+                    amount: invoice.total_amount,
+                    paymentMethod: invoice.payment_method,
+                    referenceModel: 'sales_invoice',
+                    referenceId: invoice._id,
+                    note: `Thu tien hoa don #${String(invoice._id).slice(-6).toUpperCase()}`,
+                    actorId: req.user.id,
+                    transactedAt: invoice.paid_at || invoice.invoice_at || new Date(),
+                });
+            }
 
             const addDebt = method === 'debt' ? totalAmount : 0;
             const payOldDebt =

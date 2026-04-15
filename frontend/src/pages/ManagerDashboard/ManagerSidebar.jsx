@@ -49,6 +49,7 @@ const overviewItems = [
       { label: 'Thêm nhà cung cấp', path: '/manager/suppliers/new', icon: Plus },
       { label: 'Công nợ NCC', path: '/manager/supplier-payables', icon: CreditCard },
       { label: 'Báo cáo chi tiền NCC', path: '/manager/supplier-payables/report', icon: BarChart3 },
+      { label: 'Phiếu trả NCC', path: '/manager/supplier-returns', icon: RotateCcw },
     ],
   },
   { type: 'item', label: 'Khách hàng', path: '/manager/customers', icon: Users },
@@ -82,6 +83,8 @@ const manageItems = [
   { type: 'item', label: 'Phiếu nhập chờ duyệt', path: '/manager/receipts', icon: ClipboardList },
   { type: 'item', label: 'Yêu cầu tạo sản phẩm', path: '/manager/product-requests', icon: FileStack },
   { type: 'item', label: 'Lịch sử điều chỉnh', path: '/manager/adjustments', icon: History },
+  { type: 'item', label: 'Báo cáo thẻ kho', path: '/manager/stock-history', icon: ClipboardList },
+  { type: 'item', label: 'Sổ quỹ', path: '/manager/cashflow', icon: FileText },
   { type: 'item', label: 'Bán hàng trực tiếp', path: '/manager/pos', icon: Drill },
   {
     type: 'group',
@@ -106,6 +109,8 @@ function getActivePath(pathname) {
   if (pathname === '/manager/stocktakes') return '/manager/stocktakes';
   if (pathname.startsWith('/manager/stocktakes/')) return '/manager/stocktakes/pending';
   if (pathname.startsWith('/manager/adjustments/')) return '/manager/adjustments';
+  if (pathname.startsWith('/manager/stock-history')) return '/manager/stock-history';
+  if (pathname.startsWith('/manager/cashflow')) return '/manager/cashflow';
   if (pathname.startsWith('/manager/notifications/')) return '/manager/notifications';
   if (pathname.startsWith('/manager/support')) return '/manager/support';
   if (pathname.startsWith('/manager/suppliers/')) return '/manager/suppliers';
@@ -115,6 +120,7 @@ function getActivePath(pathname) {
   if (pathname.startsWith('/manager/invoices')) return '/manager/invoices';
   if (pathname.startsWith('/manager/supplier-payables/report')) return '/manager/supplier-payables/report';
   if (pathname.startsWith('/manager/supplier-payables')) return '/manager/supplier-payables';
+  if (pathname.startsWith('/manager/supplier-returns')) return '/manager/supplier-returns';
   if (pathname.startsWith('/manager/pos')) return '/manager/pos';
   return pathname;
 }
