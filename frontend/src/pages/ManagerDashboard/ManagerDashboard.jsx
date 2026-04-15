@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { Platform } from 'react-bits/lib/modules/Platform';
+import Chart from 'react-apexcharts';
 import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { LayoutDashboard } from 'lucide-react';
@@ -114,6 +115,12 @@ function toDateStr(d) {
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
+}
+
+function shiftDateStr(baseDate, deltaDays) {
+  const d = new Date(baseDate);
+  d.setDate(d.getDate() + deltaDays);
+  return toDateStr(d);
 }
 
 const PERIOD_OPTIONS = [
@@ -281,6 +288,61 @@ export default function ManagerDashboard() {
   const profitChangePct = today?.profit_change_pct;
   const maxIncoming = Math.max(1, ...(incomingFreq.data || []).map(d => d.total_count));
   const maxReturnReasonAmount = Math.max(1, ...((returnReasons?.data || []).map((d) => d.amount || 0)));
+  const returnReasonColors = {
+    defective: '#ef4444',
+    customer_changed_mind: '#f59e0b',
+    expired: '#8b5cf6',
+    wrong_item: '#3b82f6',
+    other: '#94a3b8',
+  };
+  const pieSeries = (returnReasons?.data || []).map((d) => Number(d.amount || 0));
+  const pieLabels = (returnReasons?.data || []).map((d) => d.reason_label);
+  const pieColors = (returnReasons?.data || []).map((d) => returnReasonColors[d.reason_code] || returnReasonColors.other);
+
+  const pieOptions = {
+    chart: { type: 'pie', toolbar: { show: false }, fontFamily: 'inherit' },
+    labels: pieLabels,
+    colors: pieColors,
+    legend: { position: 'bottom', fontSize: '12px' },
+    dataLabels: {
+      enabled: true,
+      formatter: (_val, opts) => {
+        const amount = pieSeries[opts.seriesIndex] || 0;
+        const total = pieSeries.reduce((s, v) => s + v, 0);
+        const pct = total > 0 ? (amount / total) * 100 : 0;
+        return `${pct.toFixed(1)}%`;
+      },
+    },
+    tooltip: {
+      y: {
+        formatter: (_val, opts) => {
+          const amount = pieSeries[opts.seriesIndex] || 0;
+          const total = pieSeries.reduce((s, v) => s + v, 0);
+          const pct = total > 0 ? (amount / total) * 100 : 0;
+          return `${Number(amount).toLocaleString('vi-VN')}₫ (${pct.toFixed(1)}%)`;
+        },
+      },
+    },
+    stroke: { colors: ['#ffffff'] },
+  };
+
+  const applyReturnQuickFilter = (preset) => {
+    const end = new Date();
+    const to = toDateStr(end);
+    if (preset === '7d') {
+      setSummaryFrom(shiftDateStr(end, -6));
+      setSummaryTo(to);
+      return;
+    }
+    if (preset === '30d') {
+      setSummaryFrom(shiftDateStr(end, -29));
+      setSummaryTo(to);
+      return;
+    }
+    // month
+    setSummaryFrom(toDateStr(new Date(end.getFullYear(), end.getMonth(), 1)));
+    setSummaryTo(to);
+  };
 
   return (
     <ManagerPageFrame>
@@ -936,13 +998,39 @@ export default function ManagerDashboard() {
                   <h2 className="manager-panel-title">Phân tích trả hàng</h2>
                   <p className="manager-panel-subtitle">Phân bổ lý do trả hàng và tỷ lệ trả hàng trên doanh thu</p>
                 </div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    className="manager-select"
+                    style={{ height: 32, minWidth: 68 }}
+                    onClick={() => applyReturnQuickFilter('7d')}
+                  >
+                    7 ngày
+                  </button>
+                  <button
+                    type="button"
+                    className="manager-select"
+                    style={{ height: 32, minWidth: 68 }}
+                    onClick={() => applyReturnQuickFilter('30d')}
+                  >
+                    30 ngày
+                  </button>
+                  <button
+                    type="button"
+                    className="manager-select"
+                    style={{ height: 32, minWidth: 84 }}
+                    onClick={() => applyReturnQuickFilter('month')}
+                  >
+                    Tháng này
+                  </button>
+                </div>
               </div>
               {returnReasonsLoading ? (
                 <p style={{ padding: 16, color: '#9ca3af', fontSize: 14 }}>Đang tải...</p>
               ) : !returnReasons || !Array.isArray(returnReasons.data) || returnReasons.data.length === 0 ? (
                 <p style={{ padding: 16, color: '#9ca3af', fontSize: 14 }}>Chưa có dữ liệu trả hàng trong kỳ.</p>
               ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: 16 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 16 }}>
                   <div className="warehouse-table-wrap">
                     <table className="warehouse-table manager-table" style={{ fontSize: 13 }}>
                       <thead>
@@ -973,7 +1061,10 @@ export default function ManagerDashboard() {
                       </tbody>
                     </table>
                   </div>
-                  <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: 14, background: '#f8fafc' }}>
+                  <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: 14, background: '#f8fafc', display: 'grid', gap: 10 }}>
+                    <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #e2e8f0', padding: 8 }}>
+                      <Chart options={pieOptions} series={pieSeries} type="pie" height={220} />
+                    </div>
                     <p style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>KPI trả hàng trong kỳ</p>
                     <div style={{ fontSize: 14, color: '#334155', display: 'grid', gap: 6 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>

@@ -172,6 +172,72 @@ function aggLineGrossRounded(lineTotalRef, qtyRef, unitCostRef) {
 }
 
 /**
+ * Tổng tiền hoàn hiệu dụng cho phiếu trả hàng.
+ * Ưu tiên total_amount snapshot; fallback dữ liệu cũ: sum(items.qty * items.unit_price).
+ */
+function aggReturnEffectiveGross() {
+  return {
+    $let: {
+      vars: {
+        snapshotGross: { $ifNull: ['$total_amount', 0] },
+        itemsGross: {
+          $sum: {
+            $map: {
+              input: { $ifNull: ['$items', []] },
+              as: 'it',
+              in: {
+                $multiply: [
+                  { $ifNull: ['$$it.quantity', 0] },
+                  { $ifNull: ['$$it.unit_price', 0] },
+                ],
+              },
+            },
+          },
+        },
+      },
+      in: {
+        $cond: [{ $gt: ['$$snapshotGross', 0] }, '$$snapshotGross', '$$itemsGross'],
+      },
+    },
+  };
+}
+
+/**
+ * Doanh thu thuần hoàn hiệu dụng.
+ * Ưu tiên subtotal snapshot; fallback về gross hiệu dụng khi dữ liệu cũ không tách VAT.
+ */
+function aggReturnEffectiveNet() {
+  return {
+    $let: {
+      vars: {
+        snapshotSubtotal: { $ifNull: ['$subtotal_amount', 0] },
+        effectiveGross: aggReturnEffectiveGross(),
+      },
+      in: {
+        $cond: [{ $gt: ['$$snapshotSubtotal', 0] }, '$$snapshotSubtotal', '$$effectiveGross'],
+      },
+    },
+  };
+}
+
+/**
+ * Thuế hoàn hiệu dụng.
+ * Ưu tiên tax snapshot; fallback 0 cho dữ liệu cũ không tách VAT.
+ */
+function aggReturnEffectiveTax() {
+  return {
+    $let: {
+      vars: {
+        snapshotTax: { $ifNull: ['$tax_amount', 0] },
+      },
+      in: {
+        $cond: [{ $gt: ['$$snapshotTax', 0] }, '$$snapshotTax', 0],
+      },
+    },
+  };
+}
+
+/**
  * Unwind dòng hàng → lookup Product → __unitCost: ưu tiên cost_price snapshot trên dòng;
  * nếu snapshot = 0 (đơn cũ / chưa nhập vốn) thì dùng cost_price SP hiện tại để báo cáo biên lãi có ý nghĩa.
  * (Đơn đã chốt vẫn giữ snapshot khi snapshot > 0.)
@@ -473,9 +539,9 @@ router.get(
           {
             $group: {
               _id: null,
-              total_return_gross: { $sum: { $ifNull: ['$total_amount', 0] } },
-              total_return_net: { $sum: { $ifNull: ['$subtotal_amount', '$total_amount'] } },
-              total_return_tax: { $sum: { $ifNull: ['$tax_amount', 0] } },
+              total_return_gross: { $sum: aggReturnEffectiveGross() },
+              total_return_net: { $sum: aggReturnEffectiveNet() },
+              total_return_tax: { $sum: aggReturnEffectiveTax() },
             },
           },
         ]),
@@ -662,14 +728,14 @@ router.get(
             $group: {
               _id: { $ifNull: ['$reason_code', 'other'] },
               count: { $sum: 1 },
-              amount: { $sum: { $ifNull: ['$total_amount', 0] } },
+              amount: { $sum: aggReturnEffectiveGross() },
             },
           },
           { $sort: { amount: -1 } },
         ]),
         SalesReturn.aggregate([
           { $match: returnMatch },
-          { $group: { _id: null, total_return_amount: { $sum: { $ifNull: ['$total_amount', 0] } }, total_return_count: { $sum: 1 } } },
+          { $group: { _id: null, total_return_amount: { $sum: aggReturnEffectiveGross() }, total_return_count: { $sum: 1 } } },
         ]),
         SalesInvoice.aggregate([
           { $match: invoiceMatch },
@@ -920,7 +986,7 @@ router.get(
         {
           $group: {
             _id: { $dateToString: { format: groupBy === 'day' ? '%Y-%m-%d' : '%Y-%m', date: '$return_at', timezone: REPORT_TZ } },
-            revenue: { $sum: { $ifNull: ['$total_amount', 0] } },
+            revenue: { $sum: aggReturnEffectiveGross() },
           },
         },
         { $sort: { _id: 1 } },
