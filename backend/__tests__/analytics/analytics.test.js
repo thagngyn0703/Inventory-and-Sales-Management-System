@@ -255,6 +255,81 @@ describe('Analytics Routes', () => {
     });
   });
 
+  describe('GET /api/analytics/return-reasons', () => {
+    it('should return grouped return reasons and return_rate_by_revenue', async () => {
+      const product = await Product.create({
+        name: 'SP return reasons',
+        sku: `SKU-RSN-${Date.now()}`,
+        category_id: null,
+        supplier_id: null,
+        storeId: managerWithStore.store._id,
+        cost_price: 70,
+        sale_price: 110,
+        stock_qty: 10,
+        reorder_level: 1,
+        status: 'active',
+      });
+
+      const invoice = await SalesInvoice.create({
+        store_id: managerWithStore.store._id,
+        recipient_name: 'Khach test',
+        created_by: managerWithStore.manager._id,
+        status: 'confirmed',
+        invoice_at: new Date(),
+        payment_method: 'cash',
+        payment_status: 'paid',
+        items: [
+          {
+            line_id: 'LINE-RSN-1',
+            product_id: product._id,
+            quantity: 1,
+            unit_price: 110,
+            cost_price: 70,
+            discount: 0,
+            line_total: 110,
+            line_profit: 40,
+          },
+        ],
+        total_amount: 110,
+        subtotal_amount: 100,
+        tax_amount: 10,
+        tax_rate_snapshot: 10,
+      });
+
+      await SalesReturn.create({
+        store_id: managerWithStore.store._id,
+        invoice_id: invoice._id,
+        created_by: managerWithStore.manager._id,
+        status: 'approved',
+        return_at: new Date(),
+        reason_code: 'defective',
+        reason: 'Loi NSX',
+        items: [
+          {
+            product_id: product._id,
+            quantity: 1,
+            unit_price: 110,
+            disposition: 'restock',
+          },
+        ],
+        total_amount: 110,
+        subtotal_amount: 100,
+        tax_amount: 10,
+        tax_rate_snapshot: 10,
+      });
+
+      const res = await request(app)
+        .get('/api/analytics/return-reasons')
+        .set(getAuthHeader(managerWithStore.manager));
+
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body.data)).toBe(true);
+      expect(res.body.total_return_amount).toBe(110);
+      expect(res.body.return_rate_by_revenue).toBe(100);
+      expect(res.body.data.some((r) => r.reason_code === 'defective')).toBe(true);
+    });
+  });
+
   // ==================== Top Products ====================
   describe('GET /api/analytics/top-products', () => {
     it('should return top products', async () => {

@@ -575,6 +575,7 @@ router.get(
       // Giữ lại gross_profit_estimate (dựa GoodsReceipt) để tham khảo
       const grossProfitEstimate = revenue - incomingCost;
       const returnRate = orderCount > 0 ? Math.round((returnCount / orderCount) * 10000) / 100 : 0;
+      const returnRateByRevenue = salesRevenue > 0 ? Math.round((returnGross / salesRevenue) * 10000) / 100 : 0;
       const avgOrderValue = orderCount > 0 ? Math.round(revenue / orderCount) : 0;
 
       const todayRevenue = todayAgg[0]?.revenue ?? 0;
@@ -598,7 +599,9 @@ router.get(
         order_count: orderCount,
         avg_order_value: avgOrderValue,
         return_count: returnCount,
+        return_amount: returnGross,
         return_rate: returnRate,
+        return_rate_by_revenue: returnRateByRevenue,
         incoming_cost: incomingCost,
         supplier_payment_total: supplierPaymentTotal,
         supplier_payment_cash: supplierPaymentCash,
@@ -620,6 +623,87 @@ router.get(
           profit_change_pct: profitChangePct,
           yesterday_profit: yesterdayProfit,
         },
+      });
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ message: err.message || 'Server error' });
+    }
+  }
+);
+
+/**
+ * GET /api/analytics/return-reasons?from=YYYY-MM-DD&to=YYYY-MM-DD
+ * Phân tích lý do trả hàng theo reason_code trong kỳ.
+ */
+router.get(
+  '/return-reasons',
+  requireAuth,
+  requireRole(['manager', 'admin']),
+  async (req, res) => {
+    try {
+      const { from, to } = parseDateRange(req.query);
+      const storeIdObj = req.user?.storeId ? new mongoose.Types.ObjectId(req.user.storeId) : null;
+      const role = String(req.user?.role || '').toLowerCase();
+      if (role !== 'admin' && !storeIdObj) {
+        return res.status(403).json({ message: 'Chưa có cửa hàng', code: 'STORE_REQUIRED' });
+      }
+
+      const returnMatch = storeIdObj
+        ? { store_id: storeIdObj, status: 'approved', return_at: { $gte: from, $lte: to } }
+        : { status: 'approved', return_at: { $gte: from, $lte: to } };
+      const invoiceMatch = storeIdObj
+        ? { store_id: storeIdObj, status: 'confirmed', invoice_at: { $gte: from, $lte: to }, ...PAID_TRANSFER_FILTER }
+        : { status: 'confirmed', invoice_at: { $gte: from, $lte: to }, ...PAID_TRANSFER_FILTER };
+
+      const [reasonAgg, returnSumAgg, salesAgg] = await Promise.all([
+        SalesReturn.aggregate([
+          { $match: returnMatch },
+          {
+            $group: {
+              _id: { $ifNull: ['$reason_code', 'other'] },
+              count: { $sum: 1 },
+              amount: { $sum: { $ifNull: ['$total_amount', 0] } },
+            },
+          },
+          { $sort: { amount: -1 } },
+        ]),
+        SalesReturn.aggregate([
+          { $match: returnMatch },
+          { $group: { _id: null, total_return_amount: { $sum: { $ifNull: ['$total_amount', 0] } }, total_return_count: { $sum: 1 } } },
+        ]),
+        SalesInvoice.aggregate([
+          { $match: invoiceMatch },
+          { $group: { _id: null, total_revenue: { $sum: { $ifNull: ['$total_amount', 0] } } } },
+        ]),
+      ]);
+
+      const labelMap = {
+        customer_changed_mind: 'Khách đổi ý',
+        defective: 'Lỗi nhà sản xuất',
+        expired: 'Hết hạn sử dụng',
+        wrong_item: 'Giao sai hàng',
+        other: 'Lý do khác',
+      };
+      const totalReturnAmount = returnSumAgg[0]?.total_return_amount ?? 0;
+      const totalReturnCount = returnSumAgg[0]?.total_return_count ?? 0;
+      const totalRevenue = salesAgg[0]?.total_revenue ?? 0;
+      const returnRateByRevenue = totalRevenue > 0 ? Math.round((totalReturnAmount / totalRevenue) * 10000) / 100 : 0;
+
+      const data = (reasonAgg || []).map((r) => ({
+        reason_code: r._id || 'other',
+        reason_label: labelMap[r._id] || labelMap.other,
+        count: r.count || 0,
+        amount: r.amount || 0,
+        ratio_by_amount: totalReturnAmount > 0 ? Math.round(((r.amount || 0) / totalReturnAmount) * 10000) / 100 : 0,
+      }));
+
+      return res.json({
+        period: { from: from.toISOString(), to: to.toISOString() },
+        total_return_amount: totalReturnAmount,
+        total_return_count: totalReturnCount,
+        total_revenue: totalRevenue,
+        return_rate_by_revenue: returnRateByRevenue,
+        data,
       });
     } catch (err) {
       console.error(err);

@@ -122,12 +122,12 @@ export async function getStoreTaxSettings() {
   return parseJson(res, 'Không thể tải cấu hình thuế');
 }
 
-export async function updateStoreTaxSettings({ tax_rate, price_includes_tax }) {
+export async function updateStoreTaxSettings({ business_type, tax_rate, price_includes_tax }) {
   const token = getToken();
   const res = await fetch(`${apiPath('/store-settings/tax')}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ tax_rate, price_includes_tax }),
+    body: JSON.stringify({ business_type, tax_rate, price_includes_tax }),
   });
   return parseJson(res, 'Không thể cập nhật cấu hình thuế');
 }

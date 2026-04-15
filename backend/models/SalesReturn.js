@@ -40,6 +40,12 @@ const salesReturnSchema = new Schema(
             type: String,
             trim: true,
         },
+        reason_code: {
+            type: String,
+            enum: ['customer_changed_mind', 'defective', 'expired', 'wrong_item', 'other'],
+            default: 'other',
+            index: true,
+        },
         items: [
             {
                 product_id: {

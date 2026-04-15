@@ -10,6 +10,7 @@ import {
   getInventorySnapshot,
   getRevenueChart,
   getTopProducts,
+  getReturnReasonsAnalytics,
 } from '../../services/analyticsApi';
 import { getSupplierPayableSummary } from '../../services/supplierPayablesApi';
 import RevenueProfitChart from './RevenueProfitChart';
@@ -157,6 +158,8 @@ export default function ManagerDashboard() {
   const [incomingFreq, setIncomingFreq] = useState({ data: [] });
   const [incomingLoading, setIncomingLoading] = useState(false);
   const [incomingError, setIncomingError] = useState('');
+  const [returnReasons, setReturnReasons] = useState(null);
+  const [returnReasonsLoading, setReturnReasonsLoading] = useState(true);
 
   // Supplier payable summary
   const [payableSummary, setPayableSummary] = useState(null);
@@ -250,6 +253,18 @@ export default function ManagerDashboard() {
     }
   }, [incomingYear, incomingMonth]);
 
+  const fetchReturnReasons = useCallback(async () => {
+    setReturnReasonsLoading(true);
+    try {
+      const data = await getReturnReasonsAnalytics({ from: summaryFrom, to: summaryTo });
+      setReturnReasons(data);
+    } catch {
+      setReturnReasons(null);
+    } finally {
+      setReturnReasonsLoading(false);
+    }
+  }, [summaryFrom, summaryTo]);
+
   useEffect(() => { fetchSummary(); }, [fetchSummary]);
   useEffect(() => { fetchInventory(); }, [fetchInventory]);
   useEffect(() => { fetchPayableSummary(); }, [fetchPayableSummary]);
@@ -257,6 +272,7 @@ export default function ManagerDashboard() {
   useEffect(() => { fetchTopProducts(); }, [fetchTopProducts]);
   useEffect(() => { fetchTopProfitProducts(); }, [fetchTopProfitProducts]);
   useEffect(() => { fetchIncomingFrequency(); }, [fetchIncomingFrequency]);
+  useEffect(() => { fetchReturnReasons(); }, [fetchReturnReasons]);
 
   // ── Derived ──
   const today = summary?.today;
@@ -264,6 +280,7 @@ export default function ManagerDashboard() {
   const orderDelta = today?.order_change_delta;
   const profitChangePct = today?.profit_change_pct;
   const maxIncoming = Math.max(1, ...(incomingFreq.data || []).map(d => d.total_count));
+  const maxReturnReasonAmount = Math.max(1, ...((returnReasons?.data || []).map((d) => d.amount || 0)));
 
   return (
     <ManagerPageFrame>
@@ -908,6 +925,73 @@ export default function ManagerDashboard() {
                     </div>
                   )
               }
+            </div>
+          </div>
+
+          {/* ── Row 5: Phân tích trả hàng ── */}
+          <div className="manager-cards-row manager-cards-row--1">
+            <div className="manager-panel-card">
+              <div className="manager-panel-header manager-panel-header--space">
+                <div>
+                  <h2 className="manager-panel-title">Phân tích trả hàng</h2>
+                  <p className="manager-panel-subtitle">Phân bổ lý do trả hàng và tỷ lệ trả hàng trên doanh thu</p>
+                </div>
+              </div>
+              {returnReasonsLoading ? (
+                <p style={{ padding: 16, color: '#9ca3af', fontSize: 14 }}>Đang tải...</p>
+              ) : !returnReasons || !Array.isArray(returnReasons.data) || returnReasons.data.length === 0 ? (
+                <p style={{ padding: 16, color: '#9ca3af', fontSize: 14 }}>Chưa có dữ liệu trả hàng trong kỳ.</p>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: 16 }}>
+                  <div className="warehouse-table-wrap">
+                    <table className="warehouse-table manager-table" style={{ fontSize: 13 }}>
+                      <thead>
+                        <tr>
+                          <th>Lý do</th>
+                          <th style={{ textAlign: 'right' }}>Số phiếu</th>
+                          <th style={{ textAlign: 'right' }}>Giá trị hoàn</th>
+                          <th>Tỷ trọng</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {returnReasons.data.map((row) => (
+                          <tr key={row.reason_code}>
+                            <td style={{ fontWeight: 600 }}>{row.reason_label}</td>
+                            <td style={{ textAlign: 'right' }}>{(row.count || 0).toLocaleString('vi-VN')}</td>
+                            <td style={{ textAlign: 'right', fontWeight: 700, color: '#dc2626' }}>{fmtVND(row.amount)}</td>
+                            <td>
+                              <div className="manager-freq-bar-wrap">
+                                <div
+                                  className="manager-freq-bar"
+                                  style={{ width: `${((row.amount || 0) / maxReturnReasonAmount) * 100}%`, background: '#ef4444' }}
+                                />
+                                <span className="manager-freq-bar-label">{(row.ratio_by_amount || 0).toFixed(1)}%</span>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: 14, background: '#f8fafc' }}>
+                    <p style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>KPI trả hàng trong kỳ</p>
+                    <div style={{ fontSize: 14, color: '#334155', display: 'grid', gap: 6 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>Tổng phiếu trả</span>
+                        <strong>{(returnReasons.total_return_count || 0).toLocaleString('vi-VN')}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>Tổng tiền hoàn</span>
+                        <strong style={{ color: '#dc2626' }}>{fmtVND(returnReasons.total_return_amount)}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>Tỷ lệ trả/Doanh thu</span>
+                        <strong style={{ color: '#b91c1c' }}>{(returnReasons.return_rate_by_revenue || 0).toFixed(2)}%</strong>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

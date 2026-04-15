@@ -7,6 +7,13 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 const { adjustCustomerDebtAccount } = require('../utils/customerDebt');
 
 const router = express.Router();
+const RETURN_REASON_OPTIONS = [
+    { code: 'customer_changed_mind', label: 'Khách đổi ý' },
+    { code: 'defective', label: 'Lỗi nhà sản xuất' },
+    { code: 'expired', label: 'Hết hạn sử dụng' },
+    { code: 'wrong_item', label: 'Giao sai hàng' },
+    { code: 'other', label: 'Lý do khác' },
+];
 
 function assertStoreScope(req, res) {
     const role = String(req.user?.role || '').toLowerCase();
@@ -22,14 +29,47 @@ function assertStoreScope(req, res) {
  * Tính tách thuế cho trả hàng từ tổng hoàn (gross) dựa trên snapshot của hóa đơn gốc.
  * Phase 1: dùng tỷ lệ subtotal/total của hóa đơn để đảm bảo hoàn cả tiền hàng và VAT.
  */
-function computeReturnTaxBreakdown(grossTotal, invoice) {
+function computeReturnTaxBreakdown(grossTotal, invoice, previousTotals = {}) {
     const gross = Number(grossTotal) || 0;
     const invoiceTotal = Number(invoice?.total_amount) || 0;
     const invoiceSubtotal = Number(invoice?.subtotal_amount);
+    const invoiceTax = Number(invoice?.tax_amount) || 0;
+    const previousGross = Number(previousTotals?.gross) || 0;
+    const previousSubtotal = Number(previousTotals?.subtotal) || 0;
+    const previousTax = Number(previousTotals?.tax) || 0;
     const hasNetSnapshot = Number.isFinite(invoiceSubtotal) && invoiceSubtotal >= 0 && invoiceTotal > 0;
-    const ratio = hasNetSnapshot ? invoiceSubtotal / invoiceTotal : 1;
-    const subtotal = Math.round(gross * ratio);
-    const tax = gross - subtotal;
+
+    if (!hasNetSnapshot) {
+        return {
+            total_amount: gross,
+            subtotal_amount: gross,
+            tax_amount: 0,
+            tax_rate_snapshot: Number(invoice?.tax_rate_snapshot) || 0,
+        };
+    }
+
+    const ratio = invoiceSubtotal / invoiceTotal;
+    const remainingGross = Math.max(0, invoiceTotal - previousGross);
+    const remainingSubtotal = Math.max(0, invoiceSubtotal - previousSubtotal);
+    const remainingTax = Math.max(0, invoiceTax - previousTax);
+
+    // Nếu đây là phần hoàn cuối cùng, khóa số liệu về đúng snapshot còn lại
+    if (gross >= remainingGross) {
+        return {
+            total_amount: gross,
+            subtotal_amount: remainingSubtotal,
+            tax_amount: gross - remainingSubtotal,
+            tax_rate_snapshot: Number(invoice?.tax_rate_snapshot) || 0,
+        };
+    }
+
+    let subtotal = Math.round(gross * ratio);
+    subtotal = Math.min(Math.max(0, subtotal), remainingSubtotal);
+    let tax = gross - subtotal;
+    if (tax > remainingTax) {
+        tax = remainingTax;
+        subtotal = gross - tax;
+    }
     return {
         total_amount: gross,
         subtotal_amount: subtotal,
@@ -79,10 +119,15 @@ router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (
     }
 });
 
+// GET /api/returns/reasons — danh mục lý do trả hàng chuẩn hóa
+router.get('/reasons', requireAuth, requireRole(['staff', 'manager', 'admin']), async (_req, res) => {
+    return res.json({ reasons: RETURN_REASON_OPTIONS });
+});
+
 // POST /api/returns — trả hàng; luôn cộng số lượng trả lại vào tồn kho
 router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     if (!assertStoreScope(req, res)) return;
-    const { invoice_id, items: reqItems, reason } = req.body || {};
+    const { invoice_id, items: reqItems, reason, reason_code } = req.body || {};
 
     if (!invoice_id) {
         return res.status(400).json({ message: '[TC_INV_018] invoice_id is required' });
@@ -91,66 +136,98 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
         return res.status(400).json({ message: 'items are required' });
     }
 
-    const session = await mongoose.startSession();
-    session.startTransaction();
     try {
-        const invoice = await SalesInvoice.findById(invoice_id).populate('customer_id').session(session);
+        const invoice = await SalesInvoice.findById(invoice_id).populate('customer_id');
         if (!invoice) {
-            await session.abortTransaction();
-            session.endSession();
             return res.status(404).json({ message: '[TC_INV_019] Invoice not found (Không tìm thấy hóa đơn)' });
         }
 
         if (invoice.status === 'cancelled') {
-            await session.abortTransaction();
-            session.endSession();
             return res.status(400).json({ message: 'Hóa đơn này đã được hủy hoặc đã trả hàng trước đó.' });
         }
 
-        const soldItemsMap = new Map();
+        const soldQtyMap = new Map();
+        const soldGrossMap = new Map();
         (invoice.items || []).forEach((item) => {
             const pid = item.product_id?._id?.toString() || item.product_id?.toString();
-            soldItemsMap.set(pid, (soldItemsMap.get(pid) || 0) + (item.quantity || 0));
+            const qty = Number(item.quantity) || 0;
+            const gross = Number(item.line_total) || 0;
+            soldQtyMap.set(pid, (soldQtyMap.get(pid) || 0) + qty);
+            soldGrossMap.set(pid, (soldGrossMap.get(pid) || 0) + gross);
         });
 
         const userRole = String(req.user?.role || '').toLowerCase();
         if (userRole !== 'admin' && req.user.storeId && invoice.store_id && String(invoice.store_id) !== String(req.user.storeId)) {
-            await session.abortTransaction();
-            session.endSession();
             return res.status(403).json({ message: 'Access denied: different store' });
         }
 
-        let returnItems = [];
-        let firstSupplierId = null;
-        let returnTotalAmount = 0;
+        const reasonCode = reason_code || 'other';
+        const isReasonCodeValid = RETURN_REASON_OPTIONS.some((item) => item.code === reasonCode);
+        if (!isReasonCodeValid) {
+            return res.status(400).json({ message: 'reason_code không hợp lệ.' });
+        }
 
+        const approvedReturns = await SalesReturn.find({
+            invoice_id,
+            status: 'approved',
+        }).select('items total_amount subtotal_amount tax_amount').lean();
+
+        const returnedQtyMap = new Map();
+        const returnedGrossMap = new Map();
+        let previousReturnGross = 0;
+        let previousReturnSubtotal = 0;
+        let previousReturnTax = 0;
+        for (const rt of approvedReturns) {
+            previousReturnGross += Number(rt.total_amount) || 0;
+            previousReturnSubtotal += Number(rt.subtotal_amount) || 0;
+            previousReturnTax += Number(rt.tax_amount) || 0;
+            (rt.items || []).forEach((item) => {
+                const pid = item.product_id?.toString();
+                if (!pid) return;
+                const qty = Number(item.quantity) || 0;
+                returnedQtyMap.set(pid, (returnedQtyMap.get(pid) || 0) + qty);
+                const gross = (Number(item.unit_price) || 0) * qty;
+                returnedGrossMap.set(pid, (returnedGrossMap.get(pid) || 0) + gross);
+            });
+        }
+
+        const reqQtyMap = new Map();
         for (const it of reqItems) {
             const reqPid = it.product_id?.toString();
             const reqQty = Number(it.quantity) || 0;
-
             if (!reqPid || reqQty <= 0) {
                 const err = new Error('Dữ liệu sản phẩm trả lại không hợp lệ.');
                 err.status = 400;
                 throw err;
             }
+            reqQtyMap.set(reqPid, (reqQtyMap.get(reqPid) || 0) + reqQty);
+        }
 
-            const soldQty = soldItemsMap.get(reqPid) || 0;
+        let returnItems = [];
+        let firstSupplierId = null;
+        let returnTotalAmount = 0;
+        const reqEntries = Array.from(reqQtyMap.entries());
+        for (let idx = 0; idx < reqEntries.length; idx += 1) {
+            const [reqPid, reqQty] = reqEntries[idx];
+            const soldQty = soldQtyMap.get(reqPid) || 0;
+            const alreadyReturnedQty = returnedQtyMap.get(reqPid) || 0;
+            const remainingQty = soldQty - alreadyReturnedQty;
             if (soldQty === 0) {
                 const err = new Error('[TC_INV_021] Product not in invoice (Sản phẩm không tồn tại trong hóa đơn bán hàng gốc)');
                 err.status = 400;
                 throw err;
             }
-            if (reqQty > soldQty) {
+            if (reqQty > remainingQty) {
                 const err = new Error(
-                    `[TC_INV_020] Return more than sold (Số lượng trả ${reqQty} vượt quá số lượng đã mua ${soldQty})`
+                    `[TC_INV_020] Return more than sold (Số lượng trả ${reqQty} vượt quá số lượng còn có thể trả ${remainingQty})`
                 );
                 err.status = 400;
                 throw err;
             }
 
-            const product = await Product.findById(it.product_id).session(session);
+            const product = await Product.findById(reqPid);
             if (!product) {
-                const err = new Error(`Không tìm thấy sản phẩm trong kho: ${it.product_id}`);
+                const err = new Error(`Không tìm thấy sản phẩm trong kho: ${reqPid}`);
                 err.status = 400;
                 throw err;
             }
@@ -159,20 +236,32 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
                 firstSupplierId = product.supplier_id;
             }
 
-            returnTotalAmount += (Number(it.unit_price) || 0) * reqQty;
+            const soldGross = soldGrossMap.get(reqPid) || 0;
+            const returnedGross = returnedGrossMap.get(reqPid) || 0;
+            const remainingGross = Math.max(0, soldGross - returnedGross);
+            const proportionalGross = Math.round((soldGross * reqQty) / soldQty);
+            const lineGross = idx === reqEntries.length - 1
+                ? Math.min(remainingGross, proportionalGross)
+                : Math.min(remainingGross, proportionalGross);
+            returnTotalAmount += lineGross;
 
             product.stock_qty = (Number(product.stock_qty) || 0) + reqQty;
-            await product.save({ session });
+            await product.save();
 
             returnItems.push({
-                product_id: it.product_id,
+                product_id: reqPid,
                 quantity: reqQty,
-                unit_price: it.unit_price || 0,
+                // Snapshot đơn giá hoàn theo giá trị thực tế còn lại từ hóa đơn gốc
+                unit_price: reqQty > 0 ? Number((lineGross / reqQty).toFixed(2)) : 0,
                 disposition: 'restock',
             });
         }
 
-        const taxBreakdown = computeReturnTaxBreakdown(returnTotalAmount, invoice);
+        const taxBreakdown = computeReturnTaxBreakdown(returnTotalAmount, invoice, {
+            gross: previousReturnGross,
+            subtotal: previousReturnSubtotal,
+            tax: previousReturnTax,
+        });
 
         const salesReturn = new SalesReturn({
             store_id: req.user.storeId || invoice.store_id || null,
@@ -186,23 +275,27 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
             tax_amount: taxBreakdown.tax_amount,
             tax_rate_snapshot: taxBreakdown.tax_rate_snapshot,
             reason: reason || 'Khách trả hàng',
+            reason_code: reasonCode,
             status: 'approved',
         });
 
-        await salesReturn.save({ session });
+        await salesReturn.save();
 
-        invoice.status = 'cancelled';
-        await invoice.save({ session });
+        const cumulativeReturnGross = previousReturnGross + returnTotalAmount;
+        const cumulativeReturnSubtotal = previousReturnSubtotal + taxBreakdown.subtotal_amount;
+        const cumulativeReturnTax = previousReturnTax + taxBreakdown.tax_amount;
+        invoice.status = cumulativeReturnGross >= (Number(invoice.total_amount) || 0) ? 'cancelled' : 'confirmed';
+        invoice.returned_total_amount = cumulativeReturnGross;
+        invoice.returned_subtotal_amount = cumulativeReturnSubtotal;
+        invoice.returned_tax_amount = cumulativeReturnTax;
+        await invoice.save();
 
         if (invoice.payment_method === 'debt') {
             const customerId = invoice.customer_id?._id || invoice.customer_id;
             if (customerId) {
-                await adjustCustomerDebtAccount(customerId, -returnTotalAmount, { session });
+                await adjustCustomerDebtAccount(customerId, -returnTotalAmount, {});
             }
         }
-
-        await session.commitTransaction();
-        session.endSession();
 
         const populated = await SalesReturn.findById(salesReturn._id)
             .populate('invoice_id', '_id recipient_name total_amount invoice_at')
@@ -213,10 +306,13 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
         return res.status(201).json({
             message: 'Trả hàng thành công',
             salesReturn: populated,
+            invoice_returned_totals: {
+                returned_total_amount: invoice.returned_total_amount || 0,
+                returned_subtotal_amount: invoice.returned_subtotal_amount || 0,
+                returned_tax_amount: invoice.returned_tax_amount || 0,
+            },
         });
     } catch (err) {
-        await session.abortTransaction();
-        session.endSession();
         console.error('Sales Return Error:', err);
         return res.status(err.status || 400).json({
             message: err.message || 'Lỗi hệ thống khi thực hiện trả hàng',
@@ -227,3 +323,4 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
 
 module.exports = router;
 module.exports.computeReturnTaxBreakdown = computeReturnTaxBreakdown;
+module.exports.RETURN_REASON_OPTIONS = RETURN_REASON_OPTIONS;

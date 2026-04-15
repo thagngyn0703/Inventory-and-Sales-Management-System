@@ -85,7 +85,7 @@ export default function POSContainer({
   const bankCode = String(configuredBankCode || 'MB').toUpperCase();
   const bankAccountNumber = String(configuredAccountNumber || '0000000000');
 
-  const [storeTax, setStoreTax] = useState({ tax_rate: 0, price_includes_tax: true });
+  const [storeTax, setStoreTax] = useState({ business_type: 'ho_kinh_doanh', tax_rate: 0, price_includes_tax: true });
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -182,6 +182,7 @@ export default function POSContainer({
     (invoice, tab) => {
       const printWindow = window.open('', '_blank');
       if (!printWindow) return;
+      const isHKD = (storeTax.business_type || 'ho_kinh_doanh') === 'ho_kinh_doanh';
       const sellerLine = tab._sellerName
         ? `<strong>Người bán:</strong> ${tab._sellerName}${tab._sellerRole ? ` (${tab._sellerRole})` : ''}<br/>`
         : '';
@@ -191,12 +192,12 @@ export default function POSContainer({
         <head>
           <title>In Hóa Đơn - ${invoice._id}</title>
           <style>
-            body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 20px; font-size: 14px; color: #000; }
+            body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: ${isHKD ? '24px' : '20px'}; font-size: ${isHKD ? '15px' : '14px'}; color: #000; }
             h2 { text-align: center; margin-bottom: 5px; font-size: 20px; }
             .header-info { text-align: center; margin-bottom: 20px; font-size: 13px; color: #555; }
             .invoice-details { margin-bottom: 20px; line-height: 1.5; }
             table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-            th, td { border-bottom: 1px dashed #ccc; padding: 8px 4px; text-align: left; }
+            th, td { border-bottom: 1px dashed #ccc; padding: ${isHKD ? '10px 6px' : '8px 4px'}; text-align: left; }
             th { border-bottom: 2px solid #000; }
             .text-right { text-align: right; }
             .total-row { font-weight: bold; font-size: 16px; margin-top: 10px; }
@@ -230,7 +231,7 @@ export default function POSContainer({
               <tr>
                 <th>Tên hàng</th>
                 <th class="text-right">SL</th>
-                <th class="text-right">Đơn giá</th>
+                ${isHKD ? '' : '<th class="text-right">Đơn giá</th>'}
                 <th class="text-right">Thành tiền</th>
               </tr>
             </thead>
@@ -241,7 +242,7 @@ export default function POSContainer({
                 <tr>
                   <td>${item.name || 'Sản phẩm'}</td>
                   <td class="text-right">${item.quantity}</td>
-                  <td class="text-right">${Number(item.unit_price || 0).toLocaleString('vi-VN')}₫</td>
+                  ${isHKD ? '' : `<td class="text-right">${Number(item.unit_price || 0).toLocaleString('vi-VN')}₫</td>`}
                   <td class="text-right">${Number(item.line_total || 0).toLocaleString('vi-VN')}₫</td>
                 </tr>`
                 )
@@ -252,11 +253,11 @@ export default function POSContainer({
             const rate = invoice.tax_rate_snapshot || 0;
             const tax = invoice.tax_amount || 0;
             const subtotal = invoice.subtotal_amount || invoice.total_amount || 0;
-            if (rate > 0) {
+            if (!isHKD && rate > 0) {
               return `<div class="text-right" style="margin-top:8px;">Tạm tính: ${Number(subtotal).toLocaleString('vi-VN')}₫</div>
               <div class="text-right" style="color:#64748b;">VAT (${rate}%): ${Number(tax).toLocaleString('vi-VN')}₫</div>`;
             }
-            return `<div class="text-right">Tổng tiền hàng: ${Number(invoice.total_amount || 0).toLocaleString('vi-VN')}₫</div>`;
+            return `<div class="text-right">${isHKD ? 'Tổng tiền hàng (HKD):' : 'Tổng tiền hàng:'} ${Number(invoice.total_amount || 0).toLocaleString('vi-VN')}₫</div>`;
           })()}
           <div class="text-right total-row">
             TỔNG CỘNG: ${Number(invoice.total_amount || 0).toLocaleString('vi-VN')}₫
@@ -283,7 +284,7 @@ export default function POSContainer({
       printWindow.document.write(html);
       printWindow.document.close();
     },
-    [storeName]
+    [storeName, storeTax.business_type]
   );
 
   const startPolling = useCallback(
@@ -387,7 +388,13 @@ export default function POSContainer({
 
   useEffect(() => {
     getStoreTaxSettings()
-      .then((data) => setStoreTax({ tax_rate: data.tax_rate, price_includes_tax: data.price_includes_tax }))
+      .then((data) =>
+        setStoreTax({
+          business_type: data.business_type || 'ho_kinh_doanh',
+          tax_rate: data.tax_rate ?? 0,
+          price_includes_tax: data.price_includes_tax !== false,
+        })
+      )
       .catch(() => {});
   }, []);
 

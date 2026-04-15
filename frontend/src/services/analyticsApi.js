@@ -81,6 +81,19 @@ export async function getTopProducts({ from, to, limit = 10, sort } = {}) {
 }
 
 /**
+ * Phân tích lý do trả hàng trong kỳ.
+ * @param {Object} params - { from, to }
+ * @returns {{ period, total_return_amount, total_return_count, total_revenue, return_rate_by_revenue, data: Array }}
+ */
+export async function getReturnReasonsAnalytics({ from, to } = {}) {
+  const url = new URL(`${API_BASE}/analytics/return-reasons`);
+  if (from) url.searchParams.set('from', from);
+  if (to) url.searchParams.set('to', to);
+  const res = await fetch(url.toString(), { headers: authHeaders() });
+  return parseResponse(res, 'Không thể tải phân tích lý do trả hàng');
+}
+
+/**
  * Báo cáo tác động theo từng lần đổi giá sản phẩm.
  * @param {Object} params - { from, to, productId, supplierId, costDirection }
  */

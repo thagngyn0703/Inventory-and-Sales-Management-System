@@ -119,6 +119,18 @@ const salesInvoiceSchema = new Schema(
             type: Number,
             default: 0,
         },
+        returned_total_amount: {
+            type: Number,
+            default: 0,
+        },
+        returned_subtotal_amount: {
+            type: Number,
+            default: 0,
+        },
+        returned_tax_amount: {
+            type: Number,
+            default: 0,
+        },
         paid_amount: {
             type: Number,
             default: 0,

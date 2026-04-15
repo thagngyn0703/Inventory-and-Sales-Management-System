@@ -1,7 +1,7 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { getInvoice } from '../../services/invoicesApi';
-import { createReturn } from '../../services/returnsApi';
+import { createReturn, getReturnReasons } from '../../services/returnsApi';
 import { useToast } from '../../contexts/ToastContext';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { Button } from '../../components/ui/button';
@@ -36,9 +36,17 @@ export default function SalesReturnPage({ backPathOverride = null }) {
   const [returnQty, setReturnQty] = useState({}); // { product_id: qty }
 
   // Step 3: submit
-  const [reason, setReason] = useState('');
+  const [reasonCode, setReasonCode] = useState('customer_changed_mind');
+  const [reasonNote, setReasonNote] = useState('');
+  const [reasonOptions, setReasonOptions] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
+
+  useEffect(() => {
+    getReturnReasons()
+      .then((res) => setReasonOptions(res.reasons || []))
+      .catch(() => setReasonOptions([]));
+  }, []);
 
   const handleLoadInvoice = useCallback(async () => {
     const id = invoiceInput.trim();
@@ -105,7 +113,8 @@ export default function SalesReturnPage({ backPathOverride = null }) {
       const { message } = await createReturn({
         invoice_id: invoice._id,
         items,
-        reason: reason || 'Khách trả hàng',
+        reason_code: reasonCode || 'other',
+        reason: reasonNote || 'Khách trả hàng',
       });
       toast(
         message ||
@@ -115,7 +124,8 @@ export default function SalesReturnPage({ backPathOverride = null }) {
       setInvoice(null);
       setInvoiceInput('');
       setReturnQty({});
-      setReason('');
+      setReasonCode('customer_changed_mind');
+      setReasonNote('');
     } catch (e) {
       setSubmitError(e.message || 'Lỗi khi thực hiện trả hàng');
       toast(e.message || 'Lỗi khi thực hiện trả hàng', 'error');
@@ -249,17 +259,44 @@ export default function SalesReturnPage({ backPathOverride = null }) {
             <i className="fa-solid fa-pen-to-square" style={{ marginRight: 8, color: '#0081ff' }} />
             Bước 3: Lý do trả hàng & xác nhận
           </h3>
-          <textarea
-            placeholder="Nhập lý do trả hàng (không bắt buộc)..."
-            value={reason}
-            onChange={e => setReason(e.target.value)}
-            rows={3}
-            style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: 14, resize: 'vertical', outline: 'none', boxSizing: 'border-box', fontFamily: 'Inter, sans-serif', color: '#334155' }}
-          />
+          <div style={{ display: 'grid', gap: 10 }}>
+            <div>
+              <label style={{ display: 'block', marginBottom: 6, fontSize: 13, color: '#64748b', fontWeight: 600 }}>
+                Phân loại lý do
+              </label>
+              <select
+                value={reasonCode}
+                onChange={(e) => setReasonCode(e.target.value)}
+                style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: 14, outline: 'none', boxSizing: 'border-box', color: '#334155', background: 'white' }}
+              >
+                {(reasonOptions.length > 0 ? reasonOptions : [
+                  { code: 'customer_changed_mind', label: 'Khách đổi ý' },
+                  { code: 'defective', label: 'Lỗi nhà sản xuất' },
+                  { code: 'expired', label: 'Hết hạn sử dụng' },
+                  { code: 'wrong_item', label: 'Giao sai hàng' },
+                  { code: 'other', label: 'Lý do khác' },
+                ]).map((r) => (
+                  <option key={r.code} value={r.code}>{r.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label style={{ display: 'block', marginBottom: 6, fontSize: 13, color: '#64748b', fontWeight: 600 }}>
+                Ghi chú chi tiết (tuỳ chọn)
+              </label>
+              <textarea
+                placeholder="Ví dụ: Lỗi ở khóa kéo, khách yêu cầu đổi size..."
+                value={reasonNote}
+                onChange={e => setReasonNote(e.target.value)}
+                rows={3}
+                style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: 14, resize: 'vertical', outline: 'none', boxSizing: 'border-box', fontFamily: 'Inter, sans-serif', color: '#334155' }}
+              />
+            </div>
+          </div>
           <InlineNotice message={submitError} type="error" className="mt-3" />
           <div style={{ marginTop: 16, display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
             <button
-              onClick={() => { setInvoice(null); setInvoiceInput(''); setReturnQty({}); }}
+              onClick={() => { setInvoice(null); setInvoiceInput(''); setReturnQty({}); setReasonCode('customer_changed_mind'); setReasonNote(''); }}
               style={{ padding: '10px 24px', borderRadius: 8, border: '1px solid #cbd5e1', background: 'white', cursor: 'pointer', fontWeight: 600, color: '#475569', fontSize: 14 }}
             >
               Hủy

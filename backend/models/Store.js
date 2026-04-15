@@ -40,6 +40,16 @@ const storeSchema = new Schema(
             type: Boolean,
             default: true,
         },
+        /**
+         * Loại hình kinh doanh — quyết định cách xử lý thuế:
+         *   ho_kinh_doanh → thuế khoán cố định, KHÔNG thu VAT trên hóa đơn (tax_rate luôn = 0)
+         *   doanh_nghiep  → kê khai VAT theo từng hóa đơn (tax_rate tự do 0-100)
+         */
+        business_type: {
+            type: String,
+            enum: ['ho_kinh_doanh', 'doanh_nghiep'],
+            default: 'ho_kinh_doanh',
+        },
     },
     { timestamps: true }
 );
