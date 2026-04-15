@@ -5,6 +5,8 @@ const Product = require('../models/Product');
 const StockAdjustment = require('../models/StockAdjustment');
 const { adjustStockFIFO } = require('../utils/inventoryUtils');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const { emitManagerBadgeRefresh } = require('../socket');
+const { notifyManagersInStore } = require('../services/managerNotificationService');
 
 const router = express.Router();
 
@@ -167,6 +169,7 @@ router.post('/:id/approve', requireAuth, requireRole(['manager', 'admin']), asyn
     }
 
     await Stocktake.findByIdAndUpdate(id, { status: 'completed', completed_at: new Date(), updated_at: new Date() });
+    await emitManagerBadgeRefresh({ storeId: stocktake.storeId ? String(stocktake.storeId) : null });
 
     const populated = await StockAdjustment.findById(adjustment._id)
       .populate('stocktake_id', 'snapshot_at created_at')
@@ -229,6 +232,7 @@ router.post('/:id/reject', requireAuth, requireRole(['manager', 'admin']), async
       reject_reason: rejectReason,
       updated_at: new Date(),
     });
+    await emitManagerBadgeRefresh({ storeId: stocktake.storeId ? String(stocktake.storeId) : null });
 
     return res.json({ message: 'Đã từ chối phiếu kiểm kê' });
   } catch (err) {
@@ -320,6 +324,17 @@ router.patch('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), as
     }
     doc.updated_at = new Date();
     await doc.save();
+    if (newStatus === 'submitted') {
+      await notifyManagersInStore({
+        storeId: doc.storeId ? String(doc.storeId) : null,
+        type: 'stocktake_submitted',
+        title: 'Có phiếu kiểm kê chờ duyệt',
+        message: 'Một phiếu kiểm kê vừa được gửi và đang chờ duyệt.',
+        relatedEntity: 'stocktake',
+        relatedId: doc._id,
+      }).catch(() => {});
+      await emitManagerBadgeRefresh({ storeId: doc.storeId ? String(doc.storeId) : null });
+    }
 
     const populated = await Stocktake.findById(doc._id)
       .populate('items.product_id', 'name sku base_unit stock_qty')

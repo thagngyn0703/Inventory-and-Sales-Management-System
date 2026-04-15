@@ -114,3 +114,21 @@ export async function assignUserRole(userId, role) {
   return parseJson(res, 'Không thể gán role cho user');
 }
 
+export async function getStoreTaxSettings() {
+  const token = getToken();
+  const res = await fetch(`${apiPath('/store-settings/tax')}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return parseJson(res, 'Không thể tải cấu hình thuế');
+}
+
+export async function updateStoreTaxSettings({ tax_rate, price_includes_tax }) {
+  const token = getToken();
+  const res = await fetch(`${apiPath('/store-settings/tax')}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ tax_rate, price_includes_tax }),
+  });
+  return parseJson(res, 'Không thể cập nhật cấu hình thuế');
+}
+

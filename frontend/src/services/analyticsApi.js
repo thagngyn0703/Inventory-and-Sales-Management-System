@@ -32,8 +32,8 @@ export async function getIncomingFrequencyBySupplier({ year, month } = {}) {
 /**
  * Tổng quan kinh doanh trong kỳ.
  * @param {Object} params - { from: 'YYYY-MM-DD', to: 'YYYY-MM-DD' }
- * @returns {{ revenue, order_count, avg_order_value, return_count, return_rate,
- *             incoming_cost, gross_profit_estimate, today: {...} }}
+ * @returns {{ revenue, revenue_net, total_vat_collected, order_count, avg_order_value, return_count, return_rate,
+ *             incoming_cost, gross_profit, gross_profit_estimate, today: {...} }}
  */
 export async function getAnalyticsSummary({ from, to } = {}) {
   const url = new URL(`${API_BASE}/analytics/summary`);

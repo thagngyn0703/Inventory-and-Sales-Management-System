@@ -18,6 +18,26 @@ function assertStoreScope(req, res) {
     return true;
 }
 
+/**
+ * Tính tách thuế cho trả hàng từ tổng hoàn (gross) dựa trên snapshot của hóa đơn gốc.
+ * Phase 1: dùng tỷ lệ subtotal/total của hóa đơn để đảm bảo hoàn cả tiền hàng và VAT.
+ */
+function computeReturnTaxBreakdown(grossTotal, invoice) {
+    const gross = Number(grossTotal) || 0;
+    const invoiceTotal = Number(invoice?.total_amount) || 0;
+    const invoiceSubtotal = Number(invoice?.subtotal_amount);
+    const hasNetSnapshot = Number.isFinite(invoiceSubtotal) && invoiceSubtotal >= 0 && invoiceTotal > 0;
+    const ratio = hasNetSnapshot ? invoiceSubtotal / invoiceTotal : 1;
+    const subtotal = Math.round(gross * ratio);
+    const tax = gross - subtotal;
+    return {
+        total_amount: gross,
+        subtotal_amount: subtotal,
+        tax_amount: tax,
+        tax_rate_snapshot: Number(invoice?.tax_rate_snapshot) || 0,
+    };
+}
+
 // GET /api/returns — list returns for the user's store
 router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
@@ -152,6 +172,8 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
             });
         }
 
+        const taxBreakdown = computeReturnTaxBreakdown(returnTotalAmount, invoice);
+
         const salesReturn = new SalesReturn({
             store_id: req.user.storeId || invoice.store_id || null,
             invoice_id,
@@ -159,6 +181,10 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
             created_by: req.user.id,
             supplier_id: firstSupplierId,
             items: returnItems,
+            total_amount: taxBreakdown.total_amount,
+            subtotal_amount: taxBreakdown.subtotal_amount,
+            tax_amount: taxBreakdown.tax_amount,
+            tax_rate_snapshot: taxBreakdown.tax_rate_snapshot,
             reason: reason || 'Khách trả hàng',
             status: 'approved',
         });
@@ -200,3 +226,4 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
 });
 
 module.exports = router;
+module.exports.computeReturnTaxBreakdown = computeReturnTaxBreakdown;

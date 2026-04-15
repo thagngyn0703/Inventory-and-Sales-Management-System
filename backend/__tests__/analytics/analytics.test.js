@@ -1,6 +1,9 @@
 const request = require('supertest');
 const express = require('express');
 const analyticsRoutes = require('../../routes/analytics');
+const Product = require('../../models/Product');
+const SalesInvoice = require('../../models/SalesInvoice');
+const SalesReturn = require('../../models/SalesReturn');
 const { createManagerUser, createManagerWithStore, getAuthHeader } = require('../fixtures/users');
 
 const app = express();
@@ -80,6 +83,129 @@ describe('Analytics Routes', () => {
         .set(getAuthHeader(managerNoStore));
 
       expect(res.status).toBe(403);
+    });
+
+    it('TC52-05: should calculate gross profit from net revenue (excluding VAT)', async () => {
+      const product = await Product.create({
+        name: 'SP test VAT',
+        sku: `SKU-VAT-${Date.now()}`,
+        category_id: null,
+        supplier_id: null,
+        storeId: managerWithStore.store._id,
+        cost_price: 70,
+        sale_price: 110,
+        stock_qty: 10,
+        reorder_level: 1,
+        status: 'active',
+      });
+
+      await SalesInvoice.create({
+        store_id: managerWithStore.store._id,
+        recipient_name: 'Khach test',
+        created_by: managerWithStore.manager._id,
+        status: 'confirmed',
+        invoice_at: new Date(),
+        payment_method: 'cash',
+        payment_status: 'paid',
+        items: [
+          {
+            line_id: 'LINE-VAT-1',
+            product_id: product._id,
+            quantity: 1,
+            unit_price: 110,
+            cost_price: 70,
+            discount: 0,
+            line_total: 110, // Gross line total
+            line_profit: 40, // Legacy value, analytics should not trust this
+          },
+        ],
+        total_amount: 110,
+        subtotal_amount: 100, // Net revenue
+        tax_amount: 10,
+        tax_rate_snapshot: 10,
+      });
+
+      const res = await request(app)
+        .get('/api/analytics/summary')
+        .set(getAuthHeader(managerWithStore.manager));
+
+      expect(res.status).toBe(200);
+      expect(res.body.revenue).toBe(110);
+      expect(res.body.revenue_net).toBe(100);
+      expect(res.body.total_vat_collected).toBe(10);
+      // Gross profit must be based on net (100) - cost (70) = 30, not 40
+      expect(res.body.gross_profit).toBe(30);
+    });
+
+    it('TC52-06: should subtract approved returns from revenue, vat and gross profit', async () => {
+      const product = await Product.create({
+        name: 'SP return VAT',
+        sku: `SKU-RET-${Date.now()}`,
+        category_id: null,
+        supplier_id: null,
+        storeId: managerWithStore.store._id,
+        cost_price: 70,
+        sale_price: 110,
+        stock_qty: 10,
+        reorder_level: 1,
+        status: 'active',
+      });
+
+      const invoice = await SalesInvoice.create({
+        store_id: managerWithStore.store._id,
+        recipient_name: 'Khach test',
+        created_by: managerWithStore.manager._id,
+        status: 'confirmed',
+        invoice_at: new Date(),
+        payment_method: 'cash',
+        payment_status: 'paid',
+        items: [
+          {
+            line_id: 'LINE-RET-1',
+            product_id: product._id,
+            quantity: 1,
+            unit_price: 110,
+            cost_price: 70,
+            discount: 0,
+            line_total: 110,
+            line_profit: 40,
+          },
+        ],
+        total_amount: 110,
+        subtotal_amount: 100,
+        tax_amount: 10,
+        tax_rate_snapshot: 10,
+      });
+
+      await SalesReturn.create({
+        store_id: managerWithStore.store._id,
+        invoice_id: invoice._id,
+        created_by: managerWithStore.manager._id,
+        status: 'approved',
+        return_at: new Date(),
+        items: [
+          {
+            product_id: product._id,
+            quantity: 1,
+            unit_price: 110,
+            disposition: 'restock',
+          },
+        ],
+        total_amount: 110,
+        subtotal_amount: 100,
+        tax_amount: 10,
+        tax_rate_snapshot: 10,
+      });
+
+      const res = await request(app)
+        .get('/api/analytics/summary')
+        .set(getAuthHeader(managerWithStore.manager));
+
+      expect(res.status).toBe(200);
+      expect(res.body.revenue).toBe(0);
+      expect(res.body.revenue_net).toBe(0);
+      expect(res.body.total_vat_collected).toBe(0);
+      expect(res.body.gross_profit).toBe(0);
     });
   });
 

@@ -144,7 +144,8 @@ const PAID_TRANSFER_FILTER = {
 };
 
 /**
- * Lãi gộp dòng = line_total − qty×unitCost, làm tròn 2 chữ số (khớp computeLineProfit trong invoices.js).
+ * Lãi gộp dòng = line_net_total − qty×unitCost, làm tròn 2 chữ số.
+ * line_net_total là doanh thu thuần dòng (đã loại VAT) nếu hóa đơn có tách thuế.
  */
 function aggLineGrossRounded(lineTotalRef, qtyRef, unitCostRef) {
   return {
@@ -174,6 +175,9 @@ function aggLineGrossRounded(lineTotalRef, qtyRef, unitCostRef) {
  * Unwind dòng hàng → lookup Product → __unitCost: ưu tiên cost_price snapshot trên dòng;
  * nếu snapshot = 0 (đơn cũ / chưa nhập vốn) thì dùng cost_price SP hiện tại để báo cáo biên lãi có ý nghĩa.
  * (Đơn đã chốt vẫn giữ snapshot khi snapshot > 0.)
+ * Đồng thời chuẩn hóa __lineNetTotal để lợi nhuận luôn tính trên doanh thu thuần (không VAT):
+ * - Nếu có subtotal_amount/total_amount hợp lệ: phân bổ theo tỷ lệ subtotal/total cho từng dòng.
+ * - Nếu không có dữ liệu thuế: dùng thẳng items.line_total (tương thích dữ liệu cũ).
  */
 const AGG_STAGES_ITEMS_WITH_EFFECTIVE_UNIT_COST = [
   { $unwind: '$items' },
@@ -194,6 +198,97 @@ const AGG_STAGES_ITEMS_WITH_EFFECTIVE_UNIT_COST = [
           '$items.cost_price',
           { $ifNull: ['$__p.cost_price', 0] },
         ],
+      },
+      __lineNetTotal: {
+        $let: {
+          vars: {
+            line: { $ifNull: ['$items.line_total', 0] },
+            total: { $ifNull: ['$total_amount', 0] },
+            subtotal: { $ifNull: ['$subtotal_amount', '$total_amount'] },
+          },
+          in: {
+            $cond: [
+              { $gt: ['$$total', 0] },
+              { $multiply: ['$$line', { $divide: ['$$subtotal', '$$total'] }] },
+              '$$line',
+            ],
+          },
+        },
+      },
+    },
+  },
+];
+
+/**
+ * Bổ sung field hiệu dụng cho dòng trả hàng:
+ * - __returnLineGross: qty * unit_price của dòng trả
+ * - __returnLineNet: doanh thu thuần bị hoàn của dòng (dựa tỷ lệ subtotal/total của phiếu trả)
+ * - __returnUnitCost: ưu tiên cost snapshot từ hóa đơn gốc; fallback cost hiện tại của sản phẩm
+ */
+const AGG_STAGES_RETURN_ITEMS_WITH_EFFECTIVE_VALUES = [
+  { $unwind: '$items' },
+  {
+    $lookup: {
+      from: 'salesinvoices',
+      localField: 'invoice_id',
+      foreignField: '_id',
+      as: '__inv',
+    },
+  },
+  { $unwind: { path: '$__inv', preserveNullAndEmptyArrays: true } },
+  {
+    $addFields: {
+      __invItem: {
+        $first: {
+          $filter: {
+            input: { $ifNull: ['$__inv.items', []] },
+            as: 'it',
+            cond: { $eq: ['$$it.product_id', '$items.product_id'] },
+          },
+        },
+      },
+    },
+  },
+  {
+    $lookup: {
+      from: 'products',
+      localField: 'items.product_id',
+      foreignField: '_id',
+      as: '__p',
+    },
+  },
+  { $unwind: { path: '$__p', preserveNullAndEmptyArrays: true } },
+  {
+    $addFields: {
+      __returnUnitCost: {
+        $cond: [
+          { $gt: [{ $ifNull: ['$__invItem.cost_price', 0] }, 0] },
+          '$__invItem.cost_price',
+          { $ifNull: ['$__p.cost_price', 0] },
+        ],
+      },
+      __returnLineGross: {
+        $multiply: [{ $ifNull: ['$items.quantity', 0] }, { $ifNull: ['$items.unit_price', 0] }],
+      },
+    },
+  },
+  {
+    $addFields: {
+      __returnLineNet: {
+        $let: {
+          vars: {
+            lineGross: '$__returnLineGross',
+            total: { $ifNull: ['$total_amount', 0] },
+            subtotal: { $ifNull: ['$subtotal_amount', '$total_amount'] },
+          },
+          in: {
+            $cond: [
+              { $gt: ['$$total', 0] },
+              { $multiply: ['$$lineGross', { $divide: ['$$subtotal', '$$total'] }] },
+              '$$lineGross',
+            ],
+          },
+        },
       },
     },
   },
@@ -325,7 +420,7 @@ router.get(
           $group: {
             _id: null,
             gross_profit: {
-              $sum: aggLineGrossRounded('$items.line_total', '$items.quantity', '$__unitCost'),
+              $sum: aggLineGrossRounded('$__lineNetTotal', '$items.quantity', '$__unitCost'),
             },
           },
         },
@@ -339,8 +434,8 @@ router.get(
         : { status: 'confirmed', invoice_at: { $gte: yStart, $lte: yEnd }, ...PAID_TRANSFER_FILTER };
 
       // Doanh thu + số đơn + lợi nhuận gộp thực (từ cost_price snapshot trên từng dòng hóa đơn)
-      const [invoiceAgg, invoiceProfitAgg, returnAgg, grAgg, supplierPaymentAgg, todayAgg, yesterdayAgg, todayProfitAgg, yesterdayProfitAgg] = await Promise.all([
-        // Aggregate 1: đếm số hóa đơn, tổng doanh thu, tổng đã thu
+      const [invoiceAgg, invoiceProfitAgg, returnAgg, returnAmountAgg, returnProfitAgg, grAgg, supplierPaymentAgg, todayAgg, yesterdayAgg, todayProfitAgg, yesterdayProfitAgg] = await Promise.all([
+        // Aggregate 1: đếm số hóa đơn, tổng doanh thu, tổng thuế thu hộ
         SalesInvoice.aggregate([
           { $match: invoiceMatchPeriod },
           {
@@ -349,6 +444,8 @@ router.get(
               total_revenue: { $sum: '$total_amount' },
               order_count: { $sum: 1 },
               total_paid: { $sum: '$paid_amount' },
+              total_subtotal: { $sum: '$subtotal_amount' },
+              total_tax: { $sum: '$tax_amount' },
             },
           },
         ]),
@@ -360,10 +457,45 @@ router.get(
         SalesReturn.aggregate([
           {
             $match: storeIdObj
-              ? { store_id: storeIdObj, return_at: { $gte: from, $lte: to } }
-              : { return_at: { $gte: from, $lte: to } },
+              ? { store_id: storeIdObj, status: 'approved', return_at: { $gte: from, $lte: to } }
+              : { status: 'approved', return_at: { $gte: from, $lte: to } },
           },
           { $group: { _id: null, return_count: { $sum: 1 } } },
+        ]),
+
+        // Tổng tiền hoàn (gross/net/tax) trong kỳ
+        SalesReturn.aggregate([
+          {
+            $match: storeIdObj
+              ? { store_id: storeIdObj, status: 'approved', return_at: { $gte: from, $lte: to } }
+              : { status: 'approved', return_at: { $gte: from, $lte: to } },
+          },
+          {
+            $group: {
+              _id: null,
+              total_return_gross: { $sum: { $ifNull: ['$total_amount', 0] } },
+              total_return_net: { $sum: { $ifNull: ['$subtotal_amount', '$total_amount'] } },
+              total_return_tax: { $sum: { $ifNull: ['$tax_amount', 0] } },
+            },
+          },
+        ]),
+
+        // Lợi nhuận bị hoàn trong kỳ (để trừ khỏi gross profit)
+        SalesReturn.aggregate([
+          {
+            $match: storeIdObj
+              ? { store_id: storeIdObj, status: 'approved', return_at: { $gte: from, $lte: to } }
+              : { status: 'approved', return_at: { $gte: from, $lte: to } },
+          },
+          ...AGG_STAGES_RETURN_ITEMS_WITH_EFFECTIVE_VALUES,
+          {
+            $group: {
+              _id: null,
+              return_profit_impact: {
+                $sum: aggLineGrossRounded('$__returnLineNet', '$items.quantity', '$__returnUnitCost'),
+              },
+            },
+          },
         ]),
 
         // Chi phí nhập hàng trong kỳ (phiếu đã duyệt) — giữ để tham khảo
@@ -420,7 +552,16 @@ router.get(
         SalesInvoice.aggregate(profitPipeline(yMatchCond)),
       ]);
 
-      const revenue = invoiceAgg[0]?.total_revenue ?? 0;
+      const salesRevenue = invoiceAgg[0]?.total_revenue ?? 0;
+      const salesRevenueNet = invoiceAgg[0]?.total_subtotal ?? salesRevenue;
+      const salesVatCollected = invoiceAgg[0]?.total_tax ?? 0;
+      const returnGross = returnAmountAgg[0]?.total_return_gross ?? 0;
+      const returnNet = returnAmountAgg[0]?.total_return_net ?? 0;
+      const returnTax = returnAmountAgg[0]?.total_return_tax ?? 0;
+
+      const revenue = salesRevenue - returnGross;
+      const revenueNet = salesRevenueNet - returnNet;
+      const totalVatCollected = salesVatCollected - returnTax;
       const orderCount = invoiceAgg[0]?.order_count ?? 0;
       const returnCount = returnAgg[0]?.return_count ?? 0;
       const incomingCost = grAgg[0]?.incoming_cost ?? 0;
@@ -428,7 +569,9 @@ router.get(
       const supplierPaymentCash = supplierPaymentAgg[0]?.supplier_payment_cash ?? 0;
       const supplierPaymentBankTransfer = supplierPaymentAgg[0]?.supplier_payment_bank_transfer ?? 0;
       // Lợi nhuận gộp thực: tính từ cost_price snapshot trên từng dòng hóa đơn
-      const grossProfit = invoiceProfitAgg[0]?.gross_profit ?? 0;
+      const grossProfitFromSales = invoiceProfitAgg[0]?.gross_profit ?? 0;
+      const grossProfitFromReturns = returnProfitAgg[0]?.return_profit_impact ?? 0;
+      const grossProfit = grossProfitFromSales - grossProfitFromReturns;
       // Giữ lại gross_profit_estimate (dựa GoodsReceipt) để tham khảo
       const grossProfitEstimate = revenue - incomingCost;
       const returnRate = orderCount > 0 ? Math.round((returnCount / orderCount) * 10000) / 100 : 0;
@@ -464,6 +607,9 @@ router.get(
         gross_profit: grossProfit,
         // Lợi nhuận ước tính cũ (doanh thu - tiền nhập kỳ): giữ để tham khảo, không dùng cho báo cáo chính
         gross_profit_estimate: grossProfitEstimate,
+        // Thuế VAT
+        revenue_net: revenueNet,
+        total_vat_collected: totalVatCollected,
         today: {
           revenue: todayRevenue,
           order_count: todayCount,
@@ -674,10 +820,25 @@ router.get(
         ? { store_id: storeIdObj, status: 'confirmed', invoice_at: { $gte: matchFrom, $lte: now }, ...PAID_TRANSFER_FILTER }
         : { status: 'confirmed', invoice_at: { $gte: matchFrom, $lte: now }, ...PAID_TRANSFER_FILTER };
 
-      // Aggregate doanh thu theo bucket (khóa = chuỗi ngày/tháng theo REPORT_TZ)
+      // Aggregate doanh thu bán theo bucket (khóa = chuỗi ngày/tháng theo REPORT_TZ)
       const revenueAgg = await SalesInvoice.aggregate([
         { $match: matchStage },
         { $group: { _id: bucketExpr, revenue: { $sum: '$total_amount' }, order_count: { $sum: 1 } } },
+        { $sort: { _id: 1 } },
+      ]);
+
+      // Aggregate hoàn trả theo bucket
+      const returnRevenueMatch = storeIdObj
+        ? { store_id: storeIdObj, status: 'approved', return_at: { $gte: matchFrom, $lte: now } }
+        : { status: 'approved', return_at: { $gte: matchFrom, $lte: now } };
+      const returnRevenueAgg = await SalesReturn.aggregate([
+        { $match: returnRevenueMatch },
+        {
+          $group: {
+            _id: { $dateToString: { format: groupBy === 'day' ? '%Y-%m-%d' : '%Y-%m', date: '$return_at', timezone: REPORT_TZ } },
+            revenue: { $sum: { $ifNull: ['$total_amount', 0] } },
+          },
+        },
         { $sort: { _id: 1 } },
       ]);
 
@@ -689,7 +850,22 @@ router.get(
           $group: {
             _id: bucketExpr,
             profit: {
-              $sum: aggLineGrossRounded('$items.line_total', '$items.quantity', '$__unitCost'),
+              $sum: aggLineGrossRounded('$__lineNetTotal', '$items.quantity', '$__unitCost'),
+            },
+          },
+        },
+        { $sort: { _id: 1 } },
+      ]);
+
+      // Lợi nhuận bị hoàn theo bucket (để trừ khỏi profit bán)
+      const returnProfitAgg = await SalesReturn.aggregate([
+        { $match: returnRevenueMatch },
+        ...AGG_STAGES_RETURN_ITEMS_WITH_EFFECTIVE_VALUES,
+        {
+          $group: {
+            _id: { $dateToString: { format: groupBy === 'day' ? '%Y-%m-%d' : '%Y-%m', date: '$return_at', timezone: REPORT_TZ } },
+            profit: {
+              $sum: aggLineGrossRounded('$__returnLineNet', '$items.quantity', '$__returnUnitCost'),
             },
           },
         },
@@ -700,9 +876,17 @@ router.get(
       revenueAgg.forEach((r) => {
         if (r._id) revenueMap.set(r._id, { revenue: r.revenue, order_count: r.order_count });
       });
+      const returnRevenueMap = new Map();
+      returnRevenueAgg.forEach((r) => {
+        if (r._id) returnRevenueMap.set(r._id, r.revenue || 0);
+      });
       const profitMap = new Map();
       profitAgg.forEach((r) => {
         if (r._id != null) profitMap.set(r._id, r.profit);
+      });
+      const returnProfitMap = new Map();
+      returnProfitAgg.forEach((r) => {
+        if (r._id != null) returnProfitMap.set(r._id, r.profit || 0);
       });
 
       const result = [];
@@ -714,9 +898,9 @@ router.get(
           result.push({
             label: `${d.day}/${d.m}`,
             key,
-            revenue: entry.revenue,
+            revenue: (entry.revenue || 0) - (returnRevenueMap.get(key) || 0),
             order_count: entry.order_count,
-            profit: profitMap.get(key) ?? 0,
+            profit: (profitMap.get(key) ?? 0) - (returnProfitMap.get(key) || 0),
           });
         }
       } else {
@@ -728,9 +912,9 @@ router.get(
           result.push({
             label: `T${cm}/${cy}`,
             key,
-            revenue: entry.revenue,
+            revenue: (entry.revenue || 0) - (returnRevenueMap.get(key) || 0),
             order_count: entry.order_count,
-            profit: profitMap.get(key) ?? 0,
+            profit: (profitMap.get(key) ?? 0) - (returnProfitMap.get(key) || 0),
           });
           cm += 1;
           if (cm > 12) {
@@ -782,7 +966,7 @@ router.get(
             total_revenue: { $sum: '$items.line_total' },
             order_count: { $sum: 1 },
             total_profit: {
-              $sum: aggLineGrossRounded('$items.line_total', '$items.quantity', '$__unitCost'),
+              $sum: aggLineGrossRounded('$__lineNetTotal', '$items.quantity', '$__unitCost'),
             },
           },
         },
@@ -811,10 +995,49 @@ router.get(
         },
       ]);
 
+      // Hoàn trả theo sản phẩm trong kỳ (để trừ số liệu top products)
+      const returnMatchStage = storeIdObj
+        ? { store_id: storeIdObj, status: 'approved', return_at: { $gte: from, $lte: to } }
+        : { status: 'approved', return_at: { $gte: from, $lte: to } };
+      const returnAgg = await SalesReturn.aggregate([
+        { $match: returnMatchStage },
+        ...AGG_STAGES_RETURN_ITEMS_WITH_EFFECTIVE_VALUES,
+        {
+          $group: {
+            _id: '$items.product_id',
+            return_qty: { $sum: '$items.quantity' },
+            return_revenue: { $sum: '$__returnLineGross' },
+            return_profit: {
+              $sum: aggLineGrossRounded('$__returnLineNet', '$items.quantity', '$__returnUnitCost'),
+            },
+          },
+        },
+      ]);
+
+      const returnMap = new Map(
+        (returnAgg || []).map((r) => [String(r._id), r])
+      );
+      const merged = (agg || []).map((row) => {
+        const key = String(row.product_id || row._id || '');
+        const ret = returnMap.get(key);
+        if (!ret) return row;
+        return {
+          ...row,
+          total_qty: (Number(row.total_qty) || 0) - (Number(ret.return_qty) || 0),
+          total_revenue: (Number(row.total_revenue) || 0) - (Number(ret.return_revenue) || 0),
+          total_profit: (Number(row.total_profit) || 0) - (Number(ret.return_profit) || 0),
+        };
+      });
+
+      const normalized = merged
+        .filter((r) => (Number(r.total_qty) || 0) > 0 || (Number(r.total_revenue) || 0) > 0 || (Number(r.total_profit) || 0) > 0)
+        .sort((a, b) => (Number(b[sortBy]) || 0) - (Number(a[sortBy]) || 0))
+        .slice(0, limit);
+
       return res.json({
         period: { from: from.toISOString(), to: to.toISOString() },
         sort: sortBy === 'total_profit' ? 'profit' : 'qty',
-        data: agg,
+        data: normalized,
       });
     } catch (err) {
       console.error(err);

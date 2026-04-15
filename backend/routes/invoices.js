@@ -4,11 +4,46 @@ const mongoose = require('mongoose');
 const SalesInvoice = require('../models/SalesInvoice');
 const Product = require('../models/Product');
 const User = require('../models/User');
+const Store = require('../models/Store');
 const { adjustStockFIFO } = require('../utils/inventoryUtils');
 const { applyCustomerDebtAfterNewInvoice } = require('../utils/customerDebt');
 const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
+
+/**
+ * Tách subtotal (chưa thuế) và tax từ grand_total.
+ * - priceIncludesTax = true  → giá bán ĐÃ gồm VAT (tạp hóa thông thường)
+ * - priceIncludesTax = false → giá bán CHƯA gồm VAT (B2B)
+ * Kết quả làm tròn đến đồng (integer) để tránh lỗi float VN.
+ */
+function computeTaxBreakdown(grandTotal, taxRate, priceIncludesTax) {
+    const total = Number(grandTotal) || 0;
+    const rate = Number(taxRate) || 0;
+    if (rate === 0) {
+        return { subtotal_amount: total, tax_amount: 0 };
+    }
+    if (priceIncludesTax) {
+        const subtotal = Math.round(total / (1 + rate / 100));
+        const tax = total - subtotal;
+        return { subtotal_amount: subtotal, tax_amount: tax };
+    } else {
+        const tax = Math.round(total * (rate / 100));
+        return { subtotal_amount: total, tax_amount: tax };
+    }
+}
+
+/** Lấy cấu hình thuế của cửa hàng (tax_rate, price_includes_tax). */
+async function getStoreTaxConfig(storeId) {
+    if (!storeId || !mongoose.isValidObjectId(storeId)) {
+        return { tax_rate: 0, price_includes_tax: true };
+    }
+    const store = await Store.findById(storeId).select('tax_rate price_includes_tax').lean();
+    return {
+        tax_rate: Number(store?.tax_rate) || 0,
+        price_includes_tax: store?.price_includes_tax !== false,
+    };
+}
 
 function assertStoreScope(req, res) {
     const role = String(req.user?.role || '').toLowerCase();
@@ -361,6 +396,14 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
         const sellerRoleSnap = seller_role?.trim() || (sellerUser?.role === 'manager' ? 'Quản lý' : 'Nhân viên');
         const sellerCodeSnap = seller_code?.trim() || sellerUser?.employeeCode || '';
 
+        // Tính thuế từ cấu hình cửa hàng — server là nguồn sự thật, không tin client
+        const taxConfig = await getStoreTaxConfig(req.user.storeId);
+        const { subtotal_amount, tax_amount } = computeTaxBreakdown(
+            totalAmount,
+            taxConfig.tax_rate,
+            taxConfig.price_includes_tax
+        );
+
         const invoice = new SalesInvoice({
             store_id: req.user.storeId || null,
             customer_id,
@@ -376,6 +419,9 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
             paid_at: method === 'cash' ? new Date() : null,
             items: normalizedItems,
             total_amount: totalAmount,
+            subtotal_amount,
+            tax_amount,
+            tax_rate_snapshot: taxConfig.tax_rate,
             previous_debt_paid: Number(previous_debt_paid) || 0,
         });
 
@@ -702,10 +748,21 @@ router.patch('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), as
 
             if (nextItems) {
                 invoice.items = nextItems;
-                invoice.total_amount =
-                    patchItemsTotalAmount != null
-                        ? patchItemsTotalAmount
-                        : nextItems.reduce((s, it) => s + (Number(it.line_total) || 0), 0);
+                const newTotal = patchItemsTotalAmount != null
+                    ? patchItemsTotalAmount
+                    : nextItems.reduce((s, it) => s + (Number(it.line_total) || 0), 0);
+                invoice.total_amount = newTotal;
+
+                // Tính lại thuế khi items thay đổi
+                const patchTaxConfig = await getStoreTaxConfig(invoice.store_id);
+                const { subtotal_amount: patchSubtotal, tax_amount: patchTax } = computeTaxBreakdown(
+                    newTotal,
+                    patchTaxConfig.tax_rate,
+                    patchTaxConfig.price_includes_tax
+                );
+                invoice.subtotal_amount = patchSubtotal;
+                invoice.tax_amount = patchTax;
+                invoice.tax_rate_snapshot = patchTaxConfig.tax_rate;
             }
             invoice.status = nextStatus;
         } catch (err) {

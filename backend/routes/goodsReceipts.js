@@ -7,6 +7,8 @@ const SupplierPayable = require('../models/SupplierPayable');
 const SupplierPayment = require('../models/SupplierPayment');
 const SupplierPaymentAllocation = require('../models/SupplierPaymentAllocation');
 const { recalculatePayable, refreshSupplierPayableCache } = require('../utils/supplierPayableUtils');
+const { emitManagerBadgeRefresh } = require('../socket');
+const { notifyManagersInStore } = require('../services/managerNotificationService');
 
 const router = express.Router();
 
@@ -316,6 +318,18 @@ router.post('/', requireAuth, requireRole(['staff', 'manager']), async (req, res
             .populate('items.product_id', 'name sku cost_price sale_price base_unit selling_units')
             .lean();
 
+        if (safeStatus === 'pending') {
+            await notifyManagersInStore({
+                storeId: doc.storeId ? String(doc.storeId) : null,
+                type: 'goods_receipt_pending',
+                title: 'Có phiếu nhập chờ duyệt',
+                message: `Phiếu nhập #${shortReceiptCode(doc._id)} đang chờ duyệt.`,
+                relatedEntity: 'goods_receipt',
+                relatedId: doc._id,
+            }).catch(() => {});
+            await emitManagerBadgeRefresh({ storeId: doc.storeId ? String(doc.storeId) : null });
+        }
+
         return res.status(201).json({ goodsReceipt: saved });
     } catch (err) {
         console.error('Create GR error:', err);
@@ -440,6 +454,7 @@ router.patch('/:id/items', requireAuth, requireRole(['manager', 'admin']), async
             .populate('approved_by', 'fullName email')
             .populate('items.product_id', 'name sku cost_price sale_price base_unit selling_units')
             .lean();
+        await emitManagerBadgeRefresh({ storeId: gr.storeId ? String(gr.storeId) : null });
         return res.json({ goodsReceipt: updated });
     } catch (err) {
         console.error('Patch GR items error:', err);
@@ -476,6 +491,8 @@ router.put('/:id', requireAuth, requireRole(['staff', 'manager']), async (req, r
             .populate('approved_by', 'fullName email')
             .populate('items.product_id', 'name sku cost_price sale_price base_unit selling_units')
             .lean();
+
+        await emitManagerBadgeRefresh({ storeId: gr.storeId ? String(gr.storeId) : null });
 
         return res.json({ goodsReceipt: updated });
     } catch (err) {
@@ -679,6 +696,7 @@ router.patch('/:id/status', requireAuth, requireRole(['manager', 'admin']), asyn
             .populate('approved_by', 'fullName email')
             .populate('items.product_id', 'name sku cost_price sale_price base_unit selling_units')
             .lean();
+        await emitManagerBadgeRefresh({ storeId: gr.storeId ? String(gr.storeId) : null });
 
         return res.json({ goodsReceipt: updated });
     } catch (err) {
@@ -693,7 +711,7 @@ router.patch('/:id/status', requireAuth, requireRole(['manager', 'admin']), asyn
 /**
  * POST /api/goods-receipts/quick  (manager only)
  * Manager nhập hàng nhanh cho sản phẩm ĐÃ CÓ trong hệ thống, tự động duyệt luôn.
- * Body: { supplier_id?, items: [{ product_id, quantity, unit_cost, unit_name?, ratio?, expiry_date? }],
+ * Body: { supplier_id, items: [{ product_id, quantity, unit_cost, unit_name?, ratio?, expiry_date? }],
  *         payment_type: 'cash'|'credit', due_date_payable?, reason? }
  */
 router.post('/quick', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
@@ -703,6 +721,7 @@ router.post('/quick', requireAuth, requireRole(['manager', 'admin']), async (req
             supplier_id,
             items = [],
             payment_type,
+            payment_method,
             due_date_payable,
             reason,
         } = req.body || {};
@@ -722,8 +741,14 @@ router.post('/quick', requireAuth, requireRole(['manager', 'admin']), async (req
             }
         }
 
+        if (!supplier_id || !mongoose.isValidObjectId(supplier_id)) {
+            return res.status(400).json({ message: 'Vui lòng chọn nhà cung cấp hợp lệ' });
+        }
         const safePayType = ['cash', 'credit'].includes(payment_type) ? payment_type : 'credit';
-        const resolvedSupplierId = supplier_id && mongoose.isValidObjectId(supplier_id) ? supplier_id : undefined;
+        const safePaymentMethod = ['cash', 'bank_transfer', 'e_wallet', 'other'].includes(payment_method)
+            ? payment_method
+            : 'cash';
+        const resolvedSupplierId = supplier_id;
 
         // Kiểm tra và chuẩn hóa items
         const productIds = [...new Set(items.map((it) => String(it.product_id)))];
@@ -801,31 +826,55 @@ router.post('/quick', requireAuth, requireRole(['manager', 'admin']), async (req
             });
         }
 
-        // Tạo SupplierPayable chỉ khi có NCC
-        if (resolvedSupplierId) {
-            const paid = amountPaid;
-            const remaining = computedTotal - paid;
-            let finalDueDate = due_date_payable ? new Date(due_date_payable) : null;
-            if (!finalDueDate && safePayType === 'credit') {
-                const supplierDoc = await Supplier.findById(resolvedSupplierId).session(session);
-                const termDays = Number(supplierDoc?.default_payment_term_days) || 0;
-                if (termDays > 0) {
-                    finalDueDate = new Date();
-                    finalDueDate.setDate(finalDueDate.getDate() + termDays);
-                }
+        const paid = amountPaid;
+        const remaining = computedTotal - paid;
+        let finalDueDate = due_date_payable ? new Date(due_date_payable) : null;
+        if (!finalDueDate && safePayType === 'credit') {
+            const supplierDoc = await Supplier.findById(resolvedSupplierId).session(session);
+            const termDays = Number(supplierDoc?.default_payment_term_days) || 0;
+            if (termDays > 0) {
+                finalDueDate = new Date();
+                finalDueDate.setDate(finalDueDate.getDate() + termDays);
             }
-            await SupplierPayable.create([{
-                supplier_id: resolvedSupplierId,
-                storeId: storeId || req.user.storeId,
-                source_type: 'goods_receipt',
-                source_id: grDoc._id,
-                total_amount: computedTotal,
-                paid_amount: paid,
-                remaining_amount: remaining,
-                status: safePayType === 'cash' ? 'paid' : 'open',
-                due_date: finalDueDate || undefined,
-                created_by: req.user.id,
-            }], { session });
+        }
+        const [newPayable] = await SupplierPayable.create([{
+            supplier_id: resolvedSupplierId,
+            storeId: storeId || req.user.storeId,
+            source_type: 'goods_receipt',
+            source_id: grDoc._id,
+            total_amount: computedTotal,
+            paid_amount: paid,
+            remaining_amount: remaining,
+            status: safePayType === 'cash' ? 'paid' : 'open',
+            due_date: finalDueDate || undefined,
+            created_by: req.user.id,
+        }], { session });
+
+        if (paid > 0) {
+            const [paymentDoc] = await SupplierPayment.create(
+                [
+                    {
+                        supplier_id: resolvedSupplierId,
+                        storeId: storeId || req.user.storeId,
+                        total_amount: paid,
+                        payment_date: new Date(),
+                        payment_method: safePaymentMethod,
+                        note: `Thanh toán khi tạo phiếu nhập nhanh #${String(grDoc._id).slice(-6).toUpperCase()}`,
+                        created_by: req.user.id,
+                    },
+                ],
+                { session }
+            );
+            await SupplierPaymentAllocation.create(
+                [
+                    {
+                        payment_id: paymentDoc._id,
+                        payable_id: newPayable._id,
+                        amount: paid,
+                    },
+                ],
+                { session }
+            );
         }
 
         await session.commitTransaction();

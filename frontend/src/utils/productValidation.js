@@ -1,5 +1,5 @@
 const TEXT_NO_SPECIAL_REGEX = /^[\p{L}\p{N}\s]+$/u;
-const ALNUM_NO_SPACE_REGEX = /^[\p{L}\p{N}]+$/u;
+const SKU_REGEX = /^[\p{L}\p{N},]+$/u;
 const DIGITS_ONLY_REGEX = /^\d+$/;
 const NUMBER_REGEX = /^\d+(\.\d+)?$/;
 
@@ -22,8 +22,8 @@ export function validateNoSpecialText(value, label, { required = false } = {}) {
 export function validateSku(value) {
     const trimmed = trimString(value);
     if (!trimmed) return { ok: false, message: 'SKU không được để trống.' };
-    if (!ALNUM_NO_SPACE_REGEX.test(trimmed)) {
-        return { ok: false, message: 'SKU chỉ được gồm chữ và số, không ký tự đặc biệt.' };
+    if (!SKU_REGEX.test(trimmed)) {
+        return { ok: false, message: 'SKU chỉ được gồm chữ, số và dấu phẩy.' };
     }
     return { ok: true, value: trimmed };
 }

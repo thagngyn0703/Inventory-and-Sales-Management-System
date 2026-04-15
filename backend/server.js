@@ -3,6 +3,8 @@ const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
 const path = require('path');
+const http = require('http');
+const { initSocket } = require('./socket');
 
 const authRoutes = require('./routes/auth');
 const categoryRoutes = require('./routes/categories');
@@ -27,10 +29,12 @@ const aiRoutes = require('./routes/ai');
 const supplierPayableRoutes = require('./routes/supplierPayables');
 const supportTicketRoutes = require('./routes/supportTickets');
 const backupRoutes = require('./routes/backup');
+const storeSettingsRoutes = require('./routes/storeSettings');
 const { startBackupScheduler } = require('./services/backupScheduler');
 const { hasSmtpConfig } = require('./services/emailService');
 
 const app = express();
+const server = http.createServer(app);
 const PORT = process.env.PORT || 8000;
 
 if (!process.env.JWT_SECRET) {
@@ -77,6 +81,7 @@ app.use('/api/ai', aiRoutes);
 app.use('/api/supplier-payables', supplierPayableRoutes);
 app.use('/api/support-tickets', supportTicketRoutes);
 app.use('/api/backup', backupRoutes);
+app.use('/api/store-settings', storeSettingsRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -88,7 +93,8 @@ mongoose
     .connect(process.env.MONGO_URI)
     .then(() => {
         console.log('Đã kết nối MongoDB');
-        app.listen(PORT, () => {
+        initSocket(server);
+        server.listen(PORT, () => {
             console.log(`Server chạy tại http://localhost:${PORT}`);
             // Khởi động backup scheduler sau khi server đã kết nối DB thành công
             startBackupScheduler();

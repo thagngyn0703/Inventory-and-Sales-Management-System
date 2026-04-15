@@ -18,6 +18,8 @@ const {
 
 const GoodsReceipt = require('../models/GoodsReceipt');
 const SupplierPayable = require('../models/SupplierPayable');
+const SupplierPayment = require('../models/SupplierPayment');
+const SupplierPaymentAllocation = require('../models/SupplierPaymentAllocation');
 const { adjustStockFIFO } = require('../utils/inventoryUtils');
 
 const router = express.Router();
@@ -61,7 +63,8 @@ function parseOptionalDate(value) {
 }
 
 const TEXT_NO_SPECIAL_REGEX = /^[\p{L}\p{N}\s]+$/u;
-const ALNUM_NO_SPACE_REGEX = /^[\p{L}\p{N}]+$/u;
+const PRODUCT_NAME_REGEX = /^[\p{L}\p{N}\s,]+$/u;
+const SKU_REGEX = /^[\p{L}\p{N},]+$/u;
 const DIGITS_ONLY_REGEX = /^\d+$/;
 
 function trimText(value) {
@@ -70,6 +73,10 @@ function trimText(value) {
 
 function isValidNoSpecialText(value) {
   return TEXT_NO_SPECIAL_REGEX.test(trimText(value));
+}
+
+function isValidProductName(value) {
+  return PRODUCT_NAME_REGEX.test(trimText(value));
 }
 
 function parseNonNegativeNumber(value) {
@@ -323,12 +330,12 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
     const reorderNum = parseNonNegativeNumber(reorder_level);
 
     if (!nameTrim) return res.status(400).json({ message: 'Tên sản phẩm không được để trống.' });
-    if (!isValidNoSpecialText(nameTrim)) {
+    if (!isValidProductName(nameTrim)) {
       return res.status(400).json({ message: 'Tên sản phẩm không được chứa ký tự đặc biệt.' });
     }
     if (!skuTrim) return res.status(400).json({ message: 'SKU không được để trống.' });
-    if (!ALNUM_NO_SPACE_REGEX.test(skuTrim)) {
-      return res.status(400).json({ message: 'SKU chỉ được gồm chữ và số, không ký tự đặc biệt.' });
+    if (!SKU_REGEX.test(skuTrim)) {
+      return res.status(400).json({ message: 'SKU chỉ được gồm chữ, số và dấu phẩy.' });
     }
     if (barcodeTrim && !DIGITS_ONLY_REGEX.test(barcodeTrim)) {
       return res.status(400).json({ message: 'Barcode chỉ được nhập số, không chữ hoặc ký tự đặc biệt.' });
@@ -407,6 +414,9 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
     }
 
     const resolvedSupplierId = supplier_id && mongoose.isValidObjectId(supplier_id) ? supplier_id : undefined;
+    if (stockNum > 0 && !resolvedSupplierId) {
+      return res.status(400).json({ message: 'Vui lòng chọn nhà cung cấp khi nhập tồn kho ban đầu.' });
+    }
 
     // Tạo sản phẩm với stock_qty = 0; tồn kho sẽ được cộng qua GoodsReceipt bên dưới
     const doc = await Product.create({
@@ -465,7 +475,7 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
       // Tạo SupplierPayable chỉ khi có NCC được chọn
       if (resolvedSupplierId) {
         const paid = paymentType === 'cash' ? totalCost : 0;
-        await SupplierPayable.create({
+        const payable = await SupplierPayable.create({
           supplier_id: resolvedSupplierId,
           storeId: resolvedStoreId,
           source_type: 'goods_receipt',
@@ -476,6 +486,25 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
           status: paymentType === 'cash' ? 'paid' : 'open',
           created_by: req.user.id,
         });
+        if (paid > 0) {
+          const paymentMethod = ['cash', 'bank_transfer', 'e_wallet', 'other'].includes(req.body.payment_method)
+            ? req.body.payment_method
+            : 'cash';
+          const paymentDoc = await SupplierPayment.create({
+            supplier_id: resolvedSupplierId,
+            storeId: resolvedStoreId,
+            total_amount: paid,
+            payment_date: new Date(),
+            payment_method: paymentMethod,
+            note: `Thanh toán khi tạo sản phẩm mới #${String(doc._id).slice(-6).toUpperCase()}`,
+            created_by: req.user.id,
+          });
+          await SupplierPaymentAllocation.create({
+            payment_id: paymentDoc._id,
+            payable_id: payable._id,
+            amount: paid,
+          });
+        }
       }
 
       const updatedDoc = await Product.findById(doc._id).lean();
@@ -979,7 +1008,7 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
     if (name !== undefined) {
       const nameTrim = trimText(name);
       if (!nameTrim) return res.status(400).json({ message: 'Tên sản phẩm không được để trống.' });
-      if (!isValidNoSpecialText(nameTrim)) {
+      if (!isValidProductName(nameTrim)) {
         return res.status(400).json({ message: 'Tên sản phẩm không được chứa ký tự đặc biệt.' });
       }
       product.name = nameTrim;
@@ -987,8 +1016,8 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
     if (sku !== undefined) {
       const skuTrim = trimText(sku);
       if (!skuTrim) return res.status(400).json({ message: 'SKU không được để trống.' });
-      if (!ALNUM_NO_SPACE_REGEX.test(skuTrim)) {
-        return res.status(400).json({ message: 'SKU chỉ được gồm chữ và số, không ký tự đặc biệt.' });
+      if (!SKU_REGEX.test(skuTrim)) {
+        return res.status(400).json({ message: 'SKU chỉ được gồm chữ, số và dấu phẩy.' });
       }
       product.sku = skuTrim;
     }

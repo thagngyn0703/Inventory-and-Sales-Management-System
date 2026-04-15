@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom';
 import { useWarehouseBase } from '../../utils/useWarehouseBase';
 import { getProducts } from '../../services/productsApi';
-import { getSuppliers } from '../../services/suppliersApi';
+import { createSupplier, getSuppliers } from '../../services/suppliersApi';
 import { createGoodsReceipt } from '../../services/goodsReceiptsApi';
 import WarehouseProductCreateModal from './WarehouseProductCreateModal';
 import { useToast } from '../../contexts/ToastContext';
@@ -27,6 +27,8 @@ export default function WarehouseGoodsReceiptCreate() {
   const { toast } = useToast();
 
   const [suppliers, setSuppliers] = useState([]);
+  const [creatingSupplier, setCreatingSupplier] = useState(false);
+  const [newSupplier, setNewSupplier] = useState({ name: '', phone: '' });
   const [selectedSupplierId, setSelectedSupplierId] = useState('');
   const [reason, setReason] = useState('');
 
@@ -149,6 +151,31 @@ export default function WarehouseGoodsReceiptCreate() {
 
   const totalAmount = items.reduce((sum, item) => sum + item.quantity * item.unit_cost, 0);
 
+  const handleCreateSupplier = useCallback(async () => {
+    const name = String(newSupplier.name || '').trim();
+    const phone = String(newSupplier.phone || '').trim();
+    if (!name) {
+      toast('Vui lòng nhập tên nhà cung cấp mới', 'error');
+      return;
+    }
+    setCreatingSupplier(true);
+    try {
+      const created = await createSupplier({
+        name,
+        phone: phone || undefined,
+        status: 'active',
+      });
+      setSuppliers((prev) => [created, ...prev.filter((s) => String(s._id) !== String(created._id))]);
+      setSelectedSupplierId(created._id);
+      setNewSupplier({ name: '', phone: '' });
+      toast('Đã tạo nhà cung cấp mới và chọn tự động', 'success');
+    } catch (e) {
+      toast(e.message || 'Không thể tạo nhà cung cấp', 'error');
+    } finally {
+      setCreatingSupplier(false);
+    }
+  }, [newSupplier.name, newSupplier.phone, toast]);
+
   const handleSubmit = async (status) => {
     if (!selectedSupplierId) {
       toast('Vui lòng chọn nhà cung cấp', 'error');
@@ -226,6 +253,30 @@ export default function WarehouseGoodsReceiptCreate() {
                   </option>
                 ))}
               </select>
+            </div>
+            <div>
+              <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                Tạo nhanh nhà cung cấp
+              </label>
+              <div className="grid gap-2 sm:grid-cols-3">
+                <input
+                  type="text"
+                  className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-sky-200 focus:ring-2"
+                  value={newSupplier.name}
+                  onChange={(e) => setNewSupplier((prev) => ({ ...prev, name: e.target.value }))}
+                  placeholder="Tên NCC mới *"
+                />
+                <input
+                  type="text"
+                  className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-sky-200 focus:ring-2"
+                  value={newSupplier.phone}
+                  onChange={(e) => setNewSupplier((prev) => ({ ...prev, phone: e.target.value }))}
+                  placeholder="SĐT (tùy chọn)"
+                />
+                <Button type="button" variant="outline" className="h-11" onClick={handleCreateSupplier} disabled={creatingSupplier}>
+                  {creatingSupplier ? 'Đang tạo...' : 'Tạo NCC & chọn'}
+                </Button>
+              </div>
             </div>
             <div>
               <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">

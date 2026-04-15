@@ -2,6 +2,8 @@ const express = require('express');
 const mongoose = require('mongoose');
 const SupportTicket = require('../models/SupportTicket');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const { emitManagerBadgeRefresh } = require('../socket');
+const { notifyUsers } = require('../services/managerNotificationService');
 
 const router = express.Router();
 
@@ -105,6 +107,16 @@ router.post('/', requireAuth, requireRole(['manager'], { allowLockedStoreForMana
     });
 
     const populated = await SupportTicket.findById(ticket._id).populate(detailPopulate).lean();
+    await notifyUsers({
+      userIds: [req.user.id],
+      storeId: String(req.user.storeId),
+      type: 'support_ticket_created',
+      title: 'Đã gửi phiếu hỗ trợ',
+      message: `Phiếu "${subject}" đã được gửi tới admin.`,
+      relatedEntity: 'support_ticket',
+      relatedId: ticket._id,
+    }).catch(() => {});
+    await emitManagerBadgeRefresh({ storeId: req.user.storeId ? String(req.user.storeId) : null });
     return res.status(201).json({ ticket: populated });
   } catch (err) {
     console.error('supportTickets create', err);
@@ -153,6 +165,18 @@ router.post(
       ticket.status = 'open';
     }
     await ticket.save();
+    if (role === 'admin') {
+      await notifyUsers({
+        userIds: [String(ticket.createdBy)],
+        storeId: String(ticket.storeId),
+        type: 'support_ticket_answered',
+        title: 'Admin đã phản hồi phiếu hỗ trợ',
+        message: `Phiếu "${ticket.subject}" đã có phản hồi mới.`,
+        relatedEntity: 'support_ticket',
+        relatedId: ticket._id,
+      }).catch(() => {});
+    }
+    await emitManagerBadgeRefresh({ storeId: ticket.storeId ? String(ticket.storeId) : null });
 
     const populated = await SupportTicket.findById(ticket._id).populate(detailPopulate).lean();
     return res.json({ ticket: populated });
@@ -179,6 +203,16 @@ router.patch('/:id/status', requireAuth, requireRole(['admin']), async (req, res
 
     ticket.status = status;
     await ticket.save();
+    await notifyUsers({
+      userIds: [String(ticket.createdBy)],
+      storeId: String(ticket.storeId),
+      type: 'support_ticket_status_updated',
+      title: 'Phiếu hỗ trợ đã được cập nhật',
+      message: `Trạng thái phiếu "${ticket.subject}" đã chuyển sang "${status}".`,
+      relatedEntity: 'support_ticket',
+      relatedId: ticket._id,
+    }).catch(() => {});
+    await emitManagerBadgeRefresh({ storeId: ticket.storeId ? String(ticket.storeId) : null });
 
     const populated = await SupportTicket.findById(ticket._id).populate(detailPopulate).lean();
     return res.json({ ticket: populated });

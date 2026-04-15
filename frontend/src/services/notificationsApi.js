@@ -19,6 +19,14 @@ export async function getNotificationUnreadCount() {
   return Number(data.unreadCount || 0);
 }
 
+export async function getManagerBadgeCounts() {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/notifications/manager-badge-counts`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return parseJson(res, 'Không thể tải số lượng chờ duyệt');
+}
+
 export async function getNotifications() {
   const token = getToken();
   const res = await fetch(`${API_BASE}/notifications`, {
