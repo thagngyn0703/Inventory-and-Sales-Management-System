@@ -7,9 +7,9 @@ const router = express.Router();
 
 /**
  * GET /api/store-settings/tax
- * Manager lấy cấu hình thuế của cửa hàng mình.
+ * Nhân viên/Manager/Admin lấy cấu hình thuế của cửa hàng mình.
  */
-router.get('/tax', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
+router.get('/tax', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
         const storeId = req.user?.storeId;
         if (!storeId || !mongoose.isValidObjectId(storeId)) {

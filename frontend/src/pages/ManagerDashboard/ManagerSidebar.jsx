@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import { logout } from '../../utils/auth';
 import { cn } from '../../lib/utils';
 import StoreLockedNotice from '../../components/StoreLockedNotice';
-import { getManagerBadgeCounts } from '../../services/notificationsApi';
+import { getManagerBadgeCounts, getNotificationUnreadCount } from '../../services/notificationsApi';
 import { getRealtimeSocket } from '../../services/realtimeSocket';
 import {
   BarChart3,
@@ -166,19 +166,24 @@ export default function ManagerSidebar({ collapsed = false, ...restProps }) {
     pendingProductRequests: 0,
     pendingGoodsReceipts: 0,
     pendingSupportTickets: 0,
+    unreadNotifications: 0,
   });
 
   useEffect(() => {
     let mounted = true;
     const loadBadges = async () => {
       try {
-        const data = await getManagerBadgeCounts();
+        const [data, unreadNotifications] = await Promise.all([
+          getManagerBadgeCounts(),
+          getNotificationUnreadCount(),
+        ]);
         if (!mounted) return;
         setPendingBadges({
           pendingStocktakes: Number(data?.pendingStocktakes || 0),
           pendingProductRequests: Number(data?.pendingProductRequests || 0),
           pendingGoodsReceipts: Number(data?.pendingGoodsReceipts || 0),
           pendingSupportTickets: Number(data?.pendingSupportTickets || 0),
+          unreadNotifications: Number(unreadNotifications || 0),
         });
       } catch (_) {
         if (!mounted) return;
@@ -187,6 +192,7 @@ export default function ManagerSidebar({ collapsed = false, ...restProps }) {
           pendingProductRequests: 0,
           pendingGoodsReceipts: 0,
           pendingSupportTickets: 0,
+          unreadNotifications: 0,
         });
       }
     };
@@ -195,17 +201,27 @@ export default function ManagerSidebar({ collapsed = false, ...restProps }) {
     const socket = getRealtimeSocket();
     const onManagerBadgeUpdated = (payload) => {
       if (!mounted) return;
-      setPendingBadges({
+      setPendingBadges((prev) => ({
+        ...prev,
         pendingStocktakes: Number(payload?.pendingStocktakes || 0),
         pendingProductRequests: Number(payload?.pendingProductRequests || 0),
         pendingGoodsReceipts: Number(payload?.pendingGoodsReceipts || 0),
         pendingSupportTickets: Number(payload?.pendingSupportTickets || 0),
-      });
+      }));
+    };
+    const onUnreadUpdated = (payload) => {
+      if (!mounted) return;
+      setPendingBadges((prev) => ({
+        ...prev,
+        unreadNotifications: Number(payload?.unreadCount || 0),
+      }));
     };
     socket?.on('manager:badge-counts-updated', onManagerBadgeUpdated);
+    socket?.on('manager:notification-unread-updated', onUnreadUpdated);
     return () => {
       mounted = false;
       socket?.off('manager:badge-counts-updated', onManagerBadgeUpdated);
+      socket?.off('manager:notification-unread-updated', onUnreadUpdated);
     };
   }, []);
 
@@ -234,6 +250,7 @@ export default function ManagerSidebar({ collapsed = false, ...restProps }) {
     if (itemPath === '/manager/stocktakes/pending') return pendingBadges.pendingStocktakes;
     if (itemPath === '/manager/product-requests') return pendingBadges.pendingProductRequests;
     if (itemPath === '/manager/receipts') return pendingBadges.pendingGoodsReceipts;
+    if (itemPath === '/manager/notifications') return pendingBadges.unreadNotifications;
     if (itemPath === '/manager/support') return pendingBadges.pendingSupportTickets;
     return 0;
   };

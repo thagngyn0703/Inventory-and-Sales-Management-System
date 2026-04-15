@@ -217,6 +217,9 @@ export default function ManagerProductCreate() {
         if (!costCheck.ok) return setError(costCheck.message);
         const stockCheck = validateNonNegativeNumber(form.stock_qty, 'Tồn kho');
         if (!stockCheck.ok) return setError(stockCheck.message);
+        if (stockCheck.value > 0 && !trimString(form.supplier_id)) {
+            return setError('Vui lòng chọn nhà cung cấp khi nhập tồn kho ban đầu.');
+        }
         const reorderCheck = validateNonNegativeNumber(form.reorder_level, 'Mức tồn tối thiểu');
         if (!reorderCheck.ok) return setError(reorderCheck.message);
         const units = [];

@@ -861,15 +861,18 @@ export default function POSContainer({
                     <td>
                       {/* Manager có thể sửa giá trực tiếp */}
                       {isManager ? (
-                        <input
-                          type="number"
-                          className="pos-qty-input"
-                          value={item.unit_price}
-                          onChange={(e) => updateLine(idx, { unit_price: Number(e.target.value) || 0 })}
-                          title="Quản lý có thể điều chỉnh đơn giá"
-                        />
+                        <div className="pos-price-editor">
+                          <input
+                            type="number"
+                            className="pos-qty-input"
+                            value={item.unit_price}
+                            onChange={(e) => updateLine(idx, { unit_price: Number(e.target.value) || 0 })}
+                            title="Quản lý có thể điều chỉnh đơn giá"
+                          />
+                          <span className="pos-price-hint">{formatMoney(item.unit_price)}</span>
+                        </div>
                       ) : (
-                        <span>{Number(item.unit_price).toLocaleString('vi-VN')}</span>
+                        <span className="pos-money-cell">{formatMoney(item.unit_price)}</span>
                       )}
                     </td>
                     {isManager && (
@@ -1149,28 +1152,6 @@ export default function POSContainer({
                           >
                             Đủ tiền ({formatMoney(totalWithDebt)})
                           </button>
-                        </div>
-                        <div
-                          style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            fontSize: 14,
-                            marginTop: 12,
-                          }}
-                        >
-                          {missingAmount > 0 && String(activeTab.customerPaid).length > 0 ? (
-                            <>
-                              <span style={{ color: '#ef4444' }}>Còn thiếu</span>
-                              <span style={{ fontWeight: 600, color: '#ef4444' }}>
-                                {formatMoney(missingAmount)}
-                              </span>
-                            </>
-                          ) : (
-                            <>
-                              <span style={{ color: '#64748b' }}>Tiền thừa trả khách</span>
-                              <span style={{ fontWeight: 600 }}>{formatMoney(changeAmount)}</span>
-                            </>
-                          )}
                         </div>
                       </>
                     )}
