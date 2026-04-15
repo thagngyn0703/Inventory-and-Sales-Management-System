@@ -214,10 +214,12 @@
 .pos-tabs {
   background: transparent;
   display: flex;
-  padding: 0 10px;
+  padding: 2px 10px;
   align-items: center;
   gap: 6px;
   overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.35) transparent;
 }
 
 .pos-tabs-inline {
@@ -227,6 +229,8 @@
   flex: 1 1 0;
   min-width: 0;
   overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
 }
 
 /* Góc phải ngoài cùng — sau vùng tab */
@@ -314,21 +318,60 @@
 }
 
 .pos-tab {
-  padding: 8px 14px;
-  color: white;
-  font-size: 14px;
+  padding: 6px 9px 6px 12px;
+  color: #f8fafc;
+  font-size: 12px;
+  font-weight: 600;
   cursor: pointer;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  border-right: 1px solid rgba(255,255,255,0.2);
+  gap: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.12);
+  flex: 0 0 auto;
+  max-width: 156px;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.pos-tab:hover {
+  border-color: rgba(255, 255, 255, 0.42);
+  background: rgba(255, 255, 255, 0.17);
+}
+
+.pos-tab-label {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.pos-tab-close-btn {
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: currentColor;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex: 0 0 auto;
+  opacity: 0.82;
+}
+
+.pos-tab-close-btn:hover {
+  background: rgba(15, 23, 42, 0.1);
+  opacity: 1;
 }
 
 .pos-tab.active {
   background: white;
   color: #0f766e;
   border-radius: 10px;
-  margin-top: 0;
+  border-color: rgba(255, 255, 255, 0.9);
   box-shadow: 0 2px 8px rgba(15, 23, 42, 0.12);
   font-weight: 700;
 }
@@ -336,8 +379,31 @@
 .pos-add-tab-btn {
   height: 32px;
   border-color: rgba(255, 255, 255, 0.35) !important;
-  background: transparent !important;
+  background: rgba(15, 23, 42, 0.14) !important;
   color: #fff !important;
+  border-radius: 10px !important;
+  flex: 0 0 auto;
+  position: sticky;
+  right: 0;
+  z-index: 1;
+}
+
+.pos-add-tab-btn:hover {
+  background: rgba(255, 255, 255, 0.22) !important;
+  border-color: rgba(255, 255, 255, 0.55) !important;
+}
+
+.pos-tabs::-webkit-scrollbar {
+  height: 5px;
+}
+
+.pos-tabs::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.35);
+  border-radius: 999px;
+}
+
+.pos-tabs::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .pos-cart-container {

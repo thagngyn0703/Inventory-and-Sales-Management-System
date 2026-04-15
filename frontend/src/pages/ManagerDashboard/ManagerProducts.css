@@ -923,6 +923,127 @@
     background: #f9fafb;
 }
 
+/* Support ticket page */
+.manager-ticket-form-card {
+    margin-bottom: 24px;
+    border: 1px solid #c7f0ec;
+    background: linear-gradient(180deg, #f8fffe 0%, #ffffff 45%);
+}
+
+.manager-ticket-form {
+    padding: 0 1rem 1rem;
+    max-width: 760px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.manager-ticket-form-label {
+    display: block;
+    margin: 0;
+    color: #374151;
+    font-weight: 600;
+    font-size: 13px;
+}
+
+.manager-ticket-form-label .manager-input {
+    margin-top: 7px;
+    width: 100%;
+    background: #f8fffe;
+    border: 1px solid #bfe8e3;
+    border-radius: 11px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.manager-ticket-form-label .manager-input::placeholder {
+    color: #7c8da0;
+}
+
+.manager-ticket-form-label .manager-input:hover {
+    border-color: #87d9d0;
+    background: #ffffff;
+}
+
+.manager-ticket-form-label .manager-input:focus {
+    outline: none;
+    border-color: #14b8a6;
+    background: #ffffff;
+    box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.18);
+}
+
+.manager-ticket-textarea {
+    min-height: 140px;
+    resize: vertical;
+    padding-top: 10px;
+    padding-bottom: 10px;
+    line-height: 1.45;
+}
+
+.manager-ticket-submit-btn {
+    align-self: flex-start;
+    min-width: 130px;
+    box-shadow: 0 8px 20px -10px rgba(2, 132, 199, 0.65);
+}
+
+.manager-ticket-list-header {
+    align-items: center;
+}
+
+.manager-ticket-list-title {
+    font-size: 1.25rem;
+}
+
+.manager-ticket-filter-select {
+    width: 220px;
+    max-width: 100%;
+    background: #fff;
+}
+
+.manager-ticket-table-state {
+    padding: 1.1rem;
+}
+
+.manager-ticket-status {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+}
+
+.manager-ticket-status--open {
+    background: #e0f2fe;
+    color: #0369a1;
+}
+
+.manager-ticket-status--answered {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.manager-ticket-status--closed {
+    background: #f3f4f6;
+    color: #374151;
+}
+
+.manager-ticket-detail-link {
+    text-decoration: none;
+    display: inline-block;
+    padding: 6px 12px;
+}
+
+.manager-ticket-pagination {
+    padding: 1rem;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    border-top: 1px solid #f1f5f9;
+    background: #fcfdff;
+}
+
 @media (max-width: 768px) {
     .manager-form-row--2 {
         grid-template-columns: 1fr;
@@ -930,6 +1051,18 @@
 
     .manager-products-header {
         flex-direction: column;
+    }
+
+    .manager-ticket-form {
+        max-width: 100%;
+    }
+
+    .manager-ticket-filter-select {
+        width: 100%;
+    }
+
+    .manager-ticket-pagination {
+        flex-wrap: wrap;
     }
 }
 

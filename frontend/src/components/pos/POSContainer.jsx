@@ -726,20 +726,25 @@ export default function POSContainer({
         </div>
 
         {/* Tab bar */}
-        <div className="pos-tabs pos-tabs-inline">
+        <div className="pos-tabs pos-tabs-inline" role="tablist" aria-label="Danh sách hóa đơn đang mở">
           {tabs.map((tab) => (
             <div
               key={tab.tabId}
               className={`pos-tab ${tab.tabId === activeTabId ? 'active' : ''}`}
               onClick={() => setActiveTabId(tab.tabId)}
+              role="tab"
+              aria-selected={tab.tabId === activeTabId}
+              title={tab.name}
             >
-              {tab.name}
-              <X
-                className="ml-2 h-3.5 w-3.5 shrink-0 cursor-pointer opacity-80 hover:opacity-100"
-                strokeWidth={2.5}
-                aria-label="Đóng tab"
+              <span className="pos-tab-label">{tab.name}</span>
+              <button
+                type="button"
+                className="pos-tab-close-btn"
+                aria-label={`Đóng ${tab.name}`}
                 onClick={(e) => handleCloseTab(tab.tabId, e)}
-              />
+              >
+                <X className="h-3.5 w-3.5 shrink-0" strokeWidth={2.5} aria-hidden />
+              </button>
             </div>
           ))}
           <Button
