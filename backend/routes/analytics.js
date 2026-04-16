@@ -8,6 +8,8 @@ const Product = require('../models/Product');
 const ProductPriceHistory = require('../models/ProductPriceHistory');
 const Supplier = require('../models/Supplier');
 const SupplierPayment = require('../models/SupplierPayment');
+const Customer = require('../models/Customer');
+const CustomerLoyaltyTransaction = require('../models/CustomerLoyaltyTransaction');
 const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
@@ -129,6 +131,159 @@ function getManagerStoreId(req) {
   const storeId = req.user?.storeId ? String(req.user.storeId) : null;
   if (!storeId || !mongoose.isValidObjectId(storeId)) return null;
   return new mongoose.Types.ObjectId(storeId);
+}
+
+function escapeCsv(value) {
+  const raw = value == null ? '' : String(value);
+  if (raw.includes(',') || raw.includes('"') || raw.includes('\n')) {
+    return `"${raw.replace(/"/g, '""')}"`;
+  }
+  return raw;
+}
+
+async function buildLoyaltyAnalyticsPayload({ req, from, to }) {
+  const storeIdObj = req.user?.storeId ? new mongoose.Types.ObjectId(req.user.storeId) : null;
+  const role = String(req.user?.role || '').toLowerCase();
+  if (role !== 'admin' && !storeIdObj) {
+    return { error: { status: 403, body: { message: 'Chưa có cửa hàng', code: 'STORE_REQUIRED' } } };
+  }
+
+  const customerMatch = storeIdObj ? { store_id: storeIdObj } : {};
+  const txnMatch = {
+    ...(storeIdObj ? { store_id: storeIdObj } : {}),
+    created_at: { $gte: from, $lte: to },
+  };
+  const invoiceMatch = {
+    ...(storeIdObj ? { store_id: storeIdObj } : {}),
+    status: 'confirmed',
+    invoice_at: { $gte: from, $lte: to },
+    ...PAID_TRANSFER_FILTER,
+  };
+
+  const [liabilityAgg, txnAgg, monthlyAgg, invoiceAgg, aovAgg] = await Promise.all([
+    Customer.aggregate([
+      { $match: customerMatch },
+      {
+        $group: {
+          _id: null,
+          total_points_balance: { $sum: { $ifNull: ['$loyalty_points', 0] } },
+        },
+      },
+    ]),
+    CustomerLoyaltyTransaction.aggregate([
+      { $match: txnMatch },
+      {
+        $group: {
+          _id: '$type',
+          points: { $sum: '$points' },
+          value_vnd: { $sum: '$value_vnd' },
+        },
+      },
+    ]),
+    CustomerLoyaltyTransaction.aggregate([
+      { $match: txnMatch },
+      {
+        $group: {
+          _id: {
+            ym: { $dateToString: { format: '%Y-%m', date: '$created_at', timezone: REPORT_TZ } },
+            type: '$type',
+          },
+          points: { $sum: '$points' },
+          value_vnd: { $sum: '$value_vnd' },
+        },
+      },
+      { $sort: { '_id.ym': 1 } },
+    ]),
+    SalesInvoice.aggregate([
+      { $match: invoiceMatch },
+      {
+        $group: {
+          _id: null,
+          revenue: { $sum: { $ifNull: ['$total_amount', 0] } },
+          loyalty_redeem_value: { $sum: { $ifNull: ['$loyalty_redeem_value', 0] } },
+          order_count: { $sum: 1 },
+        },
+      },
+    ]),
+    SalesInvoice.aggregate([
+      { $match: invoiceMatch },
+      {
+        $group: {
+          _id: {
+            used_loyalty: {
+              $cond: [
+                {
+                  $or: [
+                    { $gt: [{ $ifNull: ['$loyalty_redeem_points', 0] }, 0] },
+                    { $gt: [{ $ifNull: ['$loyalty_earned_points', 0] }, 0] },
+                  ],
+                },
+                true,
+                false,
+              ],
+            },
+          },
+          total_amount: { $sum: { $ifNull: ['$total_amount', 0] } },
+          count: { $sum: 1 },
+        },
+      },
+    ]),
+  ]);
+
+  const txnMap = new Map((txnAgg || []).map((r) => [String(r._id), r]));
+  const earnedPoints = Number(txnMap.get('EARN')?.points || 0);
+  const redeemedPoints = Math.abs(Number(txnMap.get('REDEEM')?.points || 0));
+  const expiredPoints = Math.abs(Number(txnMap.get('EXPIRE')?.points || 0));
+  const redeemedValue = Number(txnMap.get('REDEEM')?.value_vnd || 0);
+  const liabilityPoints = Number(liabilityAgg[0]?.total_points_balance || 0);
+  const pointValue = 500;
+  const liabilityValue = liabilityPoints * pointValue;
+  const revenue = Number(invoiceAgg[0]?.revenue || 0);
+  const effectiveDiscountPct = revenue > 0 ? Math.round((redeemedValue / revenue) * 10000) / 100 : 0;
+  const redemptionRate = earnedPoints > 0 ? Math.round((redeemedPoints / earnedPoints) * 10000) / 100 : 0;
+
+  const aovMap = new Map((aovAgg || []).map((r) => [String(r._id.used_loyalty), r]));
+  const loyaltyAov = Number(aovMap.get('true')?.total_amount || 0) / Math.max(1, Number(aovMap.get('true')?.count || 0));
+  const nonLoyaltyAov = Number(aovMap.get('false')?.total_amount || 0) / Math.max(1, Number(aovMap.get('false')?.count || 0));
+  const retentionLiftPct = nonLoyaltyAov > 0 ? Math.round(((loyaltyAov - nonLoyaltyAov) / nonLoyaltyAov) * 10000) / 100 : null;
+
+  const monthBucketMap = new Map();
+  (monthlyAgg || []).forEach((r) => {
+    const ym = r?._id?.ym;
+    const type = r?._id?.type;
+    if (!ym || !type) return;
+    if (!monthBucketMap.has(ym)) {
+      monthBucketMap.set(ym, {
+        month: ym,
+        earn_points: 0,
+        redeem_points: 0,
+        expire_points: 0,
+      });
+    }
+    const row = monthBucketMap.get(ym);
+    if (type === 'EARN') row.earn_points += Number(r.points || 0);
+    if (type === 'REDEEM') row.redeem_points += Math.abs(Number(r.points || 0));
+    if (type === 'EXPIRE') row.expire_points += Math.abs(Number(r.points || 0));
+  });
+  const monthly = Array.from(monthBucketMap.values()).sort((a, b) => a.month.localeCompare(b.month));
+
+  return {
+    period: { from: from.toISOString(), to: to.toISOString() },
+    liability_points: liabilityPoints,
+    liability_value: liabilityValue,
+    earned_points: earnedPoints,
+    redeemed_points: redeemedPoints,
+    expired_points: expiredPoints,
+    redeemed_value: redeemedValue,
+    redemption_rate: redemptionRate,
+    effective_discount_pct: effectiveDiscountPct,
+    retention_lift: {
+      loyalty_aov: Number.isFinite(loyaltyAov) ? Math.round(loyaltyAov) : 0,
+      non_loyalty_aov: Number.isFinite(nonLoyaltyAov) ? Math.round(nonLoyaltyAov) : 0,
+      lift_pct: retentionLiftPct,
+    },
+    monthly,
+  };
 }
 
 /**
@@ -512,6 +667,7 @@ router.get(
               total_paid: { $sum: '$paid_amount' },
               total_subtotal: { $sum: '$subtotal_amount' },
               total_tax: { $sum: '$tax_amount' },
+              total_loyalty_redeem: { $sum: { $ifNull: ['$loyalty_redeem_value', 0] } },
             },
           },
         ]),
@@ -619,6 +775,7 @@ router.get(
       ]);
 
       const salesRevenue = invoiceAgg[0]?.total_revenue ?? 0;
+      const loyaltyRedeemValue = invoiceAgg[0]?.total_loyalty_redeem ?? 0;
       const salesRevenueNet = invoiceAgg[0]?.total_subtotal ?? salesRevenue;
       const salesVatCollected = invoiceAgg[0]?.total_tax ?? 0;
       const returnGross = returnAmountAgg[0]?.total_return_gross ?? 0;
@@ -638,6 +795,7 @@ router.get(
       const grossProfitFromSales = invoiceProfitAgg[0]?.gross_profit ?? 0;
       const grossProfitFromReturns = returnProfitAgg[0]?.return_profit_impact ?? 0;
       const grossProfit = grossProfitFromSales - grossProfitFromReturns;
+      const grossProfitAfterLoyalty = grossProfit - loyaltyRedeemValue;
       // Giữ lại gross_profit_estimate (dựa GoodsReceipt) để tham khảo
       const grossProfitEstimate = revenue - incomingCost;
       const returnRate = orderCount > 0 ? Math.round((returnCount / orderCount) * 10000) / 100 : 0;
@@ -674,6 +832,8 @@ router.get(
         supplier_payment_bank_transfer: supplierPaymentBankTransfer,
         // Lợi nhuận gộp thực: tính từ cost_price snapshot trên từng dòng hóa đơn (chính xác)
         gross_profit: grossProfit,
+        loyalty_redeem_value: loyaltyRedeemValue,
+        gross_profit_after_loyalty: grossProfitAfterLoyalty,
         // Lợi nhuận ước tính cũ (doanh thu - tiền nhập kỳ): giữ để tham khảo, không dùng cho báo cáo chính
         gross_profit_estimate: grossProfitEstimate,
         // Thuế VAT
@@ -1200,6 +1360,211 @@ router.get(
  * GET /api/analytics/price-change-impact?from=&to=&productId=
  * Báo cáo theo từng đợt thay đổi giá (theo store của manager).
  */
+router.get(
+  '/top-customers',
+  requireAuth,
+  requireRole(['manager', 'admin']),
+  async (req, res) => {
+    try {
+      const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 10));
+      const sort = ['spent', 'debt', 'overdue'].includes(String(req.query.sort || 'spent'))
+        ? String(req.query.sort || 'spent')
+        : 'spent';
+      const storeIdObj = req.user?.storeId ? new mongoose.Types.ObjectId(req.user.storeId) : null;
+      const role = String(req.user?.role || '').toLowerCase();
+
+      if (role !== 'admin' && !storeIdObj) {
+        return res.status(403).json({ message: 'Chưa có cửa hàng', code: 'STORE_REQUIRED' });
+      }
+
+      const customerMatch = storeIdObj ? { store_id: storeIdObj } : {};
+      const invoiceStoreExpr = storeIdObj
+        ? [{ $eq: ['$store_id', storeIdObj] }]
+        : [];
+
+      const sortStage = sort === 'debt'
+        ? { current_debt: -1, oldest_debt_days: -1, total_spent: -1, full_name: 1 }
+        : sort === 'overdue'
+          ? { oldest_debt_days: -1, current_debt: -1, total_spent: -1, full_name: 1 }
+          : { total_spent: -1, current_debt: -1, oldest_debt_days: -1, full_name: 1 };
+
+      const data = await Customer.aggregate([
+        { $match: customerMatch },
+        {
+          $lookup: {
+            from: 'salesinvoices',
+            let: { customerId: '$_id' },
+            pipeline: [
+              {
+                $match: {
+                  $expr: {
+                    $and: [
+                      { $eq: ['$customer_id', '$$customerId'] },
+                      { $eq: ['$status', 'confirmed'] },
+                      {
+                        $or: [
+                          { $ne: ['$payment_method', 'bank_transfer'] },
+                          { $eq: ['$payment_status', 'paid'] },
+                        ],
+                      },
+                      ...invoiceStoreExpr,
+                    ],
+                  },
+                },
+              },
+              {
+                $group: {
+                  _id: null,
+                  total_spent: { $sum: { $ifNull: ['$total_amount', 0] } },
+                  total_invoices: { $sum: 1 },
+                },
+              },
+            ],
+            as: 'sales_stats',
+          },
+        },
+        {
+          $lookup: {
+            from: 'salesinvoices',
+            let: { customerId: '$_id' },
+            pipeline: [
+              {
+                $match: {
+                  $expr: {
+                    $and: [
+                      { $eq: ['$customer_id', '$$customerId'] },
+                      { $eq: ['$status', 'pending'] },
+                      { $eq: ['$payment_method', 'debt'] },
+                      ...invoiceStoreExpr,
+                    ],
+                  },
+                },
+              },
+              { $sort: { created_at: 1 } },
+              { $limit: 1 },
+              {
+                $project: {
+                  _id: 1,
+                  created_at: 1,
+                  total_amount: { $ifNull: ['$total_amount', 0] },
+                },
+              },
+            ],
+            as: 'oldest_debt_invoice',
+          },
+        },
+        {
+          $addFields: {
+            total_spent: { $ifNull: [{ $first: '$sales_stats.total_spent' }, 0] },
+            total_invoices: { $ifNull: [{ $first: '$sales_stats.total_invoices' }, 0] },
+            current_debt: { $ifNull: ['$debt_account', 0] },
+            oldest_debt_at: { $first: '$oldest_debt_invoice.created_at' },
+            oldest_debt_invoice_id: { $first: '$oldest_debt_invoice._id' },
+            oldest_debt_invoice_amount: { $ifNull: [{ $first: '$oldest_debt_invoice.total_amount' }, 0] },
+          },
+        },
+        {
+          $addFields: {
+            oldest_debt_days: {
+              $cond: [
+                { $ifNull: ['$oldest_debt_at', false] },
+                { $dateDiff: { startDate: '$oldest_debt_at', endDate: '$$NOW', unit: 'day' } },
+                0,
+              ],
+            },
+          },
+        },
+        {
+          $project: {
+            _id: 1,
+            full_name: 1,
+            phone: 1,
+            email: 1,
+            current_debt: 1,
+            total_spent: 1,
+            total_invoices: 1,
+            oldest_debt_at: 1,
+            oldest_debt_days: 1,
+            oldest_debt_invoice_id: 1,
+            oldest_debt_invoice_amount: 1,
+            overdue_30: {
+              $and: [{ $gt: ['$current_debt', 0] }, { $gt: ['$oldest_debt_days', 30] }],
+            },
+          },
+        },
+        { $sort: sortStage },
+        { $limit: limit },
+      ]);
+
+      return res.json({ sort, limit, data });
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ message: err.message || 'Server error' });
+    }
+  }
+);
+
+router.get(
+  '/loyalty',
+  requireAuth,
+  requireRole(['manager', 'admin']),
+  async (req, res) => {
+    try {
+      const { from, to } = parseDateRange(req.query);
+      const payload = await buildLoyaltyAnalyticsPayload({ req, from, to });
+      if (payload?.error) return res.status(payload.error.status).json(payload.error.body);
+      return res.json(payload);
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ message: err.message || 'Server error' });
+    }
+  }
+);
+
+router.get(
+  '/loyalty/export',
+  requireAuth,
+  requireRole(['manager', 'admin']),
+  async (req, res) => {
+    try {
+      const { from, to } = parseDateRange(req.query);
+      const payload = await buildLoyaltyAnalyticsPayload({ req, from, to });
+      if (payload?.error) return res.status(payload.error.status).json(payload.error.body);
+
+      const rows = [
+        ['Metric', 'Value'],
+        ['from', payload.period.from],
+        ['to', payload.period.to],
+        ['liability_points', payload.liability_points],
+        ['liability_value', payload.liability_value],
+        ['earned_points', payload.earned_points],
+        ['redeemed_points', payload.redeemed_points],
+        ['expired_points', payload.expired_points],
+        ['redeemed_value', payload.redeemed_value],
+        ['redemption_rate_pct', payload.redemption_rate],
+        ['effective_discount_pct', payload.effective_discount_pct],
+        ['loyalty_aov', payload.retention_lift?.loyalty_aov ?? 0],
+        ['non_loyalty_aov', payload.retention_lift?.non_loyalty_aov ?? 0],
+        ['retention_lift_pct', payload.retention_lift?.lift_pct ?? ''],
+        [],
+        ['Month', 'Earn Points', 'Redeem Points', 'Expire Points'],
+        ...(payload.monthly || []).map((r) => [r.month, r.earn_points, r.redeem_points, r.expire_points]),
+      ];
+      const csv = rows
+        .map((row) => (Array.isArray(row) ? row.map(escapeCsv).join(',') : ''))
+        .join('\n');
+      const fileFrom = String(payload.period.from).slice(0, 10);
+      const fileTo = String(payload.period.to).slice(0, 10);
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="loyalty-report-${fileFrom}-to-${fileTo}.csv"`);
+      return res.send(`\uFEFF${csv}`);
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ message: err.message || 'Server error' });
+    }
+  }
+);
+
 router.get(
   '/price-change-impact',
   requireAuth,

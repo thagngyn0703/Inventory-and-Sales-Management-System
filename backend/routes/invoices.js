@@ -5,9 +5,17 @@ const SalesInvoice = require('../models/SalesInvoice');
 const Product = require('../models/Product');
 const User = require('../models/User');
 const Store = require('../models/Store');
+const Customer = require('../models/Customer');
 const { adjustStockFIFO } = require('../utils/inventoryUtils');
 const { applyCustomerDebtAfterNewInvoice } = require('../utils/customerDebt');
 const { upsertSystemCashFlow } = require('../utils/cashflowUtils');
+const {
+    normalizeLoyaltySettings,
+    computeRedeemPlan,
+    computeEarnedPoints,
+    getNextNudge,
+    appendLoyaltyTxn,
+} = require('../utils/loyalty');
 const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
@@ -82,6 +90,17 @@ async function getStoreTaxConfig(storeId) {
     return {
         tax_rate: Number(store?.tax_rate) || 0,
         price_includes_tax: store?.price_includes_tax !== false,
+    };
+}
+
+async function getStoreLoyaltyConfig(storeId) {
+    if (!storeId || !mongoose.isValidObjectId(storeId)) {
+        return { loyalty_settings: normalizeLoyaltySettings({}), loyalty_policy_version: 1 };
+    }
+    const store = await Store.findById(storeId).select('loyalty_settings loyalty_policy_version').lean();
+    return {
+        loyalty_settings: normalizeLoyaltySettings(store?.loyalty_settings || {}),
+        loyalty_policy_version: Number(store?.loyalty_policy_version) || 1,
     };
 }
 
@@ -378,8 +397,20 @@ function getInvoiceRefLabel(invoiceId) {
 // POST /api/invoices — create a confirmed outbound invoice
 router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
-        const { customer_id, items: reqItems, payment_method, recipient_name, previous_debt_paid,
-                seller_name, seller_role, seller_code } = req.body || {};
+        if (!assertStoreScope(req, res)) return;
+        const userRole = String(req.user?.role || '').toLowerCase();
+        const {
+            customer_id,
+            items: reqItems,
+            payment_method,
+            recipient_name,
+            previous_debt_paid,
+            redeem_points_requested,
+            promo_discount = 0,
+            seller_name,
+            seller_role,
+            seller_code,
+        } = req.body || {};
         if (!Array.isArray(reqItems) || reqItems.length === 0) {
             return res.status(400).json({ message: 'items (array) is required' });
         }
@@ -391,33 +422,37 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
         // Validate nghiệp vụ nợ: chặn mua mới khi nợ ≥ 100k chưa trả đủ, enforce credit_limit
         let customerForDebtCheck = null;
         if (customer_id) {
-            const Customer = require('../models/Customer');
-            customerForDebtCheck = await Customer.findById(customer_id)
-                .select('debt_account full_name credit_limit')
+            const customerFilter = { _id: customer_id };
+            if (userRole !== 'admin') {
+                customerFilter.store_id = req.user.storeId;
+            }
+            customerForDebtCheck = await Customer.findOne(customerFilter)
+                .select('debt_account full_name credit_limit loyalty_points')
                 .lean();
+            if (!customerForDebtCheck) {
+                return res.status(404).json({ message: 'Không tìm thấy khách hàng trong cửa hàng hiện tại.' });
+            }
 
-            if (customerForDebtCheck) {
-                const currentDebt = Number(customerForDebtCheck.debt_account) || 0;
-                // BUG-09: cap previous_debt_paid tại debt_account thực tế, tránh trả thừa
-                const rawPrevDebt = Number(previous_debt_paid) || 0;
-                if (rawPrevDebt > currentDebt) {
+            const currentDebt = Number(customerForDebtCheck.debt_account) || 0;
+            // BUG-09: cap previous_debt_paid tại debt_account thực tế, tránh trả thừa
+            const rawPrevDebt = Number(previous_debt_paid) || 0;
+            if (rawPrevDebt > currentDebt) {
+                return res.status(400).json({
+                    message: `Số tiền trả nợ (${rawPrevDebt.toLocaleString('vi-VN')}₫) vượt quá dư nợ hiện tại (${currentDebt.toLocaleString('vi-VN')}₫).`,
+                    debt_account: currentDebt,
+                    error_code: 'OVERPAYMENT_NOT_ALLOWED',
+                });
+            }
+
+            // Chặn mua mới khi nợ ≥ 100.000đ mà chưa trả đủ
+            if (currentDebt >= 100000) {
+                const debtPaid = Number(previous_debt_paid) || 0;
+                if (debtPaid < currentDebt) {
                     return res.status(400).json({
-                        message: `Số tiền trả nợ (${rawPrevDebt.toLocaleString('vi-VN')}₫) vượt quá dư nợ hiện tại (${currentDebt.toLocaleString('vi-VN')}₫).`,
+                        message: `Khách hàng đang nợ ${currentDebt.toLocaleString('vi-VN')}₫ (≥ 100.000₫). Vui lòng thanh toán toàn bộ nợ cũ trước khi mua hàng mới.`,
                         debt_account: currentDebt,
-                        error_code: 'OVERPAYMENT_NOT_ALLOWED',
+                        error_code: 'DEBT_LIMIT_EXCEEDED',
                     });
-                }
-
-                // Chặn mua mới khi nợ ≥ 100.000đ mà chưa trả đủ
-                if (currentDebt >= 100000) {
-                    const debtPaid = Number(previous_debt_paid) || 0;
-                    if (debtPaid < currentDebt) {
-                        return res.status(400).json({
-                            message: `Khách hàng đang nợ ${currentDebt.toLocaleString('vi-VN')}₫ (≥ 100.000₫). Vui lòng thanh toán toàn bộ nợ cũ trước khi mua hàng mới.`,
-                            debt_account: currentDebt,
-                            error_code: 'DEBT_LIMIT_EXCEEDED',
-                        });
-                    }
                 }
             }
         }
@@ -437,6 +472,34 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
             });
         }
 
+        const { loyalty_settings: loyaltySettings, loyalty_policy_version: loyaltyPolicyVersion } =
+            await getStoreLoyaltyConfig(req.user.storeId);
+        const requestedRedeemPoints = Math.max(0, Math.round(Number(redeem_points_requested) || 0));
+        const promoDiscount = Math.max(0, Math.round(Number(promo_discount) || 0));
+        if (requestedRedeemPoints > 0 && !customer_id) {
+            return res.status(400).json({ message: 'Phải chọn khách hàng để dùng điểm.' });
+        }
+        const redeemPlan = computeRedeemPlan({
+            totalAmount,
+            requestedPoints: requestedRedeemPoints,
+            currentPoints: Number(customerForDebtCheck?.loyalty_points || 0),
+            config: loyaltySettings,
+            promoDiscount,
+        });
+        if (requestedRedeemPoints > 0 && redeemPlan.reason === 'promo_conflict') {
+            return res.status(400).json({ message: 'Không cho dùng điểm cùng lúc với khuyến mãi.' });
+        }
+        if (requestedRedeemPoints > 0 && redeemPlan.used_points <= 0) {
+            return res.status(400).json({ message: 'Số điểm dùng không hợp lệ hoặc không đủ điều kiện.' });
+        }
+        const invoiceLevelDiscount = Math.max(0, redeemPlan.redeem_value + promoDiscount);
+        const netInvoiceAmount = Math.max(0, totalAmount - invoiceLevelDiscount);
+        const loyaltyEligibleAmount = Math.max(0, totalAmount - redeemPlan.redeem_value - promoDiscount);
+        const loyaltyEarnedPoints = computeEarnedPoints({
+            eligibleAmount: loyaltyEligibleAmount,
+            config: loyaltySettings,
+        });
+
         // BUG-06: Enforce credit_limit — chỉ áp dụng cho đơn ghi nợ và khi credit_limit > 0
         if (payment_method === 'debt' && customerForDebtCheck) {
             const creditLimit = Number(customerForDebtCheck.credit_limit) || 0;
@@ -444,9 +507,9 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
                 const currentDebt = Number(customerForDebtCheck.debt_account) || 0;
                 const payOld = Number(previous_debt_paid) || 0;
                 const debtAfterPayOld = Math.max(0, currentDebt - payOld);
-                if (debtAfterPayOld + totalAmount > creditLimit) {
+                if (debtAfterPayOld + netInvoiceAmount > creditLimit) {
                     return res.status(400).json({
-                        message: `Vượt hạn mức tín dụng (${creditLimit.toLocaleString('vi-VN')}₫). Dư nợ sau thanh toán: ${debtAfterPayOld.toLocaleString('vi-VN')}₫, đơn mới: ${totalAmount.toLocaleString('vi-VN')}₫.`,
+                        message: `Vượt hạn mức tín dụng (${creditLimit.toLocaleString('vi-VN')}₫). Dư nợ sau thanh toán: ${debtAfterPayOld.toLocaleString('vi-VN')}₫, đơn mới: ${netInvoiceAmount.toLocaleString('vi-VN')}₫.`,
                         credit_limit: creditLimit,
                         error_code: 'CREDIT_LIMIT_EXCEEDED',
                     });
@@ -475,7 +538,7 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
         // Tính thuế từ cấu hình cửa hàng — server là nguồn sự thật, không tin client
         const taxConfig = await getStoreTaxConfig(req.user.storeId);
         const { subtotal_amount, tax_amount } = computeTaxBreakdown(
-            totalAmount,
+            netInvoiceAmount,
             taxConfig.tax_rate,
             taxConfig.price_includes_tax
         );
@@ -494,11 +557,20 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
             payment_status: paymentStatus,
             paid_at: method === 'cash' ? new Date() : null,
             items: normalizedItems,
-            total_amount: totalAmount,
+            total_amount: netInvoiceAmount,
             subtotal_amount,
             tax_amount,
             tax_rate_snapshot: taxConfig.tax_rate,
             previous_debt_paid: Number(previous_debt_paid) || 0,
+            invoice_level_discount: invoiceLevelDiscount,
+            loyalty_redeem_points: redeemPlan.used_points,
+            loyalty_redeem_value: redeemPlan.redeem_value,
+            loyalty_promo_discount: promoDiscount,
+            loyalty_eligible_amount: loyaltyEligibleAmount,
+            loyalty_earned_points: loyaltyEarnedPoints,
+            loyalty_earned_settled: false,
+            loyalty_policy_version: loyaltyPolicyVersion,
+            loyalty_settings_snapshot: loyaltySettings,
         });
 
         // Use syncInventory to handle deduction if created as confirmed
@@ -520,7 +592,39 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
                 });
             }
 
-            const addDebt = method === 'debt' ? totalAmount : 0;
+            if (customer_id && redeemPlan.used_points > 0) {
+                await appendLoyaltyTxn({
+                    customerId: customer_id,
+                    storeId: invoice.store_id,
+                    actorId: req.user.id,
+                    type: 'REDEEM',
+                    points: -Math.abs(redeemPlan.used_points),
+                    valueVnd: redeemPlan.redeem_value,
+                    referenceModel: 'SalesInvoice',
+                    referenceId: invoice._id,
+                    note: `Dùng điểm giảm ${redeemPlan.redeem_value.toLocaleString('vi-VN')}₫`,
+                    idempotencyKey: `redeem:${invoice._id}`,
+                });
+            }
+
+            if (customer_id && loyaltyEarnedPoints > 0 && invoice.payment_status === 'paid') {
+                await appendLoyaltyTxn({
+                    customerId: customer_id,
+                    storeId: invoice.store_id,
+                    actorId: req.user.id,
+                    type: 'EARN',
+                    points: loyaltyEarnedPoints,
+                    valueVnd: loyaltyEarnedPoints * Number(loyaltySettings.redeem.point_value_vnd || 500),
+                    referenceModel: 'SalesInvoice',
+                    referenceId: invoice._id,
+                    note: `Tích điểm từ hóa đơn ${getInvoiceRefLabel(invoice._id)}`,
+                    idempotencyKey: `earn:${invoice._id}`,
+                });
+                invoice.loyalty_earned_settled = true;
+                await invoice.save();
+            }
+
+            const addDebt = method === 'debt' ? netInvoiceAmount : 0;
             const payOldDebt =
                 Number(previous_debt_paid) > 0 ? Math.abs(Number(previous_debt_paid)) : 0;
             // Chuyển khoản: chỉ khi SePay xác nhận paid mới trừ nợ + chốt HĐ nợ (xem settlePreviousDebtIfNeeded)
@@ -555,10 +659,23 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
         const productsById = new Map(products.map((p) => [String(p._id), p]));
         populated.items = buildStockAvailability(populated.items, productsById);
 
+        const refreshedCustomer = customer_id
+            ? await Customer.findById(customer_id).select('loyalty_points').lean()
+            : null;
+        const currentPoints = Number(refreshedCustomer?.loyalty_points || 0);
+        const nudge = getNextNudge(currentPoints, loyaltySettings.milestones || []);
         return res.status(201).json({
             invoice: attachInvoiceEditFlags(populated),
             payment_ref: paymentRef,
             payment_status: paymentStatus,
+            loyalty_summary: {
+                used_points: redeemPlan.used_points,
+                redeem_value: redeemPlan.redeem_value,
+                earned_points: loyaltyEarnedPoints,
+                current_points: currentPoints,
+                next_nudge: nudge,
+                policy_version: loyaltyPolicyVersion,
+            },
         });
     } catch (err) {
         console.error(err);
@@ -887,6 +1004,34 @@ router.post('/:id/cancel', requireAuth, requireRole(['staff', 'manager', 'admin'
             invoice.status = 'cancelled';
             invoice.updated_at = new Date();
             await invoice.save();
+            if (invoice.customer_id && Number(invoice.loyalty_earned_points || 0) > 0) {
+                await appendLoyaltyTxn({
+                    customerId: invoice.customer_id,
+                    storeId: invoice.store_id,
+                    actorId: req.user.id,
+                    type: 'REVERSAL',
+                    points: -Math.abs(Number(invoice.loyalty_earned_points || 0)),
+                    valueVnd: Math.abs(Number(invoice.loyalty_earned_points || 0)) * Number(invoice?.loyalty_settings_snapshot?.redeem?.point_value_vnd || 500),
+                    referenceModel: 'SalesInvoice',
+                    referenceId: invoice._id,
+                    note: 'Hoàn hủy hóa đơn: trừ lại điểm đã tích.',
+                    idempotencyKey: `reversal-earn:${invoice._id}`,
+                });
+            }
+            if (invoice.customer_id && Number(invoice.loyalty_redeem_points || 0) > 0) {
+                await appendLoyaltyTxn({
+                    customerId: invoice.customer_id,
+                    storeId: invoice.store_id,
+                    actorId: req.user.id,
+                    type: 'REFUND',
+                    points: Math.abs(Number(invoice.loyalty_redeem_points || 0)),
+                    valueVnd: Math.abs(Number(invoice.loyalty_redeem_value || 0)),
+                    referenceModel: 'SalesInvoice',
+                    referenceId: invoice._id,
+                    note: 'Hoàn hủy hóa đơn: hoàn lại điểm đã dùng.',
+                    idempotencyKey: `refund-redeem:${invoice._id}`,
+                });
+            }
             return res.json({
                 invoice: attachInvoiceEditFlags(invoice.toObject ? invoice.toObject() : invoice),
             });

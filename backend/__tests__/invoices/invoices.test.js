@@ -147,6 +147,30 @@ describe('Invoices Routes', () => {
       expect(res.body.invoice.payment_method).toBe('debt');
       expect(res.body.invoice.payment_status).toBe('unpaid');
     });
+
+    it('should reject customer from another store', async () => {
+      const product = await createTestProduct(store._id, { stock_qty: 100 });
+      const { store: otherStore } = await createManagerWithStore();
+      const foreignCustomer = await createTestCustomer(otherStore._id);
+
+      const res = await request(app)
+        .post('/api/invoices')
+        .set('Authorization', managerToken)
+        .send({
+          customer_id: String(foreignCustomer._id),
+          payment_method: 'cash',
+          items: [
+            {
+              product_id: String(product._id),
+              quantity: 1,
+              unit_price: product.sale_price,
+            },
+          ],
+        });
+
+      expect(res.status).toBe(404);
+      expect(String(res.body.message || '')).toContain('Không tìm thấy khách hàng');
+    });
   });
 
   describe('GET /api/invoices/:id', () => {

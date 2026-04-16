@@ -487,7 +487,7 @@
 }
 
 .pos-customer-section {
-  padding: 10px;
+  padding: 12px;
   border-bottom: 1px solid var(--pos-border);
 }
 
@@ -523,11 +523,11 @@
 .pos-sidebar-panel-head {
   display: flex;
   align-items: center;
-  padding: 8px 10px;
+  padding: 9px 12px;
   background: #f1f5f9;
   color: #475569;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -550,7 +550,13 @@
 }
 
 .pos-sidebar-panel-body-pad {
-  padding: 10px;
+  padding: 12px;
+}
+
+/* Khoá layout body panel để tránh bị co sai trên màn hẹp */
+.pos-sidebar-panel-body {
+  display: block;
+  width: 100%;
 }
 
 .pos-sidebar-text-btn {
@@ -579,22 +585,26 @@
 }
 
 .pos-customer-search {
-  display: flex;
-  align-items: stretch;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
   position: relative;
+  width: 100%;
 }
 
 .pos-customer-search-field {
   position: relative;
-  flex: 1;
+  width: 100%;
+  min-width: 0;
+  flex: 1 1 auto;
   min-width: 0;
 }
 
 .pos-customer-search-field .pos-search-input {
   width: 100%;
-  height: 36px;
-  padding: 0 12px;
+  height: 40px;
+  padding: 0 13px;
   border-radius: 10px;
   border: 1px solid #e2e8f0;
   background: #fafbfc;
@@ -682,12 +692,12 @@
 }
 
 .pos-summary-section {
-  padding: 10px;
+  padding: 12px;
   flex: 1;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 
 .pos-summary-panel-lines {
@@ -699,8 +709,8 @@
   justify-content: space-between;
   align-items: center;
   gap: 12px;
-  padding: 8px 10px;
-  font-size: 13px;
+  padding: 9px 12px;
+  font-size: 14px;
   color: #475569;
   border-bottom: 1px solid #f1f5f9;
 }
@@ -724,16 +734,16 @@
   justify-content: space-between;
   align-items: center;
   gap: 10px;
-  padding: 11px 10px;
+  padding: 12px 12px;
   background: linear-gradient(180deg, #ecfdf5 0%, #d1fae5 55%, #ccfbf1 100%);
   border-top: 1px solid rgba(45, 212, 191, 0.35);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   color: #0f766e;
 }
 
 .pos-total-amount {
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 800;
   color: #0d9488;
   font-variant-numeric: tabular-nums;
@@ -774,9 +784,9 @@
 }
 
 .pos-customer-add-btn {
-  width: 40px;
+  width: 42px;
   flex-shrink: 0;
-  height: 36px;
+  height: 40px;
   align-self: center;
   border: 1px solid #e2e8f0;
   border-radius: 10px;
@@ -789,6 +799,18 @@
   justify-content: center;
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s, color 0.15s, box-shadow 0.15s;
+}
+
+@media (max-width: 520px) {
+  .pos-customer-search {
+    grid-template-columns: minmax(0, 1fr) 42px;
+    gap: 8px;
+  }
+
+  .pos-customer-search-field .pos-search-input {
+    height: 38px;
+    font-size: 14px;
+  }
 }
 
 .pos-customer-add-btn:hover {
@@ -824,27 +846,27 @@
 }
 
 .pos-payment-panel-body {
-  padding: 10px;
+  padding: 12px;
   background: linear-gradient(180deg, #fafbfc 0%, #f8fafc 100%);
 }
 
 .pos-payment-methods {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 10px;
+  gap: 10px;
+  margin-bottom: 12px;
 }
 
 .pos-method-btn {
   flex: 1;
   min-width: 0;
-  padding: 8px 8px;
+  padding: 9px 10px;
   border-radius: 10px;
   border: 1px solid #e2e8f0;
   background: #fff;
   cursor: pointer;
   font-weight: 600;
-  font-size: 12px;
+  font-size: 13px;
   color: #64748b;
   transition: border-color 0.15s, background 0.15s, color 0.15s, box-shadow 0.15s;
 }
@@ -865,8 +887,8 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 8px;
-  font-size: 13px;
+  margin-bottom: 10px;
+  font-size: 14px;
   font-weight: 600;
   color: #334155;
 }
@@ -874,12 +896,12 @@
 .pos-customer-pay-input {
   width: 130px;
   max-width: 46%;
-  height: 34px;
+  height: 38px;
   text-align: right;
   font-weight: 700;
   border: 1px solid #e2e8f0;
   border-radius: 10px;
-  padding: 0 12px;
+  padding: 0 13px;
   background: #fff;
   font-variant-numeric: tabular-nums;
   transition: border-color 0.15s, box-shadow 0.15s;
@@ -894,7 +916,7 @@
 .pos-money-state-row {
   display: flex;
   justify-content: space-between;
-  font-size: 13px;
+  font-size: 14px;
   margin-top: 8px;
   color: #64748b;
 }
@@ -912,8 +934,8 @@
 .pos-quick-paid-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
-  margin-top: 8px;
+  gap: 8px;
+  margin-top: 10px;
 }
 
 .pos-quick-paid-btn {
@@ -921,9 +943,9 @@
   border-radius: 999px;
   background: #fff;
   color: #334155;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
-  padding: 7px 8px;
+  padding: 8px 8px;
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
 }
@@ -935,11 +957,11 @@
 
 .pos-quick-paid-full {
   grid-column: span 3;
-  padding: 7px 10px;
+  padding: 8px 10px;
   border-radius: 10px;
   border: 1px solid #e2e8f0;
   background: #fff;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   color: #0f172a;
   cursor: pointer;
@@ -982,18 +1004,19 @@
 }
 
 .pos-submit-wrap {
-  margin-top: 4px;
+  margin-top: 6px;
   padding: 0 2px 2px;
 }
 
 .pos-pay-button {
   width: 100%;
-  padding: 13px;
+  min-height: 46px;
+  padding: 13px 14px;
   background: linear-gradient(135deg, #14b8a6 0%, #0ea5e9 52%, #0284c7 100%);
   color: white;
   border: none;
   border-radius: 14px;
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 700;
   letter-spacing: 0.06em;
   cursor: pointer;
@@ -1003,54 +1026,54 @@
 
 @media (max-height: 860px) {
   .pos-customer-section {
-    padding: 8px;
+    padding: 10px;
   }
 
   .pos-summary-section {
-    padding: 8px;
-    gap: 8px;
+    padding: 10px;
+    gap: 9px;
   }
 
   .pos-sidebar-panel-head {
-    padding: 7px 9px;
+    padding: 8px 10px;
   }
 
   .pos-summary-line {
-    padding: 7px 9px;
-    font-size: 12px;
+    padding: 8px 10px;
+    font-size: 13px;
   }
 
   .pos-total-banner {
-    padding: 10px 9px;
-    font-size: 12px;
+    padding: 10px 10px;
+    font-size: 13px;
   }
 
   .pos-total-amount {
-    font-size: 15px;
+    font-size: 16px;
   }
 
   .pos-payment-panel-body {
-    padding: 8px;
+    padding: 9px;
   }
 
   .pos-method-btn {
-    padding: 7px 6px;
-    font-size: 11px;
+    padding: 8px 8px;
+    font-size: 12px;
   }
 
   .pos-customer-pay-row {
     margin-bottom: 6px;
-    font-size: 12px;
+    font-size: 13px;
   }
 
   .pos-customer-pay-input {
-    height: 32px;
+    height: 34px;
     padding: 0 10px;
   }
 
   .pos-money-state-row {
     margin-top: 6px;
-    font-size: 12px;
+    font-size: 13px;
   }
 
   .pos-quick-paid-grid {
@@ -1060,13 +1083,14 @@
 
   .pos-quick-paid-btn,
   .pos-quick-paid-full {
-    padding: 6px 7px;
-    font-size: 10px;
+    padding: 7px 8px;
+    font-size: 11px;
   }
 
   .pos-pay-button {
-    padding: 11px;
-    font-size: 14px;
+    min-height: 42px;
+    padding: 10px 12px;
+    font-size: 15px;
   }
 }
 

@@ -107,3 +107,39 @@ export async function getPriceChangeImpactReport({ from, to, productId, supplier
   const res = await fetch(url.toString(), { headers: authHeaders() });
   return parseResponse(res, 'Không thể tải báo cáo thay đổi giá');
 }
+
+/**
+ * Báo cáo loyalty intelligence trong kỳ.
+ * @param {Object} params - { from, to }
+ */
+export async function getLoyaltyAnalytics({ from, to } = {}) {
+  const url = new URL(`${API_BASE}/analytics/loyalty`);
+  if (from) url.searchParams.set('from', from);
+  if (to) url.searchParams.set('to', to);
+  const res = await fetch(url.toString(), { headers: authHeaders() });
+  return parseResponse(res, 'Không thể tải báo cáo loyalty');
+}
+
+export async function downloadLoyaltyAnalyticsCsv({ from, to } = {}) {
+  const url = new URL(`${API_BASE}/analytics/loyalty/export`);
+  if (from) url.searchParams.set('from', from);
+  if (to) url.searchParams.set('to', to);
+  const res = await fetch(url.toString(), { headers: authHeaders() });
+  if (!res.ok) {
+    let message = 'Không thể xuất CSV loyalty';
+    try {
+      const data = await res.json();
+      if (data?.message) message = data.message;
+    } catch (_) {
+      // ignore non-json error payload
+    }
+    throw new Error(message);
+  }
+  const blob = await res.blob();
+  const contentDisposition = res.headers.get('content-disposition') || '';
+  const match = /filename="?([^"]+)"?/i.exec(contentDisposition);
+  return {
+    blob,
+    fileName: match?.[1] || 'loyalty-report.csv',
+  };
+}

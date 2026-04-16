@@ -160,3 +160,17 @@ export const getCustomerDebtPayments = async (id, limit = 100) => {
         throw err;
     }
 };
+
+export const getTopCustomersAnalytics = async ({ limit = 10, sort = 'spent' } = {}) => {
+    try {
+        const url = new URL(`${API_URL}/analytics/top-customers`);
+        url.searchParams.append('limit', String(limit));
+        url.searchParams.append('sort', sort);
+        const res = await fetch(url.toString(), {
+            headers: getAuthHeaders(),
+        });
+        return await parseResponse(res, 'Lỗi khi tải xếp hạng khách hàng');
+    } catch (err) {
+        throw err;
+    }
+};

@@ -2,12 +2,15 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
-import { FolderTree, Settings, UsersRound, Bell, UserPlus, Receipt, Percent, Store, Building2, Info } from 'lucide-react';
+import { FolderTree, Settings, UsersRound, Bell, UserPlus, Receipt, Percent, Store, Building2, Info, Gift } from 'lucide-react';
 import {
   getStoreTaxSettings,
   updateStoreTaxSettings,
   getStoreBankSettings,
   updateStoreBankSettings,
+  getStoreLoyaltySettings,
+  updateStoreLoyaltySettings,
+  getStoreLoyaltySettingsHistory,
 } from '../../services/adminApi';
 
 const linkClass =
@@ -47,6 +50,20 @@ export default function ManagerSettings() {
   });
   const [savingBank, setSavingBank] = useState(false);
   const [bankMsg, setBankMsg] = useState({ type: '', text: '' });
+  const [loyaltyConfig, setLoyaltyConfig] = useState({
+    enabled: false,
+    earn: { spend_amount_vnd: 20000, points: 1, min_invoice_amount_vnd: 20000 },
+    redeem: { point_value_vnd: 500, min_points: 10, max_percent_per_invoice: 50, allow_with_promotion: false },
+    expiry_months: 12,
+    milestones: [
+      { points: 10, value_vnd: 5000 },
+      { points: 20, value_vnd: 15000 },
+      { points: 50, value_vnd: 50000 },
+    ],
+  });
+  const [loyaltyHistory, setLoyaltyHistory] = useState([]);
+  const [savingLoyalty, setSavingLoyalty] = useState(false);
+  const [loyaltyMsg, setLoyaltyMsg] = useState({ type: '', text: '' });
 
   useEffect(() => {
     getStoreTaxSettings()
@@ -68,6 +85,27 @@ export default function ManagerSettings() {
           bank_account_name: data.bank_account_name || '',
         })
       )
+      .catch(() => {});
+
+    getStoreLoyaltySettings()
+      .then((data) =>
+        setLoyaltyConfig(
+          data.loyalty_settings || {
+            enabled: false,
+            earn: { spend_amount_vnd: 20000, points: 1, min_invoice_amount_vnd: 20000 },
+            redeem: { point_value_vnd: 500, min_points: 10, max_percent_per_invoice: 50, allow_with_promotion: false },
+            expiry_months: 12,
+            milestones: [
+              { points: 10, value_vnd: 5000 },
+              { points: 20, value_vnd: 15000 },
+              { points: 50, value_vnd: 50000 },
+            ],
+          }
+        )
+      )
+      .catch(() => {});
+    getStoreLoyaltySettingsHistory(10)
+      .then((data) => setLoyaltyHistory(data.history || []))
       .catch(() => {});
   }, []);
 
@@ -117,6 +155,22 @@ export default function ManagerSettings() {
       setBankMsg({ type: 'error', text: err.message || 'Lỗi khi lưu cấu hình ngân hàng.' });
     } finally {
       setSavingBank(false);
+    }
+  };
+
+  const handleSaveLoyalty = async () => {
+    setSavingLoyalty(true);
+    setLoyaltyMsg({ type: '', text: '' });
+    try {
+      const res = await updateStoreLoyaltySettings({ loyalty_settings: loyaltyConfig });
+      setLoyaltyConfig(res.loyalty_settings || loyaltyConfig);
+      setLoyaltyMsg({ type: 'success', text: 'Đã lưu cấu hình tích điểm.' });
+      const his = await getStoreLoyaltySettingsHistory(10);
+      setLoyaltyHistory(his.history || []);
+    } catch (err) {
+      setLoyaltyMsg({ type: 'error', text: err.message || 'Lỗi khi lưu cấu hình tích điểm.' });
+    } finally {
+      setSavingLoyalty(false);
     }
   };
 
@@ -421,6 +475,135 @@ export default function ManagerSettings() {
           >
             {savingBank ? 'Đang lưu...' : 'Lưu cấu hình ngân hàng'}
           </button>
+        </div>
+
+        <div className="mb-6 rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm sm:p-6">
+          <div className="mb-5 flex items-center gap-2">
+            <Gift className="h-5 w-5 text-teal-600" aria-hidden />
+            <h3 className="text-base font-bold text-slate-800">Cấu hình tích điểm khách hàng</h3>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="text-sm text-slate-700">
+              <span className="mb-1 block text-xs text-slate-500">Bật tích điểm</span>
+              <input
+                type="checkbox"
+                checked={Boolean(loyaltyConfig.enabled)}
+                onChange={(e) => setLoyaltyConfig((prev) => ({ ...prev, enabled: e.target.checked }))}
+                className="h-4 w-4 accent-teal-600"
+              />
+            </label>
+            <div className="text-xs text-slate-500">
+              Cấu hình đơn giản cho tạp hóa: <b>Mua 20.000đ tặng 1 điểm, 1 điểm = 500đ</b>.
+            </div>
+            <label className="text-sm text-slate-700">
+              <span className="mb-1 block text-xs text-slate-500">Cứ mua (VNĐ)</span>
+              <input
+                type="number"
+                min={1000}
+                value={loyaltyConfig.earn?.spend_amount_vnd ?? 20000}
+                onChange={(e) =>
+                  setLoyaltyConfig((prev) => ({
+                    ...prev,
+                    earn: { ...prev.earn, spend_amount_vnd: Number(e.target.value) || 20000 },
+                  }))
+                }
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              />
+            </label>
+            <label className="text-sm text-slate-700">
+              <span className="mb-1 block text-xs text-slate-500">Tặng (điểm)</span>
+              <input
+                type="number"
+                min={1}
+                value={loyaltyConfig.earn?.points ?? 1}
+                onChange={(e) =>
+                  setLoyaltyConfig((prev) => ({
+                    ...prev,
+                    earn: { ...prev.earn, points: Number(e.target.value) || 1 },
+                  }))
+                }
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              />
+            </label>
+            <label className="text-sm text-slate-700">
+              <span className="mb-1 block text-xs text-slate-500">1 điểm giảm (VNĐ)</span>
+              <input
+                type="number"
+                min={100}
+                value={loyaltyConfig.redeem?.point_value_vnd ?? 500}
+                onChange={(e) =>
+                  setLoyaltyConfig((prev) => ({
+                    ...prev,
+                    redeem: { ...prev.redeem, point_value_vnd: Number(e.target.value) || 500 },
+                  }))
+                }
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              />
+            </label>
+            <label className="text-sm text-slate-700">
+              <span className="mb-1 block text-xs text-slate-500">Tối thiểu để dùng (điểm)</span>
+              <input
+                type="number"
+                min={1}
+                value={loyaltyConfig.redeem?.min_points ?? 10}
+                onChange={(e) =>
+                  setLoyaltyConfig((prev) => ({
+                    ...prev,
+                    redeem: { ...prev.redeem, min_points: Number(e.target.value) || 10 },
+                  }))
+                }
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              />
+            </label>
+            <label className="text-sm text-slate-700">
+              <span className="mb-1 block text-xs text-slate-500">Giảm tối đa mỗi đơn (%)</span>
+              <input
+                type="number"
+                min={1}
+                max={90}
+                value={loyaltyConfig.redeem?.max_percent_per_invoice ?? 50}
+                onChange={(e) =>
+                  setLoyaltyConfig((prev) => ({
+                    ...prev,
+                    redeem: { ...prev.redeem, max_percent_per_invoice: Number(e.target.value) || 50 },
+                  }))
+                }
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              />
+            </label>
+          </div>
+          <p className="mt-3 text-xs text-slate-600">
+            Ví dụ nhanh: Đơn 100.000đ sẽ nhận khoảng{' '}
+            <b>{Math.floor(100000 / Number(loyaltyConfig.earn?.spend_amount_vnd || 20000)) * Number(loyaltyConfig.earn?.points || 1)} điểm</b>,
+            dùng tối đa <b>{Math.floor((100000 * Number(loyaltyConfig.redeem?.max_percent_per_invoice || 50)) / 100).toLocaleString('vi-VN')}đ</b>.
+          </p>
+          {loyaltyMsg.text && (
+            <p className={`mt-2 text-sm font-medium ${loyaltyMsg.type === 'success' ? 'text-emerald-700' : 'text-red-600'}`}>
+              {loyaltyMsg.text}
+            </p>
+          )}
+          <button
+            type="button"
+            onClick={handleSaveLoyalty}
+            disabled={savingLoyalty}
+            className="mt-3 rounded-xl bg-teal-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700 disabled:opacity-60"
+          >
+            {savingLoyalty ? 'Đang lưu...' : 'Lưu cấu hình tích điểm'}
+          </button>
+          <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50 p-3">
+            <p className="mb-2 text-xs font-semibold text-slate-600">Lịch sử thay đổi gần đây</p>
+            {loyaltyHistory.length === 0 ? (
+              <p className="text-xs text-slate-500">Chưa có thay đổi nào.</p>
+            ) : (
+              <div className="space-y-1">
+                {loyaltyHistory.slice(0, 5).map((h) => (
+                  <p key={h._id} className="text-xs text-slate-600">
+                    {new Date(h.changed_at).toLocaleString('vi-VN')} - {h.changed_by?.fullName || h.changed_by?.email || 'N/A'} (v{h.before_version} → v{h.after_version})
+                  </p>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* ── Truy cập nhanh ── */}

@@ -10,16 +10,30 @@ import {
     confirmCustomerDebtTransfer,
     cancelCustomerDebtTransfer,
     getCustomerDebtPayments,
+    getTopCustomersAnalytics,
 } from '../../services/customersApi';
 import { getInvoices } from '../../services/invoicesApi';
+import { sendDebtReminder } from '../../services/customerNotifyApi';
 import { useToast } from '../../contexts/ToastContext';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
 import { InlineNotice } from '../../components/ui/inline-notice';
-import { Loader2, Search, Users, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Loader2, Search, Users, ChevronLeft, ChevronRight, Send } from 'lucide-react';
 
 const PAGE_SIZE = 20;
+const OVERDUE_DAYS = 30;
+
+function getInvoiceDate(invoice) {
+    return invoice?.invoice_at || invoice?.created_at || null;
+}
+
+function getInvoiceAgeDays(invoiceDate) {
+    if (!invoiceDate) return 0;
+    const issuedAt = new Date(invoiceDate);
+    if (Number.isNaN(issuedAt.getTime())) return 0;
+    return Math.max(0, Math.floor((Date.now() - issuedAt.getTime()) / 86400000));
+}
 
 export default function SalesCustomerPage({ managerMode = false }) {
     const navigate = useNavigate();
@@ -34,6 +48,8 @@ export default function SalesCustomerPage({ managerMode = false }) {
     const [pagination, setPagination] = useState({ total: 0, totalPages: 1 });
     // BUG-16: Bank info from store settings
     const [storeBankInfo, setStoreBankInfo] = useState({ bank_id: '', bank_account: '', bank_account_name: '' });
+    const [topCustomers, setTopCustomers] = useState([]);
+    const [topCustomersSort, setTopCustomersSort] = useState('spent');
 
     // Modal state
     const [showCreateCustomer, setShowCreateCustomer] = useState(false);
@@ -70,9 +86,13 @@ export default function SalesCustomerPage({ managerMode = false }) {
         debtPayments: [],
         loading: false,
     });
+    const [historyDebtFilter, setHistoryDebtFilter] = useState('all');
+    // Notify send state: { show, customerName, jobId, status, channel, error, messagePreview, sending }
+    const [notifyResult, setNotifyResult] = useState({ show: false, customerName: '', jobId: '', status: '', channel: null, error: null, messagePreview: '', sending: false, alreadySent: false });
 
     // BUG-07: tải cả 2 loại lịch sử song song
     const fetchCustomerHistory = async (customer, tab = 'debt') => {
+        setHistoryDebtFilter('all');
         setHistoryModal({ show: true, customer, tab, debtInvoices: [], allInvoices: [], debtPayments: [], loading: true });
         try {
             const [debtData, allData, paymentData] = await Promise.all([
@@ -97,6 +117,20 @@ export default function SalesCustomerPage({ managerMode = false }) {
     useEffect(() => {
         getStoreBankInfo().then(info => setStoreBankInfo(info)).catch(() => {});
     }, []);
+
+    const fetchTopCustomers = useCallback(async (sort = 'spent') => {
+        if (!managerMode) return;
+        try {
+            const data = await getTopCustomersAnalytics({ limit: 5, sort });
+            setTopCustomers(data.data || []);
+        } catch (e) {
+            console.error('Top customers analytics error:', e);
+        }
+    }, [managerMode]);
+
+    useEffect(() => {
+        fetchTopCustomers(topCustomersSort);
+    }, [fetchTopCustomers, topCustomersSort]);
 
     // Real-time phone check for New Customer
     useEffect(() => {
@@ -254,6 +288,7 @@ export default function SalesCustomerPage({ managerMode = false }) {
                 transferStatusText: '',
             });
             fetchCustomers(searchKey, currentPage, hasDebtFilter);
+            fetchTopCustomers(topCustomersSort);
         } catch (e) {
             toast(e.message || 'Lỗi khi thanh toán nợ', 'error');
         } finally {
@@ -307,6 +342,50 @@ export default function SalesCustomerPage({ managerMode = false }) {
             transferStatusText: '',
         }));
     };
+
+    const handleSendDebtReminder = useCallback(async ({ customer, amount, overdueDays = 0, forceResend = false }) => {
+        if (!customer || !amount || Number(amount) <= 0) return;
+        setNotifyResult({ show: true, customerName: customer.full_name || 'Khách hàng', jobId: '', status: '', channel: null, error: null, messagePreview: '', sending: true });
+        try {
+            const result = await sendDebtReminder({
+                customer_id: String(customer._id),
+                override_amount: Number(amount),
+                overdue_days: overdueDays,
+                force_resend: forceResend,
+            });
+            setNotifyResult(prev => ({
+                ...prev,
+                sending: false,
+                jobId: result.job_id || '',
+                status: result.success ? 'sent' : 'failed',
+                channel: result.channel || null,
+                error: result.error || null,
+                messagePreview: result.message_preview || '',
+                alreadySent: result.already_sent || false,
+            }));
+            if (result.success) {
+                const ch = result.channel === 'ZALO' ? 'Zalo' : result.channel === 'SMS' ? 'SMS' : 'Zalo/SMS';
+                toast(`Đã gửi nhắc nợ qua ${ch} cho ${customer.full_name || 'khách hàng'}.`, 'success');
+            } else if (result.already_sent) {
+                toast('Đã gửi nhắc nợ trong hôm nay rồi. Dùng "Gửi lại" nếu cần.', 'info');
+            } else {
+                toast(`Gửi thất bại: ${result.error || 'Lỗi không xác định'}`, 'error');
+            }
+        } catch (e) {
+            const errMsg = e?.message || 'Lỗi kết nối';
+            setNotifyResult(prev => ({ ...prev, sending: false, status: 'failed', error: errMsg }));
+            toast(`Không thể gửi: ${errMsg}`, 'error');
+        }
+    }, [toast]);
+
+    const overdueDebtInvoices = historyModal.debtInvoices.filter((inv) => {
+        if (inv.status !== 'pending') return false;
+        const ageDays = getInvoiceAgeDays(getInvoiceDate(inv));
+        return ageDays > OVERDUE_DAYS;
+    });
+    const displayedDebtInvoices = historyDebtFilter === 'overdue' ? overdueDebtInvoices : historyModal.debtInvoices;
+    const overdueTotalAmount = overdueDebtInvoices.reduce((sum, inv) => sum + Number(inv.total_amount || 0), 0);
+    const oldestOverdueDays = overdueDebtInvoices.reduce((max, inv) => Math.max(max, getInvoiceAgeDays(getInvoiceDate(inv))), 0);
 
     return (
         <StaffPageShell
@@ -366,6 +445,42 @@ export default function SalesCustomerPage({ managerMode = false }) {
                             </div>
                         </CardContent>
                     </Card>
+                    {managerMode && (
+                        <Card className="mb-4 border-slate-200/80 shadow-sm">
+                            <CardContent className="p-4">
+                                <div className="mb-3 flex items-center justify-between gap-3">
+                                    <div>
+                                        <p className="text-sm font-semibold text-slate-800">Top Customers (Analytics)</p>
+                                        <p className="text-xs text-slate-500">Xếp hạng theo doanh thu, dư nợ hoặc tuổi nợ lâu nhất.</p>
+                                    </div>
+                                    <select
+                                        value={topCustomersSort}
+                                        onChange={(e) => setTopCustomersSort(e.target.value)}
+                                        className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700"
+                                    >
+                                        <option value="spent">Doanh thu cao nhất</option>
+                                        <option value="debt">Nợ nhiều nhất</option>
+                                        <option value="overdue">Nợ lâu nhất</option>
+                                    </select>
+                                </div>
+                                {topCustomers.length === 0 ? (
+                                    <p className="text-xs text-slate-500">Chưa có dữ liệu xếp hạng.</p>
+                                ) : (
+                                    <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-5">
+                                        {topCustomers.map((item, idx) => (
+                                            <div key={item._id} className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                                                <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">#{idx + 1}</p>
+                                                <p className="truncate text-sm font-semibold text-slate-800">{item.full_name}</p>
+                                                <p className="mt-1 text-xs text-slate-600">Doanh thu: {Number(item.total_spent || 0).toLocaleString('vi-VN')}đ</p>
+                                                <p className="text-xs text-rose-600">Nợ hiện tại: {Number(item.current_debt || 0).toLocaleString('vi-VN')}đ</p>
+                                                <p className="text-xs text-amber-600">Nợ lâu nhất: {Number(item.oldest_debt_days || 0)} ngày</p>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </CardContent>
+                        </Card>
+                    )}
 
                     <Card className="overflow-hidden border-slate-200/80 shadow-sm">
                         <CardContent className="p-0">
@@ -381,6 +496,7 @@ export default function SalesCustomerPage({ managerMode = false }) {
                                         <th className="px-4 py-3">STT</th>
                                         <th className="px-4 py-3">Tên khách hàng</th>
                                         <th className="px-4 py-3">Số điện thoại</th>
+                                        <th className="px-4 py-3 text-center">Điểm loyalty</th>
                                         <th className="px-4 py-3 text-right">Dư nợ (VNĐ)</th>
                                         <th className="px-4 py-3 text-center">Ngày tạo</th>
                                         <th className="px-4 py-3 text-right">Thao tác</th>
@@ -388,13 +504,21 @@ export default function SalesCustomerPage({ managerMode = false }) {
                                 </thead>
                                 <tbody className="divide-y divide-slate-100 bg-white">
                                     {customers.length === 0 ? (
-                                        <tr><td colSpan="6" className="px-4 py-10 text-center text-slate-500">Chưa có khách hàng nào</td></tr>
+                                        <tr><td colSpan="7" className="px-4 py-10 text-center text-slate-500">Chưa có khách hàng nào</td></tr>
                                     ) : (
                                         customers.map((c, idx) => (
                                             <tr key={c._id} className="transition-colors odd:bg-white even:bg-slate-50/30 hover:bg-teal-50/40">
                                                 <td className="px-4 py-3.5 text-slate-500">{idx + 1}</td>
                                                 <td className="px-4 py-3.5 font-semibold text-slate-900">{c.full_name}</td>
                                                 <td className="px-4 py-3.5 text-slate-700">{c.phone || '-'}</td>
+                                                <td className="px-4 py-3.5 text-center">
+                                                    <div className="font-semibold text-indigo-700">
+                                                        {Number(c.loyalty_points || 0).toLocaleString('vi-VN')} điểm
+                                                    </div>
+                                                    <div className="text-[11px] text-slate-500">
+                                                        Tích lũy: {Number(c.lifetime_points_earned || 0).toLocaleString('vi-VN')}
+                                                    </div>
+                                                </td>
                                                 <td className={`px-4 py-3.5 text-right tabular-nums font-semibold ${c.debt_account > 0 ? 'text-red-600' : 'text-emerald-700'}`}>
                                                     {Number(c.debt_account || 0).toLocaleString('vi-VN')}
                                                 </td>
@@ -429,6 +553,18 @@ export default function SalesCustomerPage({ managerMode = false }) {
                                                     >
                                                         Sửa
                                                     </Button>
+                                                    {c.debt_account > 0 && (
+                                                        <Button
+                                                            type="button"
+                                                            onClick={() => handleSendDebtReminder({
+                                                                customer: c,
+                                                                amount: Number(c.debt_account || 0),
+                                                            })}
+                                                            className="h-9 min-w-[90px] rounded-lg border border-amber-200 bg-amber-50 px-3 text-xs font-semibold text-amber-700 hover:bg-amber-100 gap-1 inline-flex items-center"
+                                                        >
+                                                            <Send size={12} /> Nhắc nợ
+                                                        </Button>
+                                                    )}
                                                     {c.debt_account > 0 && (
                                                         <Button
                                                             type="button"
@@ -767,7 +903,7 @@ export default function SalesCustomerPage({ managerMode = false }) {
                 // BUG-13: navigate đúng route theo role
                 const invoiceBasePath = managerMode ? '/manager/invoices' : '/staff/invoices';
                 const activeInvoices = historyModal.tab === 'debt'
-                    ? historyModal.debtInvoices
+                    ? displayedDebtInvoices
                     : historyModal.allInvoices;
 
                 const PAYMENT_LABELS = {
@@ -825,6 +961,69 @@ export default function SalesCustomerPage({ managerMode = false }) {
                                     </button>
                                 ))}
                             </div>
+                            {historyModal.tab === 'debt' && (
+                                <div style={{ marginBottom: 12, display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', justifyContent: 'space-between' }}>
+                                    <div style={{ display: 'flex', gap: 8 }}>
+                                        <button
+                                            type="button"
+                                            onClick={() => setHistoryDebtFilter('all')}
+                                            style={{
+                                                padding: '6px 12px',
+                                                borderRadius: 6,
+                                                border: historyDebtFilter === 'all' ? '1px solid #14b8a6' : '1px solid #cbd5e1',
+                                                background: historyDebtFilter === 'all' ? '#f0fdfa' : '#fff',
+                                                color: historyDebtFilter === 'all' ? '#0f766e' : '#475569',
+                                                fontSize: 12,
+                                                fontWeight: 700,
+                                                cursor: 'pointer',
+                                            }}
+                                        >
+                                            FIFO toàn bộ
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setHistoryDebtFilter('overdue')}
+                                            style={{
+                                                padding: '6px 12px',
+                                                borderRadius: 6,
+                                                border: historyDebtFilter === 'overdue' ? '1px solid #f59e0b' : '1px solid #cbd5e1',
+                                                background: historyDebtFilter === 'overdue' ? '#fffbeb' : '#fff',
+                                                color: historyDebtFilter === 'overdue' ? '#b45309' : '#475569',
+                                                fontSize: 12,
+                                                fontWeight: 700,
+                                                cursor: 'pointer',
+                                            }}
+                                        >
+                                            Quá {OVERDUE_DAYS} ngày ({overdueDebtInvoices.length})
+                                        </button>
+                                    </div>
+                                    {overdueDebtInvoices.length > 0 && (
+                                        <button
+                                            type="button"
+                                            onClick={() => handleSendDebtReminder({
+                                                customer: historyModal.customer,
+                                                amount: overdueTotalAmount,
+                                                overdueDays: oldestOverdueDays,
+                                            })}
+                                            style={{
+                                                padding: '6px 14px',
+                                                borderRadius: 6,
+                                                border: '1px solid #fde68a',
+                                                background: '#fef3c7',
+                                                color: '#92400e',
+                                                fontSize: 12,
+                                                fontWeight: 700,
+                                                cursor: 'pointer',
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: 5,
+                                            }}
+                                        >
+                                            <Send size={12} /> Gửi nhắc nợ quá hạn
+                                        </button>
+                                    )}
+                                </div>
+                            )}
 
                             {/* Table */}
                             <div style={{ overflowY: 'auto', flex: 1 }}>
@@ -855,6 +1054,11 @@ export default function SalesCustomerPage({ managerMode = false }) {
                                                     </td>
                                                     <td style={{ padding: '10px 12px', fontSize: 12, color: '#475569' }}>
                                                         {new Date(inv.created_at).toLocaleDateString('vi-VN')}
+                                                        {historyModal.tab === 'debt' && getInvoiceAgeDays(getInvoiceDate(inv)) > OVERDUE_DAYS && (
+                                                            <span style={{ marginLeft: 6, color: '#b45309', fontWeight: 700 }}>
+                                                                +{getInvoiceAgeDays(getInvoiceDate(inv))} ngày
+                                                            </span>
+                                                        )}
                                                     </td>
                                                     <td style={{ padding: '10px 12px', fontSize: 12, color: '#475569' }}>
                                                         {inv.paid_at ? new Date(inv.paid_at).toLocaleDateString('vi-VN') : '—'}
@@ -942,6 +1146,106 @@ export default function SalesCustomerPage({ managerMode = false }) {
                     </div>
                 );
             })()}
+            {/* ── Notify Send Result Modal ── */}
+            {notifyResult.show && (
+                <div style={{
+                    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                    background: 'rgba(15,23,42,0.45)', zIndex: 1200, display: 'flex',
+                    alignItems: 'center', justifyContent: 'center', padding: 16,
+                }}>
+                    <div style={{
+                        width: 'min(560px, 96vw)', background: '#fff', borderRadius: 16, padding: '20px 24px',
+                        boxShadow: '0 30px 60px rgba(15,23,42,0.25)',
+                    }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                            <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: '#0f172a' }}>
+                                Gửi nhắc nợ — {notifyResult.customerName}
+                            </h3>
+                            <button
+                                type="button"
+                                onClick={() => setNotifyResult(prev => ({ ...prev, show: false }))}
+                                style={{ border: 'none', background: 'transparent', fontSize: 22, cursor: 'pointer', color: '#64748b', lineHeight: 1 }}
+                            >×</button>
+                        </div>
+
+                        {/* Status */}
+                        {notifyResult.sending ? (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '18px 0', color: '#475569' }}>
+                                <Loader2 size={20} className="animate-spin" />
+                                <span>Đang gửi tin nhắn đến khách hàng...</span>
+                            </div>
+                        ) : notifyResult.status === 'sent' ? (
+                            <div style={{ padding: '14px 16px', borderRadius: 10, background: '#f0fdf4', border: '1px solid #bbf7d0', marginBottom: 12 }}>
+                                <div style={{ fontWeight: 700, color: '#15803d', fontSize: 15, marginBottom: 4 }}>
+                                    ✅ Đã gửi thành công qua {notifyResult.channel === 'ZALO' ? 'Zalo' : notifyResult.channel === 'SMS' ? 'SMS' : notifyResult.channel}
+                                </div>
+                                <div style={{ fontSize: 12, color: '#166534' }}>Khách hàng đã nhận được tin nhắn nhắc nợ.</div>
+                            </div>
+                        ) : notifyResult.alreadySent ? (
+                            <div style={{ padding: '14px 16px', borderRadius: 10, background: '#fffbeb', border: '1px solid #fde68a', marginBottom: 12 }}>
+                                <div style={{ fontWeight: 700, color: '#b45309', fontSize: 15, marginBottom: 4 }}>
+                                    ⚠️ Đã gửi tin nhắn này trong hôm nay
+                                </div>
+                                <div style={{ fontSize: 12, color: '#92400e' }}>Để tránh spam, mỗi khách chỉ nhắc 1 lần/ngày. Dùng nút "Gửi lại" nếu thực sự cần.</div>
+                            </div>
+                        ) : notifyResult.status === 'failed' ? (
+                            <div style={{ padding: '14px 16px', borderRadius: 10, background: '#fef2f2', border: '1px solid #fecaca', marginBottom: 12 }}>
+                                <div style={{ fontWeight: 700, color: '#b91c1c', fontSize: 15, marginBottom: 4 }}>
+                                    ❌ Gửi thất bại
+                                </div>
+                                <div style={{ fontSize: 12, color: '#991b1b' }}>
+                                    {notifyResult.error === 'not_followed'
+                                        ? 'Khách chưa quan tâm Zalo OA và SMS cũng thất bại. Kiểm tra lại số điện thoại hoặc cấu hình provider.'
+                                        : notifyResult.error || 'Lỗi không xác định'}
+                                </div>
+                            </div>
+                        ) : null}
+
+                        {/* Message preview */}
+                        {notifyResult.messagePreview && (
+                            <div style={{ marginBottom: 14 }}>
+                                <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Nội dung tin nhắn</div>
+                                <pre style={{
+                                    whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                                    background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8,
+                                    padding: '10px 12px', fontSize: 12.5, color: '#334155', margin: 0, lineHeight: 1.55,
+                                }}>{notifyResult.messagePreview}</pre>
+                            </div>
+                        )}
+
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
+                            {(notifyResult.status === 'failed' || notifyResult.alreadySent) && (
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    disabled={notifyResult.sending}
+                                    onClick={() => {
+                                        // Re-trigger với force_resend=true nếu alreadySent
+                                        const current = notifyResult;
+                                        // Tìm lại customer từ danh sách
+                                        const cust = customers.find(c => c.full_name === current.customerName) || historyModal.customer;
+                                        if (cust) {
+                                            handleSendDebtReminder({
+                                                customer: cust,
+                                                amount: Number(cust.debt_account || 0),
+                                                forceResend: true,
+                                            });
+                                        }
+                                    }}
+                                >
+                                    <Send size={13} style={{ marginRight: 5 }} /> Gửi lại
+                                </Button>
+                            )}
+                            <Button
+                                type="button"
+                                onClick={() => setNotifyResult(prev => ({ ...prev, show: false }))}
+                            >
+                                Đóng
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
             </div>
         </StaffPageShell>
     );

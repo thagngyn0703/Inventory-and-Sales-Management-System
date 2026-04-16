@@ -422,4 +422,30 @@ describe('Analytics Routes', () => {
       expect(res.status).toBe(401);
     });
   });
+
+  // ==================== Loyalty Analytics ====================
+  describe('GET /api/analytics/loyalty', () => {
+    it('should return loyalty dashboard payload', async () => {
+      const res = await request(app)
+        .get('/api/analytics/loyalty')
+        .set(getAuthHeader(managerWithStore.manager));
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty('period');
+      expect(res.body).toHaveProperty('liability_points');
+      expect(res.body).toHaveProperty('monthly');
+      expect(Array.isArray(res.body.monthly)).toBe(true);
+    });
+
+    it('should export loyalty CSV', async () => {
+      const res = await request(app)
+        .get('/api/analytics/loyalty/export')
+        .set(getAuthHeader(managerWithStore.manager));
+
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toContain('text/csv');
+      expect(String(res.text || '')).toContain('Metric,Value');
+      expect(String(res.text || '')).toContain('Month,Earn Points,Redeem Points,Expire Points');
+    });
+  });
 });

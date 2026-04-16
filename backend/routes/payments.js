@@ -4,6 +4,9 @@ const SalesInvoice = require('../models/SalesInvoice');
 const PaymentTransaction = require('../models/PaymentTransaction');
 const { settlePreviousDebtIfNeeded } = require('../utils/invoiceDebtSettlement');
 const { upsertSystemCashFlow } = require('../utils/cashflowUtils');
+const { appendLoyaltyTxn, getNextNudge, normalizeLoyaltySettings } = require('../utils/loyalty');
+const Customer = require('../models/Customer');
+const Store = require('../models/Store');
 const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
@@ -26,12 +29,23 @@ function assertStoreScope(req, res) {
  */
 function verifySepaySignature(rawBody, receivedChecksum) {
   const secret = process.env.SEPAY_SECRET;
-  if (!secret) return true; // Nếu chưa cấu hình secret thì bỏ qua (dev mode)
+  const allowInsecureWebhook = String(process.env.SEPAY_ALLOW_INSECURE_WEBHOOK || '').toLowerCase() === 'true';
+  const strictByEnv = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+  const strictMode = strictByEnv && !allowInsecureWebhook;
+  if (!secret) {
+    if (strictMode) {
+      console.error('[SePay Webhook] Missing SEPAY_SECRET in strict mode');
+      return false;
+    }
+    return true; // dev mode
+  }
   if (!receivedChecksum) {
-    // Một số cấu hình SePay/IPN không gửi checksum header.
-    // Cho phép đi tiếp để tránh mất webhook (log cảnh báo để theo dõi).
+    if (strictMode) {
+      console.warn('[SePay Webhook] Missing checksum header in strict mode');
+      return false;
+    }
     console.warn('[SePay Webhook] Missing checksum header, skip signature verify');
-    return true;
+    return true; // dev mode
   }
   const expected = crypto
     .createHmac('sha256', secret)
@@ -135,6 +149,7 @@ async function reconcileInvoiceFromSepay(invoice) {
   });
 
   await settlePreviousDebtIfNeeded(invoice._id);
+  await settleInvoiceLoyaltyIfNeeded(invoice);
 
   // Lưu transaction nếu chưa có (idempotent)
   const providerTxnId = String(matchedTx.id || matchedTx.reference_number || `${ref}-${targetAmount}`);
@@ -156,6 +171,28 @@ async function reconcileInvoiceFromSepay(invoice) {
 
   console.log(`[SePay Poll] Matched invoice ${invoice._id} with ref ${ref} via transaction API`);
   return { matched: true };
+}
+
+async function settleInvoiceLoyaltyIfNeeded(invoice) {
+  if (!invoice || !invoice.customer_id) return null;
+  if (String(invoice.payment_status) !== 'paid') return null;
+  if (invoice.loyalty_earned_settled || Number(invoice.loyalty_earned_points || 0) <= 0) return null;
+
+  await appendLoyaltyTxn({
+    customerId: invoice.customer_id,
+    storeId: invoice.store_id,
+    actorId: null,
+    type: 'EARN',
+    points: Number(invoice.loyalty_earned_points || 0),
+    valueVnd: Number(invoice.loyalty_earned_points || 0) * Number(invoice?.loyalty_settings_snapshot?.redeem?.point_value_vnd || 500),
+    referenceModel: 'SalesInvoice',
+    referenceId: invoice._id,
+    note: `Tích điểm sau xác nhận thanh toán hóa đơn #${String(invoice._id).slice(-6).toUpperCase()}`,
+    idempotencyKey: `earn:${invoice._id}`,
+  });
+  invoice.loyalty_earned_settled = true;
+  await invoice.save();
+  return true;
 }
 
 // ─── Webhook từ SePay ────────────────────────────────────────────────────────
@@ -272,6 +309,7 @@ router.post('/sepay/webhook', express.raw({ type: 'application/json' }), async (
       });
 
       await settlePreviousDebtIfNeeded(matchedInvoice._id);
+      await settleInvoiceLoyaltyIfNeeded(matchedInvoice);
 
       console.log(`[SePay Webhook] Matched invoice ${matchedInvoice._id} with ref ${paymentRef}, amount ${amount}`);
     } else {
@@ -304,7 +342,7 @@ router.get('/status/:paymentRef', requireAuth, requireRole(['staff', 'manager', 
     if (!paymentRef) return res.status(400).json({ message: 'paymentRef is required' });
 
     const invoice = await SalesInvoice.findOne({ payment_ref: paymentRef.toUpperCase() })
-      .select('payment_status paid_at total_amount previous_debt_paid payment_ref store_id payment_method');
+      .select('payment_status paid_at total_amount previous_debt_paid payment_ref store_id payment_method customer_id loyalty_earned_points');
 
     if (!invoice) {
       return res.status(404).json({ message: 'Không tìm thấy hóa đơn' });
@@ -322,12 +360,20 @@ router.get('/status/:paymentRef', requireAuth, requireRole(['staff', 'manager', 
     if (invoice.payment_status !== 'paid' && invoice.payment_method === 'bank_transfer') {
       await reconcileInvoiceFromSepay(invoice);
     }
+    const customer = invoice.customer_id ? await Customer.findById(invoice.customer_id).select('loyalty_points').lean() : null;
+    const store = await Store.findById(invoice.store_id).select('loyalty_settings').lean();
+    const nudge = getNextNudge(Number(customer?.loyalty_points || 0), normalizeLoyaltySettings(store?.loyalty_settings || {}).milestones || []);
 
     return res.json({
       payment_ref: invoice.payment_ref,
       payment_status: invoice.payment_status,
       paid_at: invoice.paid_at,
       total_amount: invoice.total_amount,
+      loyalty: {
+        earned_points: Number(invoice?.loyalty_earned_points || 0),
+        current_points: Number(customer?.loyalty_points || 0),
+        next_nudge: nudge,
+      },
     });
   } catch (err) {
     console.error(err);

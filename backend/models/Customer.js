@@ -38,6 +38,24 @@ const customerSchema = new Schema(
             type: Boolean,
             default: false,
         },
+        loyalty_points: {
+            type: Number,
+            default: 0,
+        },
+        lifetime_points_earned: {
+            type: Number,
+            default: 0,
+            min: 0,
+        },
+        lifetime_points_used: {
+            type: Number,
+            default: 0,
+            min: 0,
+        },
+        last_loyalty_activity_at: {
+            type: Date,
+            default: null,
+        },
         store_id: {
             type: Schema.Types.ObjectId,
             ref: 'Store',

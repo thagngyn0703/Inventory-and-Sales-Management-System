@@ -144,6 +144,58 @@ const salesInvoiceSchema = new Schema(
             type: Boolean,
             default: false,
         },
+        invoice_level_discount: {
+            type: Number,
+            default: 0,
+            min: 0,
+        },
+        loyalty_redeem_points: {
+            type: Number,
+            default: 0,
+            min: 0,
+        },
+        loyalty_redeem_value: {
+            type: Number,
+            default: 0,
+            min: 0,
+        },
+        loyalty_promo_discount: {
+            type: Number,
+            default: 0,
+            min: 0,
+        },
+        loyalty_eligible_amount: {
+            type: Number,
+            default: 0,
+            min: 0,
+        },
+        loyalty_earned_points: {
+            type: Number,
+            default: 0,
+            min: 0,
+        },
+        loyalty_earned_settled: {
+            type: Boolean,
+            default: false,
+        },
+        loyalty_reversed_points: {
+            type: Number,
+            default: 0,
+            min: 0,
+        },
+        loyalty_refunded_redeem_points: {
+            type: Number,
+            default: 0,
+            min: 0,
+        },
+        loyalty_policy_version: {
+            type: Number,
+            default: 1,
+        },
+        loyalty_settings_snapshot: {
+            type: Schema.Types.Mixed,
+            default: null,
+        },
         debt_settlement_note: {
             type: String,
             trim: true,

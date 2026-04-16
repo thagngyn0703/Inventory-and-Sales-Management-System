@@ -11,7 +11,8 @@
     "migrate:adjustments-store": "node scripts/assign-adjustments-store-by-stocktake.js",
     "migrate:suppliers-store": "node scripts/assign-suppliers-store-by-manager.js",
     "migrate:returns-backfill": "node scripts/backfill-returns-from-invoice.js",
-    "migrate:customer-debt-payment-indexes": "node scripts/migrate-customer-debt-payment-indexes.js"
+    "migrate:customer-debt-payment-indexes": "node scripts/migrate-customer-debt-payment-indexes.js",
+    "loyalty:expire": "node scripts/expire-loyalty-points.js"
   },
   "keywords": [],
   "author": "",

@@ -20,7 +20,8 @@ import {
 } from '../../services/invoicesApi';
 import { getProducts } from '../../services/productsApi';
 import { getCustomers, createCustomer } from '../../services/customersApi';
-import { getStoreTaxSettings, getStoreBankSettings } from '../../services/adminApi';
+import { getStoreTaxSettings, getStoreBankSettings, getStoreLoyaltySettings } from '../../services/adminApi';
+import { sendLoyaltyUpdate } from '../../services/customerNotifyApi';
 import PaymentWaitModal from '../payment/PaymentWaitModal';
 import { Button } from '../ui/button';
 import { useToast } from '../../contexts/ToastContext';
@@ -45,6 +46,33 @@ function formatMoney(n) {
   return Number(n).toLocaleString('vi-VN') + '₫';
 }
 
+async function copyText(text) {
+  if (navigator?.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return true;
+  }
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  document.execCommand('copy');
+  document.body.removeChild(ta);
+  return true;
+}
+
+function buildLoyaltyCustomerMessage({ customerName, earnedPoints, currentPoints, nextNudge, storeName }) {
+  const name = customerName || 'Anh/Chị';
+  const earned = Number(earnedPoints || 0);
+  const current = Number(currentPoints || 0);
+  const nextLine = nextNudge?.points_needed
+    ? `Hiện còn ${nextNudge.points_needed} điểm để đạt mốc quà ${formatMoney(nextNudge.reward_value_vnd)}.`
+    : 'Anh/Chị đã đạt mốc thưởng cao nhất hiện tại.';
+  return `Xin chào ${name}, ${storeName} thông báo đơn hàng vừa hoàn tất đã được cộng ${earned} điểm loyalty. Tổng điểm hiện tại của Anh/Chị là ${current} điểm. ${nextLine} Cảm ơn Anh/Chị đã ủng hộ cửa hàng!`;
+}
+
 const generateTabId = () => Date.now() + Math.random().toString(36).substring(2, 9);
 
 const createDefaultTab = (index = 1) => ({
@@ -56,6 +84,7 @@ const createDefaultTab = (index = 1) => ({
   customerId: null,
   customerData: null,
   customerPaid: '',
+  loyaltyApplyPoints: 0,
   saving: false,
   error: '',
   successMessage: '',
@@ -91,6 +120,12 @@ export default function POSContainer({
   const bankAccountNumber = String(storeBank.bank_account || envBankAccountNumber || '0000000000');
 
   const [storeTax, setStoreTax] = useState({ business_type: 'ho_kinh_doanh', tax_rate: 0, price_includes_tax: true });
+  const [loyaltySettings, setLoyaltySettings] = useState({
+    enabled: false,
+    earn: { spend_amount_vnd: 20000, points: 1, min_invoice_amount_vnd: 20000 },
+    redeem: { point_value_vnd: 500, min_points: 10, max_percent_per_invoice: 50, allow_with_promotion: false },
+    milestones: [],
+  });
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -292,6 +327,55 @@ export default function POSContainer({
     [storeName, storeTax.business_type]
   );
 
+  const notifyCustomerLoyaltyMessage = useCallback(
+    async (customer, loyaltySummary, invoiceId) => {
+      if (!customer || !loyaltySummary) return;
+      const earned = Number(loyaltySummary.earned_points || 0);
+      const used = Number(loyaltySummary.used_points || 0);
+      if (earned <= 0 && used <= 0) return;
+      if (!customer._id && !customer.id) return;
+      const customerId = String(customer._id || customer.id);
+
+      try {
+        const result = await sendLoyaltyUpdate({
+          customer_id: customerId,
+          invoice_id: invoiceId || undefined,
+          earned_points: earned,
+          redeemed_points: used,
+        });
+        if (result.success) {
+          const ch = result.channel === 'ZALO' ? 'Zalo' : result.channel === 'SMS' ? 'SMS' : 'Zalo/SMS';
+          notify(`Đã gửi thông báo tích điểm (+${earned} điểm) đến khách qua ${ch}.`, 'success');
+        } else if (result.already_sent) {
+          // Im lặng — không spam
+        } else {
+          // Thất bại khi gửi: fallback sang copy/paste
+          const msg = buildLoyaltyCustomerMessage({
+            customerName: customer.full_name || customer.name || 'Anh/Chị',
+            earnedPoints: earned,
+            currentPoints: Number(loyaltySummary.current_points || 0),
+            nextNudge: loyaltySummary.next_nudge || null,
+            storeName,
+          });
+          await copyText(msg).catch(() => {});
+          notify('Không thể gửi Zalo/SMS, đã copy tin nhắn vào clipboard. Nhấn Ctrl+V trong Zalo để gửi.', 'info');
+        }
+      } catch (e) {
+        // Lỗi API: fallback copy
+        const msg = buildLoyaltyCustomerMessage({
+          customerName: customer.full_name || customer.name || 'Anh/Chị',
+          earnedPoints: earned,
+          currentPoints: Number(loyaltySummary.current_points || 0),
+          nextNudge: loyaltySummary.next_nudge || null,
+          storeName,
+        });
+        await copyText(msg).catch(() => {});
+        notify('Đã copy tin nhắn tích điểm. Mở Zalo/SMS và nhấn Ctrl+V để gửi.', 'info');
+      }
+    },
+    [notify, storeName]
+  );
+
   const startPolling = useCallback(
     (paymentRef, invoiceData, tabSnapshot) => {
       stopPolling();
@@ -306,6 +390,12 @@ export default function POSContainer({
             setPendingPayment(null);
             speakPayment();
             handlePrintInvoice(invoiceData, tabSnapshot);
+            await notifyCustomerLoyaltyMessage(tabSnapshot?.customerData, {
+              earned_points: Number(result?.loyalty?.earned_points || 0),
+              used_points: 0,
+              current_points: Number(result?.loyalty?.current_points || 0),
+              next_nudge: result?.loyalty?.next_nudge || null,
+            }, tabSnapshot?.invoiceId || invoiceData?._id);
             notify('Thanh toán chuyển khoản thành công!', 'success');
             setTabs((prev) => {
               const filtered = prev.filter((t) => t.tabId !== tabSnapshot.tabId);
@@ -334,7 +424,8 @@ export default function POSContainer({
         }
       }, 5000);
     },
-    [stopPolling, speakPayment, handlePrintInvoice, loadProducts, notify]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [stopPolling, speakPayment, handlePrintInvoice, loadProducts, notify, notifyCustomerLoyaltyMessage]
   );
 
   useEffect(() => () => stopPolling(), [stopPolling]);
@@ -376,6 +467,7 @@ export default function POSContainer({
         paymentMethod: data.payment_method || 'cash',
         recipientName: data.recipient_name || '',
         customerPaid: data.total_amount || '',
+        loyaltyApplyPoints: data.loyalty_redeem_points || 0,
         saving: false,
         error: '',
         successMessage: '',
@@ -412,6 +504,13 @@ export default function POSContainer({
         })
       )
       .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    getStoreLoyaltySettings()
+      .then((data) => setLoyaltySettings(data?.loyalty_settings || loyaltySettings))
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -557,9 +656,76 @@ export default function POSContainer({
     () => activeTab.items.reduce((s, it) => s + (it.line_total || 0), 0),
     [activeTab.items]
   );
+  const loyaltyPointValue = Number(loyaltySettings?.redeem?.point_value_vnd || 500);
+  const earnSpendAmount = Number(loyaltySettings?.earn?.spend_amount_vnd || 20000);
+  const earnPointsPerCycle = Number(loyaltySettings?.earn?.points || 1);
+  const loyaltyMinInvoiceAmount = Number(loyaltySettings?.earn?.min_invoice_amount_vnd || 20000);
+  const hasItems = activeTab.items.length > 0;
+  const loyaltyMaxRedeemValue = Math.floor(
+    (totalAmount * Number(loyaltySettings?.redeem?.max_percent_per_invoice || 50)) / 100
+  );
+  const loyaltyAvailablePoints = Math.max(0, Math.floor(Number(activeTab.customerData?.loyalty_points || 0)));
+  const loyaltyUsedPoints = Math.max(
+    0,
+    Math.min(
+      Math.floor(Number(activeTab.loyaltyApplyPoints || 0)),
+      loyaltyAvailablePoints,
+      Math.floor(loyaltyMaxRedeemValue / loyaltyPointValue)
+    )
+  );
+  const loyaltyRedeemValue = loyaltyUsedPoints * loyaltyPointValue;
+  const netItemsAmount = Math.max(0, totalAmount - loyaltyRedeemValue);
+  const loyaltyPredictedEarnPoints =
+    loyaltySettings?.enabled &&
+    earnSpendAmount > 0 &&
+    netItemsAmount >= loyaltyMinInvoiceAmount
+      ? Math.max(0, Math.floor(netItemsAmount / earnSpendAmount) * earnPointsPerCycle)
+      : 0;
+  const loyaltyEarnBadge = useMemo(() => {
+    if (!hasItems) return null;
+    if (!loyaltySettings?.enabled) {
+      return { tone: 'muted', text: 'Không cộng điểm: chương trình loyalty đang tắt.' };
+    }
+    if (!activeTab.customerId) {
+      return { tone: 'warn', text: 'Không cộng điểm: chưa chọn khách hàng.' };
+    }
+    if (netItemsAmount < loyaltyMinInvoiceAmount) {
+      return {
+        tone: 'warn',
+        text: `Không cộng điểm: đơn dưới mức tối thiểu ${formatMoney(loyaltyMinInvoiceAmount)}.`,
+      };
+    }
+    if (loyaltyPredictedEarnPoints <= 0) {
+      return { tone: 'warn', text: 'Không cộng điểm: đơn chưa đạt mốc tích điểm.' };
+    }
+    if (activeTab.paymentMethod === 'debt') {
+      return {
+        tone: 'ok',
+        text: `Đơn này sẽ cộng +${loyaltyPredictedEarnPoints} điểm sau khi khách thanh toán nợ.`,
+      };
+    }
+    if (activeTab.paymentMethod === 'bank_transfer') {
+      return {
+        tone: 'ok',
+        text: `Đơn này sẽ cộng +${loyaltyPredictedEarnPoints} điểm sau khi chuyển khoản được xác nhận.`,
+      };
+    }
+    return { tone: 'ok', text: `Đơn này sẽ cộng +${loyaltyPredictedEarnPoints} điểm.` };
+  }, [
+    hasItems,
+    loyaltySettings?.enabled,
+    activeTab.customerId,
+    netItemsAmount,
+    loyaltyMinInvoiceAmount,
+    loyaltyPredictedEarnPoints,
+    activeTab.paymentMethod,
+  ]);
+  const remainingToNextPoint = loyaltySettings?.enabled && earnSpendAmount > 0
+    ? (earnSpendAmount - (Math.max(0, netItemsAmount) % earnSpendAmount)) % earnSpendAmount
+    : 0;
   const totalWithDebt = useMemo(
-    () => totalAmount + (activeTab.payOldDebt ? activeTab.customerData?.debt_account || 0 : 0),
-    [totalAmount, activeTab.payOldDebt, activeTab.customerData]
+    () => netItemsAmount + (activeTab.payOldDebt ? activeTab.customerData?.debt_account || 0 : 0),
+    [netItemsAmount, activeTab.payOldDebt, activeTab.customerData]
   );
 
   const taxBreakdown = useMemo(
@@ -581,7 +747,6 @@ export default function POSContainer({
       activeTab.paymentMethod === 'bank_transfer');
 
   const QUICK_PAID_VALUES = [10000, 20000, 50000, 100000, 200000, 500000];
-  const hasItems = activeTab.items.length > 0;
 
   const processCheckout = async () => {
     updateActiveTab({ saving: true, error: '', successMessage: '' });
@@ -625,13 +790,15 @@ export default function POSContainer({
           discount: it.discount,
         })),
         previous_debt_paid: activeTab.payOldDebt ? activeTab.customerData?.debt_account || 0 : 0,
+        redeem_points_requested: loyaltyUsedPoints,
+        promo_discount: 0,
         // Seller snapshot — gửi từ client để backend verify + lưu
         seller_name: staffDisplayName,
         seller_role: staffRoleLabel,
       };
 
       if (!activeTab.invoiceId) {
-        const { invoice: created, payment_ref } = await createInvoice({ ...payload, status: 'confirmed' });
+        const { invoice: created, payment_ref, loyalty_summary } = await createInvoice({ ...payload, status: 'confirmed' });
 
         // Đính kèm seller info vào tab snapshot để in hóa đơn
         const tabSnapshot = {
@@ -648,6 +815,20 @@ export default function POSContainer({
         } else {
           if (activeTab.paymentMethod !== 'debt') {
             handlePrintInvoice(created, tabSnapshot);
+          }
+          if (loyalty_summary?.earned_points || loyalty_summary?.used_points) {
+            const nudgeText = loyalty_summary?.next_nudge
+              ? ` Còn ${loyalty_summary.next_nudge.points_needed} điểm để đạt mốc ${formatMoney(loyalty_summary.next_nudge.reward_value_vnd)}.`
+              : '';
+            notify(
+              `Điểm thưởng: +${Number(loyalty_summary.earned_points || 0)} điểm, dùng ${Number(loyalty_summary.used_points || 0)} điểm.${nudgeText}`,
+              'success'
+            );
+            await notifyCustomerLoyaltyMessage(activeTab?.customerData, loyalty_summary, created?._id || created?.id);
+          } else if (!customerId && loyaltySettings?.enabled) {
+            notify('Đơn chưa chọn khách hàng nên không tích điểm.', 'warning');
+          } else if (customerId && !loyaltySettings?.enabled) {
+            notify('Chương trình loyalty đang tắt nên đơn này không tích điểm.', 'warning');
           }
           speakPayment();
           notify(
@@ -867,7 +1048,6 @@ export default function POSContainer({
                   <th>Tên hàng</th>
                   <th style={{ width: 100 }}>Số lượng</th>
                   <th style={{ width: 120 }}>Đơn giá</th>
-                  {isManager && <th style={{ width: 120 }}>Chiết khấu</th>}
                   <th style={{ width: 120 }}>Thành tiền</th>
                   <th style={{ width: 40 }}></th>
                 </tr>
@@ -887,33 +1067,8 @@ export default function POSContainer({
                       />
                     </td>
                     <td>
-                      {/* Manager có thể sửa giá trực tiếp */}
-                      {isManager ? (
-                        <div className="pos-price-editor">
-                          <input
-                            type="number"
-                            className="pos-qty-input"
-                            value={item.unit_price}
-                            onChange={(e) => updateLine(idx, { unit_price: Number(e.target.value) || 0 })}
-                            title="Quản lý có thể điều chỉnh đơn giá"
-                          />
-                          <span className="pos-price-hint">{formatMoney(item.unit_price)}</span>
-                        </div>
-                      ) : (
-                        <span className="pos-money-cell">{formatMoney(item.unit_price)}</span>
-                      )}
+                      <span className="pos-money-cell">{formatMoney(item.unit_price)}</span>
                     </td>
-                    {isManager && (
-                      <td>
-                        <input
-                          type="number"
-                          className="pos-qty-input"
-                          value={item.discount}
-                          onChange={(e) => updateLine(idx, { discount: Number(e.target.value) || 0 })}
-                          title="Chiết khấu trực tiếp (chỉ Quản lý)"
-                        />
-                      </td>
-                    )}
                     <td style={{ fontWeight: 600 }}>{formatMoney(item.line_total)}</td>
                     <td>
                       <i
@@ -926,7 +1081,7 @@ export default function POSContainer({
                 ))}
                 {activeTab.items.length === 0 && (
                   <tr>
-                    <td colSpan={isManager ? 8 : 7} className="pos-cart-empty-cell">
+                    <td colSpan={7} className="pos-cart-empty-cell">
                       Chưa có hàng hóa nào trong đơn
                     </td>
                   </tr>
@@ -941,6 +1096,11 @@ export default function POSContainer({
                 <i className="fa-solid fa-clock" /> Lịch sử Hóa đơn
               </div>
             </div>
+            {loyaltySettings?.enabled && hasItems && remainingToNextPoint > 0 && (
+              <div className="text-xs font-semibold text-amber-700">
+                Mua thêm {formatMoney(remainingToNextPoint)} nữa để nhận {earnPointsPerCycle} điểm thưởng.
+              </div>
+            )}
             <div className="pos-bottom-meta">Tổng số dòng: {activeTab.items.length}</div>
           </div>
         </div>
@@ -1030,6 +1190,7 @@ export default function POSContainer({
                               recipientName: '',
                               paymentMethod: 'cash',
                               payOldDebt: false,
+                              loyaltyApplyPoints: 0,
                             });
                             setCustomerSearch('');
                           }}
@@ -1055,15 +1216,57 @@ export default function POSContainer({
                             role="button"
                             tabIndex={0}
                             onClick={() => {
-                              updateActiveTab({ customerId: c._id, customerData: c, recipientName: c.full_name });
+                              updateActiveTab({ customerId: c._id, customerData: c, recipientName: c.full_name, loyaltyApplyPoints: 0 });
                               setCustomerSearch('');
                               setShowCustomerDropdown(false);
                             }}
                           >
                             <div className="pos-customer-dropdown-name">{c.full_name}</div>
-                            <div className="pos-customer-dropdown-phone">{c.phone}</div>
+                            <div className="pos-customer-dropdown-phone">
+                              {c.phone} {` • ${Number(c.loyalty_points || 0).toLocaleString('vi-VN')} điểm`}
+                            </div>
                           </div>
                         ))}
+                      </div>
+                    )}
+                    {!activeTab.customerId && loyaltySettings.enabled && (
+                      <div style={{ marginTop: 8, fontSize: 12, color: '#64748b' }}>
+                        Chọn khách hàng để hóa đơn được tích điểm.
+                      </div>
+                    )}
+                    {activeTab.customerId && loyaltySettings.enabled && (
+                      <div style={{ marginTop: 8, border: '1px solid #e2e8f0', borderRadius: 8, padding: 8, background: '#f8fafc' }}>
+                        <div style={{ fontSize: 12, color: '#334155', marginBottom: 6 }}>
+                          Điểm hiện tại: <b>{loyaltyAvailablePoints}</b>
+                          {' • '}Có thể giảm: <b>{formatMoney(Math.min(loyaltyAvailablePoints * loyaltyPointValue, loyaltyMaxRedeemValue))}</b>
+                        </div>
+                        {loyaltyAvailablePoints >= Number(loyaltySettings?.redeem?.min_points || 10) ? (
+                          <button
+                            type="button"
+                            className="pos-quick-paid-full"
+                            onClick={() => {
+                              const autoPoints = Math.floor(
+                                Math.min(loyaltyAvailablePoints * loyaltyPointValue, loyaltyMaxRedeemValue) / loyaltyPointValue
+                              );
+                              updateActiveTab({
+                                loyaltyApplyPoints: activeTab.loyaltyApplyPoints > 0 ? 0 : autoPoints,
+                              });
+                            }}
+                          >
+                            {activeTab.loyaltyApplyPoints > 0
+                              ? `Bỏ dùng điểm (${activeTab.loyaltyApplyPoints} điểm)`
+                              : `Dùng điểm giảm ${formatMoney(Math.min(loyaltyAvailablePoints * loyaltyPointValue, loyaltyMaxRedeemValue))}`}
+                          </button>
+                        ) : (
+                          <div style={{ fontSize: 12, color: '#64748b' }}>
+                            Cần tối thiểu {Number(loyaltySettings?.redeem?.min_points || 10)} điểm để dùng.
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {activeTab.customerId && !loyaltySettings.enabled && (
+                      <div style={{ marginTop: 8, fontSize: 12, color: '#64748b' }}>
+                        Chương trình tích điểm đang tắt trong cấu hình cửa hàng.
                       </div>
                     )}
                   </div>
@@ -1095,6 +1298,12 @@ export default function POSContainer({
                   <div className="pos-summary-line">
                     <span>Tổng tiền hàng</span>
                     <span className="pos-summary-amount">{formatMoney(totalAmount)}</span>
+                  </div>
+                )}
+                {loyaltyRedeemValue > 0 && (
+                  <div className="pos-summary-line">
+                    <span>Giảm từ điểm</span>
+                    <span className="pos-summary-amount" style={{ color: '#0f766e' }}>- {formatMoney(loyaltyRedeemValue)}</span>
                   </div>
                 )}
               </div>
@@ -1325,6 +1534,30 @@ export default function POSContainer({
             )}
 
             <div className="pos-submit-wrap">
+              {loyaltyEarnBadge && (
+                <div
+                  style={{
+                    marginBottom: 8,
+                    fontSize: 12,
+                    textAlign: 'center',
+                    fontWeight: 600,
+                    borderRadius: 8,
+                    padding: '7px 10px',
+                    background:
+                      loyaltyEarnBadge.tone === 'ok' ? '#ecfeff' : loyaltyEarnBadge.tone === 'warn' ? '#fff7ed' : '#f1f5f9',
+                    color:
+                      loyaltyEarnBadge.tone === 'ok' ? '#0f766e' : loyaltyEarnBadge.tone === 'warn' ? '#c2410c' : '#475569',
+                    border:
+                      loyaltyEarnBadge.tone === 'ok'
+                        ? '1px solid #99f6e4'
+                        : loyaltyEarnBadge.tone === 'warn'
+                          ? '1px solid #fdba74'
+                          : '1px solid #cbd5e1',
+                  }}
+                >
+                  {loyaltyEarnBadge.text}
+                </div>
+              )}
               {isDebtBlocked && (
                 <div
                   style={{ marginBottom: 8, fontSize: 12, color: '#dc2626', textAlign: 'center', fontWeight: 600 }}

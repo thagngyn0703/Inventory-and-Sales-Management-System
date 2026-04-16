@@ -6,6 +6,7 @@ const Product = require('../models/Product');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { adjustCustomerDebtAccount } = require('../utils/customerDebt');
 const { upsertSystemCashFlow } = require('../utils/cashflowUtils');
+const { appendLoyaltyTxn, computeEarnedPoints, normalizeLoyaltySettings } = require('../utils/loyalty');
 
 const router = express.Router();
 const RETURN_REASON_OPTIONS = [
@@ -289,6 +290,64 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
         invoice.returned_total_amount = cumulativeReturnGross;
         invoice.returned_subtotal_amount = cumulativeReturnSubtotal;
         invoice.returned_tax_amount = cumulativeReturnTax;
+
+        const loyaltyPointValue = Number(invoice?.loyalty_settings_snapshot?.redeem?.point_value_vnd || 500);
+        const loyaltySettingsSnapshot = normalizeLoyaltySettings(invoice?.loyalty_settings_snapshot || {});
+        const loyaltyEligibleOriginal = Math.max(0, Number(invoice.loyalty_eligible_amount || 0));
+        const loyaltyEligibleRemaining = Math.max(0, loyaltyEligibleOriginal - cumulativeReturnGross);
+
+        if (invoice.customer_id && invoice.loyalty_earned_settled && Number(invoice.loyalty_earned_points || 0) > 0) {
+            const recomputedEarnedPoints = computeEarnedPoints({
+                eligibleAmount: loyaltyEligibleRemaining,
+                config: loyaltySettingsSnapshot,
+            });
+            const targetReversed = Math.max(0, Number(invoice.loyalty_earned_points || 0) - recomputedEarnedPoints);
+            const alreadyReversed = Math.max(0, Number(invoice.loyalty_reversed_points || 0));
+            const deltaReversed = targetReversed - alreadyReversed;
+            if (deltaReversed > 0) {
+                await appendLoyaltyTxn({
+                    customerId: invoice.customer_id,
+                    storeId: salesReturn.store_id,
+                    actorId: req.user.id,
+                    type: 'REVERSAL',
+                    points: -Math.abs(deltaReversed),
+                    valueVnd: deltaReversed * loyaltyPointValue,
+                    referenceModel: 'SalesReturn',
+                    referenceId: salesReturn._id,
+                    note: `Hoàn trả hàng một phần: thu hồi ${deltaReversed} điểm.`,
+                    idempotencyKey: `return-reversal-earn:${salesReturn._id}`,
+                });
+                invoice.loyalty_reversed_points = alreadyReversed + deltaReversed;
+            }
+        }
+
+        if (invoice.customer_id && Number(invoice.loyalty_redeem_points || 0) > 0 && Number(invoice.loyalty_redeem_value || 0) > 0) {
+            const totalAmount = Math.max(1, Number(invoice.total_amount || 0));
+            const cumulativeRatio = Math.min(1, cumulativeReturnGross / totalAmount);
+            const targetRefundValue = Math.round(Number(invoice.loyalty_redeem_value || 0) * cumulativeRatio);
+            const targetRefundPoints = Math.min(
+                Number(invoice.loyalty_redeem_points || 0),
+                Math.floor(targetRefundValue / loyaltyPointValue)
+            );
+            const alreadyRefunded = Math.max(0, Number(invoice.loyalty_refunded_redeem_points || 0));
+            const deltaRefund = targetRefundPoints - alreadyRefunded;
+            if (deltaRefund > 0) {
+                await appendLoyaltyTxn({
+                    customerId: invoice.customer_id,
+                    storeId: salesReturn.store_id,
+                    actorId: req.user.id,
+                    type: 'REFUND',
+                    points: deltaRefund,
+                    valueVnd: deltaRefund * loyaltyPointValue,
+                    referenceModel: 'SalesReturn',
+                    referenceId: salesReturn._id,
+                    note: `Hoàn điểm theo tỷ lệ trả hàng: +${deltaRefund} điểm.`,
+                    idempotencyKey: `return-refund-redeem:${salesReturn._id}`,
+                });
+                invoice.loyalty_refunded_redeem_points = alreadyRefunded + deltaRefund;
+            }
+        }
+
         await invoice.save();
 
         if (invoice.payment_method === 'debt') {

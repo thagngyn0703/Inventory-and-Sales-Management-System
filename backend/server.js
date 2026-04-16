@@ -33,6 +33,7 @@ const cashFlowRoutes = require('./routes/cashflows');
 const supportTicketRoutes = require('./routes/supportTickets');
 const backupRoutes = require('./routes/backup');
 const storeSettingsRoutes = require('./routes/storeSettings');
+const customerNotifyRoutes = require('./routes/customerNotify');
 const { startBackupScheduler } = require('./services/backupScheduler');
 const { hasSmtpConfig } = require('./services/emailService');
 
@@ -114,6 +115,7 @@ app.use('/api/cashflows', cashFlowRoutes);
 app.use('/api/support-tickets', supportTicketRoutes);
 app.use('/api/backup', backupRoutes);
 app.use('/api/store-settings', storeSettingsRoutes);
+app.use('/api/customer-notify', customerNotifyRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

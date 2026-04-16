@@ -1,6 +1,8 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const Store = require('../models/Store');
+const LoyaltyConfigHistory = require('../models/LoyaltyConfigHistory');
+const { normalizeLoyaltySettings } = require('../utils/loyalty');
 const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
@@ -188,6 +190,97 @@ router.patch('/bank', requireAuth, requireRole(['manager', 'admin']), async (req
             bank_account: store.bank_account || '',
             bank_account_name: store.bank_account_name || '',
         });
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({ message: err.message || 'Server error' });
+    }
+});
+
+/**
+ * GET /api/store-settings/loyalty
+ * Lấy cấu hình loyalty của cửa hàng.
+ */
+router.get('/loyalty', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
+    try {
+        const storeId = req.user?.storeId;
+        if (!storeId || !mongoose.isValidObjectId(storeId)) {
+            return res.status(403).json({ message: 'Tài khoản chưa được gán cửa hàng.', code: 'STORE_REQUIRED' });
+        }
+        const store = await Store.findById(storeId).select('name loyalty_settings loyalty_policy_version').lean();
+        if (!store) return res.status(404).json({ message: 'Không tìm thấy cửa hàng.' });
+        return res.json({
+            store_name: store.name,
+            loyalty_policy_version: Number(store.loyalty_policy_version) || 1,
+            loyalty_settings: normalizeLoyaltySettings(store.loyalty_settings || {}),
+        });
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({ message: err.message || 'Server error' });
+    }
+});
+
+/**
+ * PATCH /api/store-settings/loyalty
+ * Manager/Admin cập nhật cấu hình loyalty có guardrails + ghi lịch sử thay đổi.
+ */
+router.patch('/loyalty', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
+    try {
+        const storeId = req.user?.storeId;
+        if (!storeId || !mongoose.isValidObjectId(storeId)) {
+            return res.status(403).json({ message: 'Tài khoản chưa được gán cửa hàng.', code: 'STORE_REQUIRED' });
+        }
+        const current = await Store.findById(storeId).select('loyalty_settings loyalty_policy_version').lean();
+        if (!current) return res.status(404).json({ message: 'Không tìm thấy cửa hàng.' });
+        const beforeCfg = normalizeLoyaltySettings(current.loyalty_settings || {});
+        const merged = normalizeLoyaltySettings({ ...beforeCfg, ...(req.body?.loyalty_settings || {}) });
+        const nextVersion = (Number(current.loyalty_policy_version) || 1) + 1;
+
+        await Store.updateOne(
+            { _id: storeId },
+            {
+                $set: { loyalty_settings: merged, loyalty_policy_version: nextVersion },
+            }
+        );
+
+        await LoyaltyConfigHistory.create({
+            store_id: storeId,
+            changed_by: req.user.id,
+            before_config: beforeCfg,
+            after_config: merged,
+            before_version: Number(current.loyalty_policy_version) || 1,
+            after_version: nextVersion,
+            change_reason: String(req.body?.change_reason || '').trim(),
+            source: 'manager_ui',
+        });
+
+        return res.json({
+            message: 'Đã cập nhật cấu hình tích điểm.',
+            loyalty_policy_version: nextVersion,
+            loyalty_settings: merged,
+        });
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({ message: err.message || 'Server error' });
+    }
+});
+
+/**
+ * GET /api/store-settings/loyalty/history?limit=20
+ * Lấy lịch sử thay đổi cấu hình loyalty.
+ */
+router.get('/loyalty/history', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
+    try {
+        const storeId = req.user?.storeId;
+        if (!storeId || !mongoose.isValidObjectId(storeId)) {
+            return res.status(403).json({ message: 'Tài khoản chưa được gán cửa hàng.', code: 'STORE_REQUIRED' });
+        }
+        const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 20));
+        const history = await LoyaltyConfigHistory.find({ store_id: storeId })
+            .sort({ changed_at: -1 })
+            .limit(limit)
+            .populate('changed_by', 'fullName email')
+            .lean();
+        return res.json({ history });
     } catch (err) {
         console.error(err);
         return res.status(500).json({ message: err.message || 'Server error' });

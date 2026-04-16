@@ -52,8 +52,13 @@ export async function createInvoice(body) {
     body: JSON.stringify(body),
   });
   const data = await parseResponse(res, 'Không thể tạo hóa đơn');
-  // Trả về cả invoice và payment_ref để POS dùng cho QR + polling
-  return { invoice: data.invoice, payment_ref: data.payment_ref, payment_status: data.payment_status };
+  // Trả về cả invoice, payment_ref, loyalty_summary để POS hiển thị nudge
+  return {
+    invoice: data.invoice,
+    payment_ref: data.payment_ref,
+    payment_status: data.payment_status,
+    loyalty_summary: data.loyalty_summary || null,
+  };
 }
 
 export async function getPaymentStatus(paymentRef) {
