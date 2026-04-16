@@ -8,6 +8,42 @@ function getInvoiceRefLabel(invoiceId) {
 }
 
 /**
+ * BUG-02: FIFO settlement — đóng từng hóa đơn pending cũ nhất trước,
+ * chỉ khi số tiền đủ để đóng hoàn toàn. Không đóng khi không đủ tiền.
+ */
+async function fifoSettleDebtInvoicesSePay(customerId, payAmount, settlementInvoiceId) {
+    const pendingInvoices = await SalesInvoice.find({
+        customer_id: customerId,
+        status: 'pending',
+        payment_method: 'debt',
+    }).sort({ created_at: 1 });
+
+    let unallocated = Math.abs(Number(payAmount) || 0);
+    const now = new Date();
+    for (const inv of pendingInvoices) {
+        if (unallocated <= 0) break;
+        if (unallocated >= inv.total_amount) {
+            await SalesInvoice.updateOne(
+                { _id: inv._id },
+                {
+                    $set: {
+                        status: 'confirmed',
+                        payment_status: 'paid',
+                        paid_at: now,
+                        updated_at: now,
+                        debt_settlement_note: `Trả nợ thông qua đơn hàng ${getInvoiceRefLabel(settlementInvoiceId)}`,
+                        debt_settlement_by_invoice_id: settlementInvoiceId,
+                    },
+                }
+            );
+            unallocated -= inv.total_amount;
+        } else {
+            break;
+        }
+    }
+}
+
+/**
  * Sau khi hóa đơn chuyển khoản được đánh dấu paid (SePay), mới trừ nợ khách và
  * chốt các hóa đơn ghi nợ pending — tránh trạng thái "đã thanh toán" khi chưa có tiền.
  * Idempotent: chỉ một luồng thắng nhờ findOneAndUpdate có điều kiện.
@@ -41,19 +77,8 @@ async function settlePreviousDebtIfNeeded(invoiceId) {
 
         await applyCustomerDebtAfterNewInvoice(inv.customer_id, { addDebt: 0, payOldDebt: payOld });
 
-        await SalesInvoice.updateMany(
-            { customer_id: inv.customer_id, status: 'pending', payment_method: 'debt' },
-            {
-                $set: {
-                    status: 'confirmed',
-                    payment_status: 'paid',
-                    paid_at: new Date(),
-                    updated_at: new Date(),
-                    debt_settlement_note: `Trả nợ thông qua đơn hàng ${getInvoiceRefLabel(inv._id)}`,
-                    debt_settlement_by_invoice_id: inv._id,
-                },
-            }
-        );
+        // BUG-02: FIFO thay updateMany — chỉ đóng hóa đơn khi đủ tiền
+        await fifoSettleDebtInvoicesSePay(inv.customer_id, payOld, inv._id);
 
         return { settled: true, reason: 'ok' };
     } catch (err) {

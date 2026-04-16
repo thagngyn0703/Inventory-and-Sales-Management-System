@@ -40,11 +40,37 @@ const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 8000;
 
+async function assertMongoSupportsTransactions() {
+    const adminDb = mongoose.connection.db.admin();
+    let hello;
+    try {
+        hello = await adminDb.command({ hello: 1 });
+    } catch (_) {
+        hello = await adminDb.command({ isMaster: 1 });
+    }
+
+    const hasSessions = hello?.logicalSessionTimeoutMinutes != null;
+    const isReplicaSet = Boolean(hello?.setName);
+    const isSharded = String(hello?.msg || '').toLowerCase() === 'isdbgrid';
+    const supportsTransactions = hasSessions && (isReplicaSet || isSharded);
+
+    if (!supportsTransactions) {
+        throw new Error(
+            'MongoDB phải chạy Replica Set hoặc Sharded Cluster để hỗ trợ transaction. ' +
+            'Vui lòng kiểm tra MONGO_URI/môi trường DB trước khi chạy server.'
+        );
+    }
+}
+
 if (!process.env.JWT_SECRET) {
     console.warn('Cảnh báo: JWT_SECRET chưa được cấu hình trong .env');
 }
 if (!process.env.MONGO_URI) {
     console.error('Lỗi: MONGO_URI chưa được cấu hình trong file .env');
+    process.exit(1);
+}
+if (!process.env.SEPAY_ACCOUNT_NUMBER || !String(process.env.SEPAY_ACCOUNT_NUMBER).trim()) {
+    console.error('Lỗi: SEPAY_ACCOUNT_NUMBER chưa được cấu hình trong file .env');
     process.exit(1);
 }
 if (hasSmtpConfig) {
@@ -97,8 +123,10 @@ app.get('/api/health', (req, res) => {
 // Kết nối MongoDB rồi start server
 mongoose
     .connect(process.env.MONGO_URI)
-    .then(() => {
+    .then(async () => {
         console.log('Đã kết nối MongoDB');
+        await assertMongoSupportsTransactions();
+        console.log('MongoDB hỗ trợ transaction: OK');
         initSocket(server);
         server.listen(PORT, () => {
             console.log(`Server chạy tại http://localhost:${PORT}`);

@@ -32,6 +32,7 @@ async function upsertSystemCashFlow({
     note,
     actorId,
     transactedAt,
+    session,
 }) {
     if (!storeId || !referenceModel || !referenceId) return null;
     if (!mongoose.isValidObjectId(storeId) || !mongoose.isValidObjectId(referenceId)) return null;
@@ -66,7 +67,9 @@ async function upsertSystemCashFlow({
         },
     };
 
-    return CashFlow.findOneAndUpdate(filter, update, { upsert: true, new: true });
+    const q = CashFlow.findOneAndUpdate(filter, update, { upsert: true, new: true });
+    if (session) q.session(session);
+    return q;
 }
 
 module.exports = {

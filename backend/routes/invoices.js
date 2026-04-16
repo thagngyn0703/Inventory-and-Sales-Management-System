@@ -13,6 +13,45 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 const router = express.Router();
 
 /**
+ * FIFO settlement: đóng các hóa đơn ghi nợ pending từ cũ nhất đến mới nhất,
+ * chỉ khi số tiền thanh toán đủ để đóng từng hóa đơn hoàn toàn.
+ * Không bao giờ đóng hóa đơn khi không đủ tiền — tránh mất doanh thu.
+ */
+async function fifoSettleDebtInvoices(customerId, payAmount, settlementInvoiceId, storeId) {
+    const storeFilter = storeId ? { store_id: storeId } : {};
+    const pendingInvoices = await SalesInvoice.find({
+        customer_id: customerId,
+        status: 'pending',
+        payment_method: 'debt',
+        ...storeFilter,
+    }).sort({ created_at: 1 });
+
+    let unallocated = Math.abs(Number(payAmount) || 0);
+    const now = new Date();
+    for (const inv of pendingInvoices) {
+        if (unallocated <= 0) break;
+        if (unallocated >= inv.total_amount) {
+            await SalesInvoice.updateOne(
+                { _id: inv._id },
+                {
+                    $set: {
+                        status: 'confirmed',
+                        payment_status: 'paid',
+                        paid_at: now,
+                        updated_at: now,
+                        debt_settlement_note: `Trả nợ thông qua đơn hàng ${getInvoiceRefLabel(settlementInvoiceId)}`,
+                        debt_settlement_by_invoice_id: settlementInvoiceId,
+                    },
+                }
+            );
+            unallocated -= inv.total_amount;
+        } else {
+            break;
+        }
+    }
+}
+
+/**
  * Tách subtotal (chưa thuế) và tax từ grand_total.
  * - priceIncludesTax = true  → giá bán ĐÃ gồm VAT (tạp hóa thông thường)
  * - priceIncludesTax = false → giá bán CHƯA gồm VAT (B2B)
@@ -349,19 +388,36 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
             return res.status(400).json({ message: 'Khách hàng không được để trống khi ghi nợ' });
         }
 
-        // Validate nợ cũ >= 100.000đ: khách phải trả nợ trước, không được tạo hóa đơn mới
+        // Validate nghiệp vụ nợ: chặn mua mới khi nợ ≥ 100k chưa trả đủ, enforce credit_limit
+        let customerForDebtCheck = null;
         if (customer_id) {
             const Customer = require('../models/Customer');
-            const customer = await Customer.findById(customer_id).select('debt_account full_name').lean();
-            if (customer && Number(customer.debt_account) >= 100000) {
-                // Chỉ cho phép nếu đây là đơn có payOldDebt (previous_debt_paid >= debt_account)
-                const debtPaid = Number(previous_debt_paid) || 0;
-                if (debtPaid < Number(customer.debt_account)) {
+            customerForDebtCheck = await Customer.findById(customer_id)
+                .select('debt_account full_name credit_limit')
+                .lean();
+
+            if (customerForDebtCheck) {
+                const currentDebt = Number(customerForDebtCheck.debt_account) || 0;
+                // BUG-09: cap previous_debt_paid tại debt_account thực tế, tránh trả thừa
+                const rawPrevDebt = Number(previous_debt_paid) || 0;
+                if (rawPrevDebt > currentDebt) {
                     return res.status(400).json({
-                        message: `Khách hàng đang nợ ${Number(customer.debt_account).toLocaleString('vi-VN')}₫ (≥ 100.000₫). Vui lòng thanh toán toàn bộ nợ cũ trước khi mua hàng mới.`,
-                        debt_account: customer.debt_account,
-                        error_code: 'DEBT_LIMIT_EXCEEDED',
+                        message: `Số tiền trả nợ (${rawPrevDebt.toLocaleString('vi-VN')}₫) vượt quá dư nợ hiện tại (${currentDebt.toLocaleString('vi-VN')}₫).`,
+                        debt_account: currentDebt,
+                        error_code: 'OVERPAYMENT_NOT_ALLOWED',
                     });
+                }
+
+                // Chặn mua mới khi nợ ≥ 100.000đ mà chưa trả đủ
+                if (currentDebt >= 100000) {
+                    const debtPaid = Number(previous_debt_paid) || 0;
+                    if (debtPaid < currentDebt) {
+                        return res.status(400).json({
+                            message: `Khách hàng đang nợ ${currentDebt.toLocaleString('vi-VN')}₫ (≥ 100.000₫). Vui lòng thanh toán toàn bộ nợ cũ trước khi mua hàng mới.`,
+                            debt_account: currentDebt,
+                            error_code: 'DEBT_LIMIT_EXCEEDED',
+                        });
+                    }
                 }
             }
         }
@@ -379,6 +435,23 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
                     'Không xác định được giá vốn: một hoặc nhiều sản phẩm không tồn tại hoặc mã không hợp lệ. Giá vốn do hệ thống lấy từ sản phẩm, không nhập từ client.',
                 product_ids: missingCost,
             });
+        }
+
+        // BUG-06: Enforce credit_limit — chỉ áp dụng cho đơn ghi nợ và khi credit_limit > 0
+        if (payment_method === 'debt' && customerForDebtCheck) {
+            const creditLimit = Number(customerForDebtCheck.credit_limit) || 0;
+            if (creditLimit > 0) {
+                const currentDebt = Number(customerForDebtCheck.debt_account) || 0;
+                const payOld = Number(previous_debt_paid) || 0;
+                const debtAfterPayOld = Math.max(0, currentDebt - payOld);
+                if (debtAfterPayOld + totalAmount > creditLimit) {
+                    return res.status(400).json({
+                        message: `Vượt hạn mức tín dụng (${creditLimit.toLocaleString('vi-VN')}₫). Dư nợ sau thanh toán: ${debtAfterPayOld.toLocaleString('vi-VN')}₫, đơn mới: ${totalAmount.toLocaleString('vi-VN')}₫.`,
+                        credit_limit: creditLimit,
+                        error_code: 'CREDIT_LIMIT_EXCEEDED',
+                    });
+                }
+            }
         }
 
         let status = (req.body.status === 'cancelled') ? 'cancelled' : 'confirmed';
@@ -458,23 +531,9 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
                 await applyCustomerDebtAfterNewInvoice(customer_id, { addDebt, payOldDebt: payOldDebtNow });
             }
 
+            // BUG-02: FIFO thay thế updateMany — chỉ đóng hóa đơn khi đủ tiền
             if (payOldDebt > 0 && customer_id && (status === 'confirmed' || status === 'pending') && !deferPayOldDebtSettlement) {
-                await SalesInvoice.updateMany(
-                    { customer_id, status: 'pending', payment_method: 'debt' },
-                    { 
-                      $set: { 
-                        status: 'confirmed', 
-                        payment_status: 'paid',
-                        paid_at: new Date(),
-                        updated_at: new Date(),
-                        debt_settlement_note: `Trả nợ thông qua đơn hàng ${getInvoiceRefLabel(invoice._id)}`,
-                        debt_settlement_by_invoice_id: invoice._id,
-                      } 
-                    }
-                );
-            }
-
-            if (payOldDebt > 0 && !deferPayOldDebtSettlement) {
+                await fifoSettleDebtInvoices(customer_id, payOldDebt, invoice._id, req.user.storeId);
                 invoice.previous_debt_settled = true;
                 await invoice.save();
             }
@@ -484,7 +543,7 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
         }
 
         const populated = await SalesInvoice.findById(invoice._id)
-            .populate('customer_id', 'fullName email')
+            .populate('customer_id', 'full_name phone email debt_account')
             .populate('created_by', 'fullName email')
             .populate('items.product_id', 'name sku stock_qty')
             .lean();
@@ -570,7 +629,7 @@ router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (
             .sort({ created_at: -1 })
             .skip(skip)
             .limit(limitNum)
-            .populate('customer_id', 'fullName email')
+            .populate('customer_id', 'full_name phone email debt_account')
             .populate('created_by', 'fullName email')
             .lean();
 
@@ -660,7 +719,7 @@ router.get('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), asyn
             return res.status(400).json({ message: 'Invalid invoice id' });
         }
         const invoice = await SalesInvoice.findById(id)
-            .populate('customer_id', 'fullName email')
+            .populate('customer_id', 'full_name phone email debt_account')
             .populate('created_by', 'fullName email')
             .populate('items.product_id', 'name sku stock_qty')
             .lean();
@@ -791,7 +850,7 @@ router.patch('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), as
         await invoice.save();
 
         const populated = await SalesInvoice.findById(invoice._id)
-            .populate('customer_id', 'fullName email')
+            .populate('customer_id', 'full_name phone email debt_account')
             .populate('created_by', 'fullName email')
             .populate('items.product_id', 'name sku stock_qty')
             .lean();

@@ -124,4 +124,74 @@ router.patch('/tax', requireAuth, requireRole(['manager', 'admin']), async (req,
     }
 });
 
+/**
+ * GET /api/store-settings/bank
+ * Lấy thông tin ngân hàng của cửa hàng (dùng để sinh QR thu nợ/thanh toán).
+ */
+router.get('/bank', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
+    try {
+        const storeId = req.user?.storeId;
+        if (!storeId || !mongoose.isValidObjectId(storeId)) {
+            return res.status(403).json({ message: 'Tài khoản chưa được gán cửa hàng.', code: 'STORE_REQUIRED' });
+        }
+        const store = await Store.findById(storeId)
+            .select('name bank_id bank_account bank_account_name')
+            .lean();
+        if (!store) return res.status(404).json({ message: 'Không tìm thấy cửa hàng.' });
+
+        return res.json({
+            store_name: store.name,
+            bank_id: store.bank_id || '',
+            bank_account: store.bank_account || '',
+            bank_account_name: store.bank_account_name || '',
+        });
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({ message: err.message || 'Server error' });
+    }
+});
+
+/**
+ * PATCH /api/store-settings/bank
+ * Manager cập nhật thông tin ngân hàng cho cửa hàng.
+ * Body: { bank_id?, bank_account?, bank_account_name? }
+ */
+router.patch('/bank', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
+    try {
+        const storeId = req.user?.storeId;
+        if (!storeId || !mongoose.isValidObjectId(storeId)) {
+            return res.status(403).json({ message: 'Tài khoản chưa được gán cửa hàng.', code: 'STORE_REQUIRED' });
+        }
+
+        const { bank_id, bank_account, bank_account_name } = req.body || {};
+        if (bank_id === undefined && bank_account === undefined && bank_account_name === undefined) {
+            return res.status(400).json({ message: 'Vui lòng cung cấp ít nhất một trường cần cập nhật.' });
+        }
+
+        const updates = {};
+        if (bank_id !== undefined) updates.bank_id = String(bank_id || '').trim();
+        if (bank_account !== undefined) updates.bank_account = String(bank_account || '').trim();
+        if (bank_account_name !== undefined) updates.bank_account_name = String(bank_account_name || '').trim();
+
+        const store = await Store.findByIdAndUpdate(
+            storeId,
+            { $set: updates },
+            { new: true }
+        ).select('name bank_id bank_account bank_account_name').lean();
+
+        if (!store) return res.status(404).json({ message: 'Không tìm thấy cửa hàng.' });
+
+        return res.json({
+            message: 'Đã cập nhật thông tin ngân hàng.',
+            store_name: store.name,
+            bank_id: store.bank_id || '',
+            bank_account: store.bank_account || '',
+            bank_account_name: store.bank_account_name || '',
+        });
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({ message: err.message || 'Server error' });
+    }
+});
+
 module.exports = router;

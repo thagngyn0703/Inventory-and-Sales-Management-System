@@ -10,8 +10,6 @@ const customerSchema = new Schema(
         phone: {
             type: String,
             trim: true,
-            unique: true,
-            sparse: true,
         },
         email: {
             type: String,
@@ -66,5 +64,8 @@ customerSchema.pre('save', function customerDebtClamp(next) {
     }
     next();
 });
+
+// Compound unique index: SĐT chỉ unique trong cùng 1 cửa hàng, không global
+customerSchema.index({ phone: 1, store_id: 1 }, { unique: true, sparse: true });
 
 module.exports = model('Customer', customerSchema);

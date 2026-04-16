@@ -41,6 +41,25 @@ const storeSchema = new Schema(
             default: true,
         },
         /**
+         * Thông tin ngân hàng để sinh QR thu nợ/thanh toán.
+         * Nếu không cấu hình, QR thu nợ sẽ không hiển thị.
+         */
+        bank_id: {
+            type: String,
+            default: '',
+            trim: true,
+        },
+        bank_account: {
+            type: String,
+            default: '',
+            trim: true,
+        },
+        bank_account_name: {
+            type: String,
+            default: '',
+            trim: true,
+        },
+        /**
          * Loại hình kinh doanh — quyết định cách xử lý thuế:
          *   ho_kinh_doanh → thuế khoán cố định, KHÔNG thu VAT trên hóa đơn (tax_rate luôn = 0)
          *   doanh_nghiep  → kê khai VAT theo từng hóa đơn (tax_rate tự do 0-100)

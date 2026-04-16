@@ -132,3 +132,21 @@ export async function updateStoreTaxSettings({ business_type, tax_rate, price_in
   return parseJson(res, 'Không thể cập nhật cấu hình thuế');
 }
 
+export async function getStoreBankSettings() {
+  const token = getToken();
+  const res = await fetch(`${apiPath('/store-settings/bank')}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return parseJson(res, 'Không thể tải cấu hình ngân hàng');
+}
+
+export async function updateStoreBankSettings({ bank_id, bank_account, bank_account_name }) {
+  const token = getToken();
+  const res = await fetch(`${apiPath('/store-settings/bank')}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ bank_id, bank_account, bank_account_name }),
+  });
+  return parseJson(res, 'Không thể cập nhật cấu hình ngân hàng');
+}
+

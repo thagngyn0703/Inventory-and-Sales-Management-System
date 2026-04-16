@@ -3,7 +3,12 @@ import { Link } from 'react-router-dom';
 import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { FolderTree, Settings, UsersRound, Bell, UserPlus, Receipt, Percent, Store, Building2, Info } from 'lucide-react';
-import { getStoreTaxSettings, updateStoreTaxSettings } from '../../services/adminApi';
+import {
+  getStoreTaxSettings,
+  updateStoreTaxSettings,
+  getStoreBankSettings,
+  updateStoreBankSettings,
+} from '../../services/adminApi';
 
 const linkClass =
   'flex items-center justify-between gap-3 rounded-xl border border-slate-200/80 bg-white px-4 py-3 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-teal-200 hover:bg-teal-50/40';
@@ -35,6 +40,13 @@ export default function ManagerSettings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState({ type: '', text: '' });
+  const [bankConfig, setBankConfig] = useState({
+    bank_id: '',
+    bank_account: '',
+    bank_account_name: '',
+  });
+  const [savingBank, setSavingBank] = useState(false);
+  const [bankMsg, setBankMsg] = useState({ type: '', text: '' });
 
   useEffect(() => {
     getStoreTaxSettings()
@@ -47,6 +59,16 @@ export default function ManagerSettings() {
       )
       .catch(() => {})
       .finally(() => setLoading(false));
+
+    getStoreBankSettings()
+      .then((data) =>
+        setBankConfig({
+          bank_id: data.bank_id || '',
+          bank_account: data.bank_account || '',
+          bank_account_name: data.bank_account_name || '',
+        })
+      )
+      .catch(() => {});
   }, []);
 
   const handleSave = async () => {
@@ -72,6 +94,29 @@ export default function ManagerSettings() {
       setMsg({ type: 'error', text: err.message || 'Lỗi khi lưu cấu hình.' });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSaveBank = async () => {
+    setSavingBank(true);
+    setBankMsg({ type: '', text: '' });
+    try {
+      const payload = {
+        bank_id: (bankConfig.bank_id || '').trim().toLowerCase(),
+        bank_account: (bankConfig.bank_account || '').trim(),
+        bank_account_name: (bankConfig.bank_account_name || '').trim(),
+      };
+      const res = await updateStoreBankSettings(payload);
+      setBankConfig({
+        bank_id: res.bank_id || '',
+        bank_account: res.bank_account || '',
+        bank_account_name: res.bank_account_name || '',
+      });
+      setBankMsg({ type: 'success', text: 'Đã lưu cấu hình ngân hàng.' });
+    } catch (err) {
+      setBankMsg({ type: 'error', text: err.message || 'Lỗi khi lưu cấu hình ngân hàng.' });
+    } finally {
+      setSavingBank(false);
     }
   };
 
@@ -306,6 +351,76 @@ export default function ManagerSettings() {
               </button>
             </div>
           )}
+        </div>
+
+        <div className="mb-6 rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm sm:p-6">
+          <div className="mb-5 flex items-center gap-2">
+            <Building2 className="h-5 w-5 text-teal-600" aria-hidden />
+            <h3 className="text-base font-bold text-slate-800">Cấu hình ngân hàng (VietQR)</h3>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-500">Mã ngân hàng</label>
+              <input
+                type="text"
+                value={bankConfig.bank_id}
+                onChange={(e) =>
+                  setBankConfig((prev) => ({ ...prev, bank_id: e.target.value.toLowerCase() }))
+                }
+                placeholder="vd: vcb, tcb, mb"
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-teal-400 focus:ring-2 focus:ring-teal-100"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-500">Số tài khoản</label>
+              <input
+                type="text"
+                value={bankConfig.bank_account}
+                onChange={(e) =>
+                  setBankConfig((prev) => ({ ...prev, bank_account: e.target.value }))
+                }
+                placeholder="Nhập số tài khoản"
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-teal-400 focus:ring-2 focus:ring-teal-100"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-500">Tên chủ tài khoản</label>
+              <input
+                type="text"
+                value={bankConfig.bank_account_name}
+                onChange={(e) =>
+                  setBankConfig((prev) => ({ ...prev, bank_account_name: e.target.value }))
+                }
+                placeholder="Nhập tên chủ tài khoản"
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-teal-400 focus:ring-2 focus:ring-teal-100"
+              />
+            </div>
+          </div>
+
+          <p className="mt-3 text-xs text-slate-500">
+            Dùng cho QR thu nợ ở màn Khách hàng. Ví dụ mã ngân hàng: <strong>vcb</strong>,{' '}
+            <strong>tcb</strong>, <strong>mb</strong>.
+          </p>
+
+          {bankMsg.text && (
+            <p
+              className={`mt-3 text-sm font-medium ${
+                bankMsg.type === 'success' ? 'text-emerald-700' : 'text-red-600'
+              }`}
+            >
+              {bankMsg.text}
+            </p>
+          )}
+
+          <button
+            type="button"
+            onClick={handleSaveBank}
+            disabled={savingBank}
+            className="mt-3 rounded-xl bg-teal-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700 disabled:opacity-60"
+          >
+            {savingBank ? 'Đang lưu...' : 'Lưu cấu hình ngân hàng'}
+          </button>
         </div>
 
         {/* ── Truy cập nhanh ── */}

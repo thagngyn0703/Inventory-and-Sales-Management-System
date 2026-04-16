@@ -20,7 +20,7 @@ import {
 } from '../../services/invoicesApi';
 import { getProducts } from '../../services/productsApi';
 import { getCustomers, createCustomer } from '../../services/customersApi';
-import { getStoreTaxSettings } from '../../services/adminApi';
+import { getStoreTaxSettings, getStoreBankSettings } from '../../services/adminApi';
 import PaymentWaitModal from '../payment/PaymentWaitModal';
 import { Button } from '../ui/button';
 import { useToast } from '../../contexts/ToastContext';
@@ -79,11 +79,16 @@ export default function POSContainer({
   const backToListPath = isManager ? '/manager/pos/list' : '/staff/invoices';
 
   const rawBankAccountConfig = String(process.env.REACT_APP_BANK_ACCOUNT || 'MB-0000000000').trim();
-  const [configuredBankCode, configuredAccountNumber] = rawBankAccountConfig.includes('-')
+  const [envBankCode, envBankAccountNumber] = rawBankAccountConfig.includes('-')
     ? rawBankAccountConfig.split('-', 2)
     : ['MB', rawBankAccountConfig];
-  const bankCode = String(configuredBankCode || 'MB').toUpperCase();
-  const bankAccountNumber = String(configuredAccountNumber || '0000000000');
+  const [storeBank, setStoreBank] = useState({
+    bank_id: '',
+    bank_account: '',
+  });
+  // Ưu tiên cấu hình theo store-settings/bank; fallback env để không gãy luồng cũ.
+  const bankCode = String(storeBank.bank_id || envBankCode || 'MB').toUpperCase();
+  const bankAccountNumber = String(storeBank.bank_account || envBankAccountNumber || '0000000000');
 
   const [storeTax, setStoreTax] = useState({ business_type: 'ho_kinh_doanh', tax_rate: 0, price_includes_tax: true });
   const [products, setProducts] = useState([]);
@@ -149,7 +154,7 @@ export default function POSContainer({
     }
     debounceRef.current = setTimeout(async () => {
       try {
-        const res = await getCustomers(val);
+        const res = await getCustomers({ searchKey: val });
         setCustomerList(res.customers || []);
         setShowCustomerDropdown(true);
       } catch (e) {
@@ -393,6 +398,17 @@ export default function POSContainer({
           business_type: data.business_type || 'ho_kinh_doanh',
           tax_rate: data.tax_rate ?? 0,
           price_includes_tax: data.price_includes_tax !== false,
+        })
+      )
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    getStoreBankSettings()
+      .then((data) =>
+        setStoreBank({
+          bank_id: String(data?.bank_id || '').trim(),
+          bank_account: String(data?.bank_account || '').trim(),
         })
       )
       .catch(() => {});
