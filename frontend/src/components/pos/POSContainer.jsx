@@ -198,19 +198,6 @@ export default function POSContainer({
     }, 300);
   };
 
-  const speakPayment = useCallback(() => {
-    if (!window.speechSynthesis) return;
-    const msg = new SpeechSynthesisUtterance('success');
-    msg.lang = 'vi-VN';
-    msg.rate = 0.95;
-    msg.pitch = 1;
-    const voices = window.speechSynthesis.getVoices();
-    const viVoice = voices.find((v) => v.lang === 'vi-VN' || v.lang.startsWith('vi'));
-    if (viVoice) msg.voice = viVoice;
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(msg);
-  }, []);
-
   const stopPolling = useCallback(() => {
     if (pollingRef.current) {
       clearInterval(pollingRef.current);
@@ -344,8 +331,7 @@ export default function POSContainer({
           redeemed_points: used,
         });
         if (result.success) {
-          const ch = result.channel === 'ZALO' ? 'Zalo' : result.channel === 'SMS' ? 'SMS' : 'Zalo/SMS';
-          notify(`Đã gửi thông báo tích điểm (+${earned} điểm) đến khách qua ${ch}.`, 'success');
+          return;
         } else if (result.already_sent) {
           // Im lặng — không spam
         } else {
@@ -358,7 +344,6 @@ export default function POSContainer({
             storeName,
           });
           await copyText(msg).catch(() => {});
-          notify('Không thể gửi Zalo/SMS, đã copy tin nhắn vào clipboard. Nhấn Ctrl+V trong Zalo để gửi.', 'info');
         }
       } catch (e) {
         // Lỗi API: fallback copy
@@ -370,10 +355,9 @@ export default function POSContainer({
           storeName,
         });
         await copyText(msg).catch(() => {});
-        notify('Đã copy tin nhắn tích điểm. Mở Zalo/SMS và nhấn Ctrl+V để gửi.', 'info');
       }
     },
-    [notify, storeName]
+    [storeName]
   );
 
   const startPolling = useCallback(
@@ -388,7 +372,6 @@ export default function POSContainer({
           if (result.payment_status === 'paid') {
             stopPolling();
             setPendingPayment(null);
-            speakPayment();
             handlePrintInvoice(invoiceData, tabSnapshot);
             await notifyCustomerLoyaltyMessage(tabSnapshot?.customerData, {
               earned_points: Number(result?.loyalty?.earned_points || 0),
@@ -425,7 +408,7 @@ export default function POSContainer({
       }, 5000);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [stopPolling, speakPayment, handlePrintInvoice, loadProducts, notify, notifyCustomerLoyaltyMessage]
+    [stopPolling, handlePrintInvoice, loadProducts, notify, notifyCustomerLoyaltyMessage]
   );
 
   useEffect(() => () => stopPolling(), [stopPolling]);
@@ -817,20 +800,8 @@ export default function POSContainer({
             handlePrintInvoice(created, tabSnapshot);
           }
           if (loyalty_summary?.earned_points || loyalty_summary?.used_points) {
-            const nudgeText = loyalty_summary?.next_nudge
-              ? ` Còn ${loyalty_summary.next_nudge.points_needed} điểm để đạt mốc ${formatMoney(loyalty_summary.next_nudge.reward_value_vnd)}.`
-              : '';
-            notify(
-              `Điểm thưởng: +${Number(loyalty_summary.earned_points || 0)} điểm, dùng ${Number(loyalty_summary.used_points || 0)} điểm.${nudgeText}`,
-              'success'
-            );
             await notifyCustomerLoyaltyMessage(activeTab?.customerData, loyalty_summary, created?._id || created?.id);
-          } else if (!customerId && loyaltySettings?.enabled) {
-            notify('Đơn chưa chọn khách hàng nên không tích điểm.', 'warning');
-          } else if (customerId && !loyaltySettings?.enabled) {
-            notify('Chương trình loyalty đang tắt nên đơn này không tích điểm.', 'warning');
           }
-          speakPayment();
           notify(
             'Thanh toán thành công! ' +
               (changeAmount > 0 ? `Tiền thừa trả khách: ${formatMoney(changeAmount)}` : ''),
