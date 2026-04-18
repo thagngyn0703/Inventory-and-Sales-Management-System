@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const Product = require('../models/Product');
+const ProductUnit = require('../models/ProductUnit');
 const StockBatch = require('../models/StockBatch');
 const ProductPriceHistory = require('../models/ProductPriceHistory');
 const { requireAuth, requireRole } = require('../middleware/auth');
@@ -166,7 +167,13 @@ async function findBarcodeDuplicate({ barcode, storeId, excludeId }) {
   if (storeId) filter.storeId = storeId;
   else filter.storeId = null;
   if (excludeId && mongoose.isValidObjectId(excludeId)) filter._id = { $ne: excludeId };
-  return Product.findOne(filter).select('_id barcode sku name').lean();
+  const inProduct = await Product.findOne(filter).select('_id barcode sku name').lean();
+  if (inProduct) return inProduct;
+  const unitFilter = { barcode: b };
+  if (storeId) unitFilter.storeId = storeId;
+  else unitFilter.storeId = null;
+  if (excludeId && mongoose.isValidObjectId(excludeId)) unitFilter.product_id = { $ne: excludeId };
+  return ProductUnit.findOne(unitFilter).select('_id barcode product_id unit_name').lean();
 }
 
 
@@ -192,6 +199,68 @@ async function findSkuDuplicate({ sku, storeId, excludeId }) {
   else filter.storeId = null;
   if (excludeId && mongoose.isValidObjectId(excludeId)) filter._id = { $ne: excludeId };
   return Product.findOne(filter).select('_id sku storeId').lean();
+}
+
+async function syncBaseProductUnit(productDoc) {
+  if (!productDoc?._id) return;
+  const baseName = String(productDoc.base_unit || 'Cái').trim() || 'Cái';
+  const basePrice = Math.round(Number(productDoc.sale_price) || 0);
+  const baseBarcode = String(productDoc.barcode || '').trim() || undefined;
+  await ProductUnit.findOneAndUpdate(
+    { product_id: productDoc._id, is_base: true },
+    {
+      $set: {
+        storeId: productDoc.storeId || null,
+        unit_name: baseName,
+        exchange_value: 1,
+        price: basePrice,
+        barcode: baseBarcode,
+        is_base: true,
+        updated_at: new Date(),
+      },
+      $setOnInsert: { created_at: new Date() },
+    },
+    { upsert: true, new: true }
+  );
+}
+
+async function syncProductUnitsFromProduct(productDoc) {
+  if (!productDoc?._id) return;
+  const baseName = String(productDoc.base_unit || 'Cái').trim() || 'Cái';
+  const list = Array.isArray(productDoc.selling_units) && productDoc.selling_units.length > 0
+    ? productDoc.selling_units
+    : [{ name: baseName, ratio: 1, sale_price: productDoc.sale_price || 0 }];
+  const bulkOps = list.map((u) => {
+    const name = String(u.name || '').trim() || baseName;
+    const ratio = Number(u.ratio) > 0 ? Number(u.ratio) : 1;
+    const isBase = ratio === 1 || name === baseName;
+    return {
+      updateOne: {
+        filter: { product_id: productDoc._id, unit_name: name },
+        update: {
+          $set: {
+            storeId: productDoc.storeId || null,
+            unit_name: name,
+            exchange_value: ratio,
+            price: Math.round(Number(u.sale_price) || 0),
+            barcode: isBase ? (String(productDoc.barcode || '').trim() || undefined) : undefined,
+            is_base: isBase,
+            updated_at: new Date(),
+          },
+          $setOnInsert: { created_at: new Date() },
+        },
+        upsert: true,
+      },
+    };
+  });
+  if (bulkOps.length > 0) {
+    await ProductUnit.bulkWrite(bulkOps, { ordered: false });
+  }
+  await ProductUnit.deleteMany({
+    product_id: productDoc._id,
+    unit_name: { $nin: list.map((u) => String(u.name || '').trim() || baseName) },
+  });
+  await syncBaseProductUnit(productDoc);
 }
 
 /**
@@ -246,6 +315,17 @@ async function logPriceChange({
   });
 }
 
+function normalizeUnitInput(unit = {}, fallbackBaseName = 'Cái') {
+  const unitName = trimText(unit.unit_name || unit.name || fallbackBaseName);
+  const exchangeValueRaw = Number(unit.exchange_value ?? unit.ratio ?? 1);
+  const exchangeValue = Number.isFinite(exchangeValueRaw) && exchangeValueRaw > 0 ? exchangeValueRaw : 1;
+  const priceRaw = Number(unit.price ?? unit.sale_price ?? 0);
+  const price = Number.isFinite(priceRaw) && priceRaw >= 0 ? Math.round(priceRaw) : 0;
+  const barcode = trimText(unit.barcode) || undefined;
+  const isBase = Boolean(unit.is_base) || exchangeValue === 1;
+  return { unit_name: unitName, exchange_value: exchangeValue, price, barcode, is_base: isBase };
+}
+
 function getRoleStoreFilter(req) {
   const role = String(req.user?.role || '').toLowerCase();
   if (role === 'admin') return {};
@@ -254,6 +334,20 @@ function getRoleStoreFilter(req) {
   const storeId = req.user?.storeId ? String(req.user.storeId) : null;
   if (!storeId) return null;
   return { storeId };
+}
+
+async function getBaseUnitOfProduct(product) {
+  if (!product?._id) return null;
+  const base = await ProductUnit.findOne({ product_id: product._id, is_base: true }).lean();
+  if (base) return base;
+  return {
+    _id: null,
+    unit_name: product.base_unit || 'Cái',
+    exchange_value: 1,
+    price: Math.round(Number(product.sale_price) || 0),
+    barcode: product.barcode || undefined,
+    is_base: true,
+  };
 }
 
 // POST /api/products/upload-images (staff, manager, admin) - tối đa 3 ảnh
@@ -436,6 +530,7 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
       image_urls: safeImageUrls,
       status: status === 'inactive' ? 'inactive' : 'active',
     });
+    await syncProductUnitsFromProduct(doc);
 
     // Nếu có tồn kho ban đầu → tự động tạo Phiếu nhập kho (đã duyệt) để có đầy đủ chứng từ
     if (stockNum > 0) {
@@ -545,7 +640,9 @@ router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (
     }
     if (query) {
       const re = new RegExp(escapeRegex(query), 'i');
-      filter.$or = [{ name: re }, { sku: re }, { barcode: re }];
+      const matchedUnitRows = await ProductUnit.find({ ...filter, barcode: re }).select('product_id').lean();
+      const matchedProductIds = matchedUnitRows.map((u) => u.product_id);
+      filter.$or = [{ name: re }, { sku: re }, { barcode: re }, { _id: { $in: matchedProductIds } }];
     }
 
     const total = await Product.countDocuments(filter);
@@ -564,6 +661,57 @@ router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (
       page: pageNum,
       limit: limitNum,
       totalPages: Math.ceil(total / limitNum) || 1,
+    });
+  } catch (err) {
+    return res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// GET /api/products/scan/:code  (staff, manager, admin)
+router.get('/scan/:code', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
+  try {
+    const code = String(req.params.code || '').trim();
+    if (!code) return res.status(400).json({ message: 'Mã quét không hợp lệ' });
+    const storeFilter = getRoleStoreFilter(req);
+    if (storeFilter == null) {
+      return res.status(403).json({
+        message: 'Tài khoản chưa được gán cửa hàng.',
+        code: 'STORE_REQUIRED',
+      });
+    }
+
+    const productFilter = { ...storeFilter };
+    const unitFilter = { ...storeFilter };
+    if (storeFilter.storeId == null) {
+      productFilter.storeId = null;
+      unitFilter.storeId = null;
+    }
+
+    // Ưu tiên barcode unit để phân biệt lốc/thùng.
+    let matchedUnit = await ProductUnit.findOne({ ...unitFilter, barcode: code }).lean();
+    let product = null;
+    if (matchedUnit) {
+      product = await Product.findOne({ _id: matchedUnit.product_id, ...productFilter }).lean();
+    }
+
+    // Fallback: barcode hoặc SKU của product => trả về base unit.
+    if (!product) {
+      product = await Product.findOne({
+        ...productFilter,
+        $or: [{ barcode: code }, { sku: code }],
+      }).lean();
+      if (product) {
+        matchedUnit = await getBaseUnitOfProduct(product);
+      }
+    }
+
+    if (!product || !matchedUnit) {
+      return res.status(404).json({ message: 'Không tìm thấy sản phẩm theo mã quét' });
+    }
+
+    return res.json({
+      product: normalizeProduct(product),
+      unit: matchedUnit,
     });
   } catch (err) {
     return res.status(500).json({ message: 'Server error' });
@@ -942,6 +1090,113 @@ router.post('/import/commit', requireAuth, requireRole(['manager', 'admin']), as
 });
 
 // GET /api/products/:id  (staff, manager, admin)
+router.get('/:id/units', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) return res.status(400).json({ message: 'Invalid product id' });
+    const storeFilter = getRoleStoreFilter(req);
+    if (storeFilter == null) {
+      return res.status(403).json({ message: 'Tài khoản chưa được gán cửa hàng.', code: 'STORE_REQUIRED' });
+    }
+    const product = await Product.findOne({ _id: id, ...storeFilter });
+    if (!product) return res.status(404).json({ message: 'Product not found' });
+    let units = await ProductUnit.find({ product_id: id }).sort({ is_base: -1, exchange_value: 1 }).lean();
+    // Backward compatibility: sản phẩm cũ có selling_units nhưng chưa có ProductUnit.
+    if (!units || units.length === 0) {
+      try {
+        await syncProductUnitsFromProduct(product);
+      } catch (syncErr) {
+        // Fallback an toàn: nếu sync lỗi do dữ liệu cũ/xung đột barcode,
+        // vẫn đảm bảo có tối thiểu 1 đơn vị base để vận hành nhập/bán không bị chặn.
+        await ProductUnit.findOneAndUpdate(
+          { product_id: product._id, unit_name: String(product.base_unit || 'Cái').trim() || 'Cái' },
+          {
+            $set: {
+              storeId: product.storeId || null,
+              unit_name: String(product.base_unit || 'Cái').trim() || 'Cái',
+              exchange_value: 1,
+              price: Math.round(Number(product.sale_price) || 0),
+              barcode: undefined,
+              is_base: true,
+              updated_at: new Date(),
+            },
+            $setOnInsert: { created_at: new Date() },
+          },
+          { upsert: true, new: true }
+        );
+      }
+      units = await ProductUnit.find({ product_id: id }).sort({ is_base: -1, exchange_value: 1 }).lean();
+    }
+    return res.json({ units: units || [] });
+  } catch (err) {
+    return res.status(500).json({ message: 'Server error' });
+  }
+});
+
+router.put('/:id/units', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const payload = Array.isArray(req.body?.units) ? req.body.units : [];
+    if (!mongoose.isValidObjectId(id)) return res.status(400).json({ message: 'Invalid product id' });
+    if (payload.length === 0) return res.status(400).json({ message: 'units is required' });
+
+    const storeFilter = getRoleStoreFilter(req);
+    if (storeFilter == null) {
+      return res.status(403).json({ message: 'Tài khoản chưa được gán cửa hàng.', code: 'STORE_REQUIRED' });
+    }
+    const product = await Product.findOne({ _id: id, ...storeFilter });
+    if (!product) return res.status(404).json({ message: 'Product not found' });
+
+    const normalized = payload.map((u) => normalizeUnitInput(u, product.base_unit || 'Cái'));
+    const baseCount = normalized.filter((u) => u.is_base).length;
+    if (baseCount !== 1) {
+      return res.status(400).json({ message: 'Phải có đúng 1 đơn vị gốc (is_base=true)' });
+    }
+
+    const seenNames = new Set();
+    for (const u of normalized) {
+      if (!u.unit_name) return res.status(400).json({ message: 'unit_name is required' });
+      const key = u.unit_name.toLowerCase();
+      if (seenNames.has(key)) return res.status(400).json({ message: 'Tên đơn vị bị trùng trên cùng sản phẩm' });
+      seenNames.add(key);
+    }
+
+    await ProductUnit.deleteMany({ product_id: product._id });
+    const docs = normalized.map((u) => ({
+      product_id: product._id,
+      storeId: product.storeId || null,
+      unit_name: u.unit_name,
+      exchange_value: u.exchange_value,
+      price: u.price,
+      barcode: u.barcode,
+      is_base: u.is_base,
+      created_at: new Date(),
+      updated_at: new Date(),
+    }));
+    const units = await ProductUnit.insertMany(docs, { ordered: true });
+    const base = units.find((u) => u.is_base);
+    if (base) {
+      product.base_unit = base.unit_name;
+      product.sale_price = base.price;
+      product.barcode = base.barcode;
+    }
+    product.selling_units = units.map((u) => ({
+      name: u.unit_name,
+      ratio: u.exchange_value,
+      sale_price: u.price,
+    }));
+    product.updated_at = new Date();
+    await product.save();
+
+    return res.json({ units });
+  } catch (err) {
+    if (err?.code === 11000) {
+      return res.status(409).json({ message: 'Barcode đơn vị đã tồn tại trong cửa hàng này' });
+    }
+    return res.status(500).json({ message: err.message || 'Server error' });
+  }
+});
+
 router.get('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
   try {
     const { id } = req.params;
@@ -959,7 +1214,10 @@ router.get('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), asyn
       .populate('supplier_id', 'name phone email')
       .lean();
     if (!product) return res.status(404).json({ message: 'Product not found' });
-    return res.json({ product: normalizeProduct(product) });
+    const units = await ProductUnit.find({ product_id: product._id })
+      .sort({ exchange_value: 1, unit_name: 1 })
+      .lean();
+    return res.json({ product: { ...normalizeProduct(product), units } });
   } catch (err) {
     return res.status(500).json({ message: 'Server error' });
   }
@@ -1124,6 +1382,7 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
     }
     product.updated_at = new Date();
     await product.save();
+    await syncProductUnitsFromProduct(product);
     await logPriceChange({
       productId: product._id,
       storeId: product.storeId || null,

@@ -39,6 +39,27 @@ export async function getProduct(id) {
     return data.product;
 }
 
+export async function getProductUnits(id) {
+    const token = getToken();
+    const res = await fetch(`${API_BASE}/products/${id}/units`, {
+        headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.message || 'Không thể tải đơn vị sản phẩm');
+    return data.units || [];
+}
+
+export async function scanProductByCode(code) {
+    const token = getToken();
+    const safeCode = encodeURIComponent(String(code || '').trim());
+    const res = await fetch(`${API_BASE}/products/scan/${safeCode}`, {
+        headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.message || 'Không thể quét mã sản phẩm');
+    return data;
+}
+
 export async function createProduct(body) {
     const token = getToken();
     const res = await fetch(`${API_BASE}/products`, {

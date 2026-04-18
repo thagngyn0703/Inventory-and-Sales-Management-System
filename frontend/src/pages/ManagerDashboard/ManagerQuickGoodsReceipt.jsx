@@ -6,7 +6,7 @@ import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
 import { useToast } from '../../contexts/ToastContext';
-import { createProduct, createQuickGoodsReceipt, getProducts, uploadProductImages } from '../../services/productsApi';
+import { createProduct, createQuickGoodsReceipt, getProductUnits, getProducts, uploadProductImages } from '../../services/productsApi';
 import { createSupplier, getSuppliers } from '../../services/suppliersApi';
 import { minExpiryDateString } from '../../utils/dateInput';
 
@@ -42,6 +42,8 @@ export default function ManagerQuickGoodsReceipt() {
         stock_qty: '',
     });
     const [loading, setLoading] = useState(false);
+    const [unitOptions, setUnitOptions] = useState([]);
+    const [selectedUnitId, setSelectedUnitId] = useState('');
     const dropdownRef = useRef(null);
     const barcodeInputRef = useRef(null);
 
@@ -97,11 +99,37 @@ export default function ManagerQuickGoodsReceipt() {
         return qty * cost;
     }, [newProductForm.stock_qty, newProductForm.cost_price]);
 
+    const loadUnitsForSelectedProduct = async (product) => {
+        const pid = String(product?._id || '');
+        if (!pid) return [];
+        try {
+            const units = await getProductUnits(pid);
+            const sorted = (units || []).sort(
+                (a, b) => Number(a.exchange_value || 0) - Number(b.exchange_value || 0)
+            );
+            if (!sorted.length) {
+                setUnitOptions([]);
+                setSelectedUnitId('');
+                return [];
+            }
+            const base = sorted.find((u) => u.is_base) || sorted[0];
+            setUnitOptions(sorted);
+            setSelectedUnitId(base?._id || '');
+            const ratio = Number(base?.exchange_value) > 0 ? Number(base.exchange_value) : 1;
+            setUnitCost(String(Math.round((Number(product?.cost_price) || 0) * ratio)));
+            return sorted;
+        } catch (_) {
+            setUnitOptions([]);
+            setSelectedUnitId('');
+            return [];
+        }
+    };
+
     const selectProduct = (product) => {
         setSelectedProduct(product);
         setSearchInput(product.name || '');
         setQuantity('');
-        setUnitCost(String(product.cost_price || ''));
+        loadUnitsForSelectedProduct(product);
         setCreateMode(false);
         setShowDropdown(false);
     };
@@ -110,6 +138,8 @@ export default function ManagerQuickGoodsReceipt() {
         setSelectedProduct(null);
         setQuantity('');
         setUnitCost('');
+        setUnitOptions([]);
+        setSelectedUnitId('');
     };
 
     const handleSubmitQuickReceipt = async (e) => {
@@ -131,17 +161,23 @@ export default function ManagerQuickGoodsReceipt() {
             toast('Giá nhập không hợp lệ.', 'error');
             return;
         }
+        if (!selectedUnitId) {
+            toast('Vui lòng chọn đơn vị nhập hợp lệ.', 'error');
+            return;
+        }
 
         setLoading(true);
         try {
+            const selectedUnit = unitOptions.find((u) => String(u._id || '') === String(selectedUnitId || '')) || unitOptions[0] || null;
             await createQuickGoodsReceipt({
                 supplier_id: supplierId,
                 items: [{
                     product_id: selectedProduct._id,
+                    unit_id: selectedUnit?._id || null,
                     quantity: Number(quantity),
                     unit_cost: Number(unitCost),
-                    unit_name: selectedProduct.base_unit || 'Cái',
-                    ratio: 1,
+                    unit_name: selectedUnit?.unit_name || selectedProduct.base_unit || 'Cái',
+                    ratio: Number(selectedUnit?.exchange_value) > 0 ? Number(selectedUnit.exchange_value) : 1,
                     expiry_date: expiryDate || undefined,
                 }],
                 payment_type: paymentType,
@@ -317,7 +353,19 @@ export default function ManagerQuickGoodsReceipt() {
                                         <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
                                             <div className="font-semibold text-slate-800">{selectedProduct.name}</div>
                                             <div className="text-slate-600">
-                                                Tồn hiện tại: <strong>{Number(selectedProduct.stock_qty || 0).toLocaleString('vi-VN')}</strong> {selectedProduct.base_unit || 'Cái'}
+                                                {(() => {
+                                                    const selectedUnit = unitOptions.find((u) => String(u._id || '') === String(selectedUnitId || '')) || unitOptions[0];
+                                                    const ratio = Number(selectedUnit?.exchange_value) > 0 ? Number(selectedUnit.exchange_value) : 1;
+                                                    const stock = Number(selectedProduct.stock_qty || 0);
+                                                    const whole = Math.floor(stock / ratio);
+                                                    const rem = stock - whole * ratio;
+                                                    return (
+                                                        <>
+                                                            Tồn hiện tại: <strong>{whole.toLocaleString('vi-VN')}</strong> {selectedUnit?.unit_name || selectedProduct.base_unit || 'Cái'}
+                                                            {rem > 0 ? ` (dư ${rem} ${selectedProduct.base_unit || 'Cái'})` : ''}
+                                                        </>
+                                                    );
+                                                })()}
                                             </div>
                                         </div>
                                         <div>
@@ -329,6 +377,28 @@ export default function ManagerQuickGoodsReceipt() {
                                                 onChange={(e) => setQuantity(e.target.value)}
                                                 className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
                                             />
+                                        </div>
+                                        <div>
+                                            <label className="mb-1 block text-sm font-medium text-slate-600">Đơn vị nhập</label>
+                                            <select
+                                                value={selectedUnitId}
+                                                onFocus={() => selectedProduct && loadUnitsForSelectedProduct(selectedProduct)}
+                                                onChange={(e) => {
+                                                    const nextId = e.target.value;
+                                                    setSelectedUnitId(nextId);
+                                                    const u = unitOptions.find((x) => String(x._id || '') === String(nextId || ''));
+                                                    const ratio = Number(u?.exchange_value) > 0 ? Number(u.exchange_value) : 1;
+                                                    setUnitCost(String(Math.round((Number(selectedProduct?.cost_price) || 0) * ratio)));
+                                                }}
+                                                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
+                                            >
+                                                {!unitOptions.length && <option value="">-- Chưa có đơn vị --</option>}
+                                                {unitOptions.map((u) => (
+                                                    <option key={String(u._id || u.unit_name)} value={u._id || ''}>
+                                                        {u.unit_name} (x{u.exchange_value})
+                                                    </option>
+                                                ))}
+                                            </select>
                                         </div>
                                         <div>
                                             <label className="mb-1 block text-sm font-medium text-slate-600">Giá nhập</label>

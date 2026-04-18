@@ -1,20 +1,21 @@
 process.env.JWT_SECRET = 'ims_secret_key_123';
 
-const { MongoMemoryServer } = require('mongodb-memory-server');
+const { MongoMemoryReplSet } = require('mongodb-memory-server');
 const mongoose = require('mongoose');
 
-let mongoServer;
+let replSet;
 
 beforeAll(async () => {
-  mongoServer = await MongoMemoryServer.create();
-  const uri = mongoServer.getUri();
-  await mongoose.connect(uri);
+  replSet = await MongoMemoryReplSet.create({
+    replSet: { count: 1 },
+  });
+  await mongoose.connect(replSet.getUri());
 });
 
 afterAll(async () => {
   await mongoose.disconnect();
-  if (mongoServer) {
-    await mongoServer.stop();
+  if (replSet) {
+    await replSet.stop();
   }
 });
 

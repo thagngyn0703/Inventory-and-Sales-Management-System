@@ -18,7 +18,7 @@ import {
   getPaymentStatus,
   cancelUnpaidBankTransferInvoice,
 } from '../../services/invoicesApi';
-import { getProducts } from '../../services/productsApi';
+import { getProducts, getProductUnits, scanProductByCode } from '../../services/productsApi';
 import { getCustomers, createCustomer } from '../../services/customersApi';
 import { getStoreTaxSettings, getStoreBankSettings, getStoreLoyaltySettings } from '../../services/adminApi';
 import { sendLoyaltyUpdate } from '../../services/customerNotifyApi';
@@ -127,6 +127,7 @@ export default function POSContainer({
     milestones: [],
   });
   const [products, setProducts] = useState([]);
+  const [unitOptionsByProduct, setUnitOptionsByProduct] = useState({});
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
@@ -180,6 +181,47 @@ export default function POSContainer({
       console.error(e);
     }
   }, []);
+
+  const loadUnitsForProduct = useCallback(
+    async (productId) => {
+      const pid = String(productId || '');
+      if (!pid) return [];
+      if (unitOptionsByProduct[pid]) return unitOptionsByProduct[pid];
+      try {
+        const units = await getProductUnits(pid);
+        const normalized = (units || []).sort(
+          (a, b) => Number(a.exchange_value || 0) - Number(b.exchange_value || 0)
+        );
+        setUnitOptionsByProduct((prev) => ({ ...prev, [pid]: normalized }));
+        setTabs((prevTabs) =>
+          prevTabs.map((tab) => ({
+            ...tab,
+            items: (tab.items || []).map((it) => {
+              if (String(it.product_id) !== pid) return it;
+              const next = { ...it, available_units: normalized };
+              const hasCurrentUnit = normalized.some((u) => String(u._id) === String(it.unit_id || ''));
+              if (!hasCurrentUnit && normalized.length > 0) {
+                const fallback = normalized.find((u) => u.is_base) || normalized[0];
+                next.unit_id = fallback._id;
+                next.unit_name = fallback.unit_name;
+                next.exchange_value = Number(fallback.exchange_value) || 1;
+                next.unit_price = Number(fallback.price) || 0;
+                next.line_total = Math.max(
+                  0,
+                  (Number(next.quantity) || 0) * (Number(next.unit_price) || 0) - (Number(next.discount) || 0)
+                );
+              }
+              return next;
+            }),
+          }))
+        );
+        return normalized;
+      } catch (e) {
+        return [];
+      }
+    },
+    [unitOptionsByProduct]
+  );
 
   const searchCustomers = (val) => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -439,6 +481,9 @@ export default function POSContainer({
         name: `Hóa đơn: ${data._id.slice(-6)}`,
         items: (data.items || []).map((item) => ({
           product_id: item.product_id?._id ?? item.product_id,
+          unit_id: item.unit_id?._id ?? item.unit_id ?? null,
+          unit_name: item.unit_name || '',
+          exchange_value: Number(item.exchange_value) || 1,
           name: item.product_id?.name ?? '',
           sku: item.product_id?.sku ?? '',
           quantity: item.quantity || 0,
@@ -541,11 +586,20 @@ export default function POSContainer({
     setTabs(newTabs);
   };
 
-  const handleAddProduct = (product) => {
+  const handleAddProduct = (product, unitOverride = null) => {
     setTabs((prev) =>
       prev.map((tab) => {
         if (tab.tabId !== activeTabId) return tab;
-        const existingIdx = tab.items.findIndex((it) => it.product_id === product._id);
+        const chosenUnit = unitOverride || {
+          _id: null,
+          unit_name: product.base_unit || 'Cái',
+          exchange_value: 1,
+          price: product.sale_price || 0,
+        };
+        const unitKey = String(chosenUnit?._id || '');
+        const existingIdx = tab.items.findIndex(
+          (it) => it.product_id === product._id && String(it.unit_id || '') === unitKey
+        );
         const newItems = [...tab.items];
         if (existingIdx >= 0) {
           const it = newItems[existingIdx];
@@ -558,13 +612,17 @@ export default function POSContainer({
         } else {
           newItems.push({
             product_id: product._id,
+            unit_id: chosenUnit?._id || null,
+            unit_name: chosenUnit?.unit_name || product.base_unit || 'Cái',
+            exchange_value: Number(chosenUnit?.exchange_value) || 1,
             name: product.name,
             sku: product.sku,
             quantity: 1,
-            unit_price: product.sale_price || 0,
+            unit_price: Number(chosenUnit?.price ?? product.sale_price) || 0,
             discount: 0,
-            line_total: product.sale_price || 0,
+            line_total: Number(chosenUnit?.price ?? product.sale_price) || 0,
             stock_qty: product.stock_qty,
+            available_units: unitOptionsByProduct[String(product._id)] || [],
           });
         }
         return { ...tab, items: newItems };
@@ -574,21 +632,18 @@ export default function POSContainer({
     setShowSearchDropdown(false);
   };
 
-  const handleScanSubmit = (rawCode) => {
+  const handleScanSubmit = async (rawCode) => {
     const code = String(rawCode || '').trim();
     if (!code) return;
-    const normalized = code.toLowerCase();
-    const found = products.find(
-      (p) =>
-        String(p.barcode || '').toLowerCase() === normalized ||
-        String(p.sku || '').toLowerCase() === normalized
-    );
-    if (!found) {
-      notify(`Không tìm thấy sản phẩm với mã: ${code}`, 'error');
-      return;
+    try {
+      const found = await scanProductByCode(code);
+      await loadUnitsForProduct(found?.product?._id);
+      handleAddProduct(found.product, found.unit);
+      const unitText = found?.unit?.unit_name ? ` (${found.unit.unit_name})` : '';
+      notify(`Đã thêm: ${found.product.name}${unitText}`, 'success');
+    } catch (e) {
+      notify(e.message || `Không tìm thấy sản phẩm với mã: ${code}`, 'error');
     }
-    handleAddProduct(found);
-    notify(`Đã thêm: ${found.name}`, 'success');
   };
 
   useEffect(() => {
@@ -628,6 +683,68 @@ export default function POSContainer({
     const discount = Number(newItems[idx].discount) || 0;
     newItems[idx].line_total = Math.max(0, qty * price - discount);
     updateActiveTab({ items: newItems });
+  };
+
+  const updateItemUnit = async (idx, unitId) => {
+    const line = activeTab.items[idx];
+    if (!line) return;
+    const pid = String(line.product_id || '');
+    if (!pid) return;
+    const units = await loadUnitsForProduct(pid);
+    const selected = units.find((u) => String(u._id) === String(unitId || ''));
+    if (!selected) return;
+
+    const nextItems = [...activeTab.items];
+    const target = { ...nextItems[idx] };
+    target.unit_id = selected._id;
+    target.unit_name = selected.unit_name;
+    target.exchange_value = Number(selected.exchange_value) || 1;
+    target.unit_price = Number(selected.price) || 0;
+    target.line_total = Math.max(
+      0,
+      (Number(target.quantity) || 0) * (Number(target.unit_price) || 0) - (Number(target.discount) || 0)
+    );
+    nextItems[idx] = target;
+
+    const duplicateIdx = nextItems.findIndex(
+      (it, i) =>
+        i !== idx &&
+        String(it.product_id) === String(target.product_id) &&
+        String(it.unit_id || '') === String(target.unit_id || '')
+    );
+    if (duplicateIdx >= 0) {
+      const shouldMerge = window.confirm(
+        'Đơn vị này đã tồn tại ở dòng khác. Bạn có muốn gộp 2 dòng thành 1 không?'
+      );
+      if (shouldMerge) {
+        const merged = { ...nextItems[duplicateIdx] };
+        const newQty = Number(merged.quantity || 0) + Number(target.quantity || 0);
+        merged.quantity = newQty;
+        merged.line_total = Math.max(
+          0,
+          newQty * (Number(merged.unit_price) || 0) - (Number(merged.discount) || 0)
+        );
+        nextItems[duplicateIdx] = merged;
+        nextItems.splice(idx, 1);
+      }
+    }
+
+    updateActiveTab({ items: nextItems });
+  };
+
+  const getResolvedUnitsForItem = (item) => {
+    if (item?.available_units && item.available_units.length > 0) return item.available_units;
+    if (unitOptionsByProduct[String(item?.product_id)]?.length > 0) {
+      return unitOptionsByProduct[String(item.product_id)];
+    }
+    return [
+      {
+        _id: item?.unit_id || '',
+        unit_name: item?.unit_name || 'Cái',
+        exchange_value: item?.exchange_value || 1,
+        price: item?.unit_price || 0,
+      },
+    ];
   };
 
   const removeLine = (idx) => {
@@ -768,6 +885,9 @@ export default function POSContainer({
         customer_id: customerId || null,
         items: activeTab.items.map((it) => ({
           product_id: it.product_id,
+          unit_id: it.unit_id || null,
+          unit_name: it.unit_name || undefined,
+          exchange_value: Number(it.exchange_value) || 1,
           quantity: it.quantity,
           unit_price: it.unit_price,
           discount: it.discount,
@@ -892,25 +1012,54 @@ export default function POSContainer({
                   <div className="pos-search-empty">Không tìm thấy sản phẩm</div>
                 ) : (
                   filteredProducts.map((p) => {
-                    const isAdded = activeTab.items.some((it) => it.product_id === p._id);
+                    const cachedUnits = unitOptionsByProduct[String(p._id)] || [];
+                    const fallbackUnit = {
+                      _id: null,
+                      unit_name: p.base_unit || 'Cái',
+                      exchange_value: 1,
+                      price: Number(p.sale_price) || 0,
+                      is_base: true,
+                    };
+                    const displayUnits = cachedUnits.length > 0 ? cachedUnits : [fallbackUnit];
                     return (
-                      <button
-                        type="button"
+                      <div
                         key={p._id}
                         className="pos-search-option"
-                        onClick={() => !isAdded && handleAddProduct(p)}
-                        disabled={isAdded}
+                        onMouseEnter={() => loadUnitsForProduct(p._id)}
                       >
                         <div>
                           <div className="pos-search-option-name">{p.name}</div>
                           <div className="pos-search-option-meta">
                             {p.sku} - Tồn: {p.stock_qty || 0}
                           </div>
+                          <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                            {displayUnits.map((u) => (
+                              <button
+                                key={String(u._id || u.unit_name)}
+                                type="button"
+                                className="pos-quick-paid-btn"
+                                style={{ height: 28, padding: '0 10px', fontSize: 12 }}
+                                onClick={async (e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  const loaded = await loadUnitsForProduct(p._id);
+                                  const selected =
+                                    loaded.find((x) => String(x._id) === String(u._id || '')) ||
+                                    loaded.find((x) => x.is_base) ||
+                                    loaded[0] ||
+                                    u;
+                                  handleAddProduct(p, selected);
+                                }}
+                              >
+                                {u.unit_name}: {formatMoney(u.price)}
+                              </button>
+                            ))}
+                          </div>
                         </div>
                         <div className="pos-search-option-price">
                           {Number(p.sale_price || 0).toLocaleString('vi-VN')}
                         </div>
-                      </button>
+                      </div>
                     );
                   })
                 )}
@@ -1028,7 +1177,49 @@ export default function POSContainer({
                   <tr key={idx}>
                     <td>{idx + 1}</td>
                     <td>{item.sku}</td>
-                    <td>{item.name}</td>
+                    <td>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'nowrap', minWidth: 0 }}>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 240 }}>
+                          {item.name}
+                        </span>
+                        {item.unit_name ? (
+                          <span style={{ color: '#64748b', fontSize: 12, whiteSpace: 'nowrap' }}>({item.unit_name})</span>
+                        ) : null}
+                        <span style={{ width: 50, flexShrink: 0 }} />
+                        {(() => {
+                          const resolvedUnits = getResolvedUnitsForItem(item);
+                          const selectedValue = resolvedUnits.some(
+                            (u) => String(u._id || '') === String(item.unit_id || '')
+                          )
+                            ? item.unit_id || ''
+                            : resolvedUnits[0]?._id || '';
+                          return (
+                        <select
+                          className="pos-qty-input"
+                          style={{ width: 150, height: 32, textAlign: 'left', padding: '0 8px' }}
+                          value={selectedValue}
+                          onFocus={() => loadUnitsForProduct(item.product_id)}
+                          onChange={(e) => updateItemUnit(idx, e.target.value)}
+                        >
+                          {resolvedUnits.map((u) => (
+                            <option key={String(u._id || u.unit_name)} value={u._id || ''}>
+                              {u.unit_name} - {formatMoney(u.price)}
+                            </option>
+                          ))}
+                        </select>
+                          );
+                        })()}
+                        <span style={{ fontSize: 11, color: '#64748b' }}>
+                          Tồn khả dụng: {(() => {
+                            const stock = Number(item.stock_qty || 0);
+                            const ratio = Number(item.exchange_value || 1);
+                            const whole = Math.floor(stock / ratio);
+                            const rem = stock - whole * ratio;
+                            return `${whole} ${item.unit_name || 'đv'}${rem > 0 ? ` (dư ${rem})` : ''}`;
+                          })()}
+                        </span>
+                      </div>
+                    </td>
                     <td>
                       <input
                         type="number"

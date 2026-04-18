@@ -172,6 +172,40 @@ describe('Stocktakes Routes', () => {
 
       expect(res.status).toBe(400);
     });
+
+    it('should require manager_note when live stock mismatch exceeds threshold', async () => {
+      const products = await createProducts(store._id, 1);
+      const productIds = products.map(p => p._id.toString());
+
+      const createRes = await request(app)
+        .post('/api/stocktakes')
+        .set('Authorization', managerToken)
+        .send({ product_ids: productIds });
+      const stocktakeId = createRes.body.stocktake._id;
+
+      await request(app)
+        .patch(`/api/stocktakes/${stocktakeId}`)
+        .set('Authorization', managerToken)
+        .send({
+          items: [{ product_id: productIds[0], actual_qty: products[0].stock_qty }],
+          status: 'submitted',
+        });
+
+      await Product.findByIdAndUpdate(products[0]._id, { $inc: { stock_qty: -6 } });
+
+      const noNoteRes = await request(app)
+        .post(`/api/stocktakes/${stocktakeId}/approve`)
+        .set('Authorization', managerToken)
+        .send({ reason: '' });
+      expect(noNoteRes.status).toBe(400);
+      expect(noNoteRes.body.code).toBe('MANAGER_NOTE_REQUIRED_ON_LIVE_MISMATCH');
+
+      const withNoteRes = await request(app)
+        .post(`/api/stocktakes/${stocktakeId}/approve`)
+        .set('Authorization', managerToken)
+        .send({ manager_note: 'Đã xác nhận có bán hàng phát sinh trong khi kiểm kê' });
+      expect(withNoteRes.status).toBe(200);
+    });
   });
 
   describe('POST /api/stocktakes/:id/reject', () => {

@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const mongoose = require('mongoose');
 const SalesInvoice = require('../models/SalesInvoice');
 const Product = require('../models/Product');
+const ProductUnit = require('../models/ProductUnit');
 const User = require('../models/User');
 const Store = require('../models/Store');
 const Customer = require('../models/Customer');
@@ -140,6 +141,10 @@ function calculateInvoiceTotals(items = [], costMap = new Map()) {
     const normalizedItems = (items || []).map((item) => {
         const product_id = normalizeId(item.product_id);
         const quantity = Number(item.quantity) || 0;
+        const base_quantity = Number(item.base_quantity) || quantity;
+        const exchange_value = Number(item.exchange_value) > 0 ? Number(item.exchange_value) : 1;
+        const unit_name = String(item.unit_name || '').trim();
+        const unit_id = normalizeId(item.unit_id);
         const unit_price = Number(item.unit_price) || 0;
         const discount = Number(item.discount) || 0;
         const line_total = computeLineTotal({ quantity, unit_price, discount });
@@ -147,12 +152,16 @@ function calculateInvoiceTotals(items = [], costMap = new Map()) {
         const cost_price =
             product_id && costMap.has(product_id) ? costMap.get(product_id) : 0;
         const line_id = newLineId();
-        const line_profit = computeLineProfit(line_total, quantity, cost_price);
+        const line_profit = computeLineProfit(line_total, base_quantity, cost_price);
         totalAmount += line_total;
         return {
             line_id,
             product_id,
+            unit_id,
+            unit_name,
+            exchange_value,
             quantity,
+            base_quantity,
             unit_price,
             cost_price,
             discount,
@@ -190,6 +199,10 @@ function calculatePatchInvoiceTotals(reqItems = [], costMap = new Map(), oldItem
     const normalizedItems = (reqItems || []).map((item) => {
         const product_id = normalizeId(item.product_id);
         const quantity = Number(item.quantity) || 0;
+        const base_quantity = Number(item.base_quantity) || quantity;
+        const exchange_value = Number(item.exchange_value) > 0 ? Number(item.exchange_value) : 1;
+        const unit_name = String(item.unit_name || '').trim();
+        const unit_id = normalizeId(item.unit_id);
         const unit_price = Number(item.unit_price) || 0;
         const discount = Number(item.discount) || 0;
         const line_total = computeLineTotal({ quantity, unit_price, discount });
@@ -241,12 +254,16 @@ function calculatePatchInvoiceTotals(reqItems = [], costMap = new Map(), oldItem
             }
         }
 
-        const line_profit = computeLineProfit(line_total, quantity, cost_price);
+        const line_profit = computeLineProfit(line_total, base_quantity, cost_price);
         totalAmount += line_total;
         return {
             line_id: line_id_out,
             product_id,
+            unit_id,
+            unit_name,
+            exchange_value,
             quantity,
+            base_quantity,
             unit_price,
             cost_price,
             discount,
@@ -257,6 +274,52 @@ function calculatePatchInvoiceTotals(reqItems = [], costMap = new Map(), oldItem
     });
 
     return { totalAmount, items: normalizedItems };
+}
+
+async function enrichItemsWithUnitSnapshot(items = [], storeId = null) {
+    if (!Array.isArray(items) || items.length === 0) return [];
+    const productIds = [...new Set(items.map((it) => normalizeId(it.product_id)).filter(Boolean))];
+    const products = await Product.find({ _id: { $in: productIds } })
+        .select('_id base_unit sale_price')
+        .lean();
+    const productMap = new Map(products.map((p) => [String(p._id), p]));
+    const explicitUnitIds = [...new Set(items.map((it) => normalizeId(it.unit_id)).filter(Boolean))];
+    const unitQuery = { product_id: { $in: productIds } };
+    if (storeId) unitQuery.storeId = storeId;
+    const units = await ProductUnit.find(
+        explicitUnitIds.length > 0 ? { ...unitQuery, $or: [{ _id: { $in: explicitUnitIds } }, { is_base: true }] } : unitQuery
+    )
+        .select('_id product_id unit_name exchange_value price is_base')
+        .lean();
+    const baseUnitByProduct = new Map();
+    const unitById = new Map();
+    for (const u of units) {
+        unitById.set(String(u._id), u);
+        if (u.is_base && !baseUnitByProduct.has(String(u.product_id))) {
+            baseUnitByProduct.set(String(u.product_id), u);
+        }
+    }
+
+    return items.map((item) => {
+        const pid = normalizeId(item.product_id);
+        const product = pid ? productMap.get(pid) : null;
+        const inputQty = Number(item.quantity) || 0;
+        const explicitUnit = normalizeId(item.unit_id) ? unitById.get(normalizeId(item.unit_id)) : null;
+        const chosen = explicitUnit || (pid ? baseUnitByProduct.get(pid) : null);
+        const exchangeValue = Number(chosen?.exchange_value) > 0
+            ? Number(chosen.exchange_value)
+            : Number(item.exchange_value) > 0
+                ? Number(item.exchange_value)
+                : 1;
+        const unitName = String(chosen?.unit_name || item.unit_name || product?.base_unit || 'Cái').trim();
+        return {
+            ...item,
+            unit_id: chosen?._id || null,
+            unit_name: unitName,
+            exchange_value: exchangeValue,
+            base_quantity: inputQty * exchangeValue,
+        };
+    });
 }
 
 async function buildCostMap(items) {
@@ -288,7 +351,7 @@ async function checkStockAvailability(items) {
     items.forEach((item) => {
         const pid = normalizeId(item.product_id);
         const product = pid ? productMap.get(pid) : null;
-        const needed = item.quantity || 0;
+        const needed = Number(item.base_quantity) || Number(item.quantity) || 0;
         const available = product ? product.stock_qty || 0 : 0;
         if (!product) {
             problems.push({ product_id: item.product_id, message: 'Sản phẩm không tồn tại' });
@@ -309,7 +372,7 @@ async function adjustInventory(items, direction = -1, storeId = null) {
         const pid = normalizeId(item.product_id);
         if (!pid) continue;
 
-        const quantity = Math.abs(item.quantity || 0);
+        const quantity = Math.abs((Number(item.base_quantity) || Number(item.quantity) || 0));
         await adjustStockFIFO(pid, storeId, quantity * direction, {
             note: direction === -1 ? 'Bán hàng (Hóa đơn)' : 'Khách trả hàng/Hủy hóa đơn',
             movementType: direction === -1 ? 'OUT_SALES' : 'IN_SALES_RETURN',
@@ -457,8 +520,9 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
             }
         }
 
-        const costMap = await buildCostMap(reqItems);
-        const { totalAmount, items: normalizedItems } = calculateInvoiceTotals(reqItems, costMap);
+        const itemSnapshots = await enrichItemsWithUnitSnapshot(reqItems, req.user.storeId);
+        const costMap = await buildCostMap(itemSnapshots);
+        const { totalAmount, items: normalizedItems } = calculateInvoiceTotals(itemSnapshots, costMap);
         const invalidLine = normalizedItems.find((it) => !it.product_id);
         if (invalidLine) {
             return res.status(400).json({ message: 'Mỗi dòng phải có sản phẩm hợp lệ' });
@@ -902,12 +966,13 @@ router.patch('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), as
                     message: 'Hóa đơn đã hủy: không được sửa danh sách mặt hàng.',
                 });
             }
-            const costMap = await buildCostMap(reqItems);
+            const itemSnapshots = await enrichItemsWithUnitSnapshot(reqItems, invoice.store_id);
+            const costMap = await buildCostMap(itemSnapshots);
             const oldItems = Array.isArray(invoice.items)
                 ? invoice.items.map((it) => (typeof it.toObject === 'function' ? it.toObject() : it))
                 : [];
             const { totalAmount: patchTotal, items: normalizedItems } = calculatePatchInvoiceTotals(
-                reqItems,
+                itemSnapshots,
                 costMap,
                 oldItems
             );

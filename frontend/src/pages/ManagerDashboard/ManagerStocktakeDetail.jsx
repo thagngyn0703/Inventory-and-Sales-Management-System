@@ -17,6 +17,7 @@ const STATUS_LABEL = {
   completed: 'Hoàn thành',
   cancelled: 'Đã hủy',
 };
+const LIVE_MISMATCH_REQUIRE_NOTE_THRESHOLD = 5;
 
 export default function ManagerStocktakeDetail() {
   const { id } = useParams();
@@ -87,7 +88,7 @@ export default function ManagerStocktakeDetail() {
     setActionLoading(true);
     setError('');
     try {
-      await approveStocktake(id, { reason: reasonInput.trim() });
+      await approveStocktake(id, { reason: reasonInput.trim(), manager_note: reasonInput.trim() });
       setSuccessMessage('Đã duyệt phiếu và cập nhật tồn kho.');
       closeModal();
       load();
@@ -143,6 +144,17 @@ export default function ManagerStocktakeDetail() {
 
   const items = stocktake?.items || [];
   const isPending = stocktake?.status === 'submitted';
+  const significantMismatchCount = items.filter((item) => {
+    const systemQty = Number(item?.system_qty ?? 0);
+    const liveQty = Number(item?.product_id?.stock_qty ?? systemQty);
+    return Math.abs(liveQty - systemQty) > LIVE_MISMATCH_REQUIRE_NOTE_THRESHOLD;
+  }).length;
+  const requireApproveNote = isPending && significantMismatchCount > 0;
+  const hasLiveMismatch = items.some((item) => {
+    const systemQty = Number(item?.system_qty ?? 0);
+    const liveQty = Number(item?.product_id?.stock_qty ?? systemQty);
+    return systemQty !== liveQty;
+  });
 
   return (
     <ManagerPageFrame showNotificationBell={false}>
@@ -161,13 +173,19 @@ export default function ManagerStocktakeDetail() {
             <p className="manager-reason-modal-hint">
               {modal.type === 'reject'
                 ? 'Nhập lý do từ chối phiếu kiểm kê (có thể để trống).'
-                : 'Ghi chú lý do áp dụng điều chỉnh tồn (tùy chọn).'}
+                : requireApproveNote
+                  ? `Tồn hiện tại lệch snapshot vượt ngưỡng ${LIVE_MISMATCH_REQUIRE_NOTE_THRESHOLD}. Bạn phải nhập lý do xác nhận trước khi duyệt.`
+                  : 'Ghi chú lý do áp dụng điều chỉnh tồn (tùy chọn).'}
             </p>
             <textarea
               className="manager-reason-modal-input"
               value={reasonInput}
               onChange={(e) => setReasonInput(e.target.value)}
-              placeholder={modal.type === 'reject' ? 'Ví dụ: Số liệu chưa kiểm tra kỹ...' : 'Ví dụ: Đã kiểm đếm lại cuối tháng...'}
+              placeholder={modal.type === 'reject'
+                ? 'Ví dụ: Số liệu chưa kiểm tra kỹ...'
+                : requireApproveNote
+                  ? 'Bắt buộc: ghi rõ lý do vẫn duyệt khi tồn hiện tại đã biến động...'
+                  : 'Ví dụ: Đã kiểm đếm lại cuối tháng...'}
               rows={4}
               autoFocus
             />
@@ -180,7 +198,7 @@ export default function ManagerStocktakeDetail() {
                 className={modal.type === 'reject' ? 'warehouse-btn' : 'warehouse-btn warehouse-btn-primary'}
                 style={modal.type === 'reject' ? { background: '#b91c1c', color: '#fff' } : undefined}
                 onClick={modal.type === 'approve' ? confirmApprove : confirmReject}
-                disabled={actionLoading}
+                disabled={actionLoading || (modal.type === 'approve' && requireApproveNote && !reasonInput.trim())}
               >
                 {actionLoading
                   ? 'Đang xử lý...'
@@ -229,6 +247,20 @@ export default function ManagerStocktakeDetail() {
           {stocktake?.status === 'cancelled' && stocktake?.reject_reason && (
             <InlineNotice message={`Lý do từ chối: ${stocktake.reject_reason}`} type="error" className="mb-4" />
           )}
+          {isPending && hasLiveMismatch && (
+            <InlineNotice
+              message="Tồn hiện tại đã thay đổi so với thời điểm chụp phiếu kiểm kê. Vui lòng kiểm tra kỹ trước khi duyệt."
+              type="info"
+              className="mb-4"
+            />
+          )}
+          {requireApproveNote && (
+            <InlineNotice
+              message={`Có ${significantMismatchCount} dòng lệch vượt ngưỡng ${LIVE_MISMATCH_REQUIRE_NOTE_THRESHOLD}. Khi duyệt bắt buộc nhập lý do xác nhận.`}
+              type="error"
+              className="mb-4"
+            />
+          )}
 
           <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
             <CardContent className="p-0">
@@ -240,6 +272,7 @@ export default function ManagerStocktakeDetail() {
                       <th className="px-4 py-3 text-left font-semibold">SKU</th>
                       <th className="px-4 py-3 text-left font-semibold">Đơn vị</th>
                       <th className="px-4 py-3 text-right font-semibold">Tồn hệ thống</th>
+                      <th className="px-4 py-3 text-right font-semibold">Tồn hiện tại</th>
                       <th className="px-4 py-3 text-right font-semibold">Thực tế</th>
                       <th className="px-4 py-3 text-right font-semibold">Chênh lệch</th>
                       <th className="px-4 py-3 text-left font-semibold">Lý do</th>
@@ -252,6 +285,7 @@ export default function ManagerStocktakeDetail() {
                       const sku = product?.sku ?? '—';
                       const unit = product?.base_unit ?? 'Cái';
                       const systemQty = item.system_qty ?? 0;
+                      const liveQty = product?.stock_qty ?? systemQty;
                       const actualQty = item.actual_qty;
                       const variance = item.variance != null ? item.variance : (actualQty != null ? actualQty - systemQty : null);
                       return (
@@ -260,6 +294,11 @@ export default function ManagerStocktakeDetail() {
                           <td className="px-4 py-3">{sku}</td>
                           <td className="px-4 py-3">{unit}</td>
                           <td className="px-4 py-3 text-right">{Number(systemQty).toLocaleString('vi-VN')}</td>
+                          <td className="px-4 py-3 text-right">
+                            <span className={Number(liveQty) !== Number(systemQty) ? 'font-semibold text-amber-700' : ''}>
+                              {Number(liveQty).toLocaleString('vi-VN')}
+                            </span>
+                          </td>
                           <td className="px-4 py-3 text-right">{actualQty != null ? Number(actualQty).toLocaleString('vi-VN') : '—'}</td>
                           <td className="px-4 py-3 text-right">
                             {variance != null ? (

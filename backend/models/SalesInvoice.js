@@ -72,10 +72,30 @@ const salesInvoiceSchema = new Schema(
                     ref: 'Product',
                     required: true,
                 },
+                unit_id: {
+                    type: Schema.Types.ObjectId,
+                    ref: 'ProductUnit',
+                    required: false,
+                },
+                unit_name: {
+                    type: String,
+                    trim: true,
+                    default: '',
+                },
+                exchange_value: {
+                    type: Number,
+                    default: 1,
+                    min: 0.0001,
+                },
                 quantity: {
                     type: Number,
                     required: true,
                     min: 1,
+                },
+                base_quantity: {
+                    type: Number,
+                    default: 0,
+                    min: 0,
                 },
                 unit_price: {
                     type: Number,

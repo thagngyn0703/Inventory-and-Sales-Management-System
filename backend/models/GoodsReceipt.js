@@ -43,6 +43,11 @@ const goodsReceiptSchema = new Schema(
                     ref: 'Product',
                     required: true,
                 },
+                unit_id: {
+                    type: Schema.Types.ObjectId,
+                    ref: 'ProductUnit',
+                    required: false,
+                },
                 quantity: {
                     type: Number,
                     required: true,
@@ -62,6 +67,10 @@ const goodsReceiptSchema = new Schema(
                     trim: true,
                 },
                 ratio: {
+                    type: Number,
+                    default: 1,
+                },
+                exchange_value: {
                     type: Number,
                     default: 1,
                 },

@@ -14,6 +14,7 @@ const { notifyManagersInStore } = require('../services/managerNotificationServic
 const router = express.Router();
 
 const Product = require('../models/Product');
+const ProductUnit = require('../models/ProductUnit');
 const ProductPriceHistory = require('../models/ProductPriceHistory');
 const Supplier = require('../models/Supplier');
 const User = require('../models/User');
@@ -65,6 +66,55 @@ function computeSafeAverageCost({ currentQty, currentCost, addQty, baseUnitCost 
 function shortReceiptCode(id) {
     const s = String(id || '');
     return s.slice(-6).toUpperCase();
+}
+
+async function resolveReceiptUnitSnapshot({ product, rawItem, storeId }) {
+    const safeStoreId = storeId || product?.storeId || null;
+    const requestedUnitId = rawItem?.unit_id && mongoose.isValidObjectId(rawItem.unit_id)
+        ? rawItem.unit_id
+        : null;
+    const requestedUnitName = String(rawItem?.unit_name || '').trim();
+
+    if (!requestedUnitId) {
+        const err = new Error('Vui lòng chọn đơn vị nhập hợp lệ (unit_id).');
+        err.status = 400;
+        throw err;
+    }
+
+    let unitDoc = null;
+    if (requestedUnitId) {
+        unitDoc = await ProductUnit.findOne({
+            _id: requestedUnitId,
+            product_id: product._id,
+            ...(safeStoreId ? { storeId: safeStoreId } : { storeId: null }),
+        }).lean();
+        if (!unitDoc) {
+            const err = new Error('Đơn vị nhập không tồn tại hoặc không thuộc sản phẩm đã chọn.');
+            err.status = 400;
+            throw err;
+        }
+    }
+    if (!unitDoc && requestedUnitName) {
+        unitDoc = await ProductUnit.findOne({
+            product_id: product._id,
+            unit_name: requestedUnitName,
+            ...(safeStoreId ? { storeId: safeStoreId } : { storeId: null }),
+        }).lean();
+    }
+    if (!unitDoc) {
+        unitDoc = await ProductUnit.findOne({
+            product_id: product._id,
+            is_base: true,
+            ...(safeStoreId ? { storeId: safeStoreId } : { storeId: null }),
+        }).lean();
+    }
+
+    const ratioFromUnit = Number(unitDoc?.exchange_value);
+    const ratioFromRaw = Number(rawItem?.ratio);
+    const ratio = ratioFromUnit > 0 ? ratioFromUnit : ratioFromRaw > 0 ? ratioFromRaw : 1;
+    const unitName = String(unitDoc?.unit_name || requestedUnitName || product?.base_unit || 'Cái').trim();
+    const unitId = unitDoc?._id || null;
+    return { unit_id: unitId, unit_name: unitName, ratio, exchange_value: ratio };
 }
 
 async function logPriceHistory({
@@ -300,18 +350,25 @@ router.post('/', requireAuth, requireRole(['staff', 'manager']), async (req, res
             if (!product) {
                 return res.status(400).json({ message: `Sản phẩm không tồn tại: ${String(it.product_id)}` });
             }
-            const itemRatio = Number(it.ratio) > 0 ? Number(it.ratio) : 1;
-            const itemUnitName = String(it.unit_name || '').trim() || product.base_unit || 'Cái';
+            const unitSnapshot = await resolveReceiptUnitSnapshot({
+                product,
+                rawItem: it,
+                storeId: req.user.storeId,
+            });
+            const itemRatio = Number(unitSnapshot.ratio) > 0 ? Number(unitSnapshot.ratio) : 1;
+            const itemUnitName = unitSnapshot.unit_name;
             const systemUnitCost = resolveUnitCostFromProductCost(product, itemRatio);
             const note = it.price_gap_note != null ? String(it.price_gap_note).trim() : '';
 
             normalizedItems.push({
                 product_id: it.product_id,
+                unit_id: unitSnapshot.unit_id,
                 quantity: Number(it.quantity),
                 unit_cost: systemUnitCost,
                 system_unit_cost: systemUnitCost,
                 unit_name: itemUnitName,
                 ratio: itemRatio,
+                exchange_value: itemRatio,
                 expiry_date: it.expiry_date ? new Date(it.expiry_date) : undefined,
                 price_gap_note: note || undefined,
             });
@@ -363,6 +420,7 @@ router.post('/', requireAuth, requireRole(['staff', 'manager']), async (req, res
 
         return res.status(201).json({ goodsReceipt: saved });
     } catch (err) {
+        if (err.status) return res.status(err.status).json({ message: err.message });
         console.error('Create GR error:', err);
         return res.status(500).json({ message: err.message || 'Server error' });
     }
@@ -869,16 +927,23 @@ router.post('/quick', requireAuth, requireRole(['manager', 'admin']), async (req
             }
             const qty = Number(it.quantity);
             const unitCost = Math.round(Number(it.unit_cost) || 0);
-            const itemRatio = Number(it.ratio) > 0 ? Number(it.ratio) : 1;
-            const unitName = String(it.unit_name || '').trim() || product.base_unit || 'Cái';
+            const unitSnapshot = await resolveReceiptUnitSnapshot({
+                product,
+                rawItem: it,
+                storeId: resolvedStoreId,
+            });
+            const itemRatio = Number(unitSnapshot.ratio) > 0 ? Number(unitSnapshot.ratio) : 1;
+            const unitName = unitSnapshot.unit_name;
             computedTotal += qty * unitCost;
             normalizedItems.push({
                 product_id: it.product_id,
+                unit_id: unitSnapshot.unit_id,
                 quantity: qty,
                 unit_cost: unitCost,
                 system_unit_cost: unitCost,
                 unit_name: unitName,
                 ratio: itemRatio,
+                exchange_value: itemRatio,
                 expiry_date: it.expiry_date ? new Date(it.expiry_date) : undefined,
             });
         }
@@ -1047,6 +1112,7 @@ router.post('/quick', requireAuth, requireRole(['manager', 'admin']), async (req
 
         return res.status(201).json({ goodsReceipt: saved });
     } catch (err) {
+        if (err.status) return res.status(err.status).json({ message: err.message });
         if (session.inTransaction()) await session.abortTransaction();
         console.error('Quick GR error:', err);
         return res.status(500).json({ message: err.message || 'Server error' });

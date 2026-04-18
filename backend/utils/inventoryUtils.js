@@ -18,7 +18,12 @@ function roundTo4(value) {
  *   `newCostPrice` (optional, ADD only): set Product.cost_price in the same update as $inc stock.
  */
 async function adjustStockFIFO(productId, storeId, amount, options = {}) {
-    if (!productId || !storeId || amount === 0) return;
+    if (amount === 0 || amount === null || amount === undefined) return;
+    if (!productId || !storeId) {
+        const err = new Error('STORE_ID_AND_PRODUCT_ID_REQUIRED');
+        err.code = 'STORE_ID_AND_PRODUCT_ID_REQUIRED';
+        throw err;
+    }
 
     const { session, newCostPrice, allowNegative = false, ...batchMeta } = options;
     const pid = String(productId);
@@ -37,7 +42,7 @@ async function adjustStockFIFO(productId, storeId, amount, options = {}) {
     const beforeQty = Number(productBefore.stock_qty) || 0;
 
     if (amount < 0) {
-        // DEDUCT (FIFO)
+        // DEDUCT (FIFO) — kiểm tra đủ tồn FIFO *trước* khi ghi batch để tránh lệch batch vs stock_qty khi thiếu hàng
         let remainingToDeduct = absAmount;
         let batches = await findQuery(
             StockBatch.find({ productId: pid, storeId: sid, remaining_qty: { $gt: 0 } }).sort({
@@ -46,23 +51,44 @@ async function adjustStockFIFO(productId, storeId, amount, options = {}) {
         );
 
         if (batches.length === 0) {
-            const product = productBefore;
-            if (product && product.stock_qty > 0) {
+            const stockQty = Number(productBefore.stock_qty) || 0;
+            if (stockQty > 0) {
+                if (!allowNegative && absAmount > stockQty) {
+                    const err = new Error('INSUFFICIENT_STOCK');
+                    err.code = 'INSUFFICIENT_STOCK';
+                    throw err;
+                }
                 const [legacyBatch] = await StockBatch.create(
                     [
                         {
                             productId: pid,
                             storeId: sid,
-                            initial_qty: product.stock_qty,
-                            remaining_qty: product.stock_qty,
-                            unit_cost: roundTo4(product.cost_price || 0),
-                            received_at: product.created_at || new Date(),
+                            initial_qty: stockQty,
+                            remaining_qty: stockQty,
+                            unit_cost: roundTo4(productBefore.cost_price || 0),
+                            received_at: productBefore.created_at || new Date(),
                             note: 'Hàng tồn kho ban đầu (Legacy)',
                         },
                     ],
                     createOpts
                 );
                 batches = [legacyBatch];
+            } else if (!allowNegative && absAmount > 0) {
+                const err = new Error('INSUFFICIENT_STOCK');
+                err.code = 'INSUFFICIENT_STOCK';
+                throw err;
+            }
+        }
+
+        if (batches.length > 0 && !allowNegative) {
+            const totalAvailable = batches.reduce(
+                (sum, b) => sum + Math.max(0, Number(b.remaining_qty) || 0),
+                0
+            );
+            if (absAmount > totalAvailable) {
+                const err = new Error('INSUFFICIENT_STOCK');
+                err.code = 'INSUFFICIENT_STOCK';
+                throw err;
             }
         }
 
