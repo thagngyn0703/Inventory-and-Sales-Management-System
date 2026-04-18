@@ -1,0 +1,92 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "docker-compose.yml"
+      - ".github/workflows/ci-cd.yml"
+  pull_request:
+    branches: [main, master]
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "docker-compose.yml"
+      - ".github/workflows/ci-cd.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ci-cd-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-test:
+    name: Backend Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: yarn
+          cache-dependency-path: backend/yarn.lock
+      - run: yarn install --frozen-lockfile
+      - run: yarn test
+        continue-on-error: true
+        env:
+          JWT_SECRET: ci_dummy_jwt_secret
+          MONGO_URI: mongodb://127.0.0.1:27017/ims_ci
+          SEPAY_ACCOUNT_NUMBER: "0000000000"
+
+  frontend-build:
+    name: Frontend Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: yarn
+          cache-dependency-path: frontend/yarn.lock
+      - run: yarn install --frozen-lockfile
+      - run: yarn build
+        env:
+          CI: "false"
+          REACT_APP_API_URL: https://ci.example.invalid/api
+
+  deploy-vps:
+    name: Deploy VPS (Docker)
+    needs: [backend-test, frontend-build]
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name != 'pull_request' &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') &&
+      (
+        (github.event_name == 'push' && vars.ENABLE_VPS_DEPLOY == 'true') ||
+        github.event_name == 'workflow_dispatch'
+      )
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.DEPLOY_PATH }}"
+            BRANCH="${{ secrets.DEPLOY_BRANCH }}"
+            if [ -z "$BRANCH" ]; then BRANCH=main; fi
+            git fetch origin "$BRANCH"
+            git checkout "$BRANCH"
+            git reset --hard "origin/$BRANCH"
+            docker compose --env-file .env.production up -d --build --remove-orphans
