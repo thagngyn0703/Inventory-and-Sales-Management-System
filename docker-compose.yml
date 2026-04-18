@@ -1,6 +1,6 @@
 services:
   mongo:
-    image: mongo:7
+    image: mongo:4.4
     container_name: ims-mongo
     restart: unless-stopped
     volumes:
