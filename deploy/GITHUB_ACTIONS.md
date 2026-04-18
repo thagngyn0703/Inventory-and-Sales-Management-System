@@ -28,3 +28,8 @@ docker compose --env-file .env.production up -d --build --remove-orphans
 docker compose ps
 docker compose logs -f backend
 ```
+
+## 5) CI behavior
+
+- Backend test step is set to non-blocking (`continue-on-error: true`).
+- If backend tests fail on GitHub Actions, pipeline still continues to frontend build and deploy.
