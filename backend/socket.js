@@ -47,9 +47,9 @@ async function emitNotificationCountRefresh({ storeId, userId }) {
   });
 }
 
-function initSocket(server) {
+function initSocket(server, socketCors) {
   io = new Server(server, {
-    cors: { origin: true, credentials: true },
+    cors: socketCors || { origin: true, credentials: true },
   });
 
   io.use(async (socket, next) => {

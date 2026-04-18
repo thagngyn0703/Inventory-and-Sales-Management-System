@@ -80,8 +80,54 @@ if (hasSmtpConfig) {
     console.warn('SMTP: chưa cấu hình — thêm SMTP_HOST, SMTP_USER, SMTP_PASS vào file .env');
 }
 
+/** Chuẩn hoá origin */
+function normalizeCorsOriginEntry(entry) {
+    const s = String(entry || '').trim();
+    if (!s) return null;
+    try {
+        return new URL(s).origin;
+    } catch {
+        return s.replace(/\/$/, '');
+    }
+}
+
+function buildCorsConfig() {
+    const raw = String(process.env.CORS_ORIGIN || '').trim();
+    if (!raw) {
+        return {
+            express: cors({ origin: true }),
+            socket: { origin: true, credentials: true },
+        };
+    }
+    const allowed = new Set();
+    for (const part of raw.split(',')) {
+        const o = normalizeCorsOriginEntry(part);
+        if (o) allowed.add(o);
+    }
+    const allowOrigin = (origin) => {
+        if (!origin) return true;
+        try {
+            return allowed.has(new URL(origin).origin);
+        } catch {
+            return allowed.has(String(origin).replace(/\/$/, ''));
+        }
+    };
+    return {
+        express: cors({
+            origin: (origin, callback) => callback(null, allowOrigin(origin)),
+            credentials: true,
+        }),
+        socket: {
+            origin: (origin, callback) => callback(null, allowOrigin(origin)),
+            credentials: true,
+        },
+    };
+}
+
+const corsConfig = buildCorsConfig();
+
 // Middleware
-app.use(cors({ origin: true }));
+app.use(corsConfig.express);
 // express.raw phải đăng ký TRƯỚC express.json để webhook SePay nhận được raw body
 app.use('/api/payments/sepay/webhook', express.raw({ type: 'application/json' }));
 app.use(express.json());
@@ -129,7 +175,7 @@ mongoose
         console.log('Đã kết nối MongoDB');
         await assertMongoSupportsTransactions();
         console.log('MongoDB hỗ trợ transaction: OK');
-        initSocket(server);
+        initSocket(server, corsConfig.socket);
         server.listen(PORT, () => {
             console.log(`Server chạy tại http://localhost:${PORT}`);
             // Khởi động backup scheduler sau khi server đã kết nối DB thành công
