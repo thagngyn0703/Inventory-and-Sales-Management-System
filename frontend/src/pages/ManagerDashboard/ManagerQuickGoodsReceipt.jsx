@@ -9,6 +9,7 @@ import { useToast } from '../../contexts/ToastContext';
 import { createProduct, createQuickGoodsReceipt, getProductUnits, getProducts, scanProductByCode, updateProductUnits, uploadProductImages } from '../../services/productsApi';
 import { createSupplier, getSuppliers } from '../../services/suppliersApi';
 import { minExpiryDateString } from '../../utils/dateInput';
+import { formatCurrencyInput, parseCurrencyInput, toCurrencyInputFromNumber } from '../../utils/currencyInput';
 
 const PRODUCT_BASE_UNITS = ['Cái', 'Hộp', 'Chai', 'Lon', 'Thùng', 'Kg', 'Gói', 'Lít'];
 const makeSellingUnitRow = (base = 'Cái', overrides = {}) => ({
@@ -191,7 +192,7 @@ export default function ManagerQuickGoodsReceipt() {
 
     const createQuickReceiptForExistingProduct = async (existingProduct) => {
         const qty = Number(newProductForm.stock_qty);
-        const cost = Number(newProductForm.cost_price);
+        const cost = parseCurrencyInput(newProductForm.cost_price);
         if (!Number.isFinite(qty) || qty <= 0) throw new Error('Số lượng nhập ban đầu phải lớn hơn 0.');
         if (!Number.isFinite(cost) || cost < 0) throw new Error('Giá nhập không hợp lệ.');
         const units = await getProductUnits(existingProduct._id);
@@ -220,13 +221,13 @@ export default function ManagerQuickGoodsReceipt() {
     };
     const quickReceiptTotal = useMemo(() => {
         const qty = Number(quantity);
-        const cost = Number(unitCost);
+        const cost = parseCurrencyInput(unitCost);
         if (!Number.isFinite(qty) || !Number.isFinite(cost) || qty <= 0 || cost < 0) return 0;
         return qty * cost;
     }, [quantity, unitCost]);
     const createNewInitialTotal = useMemo(() => {
         const qty = Number(newProductForm.stock_qty);
-        const cost = Number(newProductForm.cost_price);
+        const cost = parseCurrencyInput(newProductForm.cost_price);
         if (!Number.isFinite(qty) || !Number.isFinite(cost) || qty < 0 || cost < 0) return 0;
         return qty * cost;
     }, [newProductForm.stock_qty, newProductForm.cost_price]);
@@ -248,7 +249,7 @@ export default function ManagerQuickGoodsReceipt() {
             setUnitOptions(sorted);
             setSelectedUnitId(base?._id || '');
             const ratio = Number(base?.exchange_value) > 0 ? Number(base.exchange_value) : 1;
-            setUnitCost(String(Math.round((Number(product?.cost_price) || 0) * ratio)));
+            setUnitCost(toCurrencyInputFromNumber(Math.round((Number(product?.cost_price) || 0) * ratio)));
             return sorted;
         } catch (_) {
             setUnitOptions([]);
@@ -289,7 +290,7 @@ export default function ManagerQuickGoodsReceipt() {
             toast('Số lượng nhập phải lớn hơn 0.', 'error');
             return;
         }
-        if (unitCost === '' || Number(unitCost) < 0) {
+        if (unitCost === '' || parseCurrencyInput(unitCost) < 0) {
             toast('Giá nhập không hợp lệ.', 'error');
             return;
         }
@@ -307,7 +308,7 @@ export default function ManagerQuickGoodsReceipt() {
                     product_id: selectedProduct._id,
                     unit_id: selectedUnit?._id || null,
                     quantity: Number(quantity),
-                    unit_cost: Number(unitCost),
+                    unit_cost: parseCurrencyInput(unitCost),
                     unit_name: selectedUnit?.unit_name || selectedProduct.base_unit || 'Cái',
                     ratio: Number(selectedUnit?.exchange_value) > 0 ? Number(selectedUnit.exchange_value) : 1,
                     expiry_date: expiryDate || undefined,
@@ -331,8 +332,8 @@ export default function ManagerQuickGoodsReceipt() {
         if (!supplierId) return toast('Vui lòng chọn nhà cung cấp.', 'error');
         if (!newProductForm.name.trim()) return toast('Tên sản phẩm là bắt buộc.', 'error');
         if (!newProductForm.sku.trim()) return toast('SKU là bắt buộc.', 'error');
-        if (newProductForm.sale_price === '' || Number(newProductForm.sale_price) < 0) return toast('Giá bán không hợp lệ.', 'error');
-        if (newProductForm.cost_price === '' || Number(newProductForm.cost_price) < 0) return toast('Giá nhập không hợp lệ.', 'error');
+        if (newProductForm.sale_price === '' || parseCurrencyInput(newProductForm.sale_price) < 0) return toast('Giá bán không hợp lệ.', 'error');
+        if (newProductForm.cost_price === '' || parseCurrencyInput(newProductForm.cost_price) < 0) return toast('Giá nhập không hợp lệ.', 'error');
         if (newProductForm.stock_qty === '' || Number(newProductForm.stock_qty) < 0) return toast('Số lượng nhập ban đầu không hợp lệ.', 'error');
         const existingProduct = await findExistingProductForCreateFlow({
             name: newProductForm.name,
@@ -359,7 +360,7 @@ export default function ManagerQuickGoodsReceipt() {
         for (const u of unitRows) {
             const unitName = String(u.name || '').trim();
             const ratioNum = Number(u.ratio);
-            const saleNum = Number(u.sale_price);
+            const saleNum = parseCurrencyInput(u.sale_price);
             const unitBarcode = String(u.barcode || '').trim();
             if (!unitName) return toast('Tên đơn vị bán không được để trống.', 'error');
             if (!Number.isFinite(ratioNum) || ratioNum <= 0) return toast(`Tỉ lệ đơn vị "${unitName}" phải lớn hơn 0.`, 'error');
@@ -384,7 +385,7 @@ export default function ManagerQuickGoodsReceipt() {
             normalizedUnits.unshift({
                 name: String(newProductForm.base_unit || 'Cái').trim() || 'Cái',
                 ratio: 1,
-                sale_price: Math.round(Number(newProductForm.sale_price) || 0),
+                sale_price: Math.round(parseCurrencyInput(newProductForm.sale_price) || 0),
                 barcode: String(newProductForm.barcode || '').trim(),
             });
         }
@@ -400,7 +401,7 @@ export default function ManagerQuickGoodsReceipt() {
                 sku: newProductForm.sku.trim(),
                 barcode: String(newProductForm.barcode || '').trim() || undefined,
                 supplier_id: supplierId,
-                cost_price: Number(newProductForm.cost_price),
+                cost_price: parseCurrencyInput(newProductForm.cost_price),
                 stock_qty: Number(newProductForm.stock_qty),
                 payment_type: paymentType,
                 payment_method: paymentMethod,
@@ -419,7 +420,7 @@ export default function ManagerQuickGoodsReceipt() {
             const unitPayload = normalizedUnits.map((u) => ({
                 unit_name: u.name,
                 exchange_value: Number(u.ratio) > 0 ? Number(u.ratio) : 1,
-                price: Math.round(Number(u.sale_price) || 0),
+                price: Math.round(parseCurrencyInput(u.sale_price) || 0),
                 barcode: String(u.barcode || '').trim() || undefined,
                 is_base: Number(u.ratio) === 1,
             }));
@@ -644,7 +645,7 @@ export default function ManagerQuickGoodsReceipt() {
                                                     setSelectedUnitId(nextId);
                                                     const u = unitOptions.find((x) => String(x._id || '') === String(nextId || ''));
                                                     const ratio = Number(u?.exchange_value) > 0 ? Number(u.exchange_value) : 1;
-                                                    setUnitCost(String(Math.round((Number(selectedProduct?.cost_price) || 0) * ratio)));
+                                                    setUnitCost(toCurrencyInputFromNumber(Math.round((Number(selectedProduct?.cost_price) || 0) * ratio)));
                                                 }}
                                                 className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
                                             >
@@ -659,10 +660,10 @@ export default function ManagerQuickGoodsReceipt() {
                                         <div>
                                             <label className="mb-1 block text-sm font-medium text-slate-600">Giá nhập</label>
                                             <input
-                                                type="number"
-                                                min="0"
+                                                type="text"
+                                                inputMode="numeric"
                                                 value={unitCost}
-                                                onChange={(e) => setUnitCost(e.target.value)}
+                                                onChange={(e) => setUnitCost(formatCurrencyInput(e.target.value))}
                                                 className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
                                             />
                                         </div>
@@ -829,11 +830,11 @@ export default function ManagerQuickGoodsReceipt() {
                                         <div>
                                             <label className="mb-1 block text-sm font-medium text-slate-600">Giá bán *</label>
                                             <input
-                                                type="number"
-                                                min="0"
+                                                type="text"
+                                                inputMode="numeric"
                                                 value={newProductForm.sale_price}
                                                 onChange={(e) => setNewProductForm((p) => {
-                                                    const nextSale = e.target.value;
+                                                    const nextSale = formatCurrencyInput(e.target.value);
                                                     const nextUnits = (p.selling_units || []).map((u) =>
                                                         Number(u.ratio) === 1 ? { ...u, sale_price: nextSale } : u
                                                     );
@@ -845,10 +846,10 @@ export default function ManagerQuickGoodsReceipt() {
                                         <div>
                                             <label className="mb-1 block text-sm font-medium text-slate-600">Giá nhập *</label>
                                             <input
-                                                type="number"
-                                                min="0"
+                                                type="text"
+                                                inputMode="numeric"
                                                 value={newProductForm.cost_price}
-                                                onChange={(e) => setNewProductForm((p) => ({ ...p, cost_price: e.target.value }))}
+                                                onChange={(e) => setNewProductForm((p) => ({ ...p, cost_price: formatCurrencyInput(e.target.value) }))}
                                                 className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
                                             />
                                         </div>
@@ -984,15 +985,14 @@ export default function ManagerQuickGoodsReceipt() {
                                                             className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
                                                         />
                                                         <input
-                                                            type="number"
-                                                            min="0"
-                                                            step="1"
+                                                            type="text"
+                                                            inputMode="numeric"
                                                             value={u.sale_price}
                                                             onChange={(e) =>
                                                                 setNewProductForm((p) => ({
                                                                     ...p,
                                                                     selling_units: (p.selling_units || []).map((x, i) =>
-                                                                        i === idx ? { ...x, sale_price: e.target.value } : x
+                                                                        i === idx ? { ...x, sale_price: formatCurrencyInput(e.target.value) } : x
                                                                     ),
                                                                 }))
                                                             }

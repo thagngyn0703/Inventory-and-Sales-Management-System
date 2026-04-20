@@ -43,6 +43,14 @@ const goodsReceiptSchema = new Schema(
                     ref: 'Product',
                     required: true,
                 },
+                product_name_snapshot: {
+                    type: String,
+                    trim: true,
+                },
+                product_sku_snapshot: {
+                    type: String,
+                    trim: true,
+                },
                 unit_id: {
                     type: Schema.Types.ObjectId,
                     ref: 'ProductUnit',

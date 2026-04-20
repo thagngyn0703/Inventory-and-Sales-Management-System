@@ -362,6 +362,8 @@ router.post('/', requireAuth, requireRole(['staff', 'manager']), async (req, res
 
             normalizedItems.push({
                 product_id: it.product_id,
+                product_name_snapshot: String(product.name || '').trim() || undefined,
+                product_sku_snapshot: String(product.sku || '').trim() || undefined,
                 unit_id: unitSnapshot.unit_id,
                 quantity: Number(it.quantity),
                 unit_cost: systemUnitCost,
@@ -743,10 +745,9 @@ router.patch('/:id/status', requireAuth, requireRole(['manager', 'admin']), asyn
             let finalDueDate = due_date_payable ? new Date(due_date_payable) : null;
             if (!finalDueDate && safePayType !== 'cash') {
                 const termDays = Number(supplierDoc?.default_payment_term_days) || 0;
-                if (termDays > 0) {
-                    finalDueDate = new Date(gr.received_at || new Date());
-                    finalDueDate.setDate(finalDueDate.getDate() + termDays);
-                }
+                const effectiveTermDays = termDays > 0 ? termDays : 30;
+                finalDueDate = new Date(gr.received_at || new Date());
+                finalDueDate.setDate(finalDueDate.getDate() + effectiveTermDays);
             }
 
             // Tính paid / remaining
@@ -957,6 +958,8 @@ router.post('/quick', requireAuth, requireRole(['manager', 'admin']), async (req
             computedTotal += qty * unitCost;
             normalizedItems.push({
                 product_id: it.product_id,
+                product_name_snapshot: String(product.name || '').trim() || undefined,
+                product_sku_snapshot: String(product.sku || '').trim() || undefined,
                 unit_id: unitSnapshot.unit_id,
                 quantity: qty,
                 unit_cost: unitCost,
@@ -1043,10 +1046,9 @@ router.post('/quick', requireAuth, requireRole(['manager', 'admin']), async (req
         let finalDueDate = due_date_payable ? new Date(due_date_payable) : null;
         if (!finalDueDate && safePayType === 'credit') {
             const termDays = Number(supplierDoc?.default_payment_term_days) || 0;
-            if (termDays > 0) {
-                finalDueDate = new Date();
-                finalDueDate.setDate(finalDueDate.getDate() + termDays);
-            }
+            const effectiveTermDays = termDays > 0 ? termDays : 30;
+            finalDueDate = new Date();
+            finalDueDate.setDate(finalDueDate.getDate() + effectiveTermDays);
         }
         const [newPayable] = await SupplierPayable.create([{
             supplier_id: resolvedSupplierId,

@@ -244,7 +244,14 @@ router.get('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
 
         const payable = await SupplierPayable.findById(id)
             .populate('supplier_id', 'name phone email address')
-            .populate('source_id', 'total_amount received_at reason items')
+            .populate({
+                path: 'source_id',
+                select: 'total_amount received_at reason items',
+                populate: {
+                    path: 'items.product_id',
+                    select: 'name sku base_unit',
+                },
+            })
             .populate('created_by', 'fullName email')
             .lean();
 
@@ -337,9 +344,9 @@ router.post('/payments', requireAuth, requireRole(['manager', 'admin']), async (
         }
 
         const totalRemaining = openPayables.reduce((s, p) => s + p.remaining_amount, 0);
-        if (amount > totalRemaining + 0.01) {
+        if (Math.abs(amount - totalRemaining) > 0.01) {
             return res.status(400).json({
-                message: `Số tiền thanh toán (${amount.toLocaleString('vi-VN')}đ) vượt quá tổng còn nợ (${totalRemaining.toLocaleString('vi-VN')}đ)`,
+                message: `Số tiền thanh toán phải đúng bằng tổng còn nợ (${totalRemaining.toLocaleString('vi-VN')}đ)`,
             });
         }
 

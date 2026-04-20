@@ -21,6 +21,7 @@ const GoodsReceipt = require('../models/GoodsReceipt');
 const SupplierPayable = require('../models/SupplierPayable');
 const SupplierPayment = require('../models/SupplierPayment');
 const SupplierPaymentAllocation = require('../models/SupplierPaymentAllocation');
+const Supplier = require('../models/Supplier');
 const { adjustStockFIFO } = require('../utils/inventoryUtils');
 
 const router = express.Router();
@@ -651,6 +652,14 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
       const paymentType = ['cash', 'credit'].includes(req.body.payment_type) ? req.body.payment_type : 'credit';
       const unitCost = Math.round(costNum);
       const totalCost = unitCost * stockNum;
+      let payableDueDate = null;
+      if (paymentType === 'credit') {
+        const supplierDoc = await Supplier.findOne({ _id: resolvedSupplierId, storeId: resolvedStoreId }).session(session);
+        const termDays = Number(supplierDoc?.default_payment_term_days) || 0;
+        const effectiveTermDays = termDays > 0 ? termDays : 30;
+        payableDueDate = new Date();
+        payableDueDate.setDate(payableDueDate.getDate() + effectiveTermDays);
+      }
 
         const [gr] = await GoodsReceipt.create([{
           supplier_id: resolvedSupplierId,
@@ -661,6 +670,8 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
           received_at: new Date(),
           items: [{
             product_id: doc._id,
+            product_name_snapshot: String(doc.name || '').trim() || undefined,
+            product_sku_snapshot: String(doc.sku || '').trim() || undefined,
             quantity: stockNum,
             unit_cost: unitCost,
             system_unit_cost: unitCost,
@@ -698,6 +709,7 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
             paid_amount: paid,
             remaining_amount: totalCost - paid,
             status: paymentType === 'cash' ? 'paid' : 'open',
+            due_date: payableDueDate || undefined,
             created_by: req.user.id,
           }], { session });
           if (paid > 0) {

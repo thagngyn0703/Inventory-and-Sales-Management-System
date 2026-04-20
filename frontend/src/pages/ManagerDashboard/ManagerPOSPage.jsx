@@ -19,7 +19,6 @@ export default function ManagerPOSPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [hoverSidebarOpen, setHoverSidebarOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem('user') || 'null');
@@ -47,7 +46,6 @@ export default function ManagerPOSPage() {
   const displayName = currentUser?.fullName || currentUser?.email || 'Quản lý';
   const roleLabel = 'Quản lý';
   const toggleSidebar = () => setSidebarCollapsed((c) => !c);
-  const sidebarVisible = !sidebarCollapsed || hoverSidebarOpen;
 
   // Chỉ màn quầy tạo HĐ mới là fullscreen POS
   const normalizedPath = location.pathname.replace(/\/$/, '') || '/';
@@ -58,20 +56,8 @@ export default function ManagerPOSPage() {
       className={`sales-layout${sidebarCollapsed ? ' sidebar-collapsed' : ''}${isPosRoute ? ' pos-mode' : ''}`}
       style={{ '--sidebar-width': '250px' }}
     >
-      {sidebarCollapsed && (
-        <div
-          className="fixed left-0 top-0 z-[110] h-screen w-3 bg-transparent"
-          onMouseEnter={() => setHoverSidebarOpen(true)}
-          aria-hidden
-        />
-      )}
-
       {/* Sidebar Manager — manager luôn thấy sidebar của mình */}
-      <ManagerSidebar
-        collapsed={!sidebarVisible}
-        onMouseEnter={() => setHoverSidebarOpen(true)}
-        onMouseLeave={() => setHoverSidebarOpen(false)}
-      />
+      <ManagerSidebar collapsed={sidebarCollapsed} />
 
       <main className={`sales-main${isPosRoute ? ' pos-mode' : ''}`} style={{ marginLeft: sidebarCollapsed ? 0 : 250 }}>
         {/* Header bar với nút quay lại Manager dashboard */}

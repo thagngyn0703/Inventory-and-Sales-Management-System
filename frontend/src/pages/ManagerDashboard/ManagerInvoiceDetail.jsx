@@ -6,6 +6,7 @@ import { Receipt } from 'lucide-react';
 import { getInvoice, createInvoice, updateInvoice } from '../../services/invoicesApi';
 import { getProducts } from '../../services/productsApi';
 import { getCurrentUser } from '../../utils/auth';
+import { formatCurrencyInput, parseCurrencyInput, toCurrencyInputFromNumber } from '../../utils/currencyInput';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
 
@@ -97,8 +98,8 @@ export default function ManagerInvoiceDetail() {
       const next = [...prev];
       next[idx] = { ...next[idx], ...changes };
       const qty = Number(next[idx].quantity) || 0;
-      const price = Number(next[idx].unit_price) || 0;
-      const discount = Number(next[idx].discount) || 0;
+      const price = parseCurrencyInput(next[idx].unit_price);
+      const discount = parseCurrencyInput(next[idx].discount);
       next[idx].line_total = Math.max(0, qty * price - discount);
       return next;
     });
@@ -129,8 +130,8 @@ export default function ManagerInvoiceDetail() {
           return {
             product_id: productId,
             quantity: Number(it.quantity) || 0,
-            unit_price: Number(it.unit_price) || 0,
-            discount: Number(it.discount) || 0,
+            unit_price: parseCurrencyInput(it.unit_price),
+            discount: parseCurrencyInput(it.discount),
           };
         })
         .filter((it) => it.product_id),
@@ -349,24 +350,24 @@ export default function ManagerInvoiceDetail() {
                         <div>
                           <label className="product-field-label">Đơn giá</label>
                           <input
-                            type="number"
-                            min={0}
+                            type="text"
+                            inputMode="numeric"
                             className="product-input"
-                            value={item.unit_price}
+                            value={toCurrencyInputFromNumber(item.unit_price)}
                             disabled={!canEdit}
-                            onChange={(e) => updateLine(idx, { unit_price: Number(e.target.value) || 0 })}
+                            onChange={(e) => updateLine(idx, { unit_price: formatCurrencyInput(e.target.value) })}
                           />
                         </div>
 
                         <div>
                           <label className="product-field-label">Chiết khấu</label>
                           <input
-                            type="number"
-                            min={0}
+                            type="text"
+                            inputMode="numeric"
                             className="product-input"
-                            value={item.discount}
+                            value={toCurrencyInputFromNumber(item.discount)}
                             disabled={!canEdit}
-                            onChange={(e) => updateLine(idx, { discount: Number(e.target.value) || 0 })}
+                            onChange={(e) => updateLine(idx, { discount: formatCurrencyInput(e.target.value) })}
                           />
                         </div>
 

@@ -25,6 +25,7 @@ import { sendLoyaltyUpdate } from '../../services/customerNotifyApi';
 import PaymentWaitModal from '../payment/PaymentWaitModal';
 import { Button } from '../ui/button';
 import { useToast } from '../../contexts/ToastContext';
+import { formatCurrencyInput, parseCurrencyInput, toCurrencyInputFromNumber } from '../../utils/currencyInput';
 import { Barcode, Loader2, Menu, Plus, Receipt, X } from 'lucide-react';
 import '../../pages/SaleDashboard/SalesPOS.css';
 
@@ -148,6 +149,7 @@ export default function POSContainer({
   const [pendingPayment, setPendingPayment] = useState(null);
   const pollingRef = useRef(null);
   const searchWrapRef = useRef(null);
+  const tabsListRef = useRef(null);
   const scanBufferRef = useRef('');
   const scanTimerRef = useRef(null);
 
@@ -167,6 +169,14 @@ export default function POSContainer({
     let next = 1;
     while (used.has(next)) next += 1;
     return next;
+  }, []);
+
+  const scrollTabsToEnd = useCallback(() => {
+    if (!tabsListRef.current) return;
+    tabsListRef.current.scrollTo({
+      left: tabsListRef.current.scrollWidth,
+      behavior: 'smooth',
+    });
   }, []);
 
   const updateActiveTab = (updates) => {
@@ -494,7 +504,7 @@ export default function POSContainer({
         })),
         paymentMethod: data.payment_method || 'cash',
         recipientName: data.recipient_name || '',
-        customerPaid: data.total_amount || '',
+        customerPaid: toCurrencyInputFromNumber(data.total_amount || 0),
         loyaltyApplyPoints: data.loyalty_redeem_points || 0,
         saving: false,
         error: '',
@@ -566,6 +576,7 @@ export default function POSContainer({
     const newTab = createDefaultTab(nextNumber);
     setTabs((prev) => [...prev, newTab]);
     setActiveTabId(newTab.tabId);
+    requestAnimationFrame(() => scrollTabsToEnd());
   };
 
   const handleCloseTab = (tabIdToClose, e) => {
@@ -604,6 +615,11 @@ export default function POSContainer({
         if (existingIdx >= 0) {
           const it = newItems[existingIdx];
           const newQty = Number(it.quantity || 0) + 1;
+          const maxQty = Math.floor((Number(it.stock_qty || 0) || 0) / (Number(it.exchange_value || 1) || 1));
+          if (maxQty >= 0 && newQty > maxQty) {
+            notify(`Không đủ tồn kho. Tối đa ${maxQty} ${it.unit_name || 'đơn vị'}.`, 'error');
+            return tab;
+          }
           newItems[existingIdx] = {
             ...it,
             quantity: newQty,
@@ -627,7 +643,7 @@ export default function POSContainer({
             available_units: unitOptionsByProduct[String(product._id)] || [],
           });
         }
-        return { ...tab, items: newItems };
+        return { ...tab, items: newItems, customerPaid: '' };
       })
     );
     setSearchTerm('');
@@ -684,7 +700,7 @@ export default function POSContainer({
     const price = Number(newItems[idx].unit_price) || 0;
     const discount = Number(newItems[idx].discount) || 0;
     newItems[idx].line_total = Math.max(0, qty * price - discount);
-    updateActiveTab({ items: newItems });
+    updateActiveTab({ items: newItems, customerPaid: '' });
   };
 
   const autoSwitchUnitByQuantity = async (idx, nextQtyRaw) => {
@@ -702,13 +718,20 @@ export default function POSContainer({
       return;
     }
 
+    const currentRatio = Number(line.exchange_value || 1) || 1;
+    const maxByCurrentUnit = Math.floor((Number(line.stock_qty || 0) || 0) / currentRatio);
+    if (Number.isFinite(maxByCurrentUnit) && nextQty > maxByCurrentUnit) {
+      notify(`Không đủ tồn kho. Tối đa ${maxByCurrentUnit} ${line.unit_name || 'đơn vị'}.`, 'error');
+      updateLine(idx, { quantity: Math.max(0, maxByCurrentUnit) });
+      return;
+    }
+
     const units = await loadUnitsForProduct(pid);
     if (!Array.isArray(units) || units.length === 0) {
       updateLine(idx, { quantity: nextQty });
       return;
     }
 
-    const currentRatio = Number(line.exchange_value || 1) || 1;
     const qtyInBase = nextQty * currentRatio;
     if (!Number.isFinite(qtyInBase) || qtyInBase <= 0) {
       updateLine(idx, { quantity: nextQty });
@@ -758,6 +781,13 @@ export default function POSContainer({
     target.unit_barcode = selected.barcode || '';
     target.exchange_value = Number(selected.exchange_value) || 1;
     target.unit_price = Number(selected.price) || 0;
+    const maxBySelectedUnit = Math.floor(
+      (Number(target.stock_qty || 0) || 0) / (Number(target.exchange_value || 1) || 1)
+    );
+    if (Number.isFinite(maxBySelectedUnit) && Number(target.quantity || 0) > maxBySelectedUnit) {
+      notify(`Không đủ tồn kho. Tối đa ${maxBySelectedUnit} ${target.unit_name || 'đơn vị'}.`, 'error');
+      target.quantity = Math.max(0, maxBySelectedUnit);
+    }
     target.line_total = Math.max(
       0,
       (Number(target.quantity) || 0) * (Number(target.unit_price) || 0) - (Number(target.discount) || 0)
@@ -787,7 +817,7 @@ export default function POSContainer({
       }
     }
 
-    updateActiveTab({ items: nextItems });
+    updateActiveTab({ items: nextItems, customerPaid: '' });
   };
 
   const getResolvedUnitsForItem = (item) => {
@@ -808,7 +838,7 @@ export default function POSContainer({
 
   const removeLine = (idx) => {
     const newItems = activeTab.items.filter((_, i) => i !== idx);
-    updateActiveTab({ items: newItems });
+    updateActiveTab({ items: newItems, customerPaid: '' });
   };
 
   const totalAmount = useMemo(
@@ -892,7 +922,7 @@ export default function POSContainer({
     [totalWithDebt, storeTax]
   );
 
-  const customerPaidNum = Number(activeTab.customerPaid) || 0;
+  const customerPaidNum = parseCurrencyInput(activeTab.customerPaid);
   const changeAmount = Math.max(0, customerPaidNum - totalWithDebt);
   const missingAmount = Math.max(0, totalWithDebt - customerPaidNum);
   const customerDebt = activeTab.customerData?.debt_account || 0;
@@ -1071,7 +1101,6 @@ export default function POSContainer({
                   <div className="pos-search-empty">Không tìm thấy sản phẩm</div>
                 ) : (
                   filteredProducts.map((p) => {
-                    const cachedUnits = unitOptionsByProduct[String(p._id)] || [];
                     const fallbackUnit = {
                       _id: null,
                       unit_name: p.base_unit || 'Cái',
@@ -1079,40 +1108,30 @@ export default function POSContainer({
                       price: Number(p.sale_price) || 0,
                       is_base: true,
                     };
-                    const displayUnits = cachedUnits.length > 0 ? cachedUnits : [fallbackUnit];
                     return (
                       <div
                         key={p._id}
                         className="pos-search-option"
+                        role="button"
+                        tabIndex={0}
                         onMouseEnter={() => loadUnitsForProduct(p._id)}
+                        onClick={async () => {
+                          const loaded = await loadUnitsForProduct(p._id);
+                          const selected = loaded.find((x) => x.is_base) || loaded[0] || fallbackUnit;
+                          handleAddProduct(p, selected);
+                        }}
+                        onKeyDown={async (e) => {
+                          if (e.key !== 'Enter' && e.key !== ' ') return;
+                          e.preventDefault();
+                          const loaded = await loadUnitsForProduct(p._id);
+                          const selected = loaded.find((x) => x.is_base) || loaded[0] || fallbackUnit;
+                          handleAddProduct(p, selected);
+                        }}
                       >
                         <div>
                           <div className="pos-search-option-name">{p.name}</div>
                           <div className="pos-search-option-meta">
                             {p.sku} - Tồn: {p.stock_qty || 0}
-                          </div>
-                          <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
-                            {displayUnits.map((u) => (
-                              <button
-                                key={String(u._id || u.unit_name)}
-                                type="button"
-                                className="pos-quick-paid-btn"
-                                style={{ height: 28, padding: '0 10px', fontSize: 12 }}
-                                onClick={async (e) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  const loaded = await loadUnitsForProduct(p._id);
-                                  const selected =
-                                    loaded.find((x) => String(x._id) === String(u._id || '')) ||
-                                    loaded.find((x) => x.is_base) ||
-                                    loaded[0] ||
-                                    u;
-                                  handleAddProduct(p, selected);
-                                }}
-                              >
-                                {u.unit_name}: {formatMoney(u.price)}
-                              </button>
-                            ))}
                           </div>
                         </div>
                         <div className="pos-search-option-price">
@@ -1145,12 +1164,15 @@ export default function POSContainer({
         </div>
 
         {/* Tab bar */}
-        <div className="pos-tabs pos-tabs-inline" role="tablist" aria-label="Danh sách hóa đơn đang mở">
+        <div className="pos-tabs pos-tabs-inline" ref={tabsListRef} role="tablist" aria-label="Danh sách hóa đơn đang mở">
           {tabs.map((tab) => (
             <div
               key={tab.tabId}
               className={`pos-tab ${tab.tabId === activeTabId ? 'active' : ''}`}
-              onClick={() => setActiveTabId(tab.tabId)}
+              onClick={(e) => {
+                setActiveTabId(tab.tabId);
+                e.currentTarget.scrollIntoView({ behavior: 'smooth', inline: 'nearest', block: 'nearest' });
+              }}
               role="tab"
               aria-selected={tab.tabId === activeTabId}
               title={tab.name}
@@ -1202,28 +1224,11 @@ export default function POSContainer({
         {/* Cart */}
         <div className="pos-center-area">
           <div className="pos-cart-container">
-            {activeTab.error && (
-              <div
-                className="mb-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-sm font-medium text-red-800"
-                role="alert"
-              >
-                {activeTab.error}
-              </div>
-            )}
-            {activeTab.successMessage && (
-              <div
-                className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm font-medium text-emerald-800"
-                role="status"
-              >
-                {activeTab.successMessage}
-              </div>
-            )}
-
             <table className="pos-cart-table">
               <thead>
                 <tr>
                   <th style={{ width: 40 }}>#</th>
-                  <th style={{ width: 80 }}>Mã hàng</th>
+                  <th style={{ width: 220 }}>Mã hàng</th>
                   <th>Tên hàng</th>
                   <th style={{ width: 100 }}>Số lượng</th>
                   <th style={{ width: 120 }}>Đơn giá</th>
@@ -1235,48 +1240,52 @@ export default function POSContainer({
                 {activeTab.items.map((item, idx) => (
                   <tr key={idx}>
                     <td>{idx + 1}</td>
-                    <td>{item.sku}</td>
+                    <td className="pos-sku-cell" title={item.sku}>
+                      {item.sku}
+                    </td>
                     <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'nowrap', minWidth: 0 }}>
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 240 }}>
-                          {item.name}
-                        </span>
-                        {item.unit_name ? (
-                          <span style={{ color: '#64748b', fontSize: 12, whiteSpace: 'nowrap' }}>({item.unit_name})</span>
-                        ) : null}
-                        <span style={{ width: 50, flexShrink: 0 }} />
-                        {(() => {
-                          const resolvedUnits = getResolvedUnitsForItem(item);
-                          const selectedValue = resolvedUnits.some(
-                            (u) => String(u._id || '') === String(item.unit_id || '')
-                          )
-                            ? item.unit_id || ''
-                            : resolvedUnits[0]?._id || '';
-                          return (
-                        <select
-                          className="pos-qty-input"
-                          style={{ width: 150, height: 32, textAlign: 'left', padding: '0 8px' }}
-                          value={selectedValue}
-                          onFocus={() => loadUnitsForProduct(item.product_id)}
-                          onChange={(e) => updateItemUnit(idx, e.target.value)}
-                        >
-                          {resolvedUnits.map((u) => (
-                            <option key={String(u._id || u.unit_name)} value={u._id || ''}>
-                              {u.unit_name} - {formatMoney(u.price)}
-                            </option>
-                          ))}
-                        </select>
-                          );
-                        })()}
-                        <span style={{ fontSize: 11, color: '#64748b' }}>
-                          Tồn khả dụng: {(() => {
-                            const stock = Number(item.stock_qty || 0);
-                            const ratio = Number(item.exchange_value || 1);
-                            const whole = Math.floor(stock / ratio);
-                            const rem = stock - whole * ratio;
-                            return `${whole} ${item.unit_name || 'đv'}${rem > 0 ? ` (dư ${rem})` : ''}`;
+                      <div className="pos-item-name-cell">
+                        <div className="pos-item-main-info">
+                          <span className="pos-item-name-text">
+                            {item.name}
+                          </span>
+                          {item.unit_name ? (
+                            <span className="pos-item-unit-text">({item.unit_name})</span>
+                          ) : null}
+                        </div>
+                        <div className="pos-item-subline">
+                          {(() => {
+                            const resolvedUnits = getResolvedUnitsForItem(item);
+                            const selectedValue = resolvedUnits.some(
+                              (u) => String(u._id || '') === String(item.unit_id || '')
+                            )
+                              ? item.unit_id || ''
+                              : resolvedUnits[0]?._id || '';
+                            return (
+                              <select
+                                className="pos-item-unit-select"
+                                value={selectedValue}
+                                onFocus={() => loadUnitsForProduct(item.product_id)}
+                                onChange={(e) => updateItemUnit(idx, e.target.value)}
+                              >
+                                {resolvedUnits.map((u) => (
+                                  <option key={String(u._id || u.unit_name)} value={u._id || ''}>
+                                    {u.unit_name} - {formatMoney(u.price)}
+                                  </option>
+                                ))}
+                              </select>
+                            );
                           })()}
-                        </span>
+                          <span className="pos-item-stock-text">
+                            Tồn khả dụng: {(() => {
+                              const stock = Number(item.stock_qty || 0);
+                              const ratio = Number(item.exchange_value || 1);
+                              const whole = Math.floor(stock / ratio);
+                              const rem = stock - whole * ratio;
+                              return `${whole} ${item.unit_name || 'đv'}${rem > 0 ? ` (dư ${rem})` : ''}`;
+                            })()}
+                          </span>
+                        </div>
                       </div>
                     </td>
                     <td>
@@ -1568,9 +1577,10 @@ export default function POSContainer({
                     <div className="pos-customer-pay-row">
                       <span>Khách thanh toán</span>
                       <input
-                        type="number"
+                        type="text"
+                        inputMode="numeric"
                         value={activeTab.customerPaid}
-                        onChange={(e) => updateActiveTab({ customerPaid: e.target.value })}
+                        onChange={(e) => updateActiveTab({ customerPaid: formatCurrencyInput(e.target.value) })}
                         placeholder="0"
                         className="pos-customer-pay-input"
                       />
@@ -1597,7 +1607,7 @@ export default function POSContainer({
                             <button
                               key={amount}
                               type="button"
-                              onClick={() => updateActiveTab({ customerPaid: String(amount) })}
+                              onClick={() => updateActiveTab({ customerPaid: toCurrencyInputFromNumber(amount) })}
                               className="pos-quick-paid-btn"
                             >
                               {(amount / 1000).toLocaleString('vi-VN')}k
@@ -1605,7 +1615,7 @@ export default function POSContainer({
                           ))}
                           <button
                             type="button"
-                            onClick={() => updateActiveTab({ customerPaid: totalWithDebt.toString() })}
+                            onClick={() => updateActiveTab({ customerPaid: toCurrencyInputFromNumber(totalWithDebt) })}
                             className="pos-quick-paid-full"
                           >
                             Đủ tiền ({formatMoney(totalWithDebt)})

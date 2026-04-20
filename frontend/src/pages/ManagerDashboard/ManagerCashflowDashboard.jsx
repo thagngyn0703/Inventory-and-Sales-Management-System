@@ -7,6 +7,7 @@ import { Card, CardContent } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { InlineNotice } from '../../components/ui/inline-notice';
 import { createCashflow, getCashflowSummary, getCashflows } from '../../services/cashflowsApi';
+import { formatCurrencyInput, parseCurrencyInput } from '../../utils/currencyInput';
 
 const LIMIT = 20;
 
@@ -147,7 +148,7 @@ export default function ManagerCashflowDashboard() {
     e.preventDefault();
     setError('');
     setSuccess('');
-    const amount = Number(manualAmount);
+    const amount = parseCurrencyInput(manualAmount);
     if (!amount || amount <= 0) {
       setError('Số tiền phải lớn hơn 0.');
       return;
@@ -210,7 +211,7 @@ export default function ManagerCashflowDashboard() {
                   <option value="EXPENSE">Chi</option>
                   <option value="INCOME">Thu</option>
                 </select>
-                <input type="number" min="0" step="1000" value={manualAmount} onChange={(e) => setManualAmount(e.target.value)} className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm" placeholder="Số tiền" />
+                <input type="text" inputMode="numeric" value={manualAmount} onChange={(e) => setManualAmount(formatCurrencyInput(e.target.value))} className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm" placeholder="Số tiền (VD: 100.000 đ)" />
                 <input type="date" value={manualDate} onChange={(e) => setManualDate(e.target.value)} className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm" />
                 <select value={manualPaymentMethod} onChange={(e) => setManualPaymentMethod(e.target.value)} className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm">
                   <option value="CASH">Tiền mặt</option>

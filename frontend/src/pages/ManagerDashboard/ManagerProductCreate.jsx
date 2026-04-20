@@ -17,6 +17,7 @@ import { getSuppliers } from '../../services/suppliersApi';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
 import { Badge } from '../../components/ui/badge';
+import { formatCurrencyInput, parseCurrencyInput, toCurrencyInputFromNumber } from '../../utils/currencyInput';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
 
@@ -215,7 +216,7 @@ export default function ManagerProductCreate() {
         if (!barcodeCheck.ok) return setError(barcodeCheck.message);
         const baseUnitCheck = validateNoSpecialText(form.base_unit, 'Đơn vị tồn kho', { required: true });
         if (!baseUnitCheck.ok) return setError(baseUnitCheck.message);
-        const costCheck = validateNonNegativeNumber(form.cost_price, 'Giá vốn');
+        const costCheck = validateNonNegativeNumber(parseCurrencyInput(form.cost_price), 'Giá vốn');
         if (!costCheck.ok) return setError(costCheck.message);
         const stockCheck = validateNonNegativeNumber(form.stock_qty, 'Tồn kho');
         if (!stockCheck.ok) return setError(stockCheck.message);
@@ -232,7 +233,7 @@ export default function ManagerProductCreate() {
             if (!ratioCheck.ok || ratioCheck.value <= 0) {
                 return setError('Tỉ lệ đơn vị bán phải lớn hơn 0.');
             }
-            const salePriceCheck = validateNonNegativeNumber(u.sale_price, 'Giá bán đơn vị', { required: true });
+            const salePriceCheck = validateNonNegativeNumber(parseCurrencyInput(u.sale_price), 'Giá bán đơn vị', { required: true });
             if (!salePriceCheck.ok) return setError(salePriceCheck.message);
             units.push({
                 name: nameUnitCheck.value,
@@ -376,7 +377,7 @@ export default function ManagerProductCreate() {
             sku: p.sku || prev.sku,
             barcode: p.barcode || '',
             supplier_id: typeof p.supplier_id === 'object' ? (p.supplier_id?._id || '') : (p.supplier_id || ''),
-            cost_price: p.cost_price != null ? String(p.cost_price) : prev.cost_price,
+            cost_price: p.cost_price != null ? toCurrencyInputFromNumber(p.cost_price) : prev.cost_price,
             expiry_date: (() => {
                 if (!p.expiry_date) return '';
                 const s = new Date(p.expiry_date).toISOString().slice(0, 10);
@@ -387,7 +388,7 @@ export default function ManagerProductCreate() {
                 ? p.selling_units.map((u) => ({
                     name: u.name || p.base_unit || 'Cái',
                     ratio: u.ratio != null ? u.ratio : 1,
-                    sale_price: u.sale_price != null ? String(u.sale_price) : '',
+                    sale_price: u.sale_price != null ? toCurrencyInputFromNumber(u.sale_price) : '',
                     barcode: (() => {
                         const matchedUnit = (p.units || []).find(
                             (x) => String(x.unit_name || '').trim() === String(u.name || '').trim()
@@ -645,11 +646,10 @@ export default function ManagerProductCreate() {
                                                         </td>
                                                         <td className="py-2 pr-2">
                                                             <input
-                                                                type="number"
-                                                                min="0"
-                                                                step="1"
+                                                                type="text"
+                                                                inputMode="numeric"
                                                                 value={u.sale_price}
-                                                                onChange={(e) => updateSellingUnit(i, 'sale_price', e.target.value)}
+                                                                onChange={(e) => updateSellingUnit(i, 'sale_price', formatCurrencyInput(e.target.value))}
                                                                 placeholder="0"
                                                                 className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
                                                             />
@@ -701,11 +701,10 @@ export default function ManagerProductCreate() {
                                         <div>
                                             <label className="mb-1 block text-sm font-medium text-slate-600">Giá vốn (₫) / 1 đơn vị gốc</label>
                                             <input
-                                                type="number"
-                                                min="0"
-                                                step="1"
+                                                type="text"
+                                                inputMode="numeric"
                                                 value={form.cost_price}
-                                                onChange={(e) => setForm((prev) => ({ ...prev, cost_price: e.target.value }))}
+                                                onChange={(e) => setForm((prev) => ({ ...prev, cost_price: formatCurrencyInput(e.target.value) }))}
                                                 placeholder="0"
                                                 className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
                                             />
