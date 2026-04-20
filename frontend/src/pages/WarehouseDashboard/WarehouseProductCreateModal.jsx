@@ -11,6 +11,7 @@ import {
   validateNonNegativeNumber,
   validateSku,
 } from '../../utils/productValidation';
+import { formatCurrencyInput, parseCurrencyInput, toCurrencyInputFromNumber } from '../../utils/currencyInput';
 import { useToast } from '../../contexts/ToastContext';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
@@ -223,7 +224,7 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
       sku: '',
       barcode: p.barcode || '',
       supplier_id: typeof p.supplier_id === 'object' ? p.supplier_id?._id || '' : p.supplier_id || '',
-      cost_price: p.cost_price != null ? String(p.cost_price) : prev.cost_price,
+      cost_price: p.cost_price != null ? toCurrencyInputFromNumber(p.cost_price) : prev.cost_price,
       expiry_date: (() => {
         if (!p.expiry_date) return '';
         const s = new Date(p.expiry_date).toISOString().slice(0, 10);
@@ -235,7 +236,7 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
           ? p.selling_units.map((u) => ({
               name: u.name || p.base_unit || 'Cái',
               ratio: u.ratio != null ? u.ratio : 1,
-              sale_price: u.sale_price != null ? String(u.sale_price) : '',
+              sale_price: u.sale_price != null ? toCurrencyInputFromNumber(u.sale_price) : '',
               barcode: '',
             }))
           : prev.selling_units,
@@ -292,7 +293,7 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
       setError(baseUnitCheck.message);
       return;
     }
-    const costCheck = validateNonNegativeNumber(form.cost_price, 'Giá vốn');
+    const costCheck = validateNonNegativeNumber(parseCurrencyInput(form.cost_price), 'Giá vốn');
     if (!costCheck.ok) {
       setError(costCheck.message);
       return;
@@ -319,7 +320,7 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
         setError('Tỉ lệ đơn vị bán phải lớn hơn 0.');
         return;
       }
-      const salePriceCheck = validateNonNegativeNumber(u.sale_price, 'Giá bán đơn vị', { required: true });
+      const salePriceCheck = validateNonNegativeNumber(parseCurrencyInput(u.sale_price), 'Giá bán đơn vị', { required: true });
       if (!salePriceCheck.ok) {
         setError(salePriceCheck.message);
         return;
@@ -647,11 +648,10 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
                             </td>
                             <td className="py-2 pr-2">
                               <input
-                                type="number"
-                                min="0"
-                                step="any"
+                                type="text"
+                                inputMode="numeric"
                                 value={u.sale_price}
-                                onChange={(e) => updateSellingUnit(i, 'sale_price', e.target.value)}
+                                onChange={(e) => updateSellingUnit(i, 'sale_price', formatCurrencyInput(e.target.value))}
                                 className="h-9 w-full min-w-[80px] rounded-lg border border-slate-200 px-2 text-sm"
                               />
                             </td>
@@ -703,11 +703,10 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
                     <div>
                       <label className="mb-1 block text-sm font-medium text-slate-700">Giá vốn (₫) / đơn vị gốc</label>
                       <input
-                        type="number"
-                        min="0"
-                        step="any"
+                        type="text"
+                        inputMode="numeric"
                         value={form.cost_price}
-                        onChange={(e) => setForm((prev) => ({ ...prev, cost_price: e.target.value }))}
+                        onChange={(e) => setForm((prev) => ({ ...prev, cost_price: formatCurrencyInput(e.target.value) }))}
                         className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 focus:ring-2"
                       />
                     </div>

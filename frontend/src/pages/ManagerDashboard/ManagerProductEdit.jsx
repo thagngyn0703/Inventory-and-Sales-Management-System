@@ -17,6 +17,7 @@ import { getSuppliers } from '../../services/suppliersApi';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
 import { InlineNotice } from '../../components/ui/inline-notice';
+import { formatCurrencyInput, parseCurrencyInput, toCurrencyInputFromNumber } from '../../utils/currencyInput';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
 
@@ -71,7 +72,7 @@ export default function ManagerProductEdit() {
                     ? p.selling_units.map((u) => ({
                         name: u.name || '',
                         ratio: u.ratio != null ? u.ratio : 1,
-                        sale_price: u.sale_price != null ? String(u.sale_price) : '',
+                        sale_price: u.sale_price != null ? toCurrencyInputFromNumber(u.sale_price) : '',
                         barcode: (() => {
                             const matchedUnit = (p.units || []).find(
                                 (x) => String(x.unit_name || '').trim() === String(u.name || '').trim()
@@ -93,7 +94,7 @@ export default function ManagerProductEdit() {
                     sku: p.sku || '',
                     barcode: p.barcode || '',
                     supplier_id: supplierId || '',
-                    cost_price: p.cost_price != null ? String(p.cost_price) : '',
+                    cost_price: p.cost_price != null ? toCurrencyInputFromNumber(p.cost_price) : '',
                     stock_qty: p.stock_qty != null ? String(p.stock_qty) : '',
                     reorder_level: p.reorder_level != null ? String(p.reorder_level) : '',
                     expiry_date: expStr && expStr >= minD ? expStr : '',
@@ -229,7 +230,7 @@ export default function ManagerProductEdit() {
         if (!barcodeCheck.ok) return setError(barcodeCheck.message);
         const baseUnitCheck = validateNoSpecialText(form.base_unit, 'Đơn vị tồn kho', { required: true });
         if (!baseUnitCheck.ok) return setError(baseUnitCheck.message);
-        const costCheck = validateNonNegativeNumber(form.cost_price, 'Giá vốn');
+        const costCheck = validateNonNegativeNumber(parseCurrencyInput(form.cost_price), 'Giá vốn');
         if (!costCheck.ok) return setError(costCheck.message);
         const stockCheck = validateNonNegativeNumber(form.stock_qty, 'Tồn kho');
         if (!stockCheck.ok) return setError(stockCheck.message);
@@ -243,7 +244,7 @@ export default function ManagerProductEdit() {
             if (!ratioCheck.ok || ratioCheck.value <= 0) {
                 return setError('Tỉ lệ đơn vị bán phải lớn hơn 0.');
             }
-            const salePriceCheck = validateNonNegativeNumber(u.sale_price, 'Giá bán đơn vị', { required: true });
+            const salePriceCheck = validateNonNegativeNumber(parseCurrencyInput(u.sale_price), 'Giá bán đơn vị', { required: true });
             if (!salePriceCheck.ok) return setError(salePriceCheck.message);
             units.push({
                 name: nameUnitCheck.value,
@@ -428,7 +429,7 @@ export default function ManagerProductEdit() {
                                             <div key={i} className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_5.625rem_minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-2">
                                                 <input type="text" value={u.name} onChange={(e) => updateSellingUnit(i, 'name', e.target.value)} placeholder="Đơn vị" className="h-10 w-full min-w-0 rounded-lg border border-slate-200 px-2 text-sm outline-none ring-sky-200 transition focus:ring-2" />
                                                 <input type="number" min="1" step="any" value={u.ratio} onChange={(e) => updateSellingUnit(i, 'ratio', e.target.value)} placeholder="Tỉ lệ" className="h-10 w-full min-w-0 rounded-lg border border-slate-200 px-2 text-sm outline-none ring-sky-200 transition focus:ring-2" />
-                                                <input type="number" min="0" step="1" value={u.sale_price} onChange={(e) => updateSellingUnit(i, 'sale_price', e.target.value)} placeholder="Giá bán" className="h-10 w-full min-w-0 rounded-lg border border-slate-200 px-2 text-sm outline-none ring-sky-200 transition focus:ring-2" />
+                                                <input type="text" inputMode="numeric" value={u.sale_price} onChange={(e) => updateSellingUnit(i, 'sale_price', formatCurrencyInput(e.target.value))} placeholder="Giá bán" className="h-10 w-full min-w-0 rounded-lg border border-slate-200 px-2 text-sm outline-none ring-sky-200 transition focus:ring-2" />
                                                 <input type="text" value={u.barcode || ''} onChange={(e) => updateSellingUnit(i, 'barcode', e.target.value)} placeholder="Barcode đơn vị" className="h-10 w-full min-w-0 rounded-lg border border-slate-200 px-2 text-sm outline-none ring-sky-200 transition focus:ring-2" />
                                                 <button type="button" onClick={() => removeSellingUnit(i)} disabled={form.selling_units.length <= 1} className="inline-flex h-10 w-9 shrink-0 items-center justify-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40">
                                                     <X className="h-4 w-4" />
@@ -451,7 +452,7 @@ export default function ManagerProductEdit() {
                                         </div>
                                         <div>
                                             <label className="mb-1 block text-sm font-medium text-slate-600">Giá vốn (₫) / 1 đơn vị gốc</label>
-                                            <input type="number" min="0" step="1" value={form.cost_price} onChange={(e) => setForm((prev) => ({ ...prev, cost_price: e.target.value }))} placeholder="0" className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2" />
+                                            <input type="text" inputMode="numeric" value={form.cost_price} onChange={(e) => setForm((prev) => ({ ...prev, cost_price: formatCurrencyInput(e.target.value) }))} placeholder="0" className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2" />
                                         </div>
                                         <div>
                                             <label className="mb-1 block text-sm font-medium text-slate-600">Tồn kho hiện tại</label>

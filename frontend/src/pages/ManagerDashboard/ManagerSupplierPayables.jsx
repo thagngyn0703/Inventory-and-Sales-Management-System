@@ -14,6 +14,7 @@ import {
 import { getSuppliers } from '../../services/suppliersApi';
 import { Banknote, Loader2, CreditCard, History } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { formatCurrencyInput, parseCurrencyInput, toCurrencyInputFromNumber } from '../../utils/currencyInput';
 
 const STATUS_LABEL = { open: 'Chưa trả', partial: 'Trả một phần', paid: 'Đã trả', cancelled: 'Đã hủy' };
 const METHOD_LABEL = { cash: 'Tiền mặt', bank_transfer: 'Chuyển khoản', e_wallet: 'Ví điện tử', other: 'Khác' };
@@ -25,7 +26,6 @@ const PAY_MODAL_INITIAL = {
     total_amount: '',
     payment_date: new Date().toISOString().split('T')[0],
     payment_method: 'cash',
-    reference_code: '',
     note: '',
 };
 
@@ -120,6 +120,16 @@ export default function ManagerSupplierPayables() {
         && !loadingModalDebt
         && modalSupplierRemaining != null
         && modalSupplierRemaining > 0;
+
+    useEffect(() => {
+        if (!modalHasPayableDebt || modalSupplierRemaining == null) return;
+        const exactDebtText = toCurrencyInputFromNumber(modalSupplierRemaining);
+        setPayForm((prev) => (
+            prev.total_amount === exactDebtText
+                ? prev
+                : { ...prev, total_amount: exactDebtText }
+        ));
+    }, [modalHasPayableDebt, modalSupplierRemaining]);
 
     // Khi mở modal: làm mới tổng hợp nợ (không làm “đang tải” cả trang)
     useEffect(() => {
@@ -232,10 +242,10 @@ export default function ManagerSupplierPayables() {
             toast('Không có khoản nợ để thanh toán với nhà cung cấp này.', 'error');
             return;
         }
-        const amt = Number(payForm.total_amount);
+        const amt = parseCurrencyInput(payForm.total_amount);
         if (!amt || amt <= 0) { toast('Vui lòng nhập số tiền thanh toán', 'error'); return; }
-        if (amt > modalSupplierRemaining + 0.0001) {
-            toast(`Số tiền không được vượt quá số còn nợ (${fmt(modalSupplierRemaining)}).`, 'error');
+        if (Math.abs(amt - modalSupplierRemaining) > 0.0001) {
+            toast(`Số tiền phải đúng bằng số còn nợ (${fmt(modalSupplierRemaining)}).`, 'error');
             return;
         }
         setPaySubmitting(true);
@@ -426,7 +436,6 @@ export default function ManagerSupplierPayables() {
                                                 <th className="px-4 py-3">Ngày thanh toán</th>
                                                 <th className="px-4 py-3 text-right">Số tiền</th>
                                                 <th className="px-4 py-3">Hình thức</th>
-                                                <th className="px-4 py-3">Mã tham chiếu</th>
                                                 <th className="px-4 py-3">Người ghi</th>
                                                 <th className="px-4 py-3">Ghi chú</th>
                                             </tr>
@@ -438,7 +447,6 @@ export default function ManagerSupplierPayables() {
                                                     <td className="px-4 py-3.5 whitespace-nowrap text-slate-600">{fmtDate(pm.payment_date)}</td>
                                                     <td className="px-4 py-3.5 text-right tabular-nums font-semibold text-emerald-700">{fmt(pm.total_amount)}</td>
                                                     <td className="px-4 py-3.5 text-slate-700">{METHOD_LABEL[pm.payment_method] ?? pm.payment_method}</td>
-                                                    <td className="px-4 py-3.5 font-mono text-xs text-slate-600">{pm.reference_code || '—'}</td>
                                                     <td className="px-4 py-3.5 text-slate-700">{pm.created_by?.fullName || pm.created_by?.email || '—'}</td>
                                                     <td className="px-4 py-3.5 max-w-[180px] truncate text-slate-500">{pm.note || '—'}</td>
                                                 </tr>
@@ -469,12 +477,12 @@ export default function ManagerSupplierPayables() {
                     className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[1px]"
                     onClick={(e) => { if (e.target === e.currentTarget && !paySubmitting) closePayModal(); }}
                 >
-                    <div className="relative w-full max-w-[560px] overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_20px_60px_-10px_rgba(15,23,42,0.35)]">
+                    <div className="relative flex h-[66vh] w-full max-w-[760px] flex-col overflow-visible rounded-2xl border border-slate-200/90 bg-white shadow-[0_20px_60px_-10px_rgba(15,23,42,0.35)]">
                         <div className="border-b border-slate-200/80 bg-[linear-gradient(135deg,#f0fdfa_0%,#ecfeff_45%,#f8fafc_100%)] px-4 py-3">
                             <h2 className="m-0 text-[22px] font-bold tracking-tight text-slate-900">Ghi nhận thanh toán NCC</h2>
                             <p className="mt-0.5 text-xs text-slate-600">Thanh toán công nợ nhanh, rõ ràng và đồng bộ sổ quỹ.</p>
                         </div>
-                        <div className="max-h-[80vh] overflow-y-auto p-4">
+                        <div className="flex-1 overflow-y-auto overflow-x-visible p-5">
                             <div className="flex flex-col gap-3">
                             <div className="rounded-xl border border-slate-200/80 bg-slate-50/60 p-2.5">
                                 <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Tìm nhà cung cấp</label>
@@ -520,7 +528,9 @@ export default function ManagerSupplierPayables() {
                                                         setPayForm((f) => ({
                                                             ...f,
                                                             supplier_id: s._id,
-                                                            total_amount: '',
+                                                            total_amount: toCurrencyInputFromNumber(
+                                                                summary?.by_supplier?.find((row) => String(row.supplier_id) === String(s._id))?.total_remaining || 0
+                                                            ),
                                                             payment_method:
                                                                 f.payment_method === 'bank_transfer' || f.payment_method === 'cash'
                                                                     ? f.payment_method
@@ -569,15 +579,16 @@ export default function ManagerSupplierPayables() {
                                         <div>
                                             <label className="mb-1 block text-[12px] font-semibold text-slate-700">Số tiền thanh toán (đ) <span className="text-red-500">*</span></label>
                                             <input
-                                                type="number"
-                                                min="1"
-                                                max={modalSupplierRemaining}
-                                                step="1"
+                                                type="text"
+                                                inputMode="numeric"
                                                 value={payForm.total_amount}
-                                                onChange={(e) => setPayForm((f) => ({ ...f, total_amount: e.target.value }))}
-                                                placeholder={`Tối đa ${fmt(modalSupplierRemaining)}`}
+                                                onChange={(e) => setPayForm((f) => ({ ...f, total_amount: formatCurrencyInput(e.target.value) }))}
+                                                placeholder="VD: 100.000 đ"
                                                 className="h-9 w-full rounded-xl border border-slate-200 px-3 text-[13px] outline-none ring-teal-200 transition focus:border-teal-300 focus:ring-2"
                                             />
+                                            <p className="mt-1 text-[11px] text-slate-500">
+                                                Bắt buộc đúng bằng số nợ hiện tại: <strong>{fmt(modalSupplierRemaining)}</strong>
+                                            </p>
                                         </div>
                                         <div className="grid grid-cols-2 gap-3">
                                             <div>
@@ -618,7 +629,7 @@ export default function ManagerSupplierPayables() {
                                                                 Dùng app ngân hàng quét mã QR để chuyển khoản.
                                                             </p>
                                                             <p className="mt-1.5 mb-0">
-                                                                Sau khi chuyển, nhập mã tham chiếu bên dưới rồi bấm “Ghi nhận”.
+                                                                Sau khi chuyển khoản xong, bấm “Ghi nhận” để cập nhật công nợ.
                                                             </p>
                                                         </div>
                                                     </div>
@@ -629,16 +640,6 @@ export default function ManagerSupplierPayables() {
                                                 )}
                                             </div>
                                         )}
-                                        <div>
-                                            <label className="mb-1 block text-[12px] font-semibold text-slate-700">Mã tham chiếu (nếu có)</label>
-                                            <input
-                                                type="text"
-                                                value={payForm.reference_code}
-                                                onChange={(e) => setPayForm((f) => ({ ...f, reference_code: e.target.value }))}
-                                                placeholder="Mã giao dịch, số biên lai…"
-                                                className="h-9 w-full rounded-xl border border-slate-200 px-3 text-[13px] outline-none ring-teal-200 transition focus:border-teal-300 focus:ring-2"
-                                            />
-                                        </div>
                                         <div>
                                             <label className="mb-1 block text-[12px] font-semibold text-slate-700">Ghi chú</label>
                                             <textarea

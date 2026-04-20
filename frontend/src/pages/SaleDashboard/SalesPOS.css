@@ -231,6 +231,7 @@
   overflow-x: auto;
   overflow-y: hidden;
   white-space: nowrap;
+  scroll-behavior: smooth;
 }
 
 /* Góc phải ngoài cùng — sau vùng tab */
@@ -383,9 +384,8 @@
   color: #fff !important;
   border-radius: 10px !important;
   flex: 0 0 auto;
-  position: sticky;
-  right: 0;
-  z-index: 1;
+  position: relative;
+  margin-left: 2px;
 }
 
 .pos-add-tab-btn:hover {
@@ -435,12 +435,98 @@
 }
 
 .pos-cart-table td {
-  padding: 10px 12px;
+  padding: 8px 10px;
   border-bottom: 1px solid #f1f5f9;
   font-size: 13px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  vertical-align: middle;
+}
+
+.pos-item-name-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  min-width: 0;
+  width: 100%;
+}
+
+.pos-item-main-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  width: 100%;
+}
+
+.pos-item-name-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.pos-item-unit-text {
+  color: #64748b;
+  font-size: 12px;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.pos-item-subline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  width: 100%;
+  justify-content: flex-start;
+}
+
+.pos-item-unit-select {
+  width: 118px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid #cfd8e3;
+  border-radius: 8px;
+  background: #fff;
+  text-align: left;
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: #0f172a;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+.pos-item-unit-select:hover {
+  border-color: #94a3b8;
+  background: #fcfdff;
+}
+
+.pos-item-unit-select:focus {
+  outline: none;
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.18);
+}
+
+.pos-item-stock-text {
+  font-size: 11px;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 0 1 auto;
+}
+
+.pos-sku-cell {
+  font-weight: 600;
+  color: #1e293b;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  white-space: normal !important;
+  word-break: break-all;
+  line-height: 1.25;
 }
 
 .pos-qty-input {
@@ -477,10 +563,10 @@
 
 /* Right Sidebar: Payment */
 .pos-right-sidebar {
-  width: clamp(320px, 29vw, 360px);
+  width: clamp(330px, 32vw, 390px);
   background: white;
   border-left: 1px solid var(--pos-border);
-  box-shadow: -8px 0 32px -20px rgba(15, 23, 42, 0.12);
+  box-shadow: none;
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
@@ -493,11 +579,11 @@
 
 /* Sidebar panels — cùng “nhịp” với thead bảng giỏ hàng */
 .pos-sidebar-panel {
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
   overflow: hidden;
   background: #fff;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+  box-shadow: none;
 }
 
 /* Cho phép dropdown khách tràn xuống panel dưới */
@@ -523,9 +609,9 @@
 .pos-sidebar-panel-head {
   display: flex;
   align-items: center;
-  padding: 9px 12px;
-  background: #f1f5f9;
-  color: #475569;
+  padding: 8px 10px;
+  background: #f3f4f6;
+  color: #4b5563;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.04em;

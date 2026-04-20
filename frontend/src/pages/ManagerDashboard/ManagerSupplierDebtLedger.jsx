@@ -8,6 +8,7 @@ import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
 import { InlineNotice } from '../../components/ui/inline-notice';
 import { createSupplierDebtPayment, createSupplierReturn, getSupplierDebtHistory } from '../../services/suppliersApi';
+import { formatCurrencyInput, parseCurrencyInput } from '../../utils/currencyInput';
 
 const LIMIT = 20;
 
@@ -84,7 +85,7 @@ export default function ManagerSupplierDebtLedger() {
     e.preventDefault();
     setSuccess('');
     setError('');
-    const amountNum = Number(paymentAmount);
+    const amountNum = parseCurrencyInput(paymentAmount);
     if (!amountNum || amountNum <= 0) {
       setError('Số tiền thanh toán phải lớn hơn 0.');
       return;
@@ -112,7 +113,7 @@ export default function ManagerSupplierDebtLedger() {
     e.preventDefault();
     setSuccess('');
     setError('');
-    const amountNum = Number(returnAmount);
+    const amountNum = parseCurrencyInput(returnAmount);
     if (!amountNum || amountNum <= 0) {
       setError('Giá trị trả NCC phải lớn hơn 0.');
       return;
@@ -159,12 +160,11 @@ export default function ManagerSupplierDebtLedger() {
               <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Ghi nhận thanh toán nợ</h3>
               <form className="space-y-3" onSubmit={handleSubmitPayment}>
                 <input
-                  type="number"
-                  min="0"
-                  step="1000"
+                  type="text"
+                  inputMode="numeric"
                   placeholder="Số tiền thanh toán"
                   value={paymentAmount}
-                  onChange={(e) => setPaymentAmount(e.target.value)}
+                  onChange={(e) => setPaymentAmount(formatCurrencyInput(e.target.value))}
                   className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm"
                 />
                 <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm">
@@ -188,12 +188,11 @@ export default function ManagerSupplierDebtLedger() {
               <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Ghi nhận trả hàng NCC</h3>
               <form className="space-y-3" onSubmit={handleSubmitReturn}>
                 <input
-                  type="number"
-                  min="0"
-                  step="1000"
+                  type="text"
+                  inputMode="numeric"
                   placeholder="Giá trị trả NCC"
                   value={returnAmount}
-                  onChange={(e) => setReturnAmount(e.target.value)}
+                  onChange={(e) => setReturnAmount(formatCurrencyInput(e.target.value))}
                   className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm"
                 />
                 <input

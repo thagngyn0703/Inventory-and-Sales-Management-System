@@ -20,6 +20,7 @@ import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
 import { InlineNotice } from '../../components/ui/inline-notice';
 import { Loader2, Search, Users, ChevronLeft, ChevronRight, Send } from 'lucide-react';
+import { formatCurrencyInput, parseCurrencyInput, toCurrencyInputFromNumber } from '../../utils/currencyInput';
 
 const PAGE_SIZE = 20;
 const OVERDUE_DAYS = 30;
@@ -244,7 +245,7 @@ export default function SalesCustomerPage({ managerMode = false }) {
 
     const handlePayDebt = async () => {
         // BUG-14: validate amount <= 0
-        const payAmount = Number(payDebtModal.amount);
+        const payAmount = parseCurrencyInput(payDebtModal.amount);
         if (!payDebtModal.amount || payAmount <= 0) {
             toast('Vui lòng nhập số tiền lớn hơn 0', 'error');
             return;
@@ -558,7 +559,7 @@ export default function SalesCustomerPage({ managerMode = false }) {
                                                             type="button"
                                                             onClick={() => handleSendDebtReminder({
                                                                 customer: c,
-                                                                amount: Number(c.debt_account || 0),
+                                                                amount: toCurrencyInputFromNumber(c.debt_account || 0),
                                                             })}
                                                             className="h-9 min-w-[90px] rounded-lg border border-amber-200 bg-amber-50 px-3 text-xs font-semibold text-amber-700 hover:bg-amber-100 gap-1 inline-flex items-center"
                                                         >
@@ -571,7 +572,7 @@ export default function SalesCustomerPage({ managerMode = false }) {
                                                             onClick={() => setPayDebtModal({
                                                                 show: true,
                                                                 customer: c,
-                                                                amount: c.debt_account,
+                                                                amount: toCurrencyInputFromNumber(c.debt_account || 0),
                                                                 paymentMethod: 'cash',
                                                                 transferRef: '',
                                                                 transferPreparedAmount: 0,
@@ -694,11 +695,12 @@ export default function SalesCustomerPage({ managerMode = false }) {
                         <div style={{ marginBottom: '16px' }}>
                             <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>Số tiền trả <span style={{ color: '#ef4444' }}>*</span></label>
                             <input 
-                                type="number" 
+                                type="text"
+                                inputMode="numeric"
                                 value={payDebtModal.amount}
                                 onChange={e => setPayDebtModal({
                                     ...payDebtModal,
-                                    amount: e.target.value,
+                                    amount: formatCurrencyInput(e.target.value),
                                     transferRef: '',
                                     transferPreparedAmount: 0,
                                     transferStatusText: '',
@@ -733,7 +735,7 @@ export default function SalesCustomerPage({ managerMode = false }) {
                         </div>
 
                         {/* BUG-16: VietQR dùng bank info từ store settings */}
-                        {payDebtModal.paymentMethod === 'bank_transfer' && Number(payDebtModal.amount) > 0 && (
+                        {payDebtModal.paymentMethod === 'bank_transfer' && parseCurrencyInput(payDebtModal.amount) > 0 && (
                             <div style={{ marginBottom: 20, textAlign: 'center', background: '#f8fafc', padding: 16, borderRadius: 8, border: '1px solid #e2e8f0' }}>
                                 {storeBankInfo.bank_id && storeBankInfo.bank_account ? (
                                     <>
@@ -747,7 +749,7 @@ export default function SalesCustomerPage({ managerMode = false }) {
                                                     Nội dung chuyển khoản bắt buộc: <b>{payDebtModal.transferRef}</b>
                                                 </p>
                                                 <img
-                                                    src={`https://img.vietqr.io/image/${storeBankInfo.bank_id}-${storeBankInfo.bank_account}-compact2.png?amount=${payDebtModal.amount}&addInfo=${encodeURIComponent(payDebtModal.transferRef)}`}
+                                                    src={`https://img.vietqr.io/image/${storeBankInfo.bank_id}-${storeBankInfo.bank_account}-compact2.png?amount=${parseCurrencyInput(payDebtModal.amount)}&addInfo=${encodeURIComponent(payDebtModal.transferRef)}`}
                                                     alt="QR Code"
                                                     style={{ width: 160, height: 160, mixBlendMode: 'multiply' }}
                                                 />
