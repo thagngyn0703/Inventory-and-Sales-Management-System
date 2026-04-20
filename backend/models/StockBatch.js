@@ -34,6 +34,16 @@ const stockBatchSchema = new Schema(
             default: Date.now,
             index: true,
         },
+        expiry_date: {
+            type: Date,
+            default: null,
+            index: true,
+        },
+        is_near_expiry: {
+            type: Boolean,
+            default: false,
+            index: true,
+        },
         receipt_id: {
             type: Schema.Types.ObjectId,
             ref: 'GoodsReceipt',

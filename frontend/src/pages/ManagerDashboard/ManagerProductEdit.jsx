@@ -232,8 +232,6 @@ export default function ManagerProductEdit() {
         if (!baseUnitCheck.ok) return setError(baseUnitCheck.message);
         const costCheck = validateNonNegativeNumber(parseCurrencyInput(form.cost_price), 'Giá vốn');
         if (!costCheck.ok) return setError(costCheck.message);
-        const stockCheck = validateNonNegativeNumber(form.stock_qty, 'Tồn kho');
-        if (!stockCheck.ok) return setError(stockCheck.message);
         const reorderCheck = validateNonNegativeNumber(form.reorder_level, 'Mức tồn tối thiểu');
         if (!reorderCheck.ok) return setError(reorderCheck.message);
         const units = [];
@@ -324,7 +322,6 @@ export default function ManagerProductEdit() {
                 barcode: barcodeCheck.value || undefined,
                 supplier_id: trimString(form.supplier_id) || undefined,
                 cost_price: costCheck.value,
-                stock_qty: stockCheck.value,
                 reorder_level: reorderCheck.value,
                 expiry_date: form.expiry_date ? form.expiry_date : null,
                 base_unit: baseUnitCheck.value,
@@ -442,7 +439,7 @@ export default function ManagerProductEdit() {
 
                             <Card className="xl:col-span-8">
                                 <CardContent className="space-y-4">
-                                    <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Giá sản phẩm & tồn kho</h3>
+                                    <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Giá sản phẩm</h3>
                                     <div className="grid gap-3 md:grid-cols-2">
                                         <div>
                                             <label className="mb-1 block text-sm font-medium text-slate-600">Đơn vị tồn kho (gốc)</label>
@@ -453,10 +450,6 @@ export default function ManagerProductEdit() {
                                         <div>
                                             <label className="mb-1 block text-sm font-medium text-slate-600">Giá vốn (₫) / 1 đơn vị gốc</label>
                                             <input type="text" inputMode="numeric" value={form.cost_price} onChange={(e) => setForm((prev) => ({ ...prev, cost_price: formatCurrencyInput(e.target.value) }))} placeholder="0" className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2" />
-                                        </div>
-                                        <div>
-                                            <label className="mb-1 block text-sm font-medium text-slate-600">Tồn kho hiện tại</label>
-                                            <input type="number" min="0" value={form.stock_qty} onChange={(e) => update('stock_qty', e.target.value)} placeholder="0" className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2" />
                                         </div>
                                         <div>
                                             <label className="mb-1 block text-sm font-medium text-slate-600">Mức tồn tối thiểu</label>
