@@ -77,8 +77,10 @@ function requireRole(allowedRoles, options = {}) {
       });
     }
 
+    const method = String(req.method || '').toUpperCase();
+    const isReadOnlyMethod = ['GET', 'HEAD', 'OPTIONS'].includes(method);
     const skipLockedForManager = allowLockedStoreForManager && role === 'manager';
-    if (isStoreScopedRole && req.user?.storeStatus === 'inactive' && !skipLockedForManager) {
+    if (isStoreScopedRole && req.user?.storeStatus === 'inactive' && !skipLockedForManager && !isReadOnlyMethod) {
       return res.status(403).json({
         message: 'Cửa hàng của bạn đã bị khóa. Vui lòng liên hệ admin để được hỗ trợ.',
         code: 'STORE_LOCKED',
