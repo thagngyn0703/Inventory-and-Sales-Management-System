@@ -133,11 +133,11 @@ function mapRowsFromMatrix(matrix) {
   if (idxCost < 0 || idxSale < 0) {
     return {
       error:
-        'Cần có cột "Giá gốc" và "Giá bán" (hoặc cost_price / sale_price) ở dòng tiêu đề.',
+        'Cần có cột "Giá nhập" và "Giá bán" (hoặc cost_price / sale_price) ở dòng tiêu đề.',
     };
   }
 
-  /** @type {Array<{ row: number, name: string, cost_price: number, sale_price: number, sku?: string, stock_qty: number, base_unit: string, barcode?: string, errors: string[] }>} */
+  /** @type {Array<{ row: number, name: string, cost_price: number|null, sale_price: number, sku?: string, stock_qty: number, base_unit: string, barcode?: string, errors: string[] }>} */
   const out = [];
   for (let i = 1; i < matrix.length; i++) {
     const row = matrix[i];
@@ -154,9 +154,10 @@ function mapRowsFromMatrix(matrix) {
     if (!name) errors.push('Thiếu tên sản phẩm');
     if (name.length > MAX_NAME_LEN) errors.push(`Tên quá dài (tối đa ${MAX_NAME_LEN} ký tự)`);
 
+    const hasCostInput = String(costRaw ?? '').trim() !== '';
     const cost_price = parseNumber(costRaw);
     const sale_price = parseNumber(saleRaw);
-    if (Number.isNaN(cost_price) || cost_price < 0) errors.push('Giá gốc không hợp lệ');
+    if (hasCostInput && (Number.isNaN(cost_price) || cost_price < 0)) errors.push('Giá nhập không hợp lệ');
     if (Number.isNaN(sale_price) || sale_price < 0) errors.push('Giá bán không hợp lệ');
 
     let stock_qty = 0;
@@ -174,7 +175,7 @@ function mapRowsFromMatrix(matrix) {
     out.push({
       row: i + 1,
       name,
-      cost_price: Number.isNaN(cost_price) ? 0 : cost_price,
+      cost_price: Number.isNaN(cost_price) ? null : cost_price,
       sale_price: Number.isNaN(sale_price) ? 0 : sale_price,
       sku: sku || undefined,
       stock_qty,
@@ -210,14 +211,16 @@ function buildTemplateBuffer() {
   const wsData = [
     [
       'Tên sản phẩm',
-      'Giá gốc',
+      'Giá nhập',
       'Giá bán',
       'SKU (tùy chọn)',
-      'Tồn kho (tùy chọn)',
-      'Đơn vị (tùy chọn)',
+      'Số lượng cộng thêm (tùy chọn)',
+      'Đơn vị cơ bản (tùy chọn)',
       'Barcode (tùy chọn)',
     ],
-    ['Ví dụ: Sữa tươi 1L', 15000, 18000, '', 0, 'Hộp', ''],
+    ['Ví dụ mới: Sữa tươi 1L', 15000, 18000, '', 20, 'Lon', ''],
+    ['Ví dụ đã có SKU: C2 Trà chanh', '', 12000, 'C2-CHANH-455', 24, 'Lon', ''],
+    ['Ghi chú', 'Nếu để trống với hàng đã có thì dùng giá vốn hiện tại', 'Hàng đã có: không cập nhật giá bán', 'Ưu tiên match theo Barcode rồi đến SKU', 'Đây là số lượng cộng thêm', 'Số lượng phải theo đơn vị cơ bản', ''],
   ];
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(wsData);

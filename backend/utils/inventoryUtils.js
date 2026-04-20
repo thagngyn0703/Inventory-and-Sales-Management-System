@@ -7,6 +7,28 @@ function roundTo4(value) {
     return Math.round((Number(value) || 0) * 10000) / 10000;
 }
 
+function toValidDate(value) {
+    if (!value) return null;
+    const d = value instanceof Date ? value : new Date(value);
+    return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function compareBatchesForFEFO(a, b) {
+    const aExpiry = toValidDate(a?.expiry_date);
+    const bExpiry = toValidDate(b?.expiry_date);
+    if (aExpiry && bExpiry) {
+        const expiryDiff = aExpiry.getTime() - bExpiry.getTime();
+        if (expiryDiff !== 0) return expiryDiff;
+    } else if (aExpiry && !bExpiry) {
+        return -1;
+    } else if (!aExpiry && bExpiry) {
+        return 1;
+    }
+    const aReceived = toValidDate(a?.received_at) || new Date(0);
+    const bReceived = toValidDate(b?.received_at) || new Date(0);
+    return aReceived.getTime() - bReceived.getTime();
+}
+
 /**
  * Adjust stock using FIFO principles.
  * @param {string} productId
@@ -45,10 +67,9 @@ async function adjustStockFIFO(productId, storeId, amount, options = {}) {
         // DEDUCT (FIFO) — kiểm tra đủ tồn FIFO *trước* khi ghi batch để tránh lệch batch vs stock_qty khi thiếu hàng
         let remainingToDeduct = absAmount;
         let batches = await findQuery(
-            StockBatch.find({ productId: pid, storeId: sid, remaining_qty: { $gt: 0 } }).sort({
-                received_at: 1,
-            })
+            StockBatch.find({ productId: pid, storeId: sid, remaining_qty: { $gt: 0 } })
         );
+        batches = batches.sort(compareBatchesForFEFO);
 
         if (batches.length === 0) {
             const stockQty = Number(productBefore.stock_qty) || 0;
@@ -67,6 +88,8 @@ async function adjustStockFIFO(productId, storeId, amount, options = {}) {
                             remaining_qty: stockQty,
                             unit_cost: roundTo4(productBefore.cost_price || 0),
                             received_at: productBefore.created_at || new Date(),
+                            expiry_date: null,
+                            is_near_expiry: false,
                             note: 'Hàng tồn kho ban đầu (Legacy)',
                         },
                     ],
@@ -116,6 +139,8 @@ async function adjustStockFIFO(productId, storeId, amount, options = {}) {
                     remaining_qty: absAmount,
                     unit_cost: roundTo4(batchMeta.unitCost || 0),
                     received_at: batchMeta.receivedAt || new Date(),
+                    expiry_date: toValidDate(batchMeta.expiryDate),
+                    is_near_expiry: false,
                     receipt_id: batchMeta.receiptId || undefined,
                     note: batchMeta.note || undefined,
                 },

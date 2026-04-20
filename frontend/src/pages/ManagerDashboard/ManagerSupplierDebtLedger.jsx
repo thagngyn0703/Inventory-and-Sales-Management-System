@@ -146,7 +146,6 @@ export default function ManagerSupplierDebtLedger() {
         subtitle={supplier?.name || 'Nhà cung cấp'}
         headerActions={(
           <div className="flex gap-2">
-            <Button type="button" variant="outline" onClick={() => navigate(`/manager/supplier-returns?supplier_id=${id}`)}>Phiếu trả NCC</Button>
             <Button type="button" variant="outline" onClick={() => navigate('/manager/suppliers')}>Danh sách NCC</Button>
           </div>
         )}

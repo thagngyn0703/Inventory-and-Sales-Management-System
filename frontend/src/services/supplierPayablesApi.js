@@ -46,8 +46,8 @@ export async function getSupplierPayable(id) {
 }
 
 /**
- * Ghi nhận thanh toán NCC (FIFO allocation tự động)
- * @param {{ supplier_id, total_amount, payment_date?, payment_method?, reference_code?, note? }} body
+ * Ghi nhận thanh toán NCC (có thể chọn các khoản nợ cụ thể)
+ * @param {{ supplier_id, total_amount, payable_ids?, payment_date?, payment_method?, reference_code?, note? }} body
  */
 export async function createSupplierPayment(body) {
     const res = await fetch(`${API_BASE}/supplier-payables/payments`, {

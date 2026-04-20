@@ -319,18 +319,17 @@ async function syncProductUnitsFromProduct(productDoc, session = null) {
 }
 
 /**
- * Import merge: match by product name first (case-insensitive, exact string — chủ hàng thường nhớ đúng tên),
- * then by SKU if no name match (hữu ích khi đã có mã trên hệ thống).
+ * Import merge: match by barcode first, then SKU.
  */
-async function findExistingProductForImport({ sku, name, storeId }) {
+async function findExistingProductForImport({ sku, barcode, storeId }) {
   const storeFilter = storeId ? { storeId } : { storeId: null };
-  const trimmedName = String(name || '').trim();
-  if (trimmedName) {
-    const byName = await Product.findOne({
+  const trimmedBarcode = String(barcode || '').trim();
+  if (trimmedBarcode) {
+    const byBarcode = await Product.findOne({
       ...storeFilter,
-      name: new RegExp(`^${escapeRegex(trimmedName)}$`, 'i'),
+      $or: [{ barcode: trimmedBarcode }],
     });
-    if (byName) return byName;
+    if (byBarcode) return byBarcode;
   }
   const trimmedSku = String(sku || '').trim();
   if (trimmedSku) {
@@ -338,6 +337,16 @@ async function findExistingProductForImport({ sku, name, storeId }) {
     if (bySku) return bySku;
   }
   return null;
+}
+
+async function findExistingProductByNameExact({ name, storeId }) {
+  const trimmedName = String(name || '').trim();
+  if (!trimmedName) return null;
+  const storeFilter = storeId ? { storeId } : { storeId: null };
+  return Product.findOne({
+    ...storeFilter,
+    name: new RegExp(`^${escapeRegex(trimmedName)}$`, 'i'),
+  });
 }
 
 async function logPriceChange({
@@ -954,32 +963,46 @@ router.post(
         errors: r.errors,
       }));
 
-      // So sánh giá với sản phẩm đang có trong DB để cảnh báo thay đổi giá
-      const price_changes = [];
+      let existingCount = 0;
+      let newCount = 0;
       for (const r of rows) {
         if (!r.valid) continue;
+        const hasIdentity = Boolean(String(r.sku || '').trim() || String(r.barcode || '').trim());
         const existing = await findExistingProductForImport({
           sku: r.sku,
-          name: r.name,
+          barcode: r.barcode,
           storeId: resolvedStoreId,
         });
-        if (!existing) continue;
-        const oldCost = Number(existing.cost_price) || 0;
-        const oldSale = Number(existing.sale_price) || 0;
-        const newCost = Number(r.cost_price) || 0;
-        const newSale = Number(r.sale_price) || 0;
-        if (oldCost !== newCost || oldSale !== newSale) {
-          price_changes.push({
-            row: r.row,
-            name: existing.name,
-            sku: existing.sku,
-            old_cost_price: oldCost,
-            new_cost_price: newCost,
-            old_sale_price: oldSale,
-            new_sale_price: newSale,
-            cost_changed: oldCost !== newCost,
-            sale_changed: oldSale !== newSale,
-          });
+        if (existing) {
+          existingCount += 1;
+          r.import_action = 'stock_increase_only';
+          r.match_product = { _id: existing._id, name: existing.name, sku: existing.sku || '' };
+          if ((Number(r.stock_qty) || 0) <= 0) {
+            r.valid = false;
+            r.errors = [...(r.errors || []), 'Sản phẩm đã có: tồn kho import phải lớn hơn 0 để cộng dồn.'];
+          }
+        } else {
+          if (!hasIdentity) {
+            const conflictByName = await findExistingProductByNameExact({
+              name: r.name,
+              storeId: resolvedStoreId,
+            });
+            if (conflictByName) {
+              r.valid = false;
+              r.errors = [
+                ...(r.errors || []),
+                'Tên sản phẩm đã tồn tại nhưng thiếu SKU/Barcode để định danh. Vui lòng nhập SKU hoặc Barcode.',
+              ];
+              continue;
+            }
+          }
+          if (r.cost_price == null) {
+            r.valid = false;
+            r.errors = [...(r.errors || []), 'Sản phẩm mới bắt buộc có Giá nhập.'];
+            continue;
+          }
+          newCount += 1;
+          r.import_action = 'create_new';
         }
       }
 
@@ -988,8 +1011,8 @@ router.post(
         totalRows: rows.length,
         validCount: rows.filter((x) => x.valid).length,
         invalidCount: rows.filter((x) => !x.valid).length,
-        price_changes,
-        has_price_changes: price_changes.length > 0,
+        existingCount,
+        newCount,
       });
     } catch (err) {
       console.error(err);
@@ -998,11 +1021,10 @@ router.post(
   }
 );
 
-// POST /api/products/import/commit — body: { rows: [...], storeId?, confirmPriceChanges?: boolean }
+// POST /api/products/import/commit — body: { rows: [...], storeId? }
 router.post('/import/commit', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
   try {
-    const { rows, confirmPriceChanges, mode = 'catalog' } = req.body || {};
-    const isOpeningBalance = mode === 'opening_balance';
+    const { rows } = req.body || {};
     if (!Array.isArray(rows) || rows.length === 0) {
       return res.status(400).json({ message: 'Không có dữ liệu để import.' });
     }
@@ -1018,45 +1040,11 @@ router.post('/import/commit', requireAuth, requireRole(['manager', 'admin']), as
         ? req.body.storeId
         : undefined
       : requesterStoreId;
-    if (!isPlatformImport && !resolvedStoreId) {
+    if (!resolvedStoreId) {
       return res.status(403).json({
-        message: 'Manager chưa có cửa hàng. Vui lòng đăng ký cửa hàng trước khi import.',
+        message: 'Cần xác định cửa hàng trước khi import.',
         code: 'STORE_REQUIRED',
       });
-    }
-
-    // Kiểm tra thay đổi giá bán — nếu có mà chưa xác nhận thì chặn lại
-    // Lưu ý: import Excel CHỈ cập nhật giá bán (sale_price) và thông tin catalog.
-    // Giá vốn (cost_price) KHÔNG bị thay đổi qua import — phải đi qua phiếu nhập hàng (GoodsReceipt).
-    // Số lượng tồn kho KHÔNG cộng thêm qua import — phải đi qua phiếu nhập hàng (GoodsReceipt).
-    if (!confirmPriceChanges) {
-      const pendingChanges = [];
-      for (const raw of rows) {
-        const name = String(raw.name || '').trim();
-        const existing = await findExistingProductForImport({
-          sku: raw.sku != null ? String(raw.sku).trim() : '',
-          name,
-          storeId: resolvedStoreId,
-        });
-        if (!existing) continue;
-        const oldSale = Number(existing.sale_price) || 0;
-        const newSale = Number(raw.sale_price) || 0;
-        if (oldSale !== newSale) {
-          pendingChanges.push({
-            name: existing.name,
-            sku: existing.sku,
-            old_sale_price: oldSale,
-            new_sale_price: newSale,
-          });
-        }
-      }
-      if (pendingChanges.length > 0) {
-        return res.status(409).json({
-          code: 'PRICE_CHANGE_CONFIRMATION_REQUIRED',
-          message: `Có ${pendingChanges.length} sản phẩm bị thay đổi giá bán. Vui lòng xác nhận trước khi import.`,
-          price_changes: pendingChanges,
-        });
-      }
     }
 
     const base = 'Cái';
@@ -1068,17 +1056,18 @@ router.post('/import/commit', requireAuth, requireRole(['manager', 'admin']), as
       const raw = rows[i];
       const rowLabel = Number(raw.row) || i + 1;
       const name = String(raw.name || '').trim();
-      const cost_price = Number(raw.cost_price);
+      const cost_price = raw.cost_price == null || raw.cost_price === '' ? null : Number(raw.cost_price);
       const sale_price = Number(raw.sale_price);
       const explicitSku = raw.sku != null ? String(raw.sku).trim() : '';
       const stockRaw = Number(raw.stock_qty ?? 0);
       const stock_qty = Number.isFinite(stockRaw) ? Math.round(stockRaw) : NaN;
       const base_unit = raw.base_unit ? String(raw.base_unit).trim() : 'Cái';
       const barcodeIn = raw.barcode != null ? String(raw.barcode).trim() : '';
+      const hasIdentity = Boolean(explicitSku || barcodeIn);
 
       const rowErrors = [];
       if (!name) rowErrors.push('Thiếu tên sản phẩm');
-      if (Number.isNaN(cost_price) || cost_price < 0) rowErrors.push('Giá gốc không hợp lệ');
+      if (cost_price != null && (Number.isNaN(cost_price) || cost_price < 0)) rowErrors.push('Giá nhập không hợp lệ');
       if (Number.isNaN(sale_price) || sale_price < 0) rowErrors.push('Giá bán không hợp lệ');
       if (Number.isNaN(stock_qty) || stock_qty < 0) rowErrors.push('Tồn kho không hợp lệ');
 
@@ -1090,101 +1079,81 @@ router.post('/import/commit', requireAuth, requireRole(['manager', 'admin']), as
       try {
         const existing = await findExistingProductForImport({
           sku: explicitSku,
-          name,
+          barcode: barcodeIn,
           storeId: resolvedStoreId,
         });
 
         if (existing) {
-          const oldSale = Number(existing.sale_price) || 0;
-          const oldCost = Number(existing.cost_price) || 0;
-
-          if (barcodeIn) {
-            const dupBc = await findBarcodeDuplicate({
-              barcode: barcodeIn,
-              storeId: resolvedStoreId,
-              excludeId: existing._id,
+          if (stock_qty <= 0) {
+            failed.push({
+              row: rowLabel,
+              errors: ['Sản phẩm đã có trong hệ thống: chỉ chấp nhận cộng tồn kho với số lượng > 0.'],
             });
-            if (dupBc) {
-              failed.push({
-                row: rowLabel,
-                errors: [`Barcode "${barcodeIn}" đã gán cho sản phẩm khác trong cửa hàng.`],
-              });
-              continue;
-            }
+            continue;
           }
 
-          if (isOpeningBalance) {
-            // Chế độ Nhập đầu kỳ: SET tồn kho về đúng số trong file Excel, cập nhật cả giá vốn và giá bán
-            const newQty = Math.round(stock_qty);
-            const newCost = Math.round(cost_price);
-            const currentQty = Number(existing.stock_qty) || 0;
-            const delta = newQty - currentQty;
+          const targetStoreId = existing.storeId || resolvedStoreId;
+          const unitCost = Math.round(cost_price != null ? cost_price : (Number(existing.cost_price) || 0));
+          const totalAmount = unitCost * stock_qty;
+          const [receipt] = await GoodsReceipt.create([{
+            storeId: targetStoreId,
+            received_by: req.user.id,
+            approved_by: req.user.id,
+            status: 'approved',
+            received_at: new Date(),
+            items: [{
+              product_id: existing._id,
+              product_name_snapshot: String(existing.name || '').trim() || undefined,
+              product_sku_snapshot: String(existing.sku || '').trim() || undefined,
+              quantity: stock_qty,
+              unit_cost: unitCost,
+              system_unit_cost: Number(existing.cost_price) || unitCost,
+              unit_name: existing.base_unit || 'Cái',
+              ratio: 1,
+            }],
+            total_amount: totalAmount,
+            reason: `Import từ Excel (dòng ${rowLabel})`,
+          }]);
 
-            // Xóa toàn bộ lô cũ còn hàng và tạo lại lô mới với số lượng đầu kỳ
-            await StockBatch.deleteMany({ productId: existing._id, storeId: resolvedStoreId || existing.storeId });
-            if (newQty > 0) {
-              await StockBatch.create({
-                productId: existing._id,
-                storeId: resolvedStoreId || existing.storeId,
-                initial_qty: newQty,
-                remaining_qty: newQty,
-                unit_cost: newCost,
-                received_at: new Date(),
-                note: 'Tồn kho đầu kỳ (Import Excel)',
-              });
-            }
+          await adjustStockFIFO(existing._id, targetStoreId, stock_qty, {
+            unitCost,
+            receivedAt: new Date(),
+            receiptId: receipt._id,
+            note: 'Import từ Excel',
+            movementType: 'IN_GR',
+            referenceType: 'goods_receipt',
+            referenceId: receipt._id,
+            actorId: req.user.id,
+          });
 
-            existing.stock_qty = newQty;
-            existing.cost_price = newCost;
-            existing.sale_price = Math.round(sale_price);
-            existing.base_unit = base_unit || base;
-            existing.selling_units = [{ name: base_unit || base, ratio: 1, sale_price: Math.round(sale_price) }];
-            if (barcodeIn) existing.barcode = barcodeIn;
-            existing.updated_at = new Date();
-            await existing.save();
+          const afterUpdate = await Product.findById(existing._id).lean();
+          updated.push({
+            row: rowLabel,
+            action: 'stock_increased',
+            note: `Cộng tồn kho +${stock_qty.toLocaleString('vi-VN')} cho sản phẩm đã có; giá giữ nguyên.`,
+            product: normalizeProduct(afterUpdate || existing.toObject()),
+          });
+          continue;
+        }
 
-            await logPriceChange({
-              productId: existing._id,
-              storeId: existing.storeId || resolvedStoreId || null,
-              changedBy: req.user?.id,
-              source: 'opening_balance',
-              sourceNote: 'Nhập đầu kỳ từ Excel',
-              oldCost,
-              newCost: existing.cost_price,
-              oldSale,
-              newSale: existing.sale_price,
-            });
-            updated.push({
+        if (!hasIdentity) {
+          const conflictByName = await findExistingProductByNameExact({
+            name,
+            storeId: resolvedStoreId,
+          });
+          if (conflictByName) {
+            failed.push({
               row: rowLabel,
-              action: 'updated',
-              note: `Đầu kỳ: đặt lại tồn kho = ${newQty}, giá vốn = ${newCost.toLocaleString('vi-VN')}₫.`,
-              product: normalizeProduct(existing.toObject()),
+              errors: ['Tên sản phẩm đã tồn tại nhưng thiếu SKU/Barcode để định danh. Vui lòng nhập SKU hoặc Barcode.'],
             });
-          } else {
-            // Chế độ Cập nhật danh mục: chỉ cập nhật giá bán và thông tin catalog, KHÔNG đổi tồn kho hay giá vốn
-            existing.sale_price = Math.round(sale_price);
-            existing.base_unit = base_unit || base;
-            existing.selling_units = [{ name: base_unit || base, ratio: 1, sale_price: Math.round(sale_price) }];
-            if (barcodeIn) existing.barcode = barcodeIn;
-            existing.updated_at = new Date();
-            await existing.save();
-            await logPriceChange({
-              productId: existing._id,
-              storeId: existing.storeId || resolvedStoreId || null,
-              changedBy: req.user?.id,
-              source: 'import_excel',
-              oldCost,
-              newCost: oldCost,
-              oldSale,
-              newSale: existing.sale_price,
-            });
-            updated.push({
-              row: rowLabel,
-              action: 'updated',
-              note: 'Cập nhật giá bán và thông tin catalog. Tồn kho và giá vốn không thay đổi.',
-              product: normalizeProduct(existing.toObject()),
-            });
+            continue;
           }
+        }
+        if (cost_price == null) {
+          failed.push({
+            row: rowLabel,
+            errors: ['Sản phẩm mới bắt buộc có Giá nhập.'],
+          });
           continue;
         }
 
@@ -1220,28 +1189,49 @@ router.post('/import/commit', requireAuth, requireRole(['manager', 'admin']), as
           barcode: barcodeIn || undefined,
           cost_price: newCostRounded,
           sale_price: Math.round(sale_price),
-          stock_qty,
+          stock_qty: 0,
           reorder_level: 0,
           base_unit: base_unit || base,
           selling_units,
           status: 'active',
         });
+        await syncProductUnitsFromProduct(doc);
 
-        // Với sản phẩm mới: luôn tạo StockBatch để FIFO tracking hoạt động đúng
         if (stock_qty > 0) {
-          const batchNote = isOpeningBalance ? 'Tồn kho đầu kỳ (Import Excel)' : 'Nhập kho ban đầu qua Import Excel';
-          await StockBatch.create({
-            productId: doc._id,
+          const [receipt] = await GoodsReceipt.create([{
             storeId: resolvedStoreId,
-            initial_qty: stock_qty,
-            remaining_qty: stock_qty,
-            unit_cost: newCostRounded,
+            received_by: req.user.id,
+            approved_by: req.user.id,
+            status: 'approved',
             received_at: new Date(),
-            note: batchNote,
+            items: [{
+              product_id: doc._id,
+              product_name_snapshot: String(doc.name || '').trim() || undefined,
+              product_sku_snapshot: String(doc.sku || '').trim() || undefined,
+              quantity: stock_qty,
+              unit_cost: newCostRounded,
+              system_unit_cost: newCostRounded,
+              unit_name: doc.base_unit || 'Cái',
+              ratio: 1,
+            }],
+            total_amount: newCostRounded * stock_qty,
+            reason: `Import từ Excel (tạo mới, dòng ${rowLabel})`,
+          }]);
+          await adjustStockFIFO(doc._id, resolvedStoreId, stock_qty, {
+            unitCost: newCostRounded,
+            receivedAt: new Date(),
+            receiptId: receipt._id,
+            note: 'Import từ Excel (tạo mới)',
+            newCostPrice: newCostRounded,
+            movementType: 'IN_GR',
+            referenceType: 'goods_receipt',
+            referenceId: receipt._id,
+            actorId: req.user.id,
           });
         }
 
-        created.push({ row: rowLabel, action: 'created', product: normalizeProduct(doc.toObject()) });
+        const newDoc = await Product.findById(doc._id).lean();
+        created.push({ row: rowLabel, action: 'created', product: normalizeProduct(newDoc || doc.toObject()) });
       } catch (e) {
         if (e?.code === 11000) {
           const keys = e.keyPattern || {};
