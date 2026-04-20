@@ -11,9 +11,10 @@ Optional:
 
 - `DEPLOY_BRANCH`: branch deploy target (default `main`).
 
-## 2) Repository variable
+## 2) Auto deploy behavior
 
-- `ENABLE_VPS_DEPLOY=true` to allow auto deploy when pushing `main/master`.
+- Deploy runs automatically on every push to `main/master` (including merge commits).
+- You can still trigger deploy manually with `workflow_dispatch`.
 
 ## 3) VPS prerequisites
 
