@@ -75,12 +75,6 @@ async function resolveReceiptUnitSnapshot({ product, rawItem, storeId }) {
         : null;
     const requestedUnitName = String(rawItem?.unit_name || '').trim();
 
-    if (!requestedUnitId) {
-        const err = new Error('Vui lòng chọn đơn vị nhập hợp lệ (unit_id).');
-        err.status = 400;
-        throw err;
-    }
-
     let unitDoc = null;
     if (requestedUnitId) {
         unitDoc = await ProductUnit.findOne({
@@ -308,6 +302,9 @@ router.get('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), asyn
 // POST /api/goods-receipts  (staff, manager)
 router.post('/', requireAuth, requireRole(['staff', 'manager']), async (req, res) => {
     try {
+        if (String(req.user?.role || '').toLowerCase() === 'admin') {
+            return res.status(403).json({ message: 'Forbidden' });
+        }
         const {
             po_id,
             supplier_id,
@@ -333,6 +330,9 @@ router.post('/', requireAuth, requireRole(['staff', 'manager']), async (req, res
             }
             if (!it.quantity || Number(it.quantity) <= 0) {
                 return res.status(400).json({ message: 'Invalid quantity in items' });
+            }
+            if (it.unit_cost != null && Number(it.unit_cost) < 0) {
+                return res.status(400).json({ message: 'Invalid unit_cost in items' });
             }
         }
 
@@ -603,31 +603,46 @@ router.patch('/:id/status', requireAuth, requireRole(['manager', 'admin']), asyn
             due_date_payable,        // hạn thanh toán (với credit)
         } = req.body || {};
         if (!mongoose.isValidObjectId(id)) return res.status(400).json({ message: 'Invalid id' });
-        if (!['approved', 'rejected'].includes(status)) {
-            return res.status(400).json({ message: 'Chỉ được chuyển sang approved hoặc rejected' });
-        }
-        if (status === 'rejected' && (!rejection_reason || !String(rejection_reason).trim())) {
-            return res.status(400).json({ message: 'Vui lòng nhập lý do từ chối' });
+        if (!['pending', 'approved', 'rejected'].includes(status)) {
+            return res.status(400).json({ message: 'Invalid status' });
         }
 
         const scopeFilter = { _id: id };
         if (req.user.role !== 'admin') scopeFilter.storeId = req.user.storeId;
         const existedInScope = await GoodsReceipt.findOne(scopeFilter).lean();
         if (!existedInScope) {
-            return res.status(req.user.role === 'admin' ? 404 : 403).json({
-                message: req.user.role === 'admin'
-                    ? 'Goods receipt not found'
-                    : 'Forbidden: phiếu không thuộc cửa hàng của bạn',
-            });
+            return res.status(404).json({ message: 'Goods receipt not found' });
         }
-        if (existedInScope.status !== 'pending') {
-            return res.status(409).json({ message: `Phiếu đang ở trạng thái "${existedInScope.status}", không thể xử lý lặp` });
+
+        if (status === 'pending') {
+            if (existedInScope.status !== 'draft') {
+                return res.status(409).json({ message: `Phiếu đang ở trạng thái "${existedInScope.status}", không thể xử lý lặp` });
+            }
+            const gr = await GoodsReceipt.findOneAndUpdate(
+                { ...scopeFilter, status: 'draft' },
+                { $set: { status: 'pending', updated_at: new Date() } },
+                { new: true }
+            );
+            if (!gr) {
+                return res.status(409).json({ message: 'Phiếu đã được xử lý trước đó. Vui lòng tải lại danh sách.' });
+            }
+            const updated = await GoodsReceipt.findById(id)
+                .populate('supplier_id', 'name phone email')
+                .populate('received_by', 'fullName email')
+                .populate('approved_by', 'fullName email')
+                .populate('items.product_id', 'name sku cost_price sale_price base_unit selling_units')
+                .lean();
+            await emitManagerBadgeRefresh({ storeId: gr.storeId ? String(gr.storeId) : null });
+            return res.json({ goodsReceipt: updated });
         }
 
         if (status === 'approved') {
+            if (!['pending', 'draft'].includes(existedInScope.status)) {
+                return res.status(409).json({ message: `Phiếu đang ở trạng thái "${existedInScope.status}", không thể xử lý lặp` });
+            }
             session.startTransaction();
             const gr = await GoodsReceipt.findOneAndUpdate(
-                { ...scopeFilter, status: 'pending' },
+                { ...scopeFilter, status: { $in: ['pending', 'draft'] } },
                 {
                     $set: {
                         status: 'approved',
@@ -830,12 +845,16 @@ router.patch('/:id/status', requireAuth, requireRole(['manager', 'admin']), asyn
             await emitManagerBadgeRefresh({ storeId: gr.storeId ? String(gr.storeId) : null });
             return res.json({ goodsReceipt: updated });
         } else {
+            if (!['pending', 'draft'].includes(existedInScope.status)) {
+                return res.status(409).json({ message: `Phiếu đang ở trạng thái "${existedInScope.status}", không thể xử lý lặp` });
+            }
+            const rejectedReason = String(rejection_reason || req.body?.reason || '').trim();
             const gr = await GoodsReceipt.findOneAndUpdate(
-                { ...scopeFilter, status: 'pending' },
+                { ...scopeFilter, status: { $in: ['pending', 'draft'] } },
                 {
                     $set: {
                         status: 'rejected',
-                        rejection_reason: String(rejection_reason).trim(),
+                        rejection_reason: rejectedReason || undefined,
                         approved_by: req.user.id,
                         updated_at: new Date(),
                     },

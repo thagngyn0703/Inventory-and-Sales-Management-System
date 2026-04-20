@@ -483,7 +483,7 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
     }
     if (!skuTrim) return res.status(400).json({ message: 'SKU không được để trống.' });
     if (!SKU_REGEX.test(skuTrim)) {
-      return res.status(400).json({ message: 'SKU chỉ được gồm chữ, số và dấu phẩy.' });
+      return res.status(400).json({ message: 'SKU chỉ được gồm chữ và số.' });
     }
     if (barcodeTrim && !DIGITS_ONLY_REGEX.test(barcodeTrim)) {
       return res.status(400).json({ message: 'Barcode chỉ được nhập số, không chữ hoặc ký tự đặc biệt.' });
@@ -622,13 +622,10 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
     }
 
     const resolvedSupplierId = supplier_id && mongoose.isValidObjectId(supplier_id) ? supplier_id : undefined;
-    if (stockNum > 0 && !resolvedSupplierId) {
-      return res.status(400).json({ message: 'Vui lòng chọn nhà cung cấp khi nhập tồn kho ban đầu.' });
-    }
 
     // Tạo sản phẩm với stock_qty = 0; tồn kho sẽ được cộng qua GoodsReceipt bên dưới
     // Với trường hợp có tồn kho ban đầu, chạy transaction all-or-nothing để tránh tạo dở dang.
-    if (stockNum > 0) {
+    if (stockNum > 0 && resolvedSupplierId) {
       const session = await mongoose.startSession();
       try {
         session.startTransaction();
@@ -1477,7 +1474,7 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
       const skuTrim = trimText(sku);
       if (!skuTrim) return res.status(400).json({ message: 'SKU không được để trống.' });
       if (!SKU_REGEX.test(skuTrim)) {
-        return res.status(400).json({ message: 'SKU chỉ được gồm chữ, số và dấu phẩy.' });
+        return res.status(400).json({ message: 'SKU chỉ được gồm chữ và số.' });
       }
       product.sku = skuTrim;
     }
