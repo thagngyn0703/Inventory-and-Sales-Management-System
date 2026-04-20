@@ -17,6 +17,7 @@ export async function getProducts(page = 1, limit = 20, query = '') {
     url.searchParams.set('limit', String(limit));
     if (query && query.trim()) url.searchParams.set('q', query.trim());
     const res = await fetch(url.toString(), {
+        cache: 'no-store',
         headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) {
@@ -71,7 +72,13 @@ export async function createProduct(body) {
         body: JSON.stringify(body),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.message || 'Không thể tạo sản phẩm');
+    if (!res.ok) {
+        const err = new Error(data.message || 'Không thể tạo sản phẩm');
+        err.code = data.code;
+        err.existing_product_id = data.existing_product_id;
+        err.duplicate_keys = data.duplicate_keys;
+        throw err;
+    }
     return data.product;
 }
 
@@ -110,6 +117,21 @@ export async function updateProduct(id, body) {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.message || 'Không thể cập nhật sản phẩm');
     return data.product;
+}
+
+export async function updateProductUnits(id, units = []) {
+    const token = getToken();
+    const res = await fetch(`${API_BASE}/products/${id}/units`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ units }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.message || 'Không thể cập nhật đơn vị sản phẩm');
+    return data.units || [];
 }
 
 /**

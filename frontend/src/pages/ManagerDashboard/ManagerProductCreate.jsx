@@ -4,7 +4,7 @@ import { Platform } from 'react-bits/lib/modules/Platform';
 import { Search, Plus, X, Barcode, Package } from 'lucide-react';
 import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
-import { createProduct, getProducts, uploadProductImages } from '../../services/productsApi';
+import { createProduct, getProducts, updateProductUnits, uploadProductImages } from '../../services/productsApi';
 import { minExpiryDateString, isExpiryDateNotInPast } from '../../utils/dateInput';
 import {
     trimString,
@@ -22,7 +22,7 @@ import './ManagerProducts.css';
 
 const PRODUCT_BASE_UNITS = ['Cái', 'Chai', 'Lon', 'Thùng', 'Hộp', 'Kg', 'Gói', 'Lít'];
 
-const defaultSellingUnit = () => ({ name: 'Cái', ratio: 1, sale_price: '' });
+const defaultSellingUnit = () => ({ name: 'Cái', ratio: 1, sale_price: '', barcode: '' });
 
 const createDefaultForm = () => ({
     name: '',
@@ -55,6 +55,7 @@ export default function ManagerProductCreate() {
     const [scanConfirmOpen, setScanConfirmOpen] = useState(false);
     const [pendingScanCode, setPendingScanCode] = useState('');
     const [toast, setToast] = useState(null);
+    const [existingMatch, setExistingMatch] = useState(null);
     const scanBufferRef = useRef('');
     const scanTimerRef = useRef(null);
     const toastTimerRef = useRef(null);
@@ -174,7 +175,7 @@ export default function ManagerProductCreate() {
     const addSellingUnit = () => {
         setForm((prev) => ({
             ...prev,
-            selling_units: [...prev.selling_units, { name: prev.base_unit || 'Cái', ratio: '', sale_price: '' }],
+            selling_units: [...prev.selling_units, { name: prev.base_unit || 'Cái', ratio: '', sale_price: '', barcode: '' }],
         }));
     };
 
@@ -205,6 +206,7 @@ export default function ManagerProductCreate() {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        setExistingMatch(null);
         const nameCheck = validateNoSpecialText(form.name, 'Tên sản phẩm', { required: true });
         if (!nameCheck.ok) return setError(nameCheck.message);
         const skuCheck = validateSku(form.sku);
@@ -236,6 +238,7 @@ export default function ManagerProductCreate() {
                 name: nameUnitCheck.value,
                 ratio: ratioCheck.value,
                 sale_price: salePriceCheck.value,
+                barcode: trimString(u.barcode || ''),
             });
         }
         if (units.length === 0) {
@@ -244,7 +247,44 @@ export default function ManagerProductCreate() {
         }
         const hasBase = units.some((u) => u.ratio === 1);
         if (!hasBase) {
-            units.unshift({ name: form.base_unit || 'Cái', ratio: 1, sale_price: units[0]?.sale_price ?? 0 });
+            units.unshift({
+                name: form.base_unit || 'Cái',
+                ratio: 1,
+                sale_price: units[0]?.sale_price ?? 0,
+                barcode: '',
+            });
+        }
+        const seenUnitNames = new Set();
+        const seenUnitBarcodes = new Set();
+        const unitPayload = [];
+        for (const u of units) {
+            const unitNameKey = String(u.name || '').trim().toLowerCase();
+            if (seenUnitNames.has(unitNameKey)) {
+                setError(`Đơn vị "${u.name}" bị trùng. Mỗi sản phẩm chỉ có một dòng cho mỗi đơn vị.`);
+                return;
+            }
+            seenUnitNames.add(unitNameKey);
+            const unitBarcode = validateBarcode(u.barcode || '');
+            if (!unitBarcode.ok) return setError(`${u.name}: ${unitBarcode.message}`);
+            const normalizedBarcode = unitBarcode.value || '';
+            if (normalizedBarcode) {
+                if (seenUnitBarcodes.has(normalizedBarcode)) {
+                    setError(`Barcode "${normalizedBarcode}" bị trùng giữa các đơn vị bán.`);
+                    return;
+                }
+                seenUnitBarcodes.add(normalizedBarcode);
+            }
+            unitPayload.push({
+                unit_name: u.name,
+                exchange_value: u.ratio,
+                price: u.sale_price,
+                barcode: normalizedBarcode || undefined,
+                is_base: Number(u.ratio) === 1,
+            });
+        }
+        if (barcodeCheck.value) {
+            const baseUnit = unitPayload.find((u) => u.is_base) || unitPayload[0];
+            if (baseUnit && !baseUnit.barcode) baseUnit.barcode = barcodeCheck.value;
         }
 
         if (form.expiry_date && !isExpiryDateNotInPast(form.expiry_date)) {
@@ -253,6 +293,26 @@ export default function ManagerProductCreate() {
         }
         if (selectedImages.length > 3) {
             setError('Chỉ được chọn tối đa 3 ảnh cho mỗi sản phẩm.');
+            return;
+        }
+
+        const normalizedName = String(nameCheck.value || '').trim().toLowerCase();
+        const normalizedSku = String(skuCheck.value || '').trim().toLowerCase();
+        const normalizedBarcode = String(barcodeCheck.value || '').trim().toLowerCase();
+        const duplicate = (existingProducts || []).find((p) => {
+            const pName = String(p?.name || '').trim().toLowerCase();
+            const pSku = String(p?.sku || '').trim().toLowerCase();
+            const pBarcode = String(p?.barcode || '').trim().toLowerCase();
+            if (normalizedBarcode && pBarcode && pBarcode === normalizedBarcode) return true;
+            if (normalizedSku && pSku && pSku === normalizedSku) return true;
+            if (normalizedName && pName && pName === normalizedName) return true;
+            return false;
+        });
+        if (duplicate) {
+            setExistingMatch(duplicate);
+            setError(
+                `Sản phẩm "${duplicate.name}" đã tồn tại. Theo SOP, hãy dùng luồng nhập hàng cho sản phẩm đã có để tránh tạo trùng dữ liệu.`
+            );
             return;
         }
 
@@ -279,7 +339,10 @@ export default function ManagerProductCreate() {
                 status: form.status === 'inactive' ? 'inactive' : 'active',
             };
 
-            await createProduct(payload);
+            const created = await createProduct(payload);
+            if (created?._id && unitPayload.length > 0) {
+                await updateProductUnits(created._id, unitPayload);
+            }
             const hasStock = stockCheck.value > 0;
             navigate('/manager/products', {
                 state: {
@@ -325,6 +388,13 @@ export default function ManagerProductCreate() {
                     name: u.name || p.base_unit || 'Cái',
                     ratio: u.ratio != null ? u.ratio : 1,
                     sale_price: u.sale_price != null ? String(u.sale_price) : '',
+                    barcode: (() => {
+                        const matchedUnit = (p.units || []).find(
+                            (x) => String(x.unit_name || '').trim() === String(u.name || '').trim()
+                                && Number(x.exchange_value || 1) === Number(u.ratio || 1)
+                        );
+                        return matchedUnit?.barcode || '';
+                    })(),
                 }))
                 : prev.selling_units,
             image_urls: Array.isArray(p.image_urls) ? p.image_urls.slice(0, 3) : [],
@@ -376,6 +446,19 @@ export default function ManagerProductCreate() {
             >
                 <div className="manager-product-create-fullwidth">
                     <form onSubmit={handleSubmit} className="space-y-4">
+                        <Card className="xl:col-span-12">
+                            <CardContent className="space-y-2 py-4">
+                                <h2 className="text-sm font-semibold text-slate-700">SOP vận hành tối ưu cho tạp hóa nhỏ</h2>
+                                <ol className="list-decimal space-y-1 pl-5 text-xs text-slate-600">
+                                    <li>Tạo sản phẩm một lần duy nhất theo hàng gốc.</li>
+                                    <li>Khai báo đầy đủ đơn vị bán (lon, thùng, ...) và barcode riêng cho từng đơn vị.</li>
+                                    <li>Nhập hàng theo đơn vị thực tế (thùng/lon), hệ thống tự quy đổi về đơn vị gốc.</li>
+                                    <li>Từ lần nhập sau, luôn dùng màn Nhập hàng nhanh/Phiếu nhập cho sản phẩm đã có.</li>
+                                    <li>Chỉ thêm đơn vị mới khi nhà cung cấp có quy cách mới (ví dụ lốc 6, thùng 12).</li>
+                                </ol>
+                            </CardContent>
+                        </Card>
+
                         <div className="grid gap-4 xl:grid-cols-12">
                             <Card className="xl:col-span-12">
                                 <CardContent className="space-y-2 py-4">
@@ -387,6 +470,35 @@ export default function ManagerProductCreate() {
                                         Tính năng này chỉ để <strong>điền nhanh thông tin mẫu</strong> — hệ thống vẫn tạo sản phẩm MỚI khi bạn lưu.
                                         Nếu muốn nhập thêm hàng cho sản phẩm đã có, hãy dùng tính năng <strong>Nhập hàng nhanh</strong>.
                                     </p>
+                                    {existingMatch && (
+                                        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                                            <div>
+                                                Phát hiện sản phẩm đã có: <strong>{existingMatch.name}</strong> (SKU: {existingMatch.sku || '—'}).
+                                            </div>
+                                            <div className="mt-2 flex flex-wrap gap-2">
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    onClick={() =>
+                                                        navigate(
+                                                            `/manager/quick-receipt?q=${encodeURIComponent(
+                                                                existingMatch.name || existingMatch.sku || ''
+                                                            )}&productId=${encodeURIComponent(existingMatch._id)}`
+                                                        )
+                                                    }
+                                                >
+                                                    Chuyển sang Nhập hàng nhanh
+                                                </Button>
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    onClick={() => navigate(`/manager/products/${existingMatch._id}`)}
+                                                >
+                                                    Xem sản phẩm hiện có
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    )}
                                     <div className="grid gap-3 md:grid-cols-2">
                                         <div className="relative">
                                             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -504,6 +616,7 @@ export default function ManagerProductCreate() {
                                                     <th className="py-2 pr-2">Đơn vị</th>
                                                     <th className="py-2 pr-2">Tỉ lệ</th>
                                                     <th className="py-2 pr-2">Giá bán (₫)</th>
+                                                    <th className="py-2 pr-2">Barcode</th>
                                                     <th className="py-2 text-right">Thao tác</th>
                                                 </tr>
                                             </thead>
@@ -538,6 +651,15 @@ export default function ManagerProductCreate() {
                                                                 value={u.sale_price}
                                                                 onChange={(e) => updateSellingUnit(i, 'sale_price', e.target.value)}
                                                                 placeholder="0"
+                                                                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
+                                                            />
+                                                        </td>
+                                                        <td className="py-2 pr-2">
+                                                            <input
+                                                                type="text"
+                                                                value={u.barcode || ''}
+                                                                onChange={(e) => updateSellingUnit(i, 'barcode', e.target.value)}
+                                                                placeholder="Mã vạch đơn vị"
                                                                 className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
                                                             />
                                                         </td>

@@ -65,6 +65,7 @@ const productRequestSchema = new Schema(
             name: { type: String, trim: true, required: true },
             ratio: { type: Number, required: true, min: 0.001 },
             sale_price: { type: Number, required: true, min: 0 },
+            barcode: { type: String, trim: true },
         }],
 
         // Request specific fields

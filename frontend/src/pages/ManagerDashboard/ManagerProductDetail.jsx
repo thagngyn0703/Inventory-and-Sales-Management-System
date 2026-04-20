@@ -31,6 +31,7 @@ export default function ManagerProductDetail() {
     const [historyType, setHistoryType] = useState('');
     const [historyFromDate, setHistoryFromDate] = useState('');
     const [historyToDate, setHistoryToDate] = useState('');
+    const [productUnits, setProductUnits] = useState([]);
 
     const user = JSON.parse(localStorage.getItem('user') || '{}');
     const isManager = user.role === 'manager' || user.role === 'admin';
@@ -41,7 +42,10 @@ export default function ManagerProductDetail() {
         setLoading(true);
         setError('');
         getProduct(id)
-            .then(setProduct)
+            .then((data) => {
+                setProduct(data);
+                setProductUnits(Array.isArray(data?.units) ? data.units : []);
+            })
             .catch((e) => setError(e.message || 'Không tải được sản phẩm'))
             .finally(() => setLoading(false));
 
@@ -151,6 +155,12 @@ export default function ManagerProductDetail() {
     }
 
     const p = product || {};
+    const unitBarcodeBySignature = new Map(
+        (productUnits || []).map((u) => [
+            `${String(u.unit_name || '').trim().toLowerCase()}::${Number(u.exchange_value || 1)}`,
+            String(u.barcode || '').trim(),
+        ])
+    );
     const profit = (Number(p.sale_price) || 0) - (Number(p.cost_price) || 0);
     const costNum = Number(p.cost_price) || 0;
     const marginPct = costNum > 0 && profit >= 0 ? ((profit / costNum) * 100).toFixed(1) : '0';
@@ -231,6 +241,13 @@ export default function ManagerProductDetail() {
                                 {p.selling_units.map((u, i) => (
                                     <div key={i} className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-700">
                                         {u.name} - tỉ lệ {u.ratio} - {formatMoney(u.sale_price)}
+                                        <span className="ml-2 text-slate-500">
+                                            | Barcode: {
+                                                unitBarcodeBySignature.get(
+                                                    `${String(u.name || '').trim().toLowerCase()}::${Number(u.ratio || 1)}`
+                                                ) || '—'
+                                            }
+                                        </span>
                                     </div>
                                 ))}
                             </div>

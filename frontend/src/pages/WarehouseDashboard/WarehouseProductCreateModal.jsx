@@ -19,7 +19,7 @@ import { InlineNotice } from '../../components/ui/inline-notice';
 
 const PRODUCT_BASE_UNITS = ['Cái', 'Chai', 'Lon', 'Thùng', 'Hộp', 'Kg', 'Gói', 'Lít'];
 
-const defaultSellingUnit = () => ({ name: 'Cái', ratio: 1, sale_price: '' });
+const defaultSellingUnit = () => ({ name: 'Cái', ratio: 1, sale_price: '', barcode: '' });
 
 const createDefaultForm = () => ({
   name: '',
@@ -49,6 +49,7 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
   const [scanMode, setScanMode] = useState(false);
   const [scanConfirmOpen, setScanConfirmOpen] = useState(false);
   const [pendingScanCode, setPendingScanCode] = useState('');
+  const [existingMatch, setExistingMatch] = useState(null);
   const scanBufferRef = useRef('');
   const scanTimerRef = useRef(null);
 
@@ -177,7 +178,7 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
   const addSellingUnit = () => {
     setForm((prev) => ({
       ...prev,
-      selling_units: [...prev.selling_units, { name: prev.base_unit || 'Cái', ratio: '', sale_price: '' }],
+      selling_units: [...prev.selling_units, { name: prev.base_unit || 'Cái', ratio: '', sale_price: '', barcode: '' }],
     }));
   };
 
@@ -235,6 +236,7 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
               name: u.name || p.base_unit || 'Cái',
               ratio: u.ratio != null ? u.ratio : 1,
               sale_price: u.sale_price != null ? String(u.sale_price) : '',
+              barcode: '',
             }))
           : prev.selling_units,
       note: prev.note,
@@ -269,6 +271,7 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setExistingMatch(null);
     const nameCheck = validateNoSpecialText(form.name, 'Tên sản phẩm', { required: true });
     if (!nameCheck.ok) {
       setError(nameCheck.message);
@@ -325,6 +328,7 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
         name: nameUnitCheck.value,
         ratio: ratioCheck.value,
         sale_price: salePriceCheck.value,
+        barcode: trimString(u.barcode || ''),
       });
     }
     if (units.length === 0) {
@@ -333,7 +337,56 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
     }
     const hasBase = units.some((u) => u.ratio === 1);
     if (!hasBase) {
-      units.unshift({ name: form.base_unit || 'Cái', ratio: 1, sale_price: units[0]?.sale_price ?? 0 });
+      units.unshift({
+        name: form.base_unit || 'Cái',
+        ratio: 1,
+        sale_price: units[0]?.sale_price ?? 0,
+        barcode: barcodeCheck.value || '',
+      });
+    }
+    const seenUnitNames = new Set();
+    const seenUnitBarcodes = new Set();
+    for (const u of units) {
+      const unitKey = String(u.name || '').trim().toLowerCase();
+      if (seenUnitNames.has(unitKey)) {
+        setError(`Đơn vị "${u.name}" bị trùng trên cùng sản phẩm.`);
+        return;
+      }
+      seenUnitNames.add(unitKey);
+      const unitBarcodeCheck = validateBarcode(u.barcode || '');
+      if (!unitBarcodeCheck.ok) {
+        setError(`${u.name}: ${unitBarcodeCheck.message}`);
+        return;
+      }
+      const ub = unitBarcodeCheck.value || '';
+      if (ub) {
+        if (seenUnitBarcodes.has(ub)) {
+          setError(`Barcode "${ub}" bị trùng giữa các đơn vị.`);
+          return;
+        }
+        seenUnitBarcodes.add(ub);
+      }
+      u.barcode = ub || undefined;
+    }
+
+    const normalizedName = String(nameCheck.value || '').trim().toLowerCase();
+    const normalizedSku = String(skuCheck.value || '').trim().toLowerCase();
+    const normalizedBarcode = String(barcodeCheck.value || '').trim().toLowerCase();
+    const duplicate = (existingProducts || []).find((p) => {
+      const pName = String(p?.name || '').trim().toLowerCase();
+      const pSku = String(p?.sku || '').trim().toLowerCase();
+      const pBarcode = String(p?.barcode || '').trim().toLowerCase();
+      if (normalizedBarcode && pBarcode && pBarcode === normalizedBarcode) return true;
+      if (normalizedSku && pSku && pSku === normalizedSku) return true;
+      if (normalizedName && pName && pName === normalizedName) return true;
+      return false;
+    });
+    if (duplicate) {
+      setExistingMatch(duplicate);
+      setError(
+        `Sản phẩm "${duplicate.name}" đã tồn tại. Theo SOP, hãy nhập hàng trên sản phẩm đã có thay vì tạo yêu cầu mới.`
+      );
+      return;
     }
     if (form.expiry_date && !isExpiryDateNotInPast(form.expiry_date)) {
       setError('Ngày hết hạn phải từ hôm nay trở đi.');
@@ -446,6 +499,29 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
                   </select>
                 </div>
                 <p className="text-xs text-slate-500">{quickFillHint}</p>
+                {existingMatch && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                    <div>
+                      Trùng với sản phẩm hiện có: <strong>{existingMatch.name}</strong> (SKU: {existingMatch.sku || '—'}).
+                    </div>
+                    <div className="mt-1">
+                      Vui lòng đóng form này và dùng màn nhập hàng để cộng thêm số lượng theo đúng SOP.
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="border-slate-200/80">
+              <CardContent className="space-y-2 py-4">
+                <h3 className="text-sm font-semibold text-slate-800">SOP chuẩn cho cả Staff và Manager</h3>
+                <ol className="list-decimal space-y-1 pl-5 text-xs text-slate-600">
+                  <li>Tạo sản phẩm một lần duy nhất cho mỗi mặt hàng.</li>
+                  <li>Khai báo đủ đơn vị bán và barcode riêng cho từng đơn vị (lon/thùng/...)</li>
+                  <li>Nhập hàng theo đơn vị thực tế, hệ thống tự quy đổi về đơn vị gốc.</li>
+                  <li>Các lần sau chỉ nhập hàng trên sản phẩm đã có, không tạo yêu cầu mới trùng.</li>
+                  <li>Chỉ tạo thêm đơn vị khi có quy cách đóng gói mới từ nhà cung cấp.</li>
+                </ol>
               </CardContent>
             </Card>
 
@@ -544,6 +620,7 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
                           <th className="py-2 pr-2">Đơn vị</th>
                           <th className="py-2 pr-2">Tỉ lệ</th>
                           <th className="py-2 pr-2">Giá bán</th>
+                          <th className="py-2 pr-2">Barcode</th>
                           <th className="py-2 text-right"> </th>
                         </tr>
                       </thead>
@@ -576,6 +653,15 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
                                 value={u.sale_price}
                                 onChange={(e) => updateSellingUnit(i, 'sale_price', e.target.value)}
                                 className="h-9 w-full min-w-[80px] rounded-lg border border-slate-200 px-2 text-sm"
+                              />
+                            </td>
+                            <td className="py-2 pr-2">
+                              <input
+                                type="text"
+                                value={u.barcode || ''}
+                                onChange={(e) => updateSellingUnit(i, 'barcode', e.target.value)}
+                                className="h-9 w-full min-w-[110px] rounded-lg border border-slate-200 px-2 text-sm"
+                                placeholder="Mã vạch đơn vị"
                               />
                             </td>
                             <td className="py-2 text-right">

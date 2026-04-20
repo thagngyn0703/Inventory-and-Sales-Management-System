@@ -1,19 +1,29 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Search, Zap } from 'lucide-react';
 import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
 import { useToast } from '../../contexts/ToastContext';
-import { createProduct, createQuickGoodsReceipt, getProductUnits, getProducts, uploadProductImages } from '../../services/productsApi';
+import { createProduct, createQuickGoodsReceipt, getProductUnits, getProducts, scanProductByCode, updateProductUnits, uploadProductImages } from '../../services/productsApi';
 import { createSupplier, getSuppliers } from '../../services/suppliersApi';
 import { minExpiryDateString } from '../../utils/dateInput';
 
 const PRODUCT_BASE_UNITS = ['Cái', 'Hộp', 'Chai', 'Lon', 'Thùng', 'Kg', 'Gói', 'Lít'];
+const makeSellingUnitRow = (base = 'Cái', overrides = {}) => ({
+    row_id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    name: base,
+    ratio: 1,
+    sale_price: '',
+    barcode: '',
+    ...overrides,
+});
+const normalizeSku = (value = '') => String(value || '').replace(/\s+/g, '').toUpperCase();
 
 export default function ManagerQuickGoodsReceipt() {
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
     const { toast } = useToast();
     const [supplierList, setSupplierList] = useState([]);
     const [productList, setProductList] = useState([]);
@@ -40,10 +50,37 @@ export default function ManagerQuickGoodsReceipt() {
         sale_price: '',
         cost_price: '',
         stock_qty: '',
+        selling_units: [makeSellingUnitRow('Cái')],
     });
     const [loading, setLoading] = useState(false);
     const [unitOptions, setUnitOptions] = useState([]);
     const [selectedUnitId, setSelectedUnitId] = useState('');
+    const applyBarcodeToBaseUnit = (formState, rawBarcode) => {
+        const nextBarcode = String(rawBarcode || '').trim();
+        const units = Array.isArray(formState.selling_units) && formState.selling_units.length > 0
+            ? formState.selling_units
+            : [makeSellingUnitRow(formState.base_unit || 'Cái')];
+        let hadBase = false;
+        const nextUnits = units.map((u) => {
+            const ratio = Number(u.ratio);
+            if (ratio === 1) {
+                hadBase = true;
+                return { ...u, barcode: nextBarcode };
+            }
+            return u;
+        });
+        if (!hadBase) {
+            nextUnits.unshift(
+                makeSellingUnitRow(formState.base_unit || 'Cái', {
+                    ratio: 1,
+                    sale_price: formState.sale_price || '',
+                    barcode: nextBarcode,
+                })
+            );
+        }
+        return nextUnits;
+    };
+
     const dropdownRef = useRef(null);
     const barcodeInputRef = useRef(null);
 
@@ -51,6 +88,29 @@ export default function ManagerQuickGoodsReceipt() {
         getSuppliers().then((list) => setSupplierList(list || [])).catch(() => {});
         getProducts(1, 1000).then((d) => setProductList(d.products || [])).catch(() => {});
     }, []);
+
+    useEffect(() => {
+        if (!productList.length) return;
+        const query = String(searchParams.get('q') || '').trim();
+        const productId = String(searchParams.get('productId') || '').trim();
+        if (!query && !productId) return;
+
+        const lowerQuery = query.toLowerCase();
+        const matched = productList.find((p) => {
+            if (productId && String(p._id) === productId) return true;
+            if (!lowerQuery) return false;
+            return (
+                String(p.name || '').toLowerCase().includes(lowerQuery) ||
+                String(p.sku || '').toLowerCase().includes(lowerQuery) ||
+                String(p.barcode || '').toLowerCase().includes(lowerQuery)
+            );
+        });
+        if (!matched) return;
+        setSearchInput(query || matched.name || '');
+        selectProduct(matched);
+        toast('Đã mở sẵn sản phẩm để nhập hàng theo SOP.', 'success');
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [productList, searchParams]);
 
     useEffect(() => {
         const handleClick = (e) => {
@@ -86,6 +146,78 @@ export default function ManagerQuickGoodsReceipt() {
                 String(p.barcode || '').toLowerCase().includes(t)
         ).slice(0, 12);
     }, [productList, searchInput]);
+
+    const findExistingProductForCreateFlow = async ({ name, sku, barcode }) => {
+        const normName = String(name || '').trim().toLowerCase();
+        const normSku = normalizeSku(sku || '').toLowerCase();
+        const normBarcode = String(barcode || '').trim().toLowerCase();
+        if (normBarcode) {
+            try {
+                const scanned = await scanProductByCode(normBarcode);
+                if (scanned?.product?._id) return scanned.product;
+            } catch (_) {
+                // ignore and fallback to list search
+            }
+        }
+        const exactInCache = (productList || []).find((p) => {
+            const pName = String(p?.name || '').trim().toLowerCase();
+            const pSku = String(p?.sku || '').trim().toLowerCase();
+            const pBarcode = String(p?.barcode || '').trim().toLowerCase();
+            if (normBarcode && pBarcode && pBarcode === normBarcode) return true;
+            if (normSku && pSku && pSku === normSku) return true;
+            if (normName && pName && pName === normName) return true;
+            return false;
+        });
+        if (exactInCache) return exactInCache;
+
+        const searchKey = normBarcode || normSku || normName;
+        if (!searchKey) return null;
+        try {
+            const res = await getProducts(1, 100, searchKey);
+            const list = res?.products || [];
+            return list.find((p) => {
+                const pName = String(p?.name || '').trim().toLowerCase();
+                const pSku = String(p?.sku || '').trim().toLowerCase();
+                const pBarcode = String(p?.barcode || '').trim().toLowerCase();
+                if (normBarcode && pBarcode && pBarcode === normBarcode) return true;
+                if (normSku && pSku && pSku === normSku) return true;
+                if (normName && pName && pName === normName) return true;
+                return false;
+            }) || null;
+        } catch (_) {
+            return null;
+        }
+    };
+
+    const createQuickReceiptForExistingProduct = async (existingProduct) => {
+        const qty = Number(newProductForm.stock_qty);
+        const cost = Number(newProductForm.cost_price);
+        if (!Number.isFinite(qty) || qty <= 0) throw new Error('Số lượng nhập ban đầu phải lớn hơn 0.');
+        if (!Number.isFinite(cost) || cost < 0) throw new Error('Giá nhập không hợp lệ.');
+        const units = await getProductUnits(existingProduct._id);
+        const baseUnit = (units || []).find((u) => u.is_base) || (units || [])[0] || null;
+        if (!baseUnit?._id) throw new Error('Sản phẩm đã có nhưng chưa cấu hình đơn vị hợp lệ. Vui lòng mở Sửa sản phẩm để cấu hình đơn vị.');
+        await createQuickGoodsReceipt({
+            supplier_id: supplierId,
+            items: [{
+                product_id: existingProduct._id,
+                unit_id: baseUnit._id,
+                quantity: qty,
+                unit_cost: Math.round(cost),
+                unit_name: baseUnit.unit_name || existingProduct.base_unit || 'Cái',
+                ratio: Number(baseUnit.exchange_value) > 0 ? Number(baseUnit.exchange_value) : 1,
+                expiry_date: expiryDate || undefined,
+            }],
+            payment_type: paymentType,
+            payment_method: paymentMethod,
+            reason: reason.trim() || 'Nhập hàng từ màn tạo mới (tự động ghép sản phẩm đã có)',
+        });
+        navigate('/manager/receipts', {
+            state: {
+                success: `Sản phẩm "${existingProduct.name}" đã tồn tại. Hệ thống đã tự nhập thêm tồn kho cho sản phẩm này thành công.`,
+            },
+        });
+    };
     const quickReceiptTotal = useMemo(() => {
         const qty = Number(quantity);
         const cost = Number(unitCost);
@@ -202,6 +334,60 @@ export default function ManagerQuickGoodsReceipt() {
         if (newProductForm.sale_price === '' || Number(newProductForm.sale_price) < 0) return toast('Giá bán không hợp lệ.', 'error');
         if (newProductForm.cost_price === '' || Number(newProductForm.cost_price) < 0) return toast('Giá nhập không hợp lệ.', 'error');
         if (newProductForm.stock_qty === '' || Number(newProductForm.stock_qty) < 0) return toast('Số lượng nhập ban đầu không hợp lệ.', 'error');
+        const existingProduct = await findExistingProductForCreateFlow({
+            name: newProductForm.name,
+            sku: newProductForm.sku,
+            barcode: newProductForm.barcode,
+        });
+        if (existingProduct) {
+            setLoading(true);
+            try {
+                await createQuickReceiptForExistingProduct(existingProduct);
+            } catch (err) {
+                toast(err.message || 'Không thể nhập thêm tồn cho sản phẩm đã có.', 'error');
+            } finally {
+                setLoading(false);
+            }
+            return;
+        }
+        const unitRows = Array.isArray(newProductForm.selling_units) && newProductForm.selling_units.length > 0
+            ? newProductForm.selling_units
+            : [makeSellingUnitRow(newProductForm.base_unit || 'Cái')];
+        const normalizedUnits = [];
+        const unitNameSet = new Set();
+        const unitBarcodeSet = new Set();
+        for (const u of unitRows) {
+            const unitName = String(u.name || '').trim();
+            const ratioNum = Number(u.ratio);
+            const saleNum = Number(u.sale_price);
+            const unitBarcode = String(u.barcode || '').trim();
+            if (!unitName) return toast('Tên đơn vị bán không được để trống.', 'error');
+            if (!Number.isFinite(ratioNum) || ratioNum <= 0) return toast(`Tỉ lệ đơn vị "${unitName}" phải lớn hơn 0.`, 'error');
+            if (!Number.isFinite(saleNum) || saleNum < 0) return toast(`Giá bán đơn vị "${unitName}" không hợp lệ.`, 'error');
+            const key = unitName.toLowerCase();
+            if (unitNameSet.has(key)) return toast(`Đơn vị "${unitName}" bị trùng.`, 'error');
+            unitNameSet.add(key);
+            if (unitBarcode) {
+                if (!/^\d+$/.test(unitBarcode)) return toast(`Barcode đơn vị "${unitName}" chỉ được nhập số.`, 'error');
+                if (unitBarcodeSet.has(unitBarcode)) return toast(`Barcode "${unitBarcode}" bị trùng giữa các đơn vị.`, 'error');
+                unitBarcodeSet.add(unitBarcode);
+            }
+            normalizedUnits.push({
+                name: unitName,
+                ratio: ratioNum,
+                sale_price: Math.round(saleNum),
+                barcode: unitBarcode,
+            });
+        }
+        const hasBase = normalizedUnits.some((u) => Number(u.ratio) === 1);
+        if (!hasBase) {
+            normalizedUnits.unshift({
+                name: String(newProductForm.base_unit || 'Cái').trim() || 'Cái',
+                ratio: 1,
+                sale_price: Math.round(Number(newProductForm.sale_price) || 0),
+                barcode: String(newProductForm.barcode || '').trim(),
+            });
+        }
 
         setLoading(true);
         try {
@@ -209,7 +395,7 @@ export default function ManagerQuickGoodsReceipt() {
             if (selectedImages.length > 0) {
                 imageUrls = await uploadProductImages(selectedImages);
             }
-            await createProduct({
+            const created = await createProduct({
                 name: newProductForm.name.trim(),
                 sku: newProductForm.sku.trim(),
                 barcode: String(newProductForm.barcode || '').trim() || undefined,
@@ -221,18 +407,79 @@ export default function ManagerQuickGoodsReceipt() {
                 reorder_level: 0,
                 expiry_date: expiryDate || undefined,
                 base_unit: newProductForm.base_unit,
-                selling_units: [{
-                    name: newProductForm.base_unit,
-                    ratio: 1,
-                    sale_price: Number(newProductForm.sale_price),
-                }],
+                selling_units: normalizedUnits.map((u) => ({
+                    name: u.name,
+                    ratio: u.ratio,
+                    sale_price: u.sale_price,
+                    barcode: String(u.barcode || '').trim() || undefined,
+                })),
                 image_urls: imageUrls,
                 status: 'active',
             });
+            const unitPayload = normalizedUnits.map((u) => ({
+                unit_name: u.name,
+                exchange_value: Number(u.ratio) > 0 ? Number(u.ratio) : 1,
+                price: Math.round(Number(u.sale_price) || 0),
+                barcode: String(u.barcode || '').trim() || undefined,
+                is_base: Number(u.ratio) === 1,
+            }));
+            if (created?._id && unitPayload.length > 0) {
+                await updateProductUnits(created._id, unitPayload);
+            }
             navigate('/manager/products', {
                 state: { success: 'Tạo sản phẩm mới thành công. Phiếu nhập kho ban đầu đã được tạo tự động.' },
             });
         } catch (err) {
+            const msg = String(err?.message || '');
+            if (
+                err?.code === 'SKU_ALREADY_EXISTS' ||
+                err?.code === 'BARCODE_ALREADY_EXISTS' ||
+                err?.code === 'DUPLICATE_DATA' ||
+                /SKU đã tồn tại|Barcode đã tồn tại|đã tồn tại|dữ liệu bị trùng|trùng/i.test(msg)
+            ) {
+                let fallback = null;
+                if (err?.existing_product_id) {
+                    fallback = (productList || []).find((p) => String(p._id) === String(err.existing_product_id));
+                    if (!fallback) {
+                        try {
+                            const fresh = await getProducts(1, 100, newProductForm.sku || newProductForm.name || newProductForm.barcode || '');
+                            fallback = (fresh?.products || []).find((p) => String(p._id) === String(err.existing_product_id)) || null;
+                        } catch (_) {}
+                    }
+                }
+                if (!fallback) {
+                    fallback = await findExistingProductForCreateFlow({
+                        name: newProductForm.name,
+                        sku: newProductForm.sku,
+                        barcode: newProductForm.barcode,
+                    });
+                }
+                if (!fallback) {
+                    const unitBarcodes = [...new Set(
+                        (normalizedUnits || [])
+                            .map((u) => String(u?.barcode || '').trim())
+                            .filter(Boolean)
+                    )];
+                    for (const ub of unitBarcodes) {
+                        try {
+                            const scanned = await scanProductByCode(ub);
+                            if (scanned?.product?._id) {
+                                fallback = scanned.product;
+                                break;
+                            }
+                        } catch (_) {}
+                    }
+                }
+                if (fallback) {
+                    try {
+                        await createQuickReceiptForExistingProduct(fallback);
+                        return;
+                    } catch (fallbackErr) {
+                        toast(fallbackErr.message || 'Sản phẩm đã có nhưng không thể tự nhập thêm tồn.', 'error');
+                        return;
+                    }
+                }
+            }
             toast(err.message || 'Không thể tạo sản phẩm mới.', 'error');
         } finally {
             setLoading(false);
@@ -329,7 +576,16 @@ export default function ManagerQuickGoodsReceipt() {
                                             setNewProductForm((prev) => ({
                                                 ...prev,
                                                 name: /^\d+$/.test(seed) ? '' : seed,
+                                                sku: /^\d+$/.test(seed) ? '' : normalizeSku(seed),
                                                 barcode: /^\d+$/.test(seed) ? seed : '',
+                                                selling_units: applyBarcodeToBaseUnit(
+                                                    {
+                                                        ...prev,
+                                                        base_unit: prev.base_unit || 'Cái',
+                                                        sale_price: prev.sale_price || '',
+                                                    },
+                                                    /^\d+$/.test(seed) ? seed : ''
+                                                ),
                                             }));
                                         }}
                                         className="ml-2 rounded-md bg-amber-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-amber-700"
@@ -529,7 +785,7 @@ export default function ManagerQuickGoodsReceipt() {
                                             <input
                                                 type="text"
                                                 value={newProductForm.sku}
-                                                onChange={(e) => setNewProductForm((p) => ({ ...p, sku: e.target.value }))}
+                                                onChange={(e) => setNewProductForm((p) => ({ ...p, sku: normalizeSku(e.target.value) }))}
                                                 className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
                                             />
                                         </div>
@@ -538,7 +794,16 @@ export default function ManagerQuickGoodsReceipt() {
                                             <input
                                                 type="text"
                                                 value={newProductForm.barcode}
-                                                onChange={(e) => setNewProductForm((p) => ({ ...p, barcode: e.target.value }))}
+                                                onChange={(e) =>
+                                                    setNewProductForm((p) => {
+                                                        const nextBarcode = e.target.value;
+                                                        return {
+                                                            ...p,
+                                                            barcode: nextBarcode,
+                                                            selling_units: applyBarcodeToBaseUnit(p, nextBarcode),
+                                                        };
+                                                    })
+                                                }
                                                 ref={barcodeInputRef}
                                                 className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
                                             />
@@ -547,7 +812,13 @@ export default function ManagerQuickGoodsReceipt() {
                                             <label className="mb-1 block text-sm font-medium text-slate-600">Đơn vị</label>
                                             <select
                                                 value={newProductForm.base_unit}
-                                                onChange={(e) => setNewProductForm((p) => ({ ...p, base_unit: e.target.value || 'Cái' }))}
+                                                onChange={(e) => setNewProductForm((p) => {
+                                                    const nextBase = e.target.value || 'Cái';
+                                                    const nextUnits = (p.selling_units || []).map((u) =>
+                                                        Number(u.ratio) === 1 ? { ...u, name: nextBase } : u
+                                                    );
+                                                    return { ...p, base_unit: nextBase, selling_units: nextUnits };
+                                                })}
                                                 className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
                                             >
                                                 {PRODUCT_BASE_UNITS.map((unit) => (
@@ -561,7 +832,13 @@ export default function ManagerQuickGoodsReceipt() {
                                                 type="number"
                                                 min="0"
                                                 value={newProductForm.sale_price}
-                                                onChange={(e) => setNewProductForm((p) => ({ ...p, sale_price: e.target.value }))}
+                                                onChange={(e) => setNewProductForm((p) => {
+                                                    const nextSale = e.target.value;
+                                                    const nextUnits = (p.selling_units || []).map((u) =>
+                                                        Number(u.ratio) === 1 ? { ...u, sale_price: nextSale } : u
+                                                    );
+                                                    return { ...p, sale_price: nextSale, selling_units: nextUnits };
+                                                })}
                                                 className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
                                             />
                                         </div>
@@ -652,6 +929,112 @@ export default function ManagerQuickGoodsReceipt() {
                                                 <Button type="button" variant="outline" onClick={handleCreateSupplier} disabled={creatingSupplier}>
                                                     {creatingSupplier ? 'Đang tạo...' : 'Tạo NCC & chọn'}
                                                 </Button>
+                                            </div>
+                                        </div>
+                                        <div className="md:col-span-2">
+                                            <div className="mb-2 flex items-center justify-between">
+                                                <label className="block text-sm font-medium text-slate-600">Đơn vị bán & barcode</label>
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    onClick={() =>
+                                                        setNewProductForm((p) => ({
+                                                            ...p,
+                                                            selling_units: [
+                                                                ...(p.selling_units || []),
+                                                                makeSellingUnitRow(p.base_unit || 'Cái', { ratio: '', sale_price: '', barcode: '' }),
+                                                            ],
+                                                        }))
+                                                    }
+                                                >
+                                                    + Đơn vị
+                                                </Button>
+                                            </div>
+                                            <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-2">
+                                                {(newProductForm.selling_units || []).map((u, idx) => (
+                                                    <div key={u.row_id || idx} className="grid gap-2 md:grid-cols-4">
+                                                        <input
+                                                            type="text"
+                                                            value={u.name}
+                                                            onChange={(e) =>
+                                                                setNewProductForm((p) => ({
+                                                                    ...p,
+                                                                    selling_units: (p.selling_units || []).map((x, i) =>
+                                                                        i === idx ? { ...x, name: e.target.value } : x
+                                                                    ),
+                                                                }))
+                                                            }
+                                                            placeholder="Đơn vị (Lon/Thùng...)"
+                                                            className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
+                                                        />
+                                                        <input
+                                                            type="number"
+                                                            min="1"
+                                                            step="any"
+                                                            value={u.ratio}
+                                                            onChange={(e) =>
+                                                                setNewProductForm((p) => ({
+                                                                    ...p,
+                                                                    selling_units: (p.selling_units || []).map((x, i) =>
+                                                                        i === idx ? { ...x, ratio: e.target.value } : x
+                                                                    ),
+                                                                }))
+                                                            }
+                                                            placeholder="Tỉ lệ (vd 24)"
+                                                            className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
+                                                        />
+                                                        <input
+                                                            type="number"
+                                                            min="0"
+                                                            step="1"
+                                                            value={u.sale_price}
+                                                            onChange={(e) =>
+                                                                setNewProductForm((p) => ({
+                                                                    ...p,
+                                                                    selling_units: (p.selling_units || []).map((x, i) =>
+                                                                        i === idx ? { ...x, sale_price: e.target.value } : x
+                                                                    ),
+                                                                }))
+                                                            }
+                                                            placeholder="Giá bán đơn vị"
+                                                            className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
+                                                        />
+                                                        <div className="flex gap-2">
+                                                            <input
+                                                                type="text"
+                                                                value={u.barcode || ''}
+                                                                onChange={(e) =>
+                                                                    setNewProductForm((p) => ({
+                                                                        ...p,
+                                                                        selling_units: (p.selling_units || []).map((x, i) =>
+                                                                            i === idx ? { ...x, barcode: e.target.value } : x
+                                                                        ),
+                                                                    }))
+                                                                }
+                                                                placeholder="Barcode đơn vị"
+                                                                className="h-10 flex-1 rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
+                                                            />
+                                                            <Button
+                                                                type="button"
+                                                                variant="outline"
+                                                                onClick={() =>
+                                                                    setNewProductForm((p) => {
+                                                                        const list = (p.selling_units || []).filter((_, i) => i !== idx);
+                                                                        return {
+                                                                            ...p,
+                                                                            selling_units: list.length
+                                                                                ? list
+                                                                                : [makeSellingUnitRow(p.base_unit || 'Cái')],
+                                                                        };
+                                                                    })
+                                                                }
+                                                                disabled={(newProductForm.selling_units || []).length <= 1}
+                                                            >
+                                                                Xóa
+                                                            </Button>
+                                                        </div>
+                                                    </div>
+                                                ))}
                                             </div>
                                         </div>
                                         <div className="md:col-span-2">

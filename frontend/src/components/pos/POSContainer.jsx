@@ -607,6 +607,7 @@ export default function POSContainer({
           newItems[existingIdx] = {
             ...it,
             quantity: newQty,
+            unit_barcode: chosenUnit?.barcode || it.unit_barcode || '',
             line_total: Math.max(0, newQty * Number(it.unit_price || 0) - Number(it.discount || 0)),
           };
         } else {
@@ -614,6 +615,7 @@ export default function POSContainer({
             product_id: product._id,
             unit_id: chosenUnit?._id || null,
             unit_name: chosenUnit?.unit_name || product.base_unit || 'Cái',
+            unit_barcode: chosenUnit?.barcode || '',
             exchange_value: Number(chosenUnit?.exchange_value) || 1,
             name: product.name,
             sku: product.sku,
@@ -698,6 +700,7 @@ export default function POSContainer({
     const target = { ...nextItems[idx] };
     target.unit_id = selected._id;
     target.unit_name = selected.unit_name;
+    target.unit_barcode = selected.barcode || '';
     target.exchange_value = Number(selected.exchange_value) || 1;
     target.unit_price = Number(selected.price) || 0;
     target.line_total = Math.max(
@@ -741,6 +744,7 @@ export default function POSContainer({
       {
         _id: item?.unit_id || '',
         unit_name: item?.unit_name || 'Cái',
+        barcode: item?.unit_barcode || '',
         exchange_value: item?.exchange_value || 1,
         price: item?.unit_price || 0,
       },
@@ -1185,6 +1189,9 @@ export default function POSContainer({
                         {item.unit_name ? (
                           <span style={{ color: '#64748b', fontSize: 12, whiteSpace: 'nowrap' }}>({item.unit_name})</span>
                         ) : null}
+                        {item.unit_barcode ? (
+                          <span style={{ color: '#64748b', fontSize: 11, whiteSpace: 'nowrap' }}>[BC: {item.unit_barcode}]</span>
+                        ) : null}
                         <span style={{ width: 50, flexShrink: 0 }} />
                         {(() => {
                           const resolvedUnits = getResolvedUnitsForItem(item);
@@ -1203,7 +1210,7 @@ export default function POSContainer({
                         >
                           {resolvedUnits.map((u) => (
                             <option key={String(u._id || u.unit_name)} value={u._id || ''}>
-                              {u.unit_name} - {formatMoney(u.price)}
+                              {u.unit_name} - {formatMoney(u.price)}{u.barcode ? ` - BC: ${u.barcode}` : ''}
                             </option>
                           ))}
                         </select>

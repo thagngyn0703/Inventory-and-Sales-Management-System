@@ -279,7 +279,9 @@ function calculatePatchInvoiceTotals(reqItems = [], costMap = new Map(), oldItem
 async function enrichItemsWithUnitSnapshot(items = [], storeId = null) {
     if (!Array.isArray(items) || items.length === 0) return [];
     const productIds = [...new Set(items.map((it) => normalizeId(it.product_id)).filter(Boolean))];
-    const products = await Product.find({ _id: { $in: productIds } })
+    const productQuery = { _id: { $in: productIds } };
+    if (storeId) productQuery.storeId = storeId;
+    const products = await Product.find(productQuery)
         .select('_id base_unit sale_price')
         .lean();
     const productMap = new Map(products.map((p) => [String(p._id), p]));
@@ -322,12 +324,14 @@ async function enrichItemsWithUnitSnapshot(items = [], storeId = null) {
     });
 }
 
-async function buildCostMap(items) {
+async function buildCostMap(items, storeId = null) {
     const productIds = (items || [])
         .map((item) => normalizeId(item.product_id))
         .filter(Boolean);
     if (productIds.length === 0) return new Map();
-    const products = await Product.find({ _id: { $in: productIds } }).select('_id cost_price').lean();
+    const query = { _id: { $in: productIds } };
+    if (storeId) query.storeId = storeId;
+    const products = await Product.find(query).select('_id cost_price').lean();
     return new Map(products.map((p) => [String(p._id), Number(p.cost_price) || 0]));
 }
 
@@ -340,12 +344,14 @@ function normalizeId(val) {
     return s;
 }
 
-async function checkStockAvailability(items) {
+async function checkStockAvailability(items, storeId = null) {
     if (!Array.isArray(items)) return [];
     const productIds = items
         .map((item) => normalizeId(item.product_id))
         .filter(Boolean);
-    const products = await Product.find({ _id: { $in: productIds } });
+    const query = { _id: { $in: productIds } };
+    if (storeId) query.storeId = storeId;
+    const products = await Product.find(query);
     const productMap = new Map(products.map((p) => [String(p._id), p]));
     const problems = [];
     items.forEach((item) => {
@@ -397,7 +403,7 @@ async function syncInventory(invoice, nextStatus, nextItems = null) {
         // Transitional Deduct
         console.log(`[syncInventory] Deducting next items`);
         const itemsToDeduct = nextItems || invoice.items;
-        const problems = await checkStockAvailability(itemsToDeduct);
+        const problems = await checkStockAvailability(itemsToDeduct, invoice.store_id);
         if (problems.length > 0) throw { status: 400, message: 'Không đủ tồn kho', problems };
         await adjustInventory(itemsToDeduct, -1, invoice.store_id);
     } 
@@ -409,7 +415,7 @@ async function syncInventory(invoice, nextStatus, nextItems = null) {
     else if (isOldSale && isNextSale && itemsChanged) {
         // Item Update within Sale State
         console.log(`[syncInventory] Updating items in sale state.`);
-        const problems = await checkStockAvailability(nextItems);
+        const problems = await checkStockAvailability(nextItems, invoice.store_id);
         if (problems.length > 0) throw { status: 400, message: 'Không đủ tồn kho để cập nhật sản phẩm', problems };
         
         await adjustInventory(invoice.items, 1, invoice.store_id);
@@ -421,7 +427,8 @@ function buildStockAvailability(items, productsById) {
     if (!Array.isArray(items)) return [];
     return items.map((item) => {
         const prod = productsById.get(normalizeId(item.product_id));
-        const available = prod ? (prod.stock_qty ?? 0) >= (item.quantity ?? 0) : false;
+        const neededBaseQty = Number(item.base_quantity) || Number(item.quantity) || 0;
+        const available = prod ? (Number(prod.stock_qty) || 0) >= neededBaseQty : false;
         return {
             ...item,
             stock_qty: prod ? prod.stock_qty : null,
@@ -521,7 +528,7 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
         }
 
         const itemSnapshots = await enrichItemsWithUnitSnapshot(reqItems, req.user.storeId);
-        const costMap = await buildCostMap(itemSnapshots);
+        const costMap = await buildCostMap(itemSnapshots, req.user.storeId);
         const { totalAmount, items: normalizedItems } = calculateInvoiceTotals(itemSnapshots, costMap);
         const invalidLine = normalizedItems.find((it) => !it.product_id);
         if (invalidLine) {
@@ -967,7 +974,7 @@ router.patch('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), as
                 });
             }
             const itemSnapshots = await enrichItemsWithUnitSnapshot(reqItems, invoice.store_id);
-            const costMap = await buildCostMap(itemSnapshots);
+            const costMap = await buildCostMap(itemSnapshots, invoice.store_id);
             const oldItems = Array.isArray(invoice.items)
                 ? invoice.items.map((it) => (typeof it.toObject === 'function' ? it.toObject() : it))
                 : [];

@@ -927,10 +927,11 @@ router.post('/quick', requireAuth, requireRole(['manager', 'admin']), async (req
             }
             const qty = Number(it.quantity);
             const unitCost = Math.round(Number(it.unit_cost) || 0);
+            const unitStoreScope = req.user.storeId || product.storeId || null;
             const unitSnapshot = await resolveReceiptUnitSnapshot({
                 product,
                 rawItem: it,
-                storeId: resolvedStoreId,
+                storeId: unitStoreScope,
             });
             const itemRatio = Number(unitSnapshot.ratio) > 0 ? Number(unitSnapshot.ratio) : 1;
             const unitName = unitSnapshot.unit_name;

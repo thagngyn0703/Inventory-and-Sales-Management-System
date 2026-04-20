@@ -4,7 +4,7 @@ import { Platform } from 'react-bits/lib/modules/Platform';
 import { Plus, X, Barcode, Package } from 'lucide-react';
 import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
-import { getProduct, updateProduct, uploadProductImages } from '../../services/productsApi';
+import { getProduct, updateProduct, updateProductUnits, uploadProductImages } from '../../services/productsApi';
 import { minExpiryDateString, isExpiryDateNotInPast } from '../../utils/dateInput';
 import {
     trimString,
@@ -22,7 +22,7 @@ import './ManagerProducts.css';
 
 const PRODUCT_BASE_UNITS = ['Cái', 'Chai', 'Lon', 'Thùng', 'Hộp', 'Kg', 'Gói', 'Lít'];
 
-const defaultSellingUnit = () => ({ name: 'Cái', ratio: 1, sale_price: '' });
+const defaultSellingUnit = () => ({ name: 'Cái', ratio: 1, sale_price: '', barcode: '' });
 
 const defaultForm = {
     name: '',
@@ -72,8 +72,15 @@ export default function ManagerProductEdit() {
                         name: u.name || '',
                         ratio: u.ratio != null ? u.ratio : 1,
                         sale_price: u.sale_price != null ? String(u.sale_price) : '',
+                        barcode: (() => {
+                            const matchedUnit = (p.units || []).find(
+                                (x) => String(x.unit_name || '').trim() === String(u.name || '').trim()
+                                    && Number(x.exchange_value || 1) === Number(u.ratio || 1)
+                            );
+                            return matchedUnit?.barcode || '';
+                        })(),
                     }))
-                    : [{ name: p.base_unit || 'Cái', ratio: 1, sale_price: p.sale_price != null ? String(p.sale_price) : '' }];
+                    : [{ name: p.base_unit || 'Cái', ratio: 1, sale_price: p.sale_price != null ? String(p.sale_price) : '', barcode: p.barcode || '' }];
                 const supplierId = p.supplier_id
                     ? (typeof p.supplier_id === 'object' ? p.supplier_id._id : p.supplier_id)
                     : '';
@@ -168,7 +175,7 @@ export default function ManagerProductEdit() {
     const addSellingUnit = () => {
         setForm((prev) => ({
             ...prev,
-            selling_units: [...prev.selling_units, { name: prev.base_unit || 'Cái', ratio: '', sale_price: '' }],
+            selling_units: [...prev.selling_units, { name: prev.base_unit || 'Cái', ratio: '', sale_price: '', barcode: '' }],
         }));
     };
 
@@ -242,6 +249,7 @@ export default function ManagerProductEdit() {
                 name: nameUnitCheck.value,
                 ratio: ratioCheck.value,
                 sale_price: salePriceCheck.value,
+                barcode: trimString(u.barcode || ''),
             });
         }
         if (units.length === 0) {
@@ -249,7 +257,46 @@ export default function ManagerProductEdit() {
             return;
         }
         const hasBase = units.some((u) => u.ratio === 1);
-        if (!hasBase) units.unshift({ name: form.base_unit || 'Cái', ratio: 1, sale_price: units[0]?.sale_price ?? 0 });
+        if (!hasBase) {
+            units.unshift({
+                name: form.base_unit || 'Cái',
+                ratio: 1,
+                sale_price: units[0]?.sale_price ?? 0,
+                barcode: barcodeCheck.value || '',
+            });
+        }
+        const seenUnitNames = new Set();
+        const seenUnitBarcodes = new Set();
+        const unitPayload = [];
+        for (const u of units) {
+            const unitNameKey = String(u.name || '').trim().toLowerCase();
+            if (seenUnitNames.has(unitNameKey)) {
+                setError(`Đơn vị "${u.name}" bị trùng. Mỗi sản phẩm chỉ có một dòng cho mỗi đơn vị.`);
+                return;
+            }
+            seenUnitNames.add(unitNameKey);
+            const unitBarcode = validateBarcode(u.barcode || '');
+            if (!unitBarcode.ok) return setError(`${u.name}: ${unitBarcode.message}`);
+            const normalizedBarcode = unitBarcode.value || '';
+            if (normalizedBarcode) {
+                if (seenUnitBarcodes.has(normalizedBarcode)) {
+                    setError(`Barcode "${normalizedBarcode}" bị trùng giữa các đơn vị bán.`);
+                    return;
+                }
+                seenUnitBarcodes.add(normalizedBarcode);
+            }
+            unitPayload.push({
+                unit_name: u.name,
+                exchange_value: u.ratio,
+                price: u.sale_price,
+                barcode: normalizedBarcode || undefined,
+                is_base: Number(u.ratio) === 1,
+            });
+        }
+        if (barcodeCheck.value) {
+            const baseUnit = unitPayload.find((u) => u.is_base) || unitPayload[0];
+            if (baseUnit && !baseUnit.barcode) baseUnit.barcode = barcodeCheck.value;
+        }
 
         if (form.expiry_date && !isExpiryDateNotInPast(form.expiry_date)) {
             setError('Ngày hết hạn phải từ hôm nay trở đi (không chọn ngày quá khứ).');
@@ -284,6 +331,7 @@ export default function ManagerProductEdit() {
                 image_urls: finalImageUrls,
                 status: form.status === 'inactive' ? 'inactive' : 'active',
             });
+            await updateProductUnits(id, unitPayload);
             navigate('/manager/products', { state: { success: 'Cập nhật sản phẩm thành công.' } });
         } catch (err) {
             setError(err.message || 'Không thể cập nhật sản phẩm.');
@@ -377,10 +425,11 @@ export default function ManagerProductEdit() {
                                     </Button>
                                     <div className="min-w-0 space-y-2">
                                         {form.selling_units.map((u, i) => (
-                                            <div key={i} className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_5.625rem_minmax(0,1fr)_auto] items-center gap-2">
+                                            <div key={i} className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_5.625rem_minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-2">
                                                 <input type="text" value={u.name} onChange={(e) => updateSellingUnit(i, 'name', e.target.value)} placeholder="Đơn vị" className="h-10 w-full min-w-0 rounded-lg border border-slate-200 px-2 text-sm outline-none ring-sky-200 transition focus:ring-2" />
                                                 <input type="number" min="1" step="any" value={u.ratio} onChange={(e) => updateSellingUnit(i, 'ratio', e.target.value)} placeholder="Tỉ lệ" className="h-10 w-full min-w-0 rounded-lg border border-slate-200 px-2 text-sm outline-none ring-sky-200 transition focus:ring-2" />
                                                 <input type="number" min="0" step="1" value={u.sale_price} onChange={(e) => updateSellingUnit(i, 'sale_price', e.target.value)} placeholder="Giá bán" className="h-10 w-full min-w-0 rounded-lg border border-slate-200 px-2 text-sm outline-none ring-sky-200 transition focus:ring-2" />
+                                                <input type="text" value={u.barcode || ''} onChange={(e) => updateSellingUnit(i, 'barcode', e.target.value)} placeholder="Barcode đơn vị" className="h-10 w-full min-w-0 rounded-lg border border-slate-200 px-2 text-sm outline-none ring-sky-200 transition focus:ring-2" />
                                                 <button type="button" onClick={() => removeSellingUnit(i)} disabled={form.selling_units.length <= 1} className="inline-flex h-10 w-9 shrink-0 items-center justify-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40">
                                                     <X className="h-4 w-4" />
                                                 </button>
