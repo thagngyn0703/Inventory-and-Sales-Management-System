@@ -314,6 +314,7 @@ router.post('/payments', requireAuth, requireRole(['manager', 'admin']), async (
             payment_method = 'cash',
             reference_code,
             note,
+            payable_ids,
         } = req.body || {};
 
         if (!supplier_id || !mongoose.isValidObjectId(supplier_id)) {
@@ -331,22 +332,41 @@ router.post('/payments', requireAuth, requireRole(['manager', 'admin']), async (
         const supplierOid = toOid(supplier_id);
         const supplierBefore = await Supplier.findById(supplierOid).select('current_debt').lean();
 
+        const requestedPayableIds = Array.isArray(payable_ids)
+            ? payable_ids
+                .map((id) => (mongoose.isValidObjectId(id) ? toOid(id) : null))
+                .filter(Boolean)
+            : [];
+        const requestedPayableIdSet = requestedPayableIds.length
+            ? new Set(requestedPayableIds.map((id) => String(id)))
+            : null;
+        if (Array.isArray(payable_ids) && payable_ids.length > 0 && requestedPayableIds.length === 0) {
+            return res.status(400).json({ message: 'payable_ids không hợp lệ' });
+        }
+
         // Lấy các khoản nợ còn dư — FIFO: due_date ASC, created_at ASC
         const openPayables = await SupplierPayable.find({
             supplier_id: supplierOid,
             storeId: storeOid,
             status: { $in: ['open', 'partial'] },
             remaining_amount: { $gt: 0 },
+            ...(requestedPayableIds.length ? { _id: { $in: requestedPayableIds } } : {}),
         }).sort({ due_date: 1, created_at: 1 });
 
         if (openPayables.length === 0) {
             return res.status(400).json({ message: 'Nhà cung cấp này hiện không có khoản nợ nào' });
         }
 
+        if (requestedPayableIdSet && openPayables.length !== requestedPayableIdSet.size) {
+            return res.status(400).json({
+                message: 'Một hoặc nhiều khoản nợ đã chọn không thuộc nhà cung cấp này, hoặc đã được thanh toán.',
+            });
+        }
+
         const totalRemaining = openPayables.reduce((s, p) => s + p.remaining_amount, 0);
         if (Math.abs(amount - totalRemaining) > 0.01) {
             return res.status(400).json({
-                message: `Số tiền thanh toán phải đúng bằng tổng còn nợ (${totalRemaining.toLocaleString('vi-VN')}đ)`,
+                message: `Số tiền thanh toán phải đúng bằng tổng còn nợ của các đơn đã chọn (${totalRemaining.toLocaleString('vi-VN')}đ)`,
             });
         }
 

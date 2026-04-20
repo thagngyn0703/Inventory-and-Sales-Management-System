@@ -15,7 +15,6 @@ import {
   CreditCard,
   Drill,
   FileStack,
-  FileText,
   Handshake,
   History,
   LifeBuoy,
@@ -51,7 +50,6 @@ const overviewItems = [
       { label: 'Thêm nhà cung cấp', path: '/manager/suppliers/new', icon: Plus },
       { label: 'Công nợ NCC', path: '/manager/supplier-payables', icon: CreditCard },
       { label: 'Báo cáo chi tiền NCC', path: '/manager/supplier-payables/report', icon: BarChart3 },
-      { label: 'Phiếu trả NCC', path: '/manager/supplier-returns', icon: RotateCcw },
     ],
   },
   { type: 'item', label: 'Khách hàng', path: '/manager/customers', icon: Users },
@@ -86,7 +84,6 @@ const manageItems = [
   { type: 'item', label: 'Yêu cầu tạo sản phẩm', path: '/manager/product-requests', icon: FileStack },
   { type: 'item', label: 'Lịch sử điều chỉnh', path: '/manager/adjustments', icon: History },
   { type: 'item', label: 'Báo cáo thẻ kho', path: '/manager/stock-history', icon: ClipboardList },
-  { type: 'item', label: 'Sổ quỹ', path: '/manager/cashflow', icon: FileText },
   { type: 'item', label: 'Bán hàng trực tiếp', path: '/manager/pos', icon: Drill },
   {
     type: 'group',
