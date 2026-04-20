@@ -17,6 +17,8 @@ import { cn } from '../../lib/utils';
 
 const STATUS_LABEL = { open: 'Chưa trả', partial: 'Trả một phần', paid: 'Đã trả', cancelled: 'Đã hủy' };
 const METHOD_LABEL = { cash: 'Tiền mặt', bank_transfer: 'Chuyển khoản', e_wallet: 'Ví điện tử', other: 'Khác' };
+const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
+const API_ORIGIN = API_BASE.replace(/\/api\/?$/, '');
 
 const PAY_MODAL_INITIAL = {
     supplier_id: '',
@@ -48,7 +50,7 @@ const toQrSrc = (url) => {
     const u = String(url || '').trim();
     if (!u) return '';
     if (/^https?:\/\//i.test(u)) return u;
-    return `http://localhost:8000${u.startsWith('/') ? '' : '/'}${u}`;
+    return `${API_ORIGIN}${u.startsWith('/') ? '' : '/'}${u}`;
 };
 
 export default function ManagerSupplierPayables() {

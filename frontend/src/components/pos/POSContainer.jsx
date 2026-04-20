@@ -687,6 +687,61 @@ export default function POSContainer({
     updateActiveTab({ items: newItems });
   };
 
+  const autoSwitchUnitByQuantity = async (idx, nextQtyRaw) => {
+    const line = activeTab.items[idx];
+    if (!line) return;
+    const nextQty = Number(nextQtyRaw);
+    if (!Number.isFinite(nextQty) || nextQty <= 0) {
+      updateLine(idx, { quantity: 1 });
+      return;
+    }
+
+    const pid = String(line.product_id || '');
+    if (!pid) {
+      updateLine(idx, { quantity: nextQty });
+      return;
+    }
+
+    const units = await loadUnitsForProduct(pid);
+    if (!Array.isArray(units) || units.length === 0) {
+      updateLine(idx, { quantity: nextQty });
+      return;
+    }
+
+    const currentRatio = Number(line.exchange_value || 1) || 1;
+    const qtyInBase = nextQty * currentRatio;
+    if (!Number.isFinite(qtyInBase) || qtyInBase <= 0) {
+      updateLine(idx, { quantity: nextQty });
+      return;
+    }
+
+    const exactCandidates = units
+      .filter((u) => Number(u.exchange_value || 0) > 0)
+      .filter((u) => qtyInBase % Number(u.exchange_value) === 0)
+      .sort((a, b) => Number(b.exchange_value || 0) - Number(a.exchange_value || 0));
+
+    if (exactCandidates.length === 0) {
+      updateLine(idx, { quantity: nextQty });
+      return;
+    }
+
+    const targetUnit = exactCandidates[0];
+    const targetRatio = Number(targetUnit.exchange_value || 1) || 1;
+    const targetQty = qtyInBase / targetRatio;
+    const discount = Number(line.discount || 0) || 0;
+    const unitPrice = Number(targetUnit.price) || 0;
+
+    updateLine(idx, {
+      quantity: targetQty,
+      unit_id: targetUnit._id,
+      unit_name: targetUnit.unit_name,
+      unit_barcode: targetUnit.barcode || '',
+      exchange_value: targetRatio,
+      unit_price: unitPrice,
+      line_total: Math.max(0, targetQty * unitPrice - discount),
+    });
+  };
+
   const updateItemUnit = async (idx, unitId) => {
     const line = activeTab.items[idx];
     if (!line) return;
@@ -1189,9 +1244,6 @@ export default function POSContainer({
                         {item.unit_name ? (
                           <span style={{ color: '#64748b', fontSize: 12, whiteSpace: 'nowrap' }}>({item.unit_name})</span>
                         ) : null}
-                        {item.unit_barcode ? (
-                          <span style={{ color: '#64748b', fontSize: 11, whiteSpace: 'nowrap' }}>[BC: {item.unit_barcode}]</span>
-                        ) : null}
                         <span style={{ width: 50, flexShrink: 0 }} />
                         {(() => {
                           const resolvedUnits = getResolvedUnitsForItem(item);
@@ -1210,7 +1262,7 @@ export default function POSContainer({
                         >
                           {resolvedUnits.map((u) => (
                             <option key={String(u._id || u.unit_name)} value={u._id || ''}>
-                              {u.unit_name} - {formatMoney(u.price)}{u.barcode ? ` - BC: ${u.barcode}` : ''}
+                              {u.unit_name} - {formatMoney(u.price)}
                             </option>
                           ))}
                         </select>
@@ -1232,7 +1284,7 @@ export default function POSContainer({
                         type="number"
                         className="pos-qty-input"
                         value={item.quantity}
-                        onChange={(e) => updateLine(idx, { quantity: Number(e.target.value) || 1 })}
+                        onChange={(e) => autoSwitchUnitByQuantity(idx, e.target.value)}
                       />
                     </td>
                     <td>

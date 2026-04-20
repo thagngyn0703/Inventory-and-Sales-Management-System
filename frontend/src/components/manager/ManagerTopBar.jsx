@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import ManagerNotificationBell from '../ManagerNotificationBell';
 import { cn } from '../../lib/utils';
 
+const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
+
 /**
  * Thanh trên manager — cùng gradient teal/sky với staff dashboard & POS.
  */
@@ -17,7 +19,7 @@ export function ManagerTopBar({ left = null, showNotificationBell = true, classN
   useEffect(() => {
     const token = localStorage.getItem('token') || '';
     if (!token) return;
-    fetch('http://localhost:8000/api/auth/me', {
+    fetch(`${API_BASE}/auth/me`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((res) => res.json().catch(() => ({})))

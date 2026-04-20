@@ -17,7 +17,7 @@ import { Badge } from './ui/badge';
 import { ShinyText } from './ai/ShinyText';
 import { cn } from '../lib/utils';
 
-const API_BASE = 'http://localhost:8000/api';
+const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
 
 function getToken() {
   return localStorage.getItem('token') || '';
@@ -139,8 +139,6 @@ function RecommendationItem({ rec }) {
 export default function AIInsightCard({ className = '' }) {
   const [state, setState] = useState('idle');
   const [data, setData] = useState(null);
-  const [cached, setCached] = useState(false);
-  const [generatedAt, setGeneratedAt] = useState('');
   const [error, setError] = useState('');
 
   const load = useCallback(async (forceRefresh = false) => {
@@ -149,8 +147,6 @@ export default function AIInsightCard({ className = '' }) {
     try {
       const res = await fetchInsights(forceRefresh);
       setData(res.data);
-      setCached(res.cached || false);
-      setGeneratedAt(res.generatedAt || '');
       setState('success');
     } catch (e) {
       setError(e.message || 'Không thể tải gợi ý AI');
@@ -224,7 +220,7 @@ export default function AIInsightCard({ className = '' }) {
           )}
 
           {state === 'success' && data && (
-            <div className="flex flex-1 flex-col space-y-3">
+            <div className="flex min-h-0 flex-1 flex-col space-y-3 overflow-y-auto pr-1" style={{ scrollbarGutter: 'stable' }}>
               {data.seasonal_trend && (
                 <div className="rounded-xl border border-teal-200/60 bg-gradient-to-r from-teal-50/90 via-emerald-50/50 to-transparent px-4 py-3 ring-1 ring-teal-500/10">
                   <p className="text-xs font-semibold uppercase tracking-wide text-teal-700/80 mb-1">
@@ -249,15 +245,6 @@ export default function AIInsightCard({ className = '' }) {
                 {displayedRecommendations.map((rec, idx) => (
                   <RecommendationItem key={idx} rec={rec} />
                 ))}
-              </div>
-
-              <div className="mt-auto flex flex-wrap items-center justify-between gap-2 border-t border-violet-100 pt-3">
-                <span className="text-xs text-slate-400">
-                  {cached ? `Cache · ${generatedAt}` : `Mới phân tích · ${generatedAt}`}
-                </span>
-                <Badge className="border-0 bg-violet-100 text-violet-800 ring-1 ring-violet-200/60">
-                  Gemini → OpenAI
-                </Badge>
               </div>
             </div>
           )}

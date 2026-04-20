@@ -3,6 +3,8 @@ import { Outlet, useLocation, Link } from 'react-router-dom';
 import SalesSidebar from './SalesSidebar';
 import './SalesDashboard.css';
 
+const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
+
 export default function SalesDashboard() {
   const location = useLocation();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -15,7 +17,7 @@ export default function SalesDashboard() {
   useEffect(() => {
     const token = localStorage.getItem('token') || '';
     if (!token) return;
-    fetch('http://localhost:8000/api/auth/me', {
+    fetch(`${API_BASE}/auth/me`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then(res => res.json().catch(() => ({})))

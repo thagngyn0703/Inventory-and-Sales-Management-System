@@ -714,6 +714,8 @@ TRỌNG TÂM (đa lượt):
 - Các tin nhắn trước chỉ dùng để hiểu tham chiếu: "như vậy", "ý là", "mùa lạnh đó", "những sự kiện đó", "vào mùa lạnh"… phải bám chủ đề đã thống nhất ở các lượt trước.
 - KHÔNG mở đầu lại "Xin chào" hay giới thiệu bản thân nếu đã có hội thoại trước đó.
 - KHÔNG lặp lại nguyên văn toàn bộ dữ liệu kho; chỉ trích phần liên quan câu hỏi cuối.
+- Mặc định trả lời NGẮN GỌN và ĐÚNG TRỌNG TÂM; chỉ tách nhiều mục khi user yêu cầu rõ.
+- KHÔNG tự động tạo 2 phần "nội bộ / thị trường" nếu user không yêu cầu.
 
 DỮ LIỆU:
 - Mỗi lượt, khối «DỮ LIỆU NỀN» nằm ở đầu tin nhắn user mới nhất (do hệ thống ghép vào); đó là nguồn sự thật mới nhất về kho và lịch cho yêu cầu hiện tại.
@@ -730,6 +732,7 @@ SỰ KIỆN THEO THÁNG (dương lịch):
 MÙA / CHỦ ĐỀ:
 - Nếu user đang hỏi về MÙA LẠNH (hoặc tháng 10–3, hoặc tiếp nối sau khi đã nói về mùa lạnh): ưu tiên hàng phù hợp mùa lạnh / lễ thu–đông (20/10, 20/11, Trung thu, Giáng sinh, Tết… nếu nằm trong phạm vi câu hỏi). KHÔNG chuyển sang khuyên nước giải khát mùa hè, kem, hay nhắc 30/4–1/5 trừ khi user hỏi rộng cả năm hoặc hỏi rõ tháng 4–5.
 - Nếu user đang hỏi về MÙA NÓNG / hè: mới nhấn mạnh nước giải khát, kem…
+- Nếu user hỏi theo thời tiết MƯA/mưa nhiều: ưu tiên nhóm hàng dùng khi mưa (áo mưa, ô/dù, khăn giấy, đồ uống ấm tiện lợi, đồ ăn nhanh tại nhà); KHÔNG lái sang tư vấn nắng nóng chỉ vì bối cảnh tháng.
 - Dòng "Bối cảnh mùa vụ" trong dữ liệu chỉ là gợi ý khí hậu; không dùng để lấn át chủ đề user vừa chọn (vd. user nói "vào mùa lạnh" thì không trả lời như đang tư vấn hè).
 
 NHẬP HÀNG / TỐI ƯU DOANH SỐ:
@@ -793,6 +796,75 @@ function buildMonthFilteredEventsBlock(yearEvents, monthNums) {
     ? filtered.map((e) => `- ${e.date} — ${e.name}`).join('\n')
     : '- (Không có sự kiện nào trong bảng lễ cho phạm vi tháng này — trả lời đúng như vậy; không được thêm sự kiện tháng khác.)';
   return `\n\n[LỌC THEO CÂU HỎI — Sự kiện trong ${label}:]\n${lines}`;
+}
+
+function parseWeatherIntentFromQuestion(text) {
+  const s = String(text || '').toLowerCase();
+  const hasRain = /(mưa|mua|áo mưa|ao mua|ẩm|am uot|ẩm ướt|ngập|ngap|mưa nhiều|mua nhieu)/i.test(s);
+  const hasCold = /(lạnh|lanh|rét|ret|mùa đông|mua dong|áo ấm|ao am)/i.test(s);
+  const hasHot = /(nắng|nang|nóng|nong|oi bức|oi buc|mùa hè|mua he)/i.test(s);
+
+  if (hasRain) return 'rainy';
+  if (hasCold) return 'cold';
+  if (hasHot) return 'hot';
+  return 'neutral';
+}
+
+function buildWeatherFocusedGuidance(intent) {
+  if (intent === 'rainy') {
+    return `\n\n[ƯU TIÊN THEO CÂU HỎI — THỜI TIẾT MƯA]
+- User đang hỏi theo ngữ cảnh mưa nhiều. ƯU TIÊN mặt hàng phù hợp mưa/ẩm và nhu cầu đi lại ngày mưa.
+- KHÔNG để "Bối cảnh mùa vụ theo tháng" lấn át intent mưa.
+- Nếu nêu phần tham khảo thị trường, ưu tiên nhóm như áo mưa, ô/dù, khăn giấy, đồ uống ấm tiện lợi, đồ ăn nhanh tại nhà.
+- Với phần nội bộ, chỉ đề cập SKU có trong dữ liệu nền.`;
+  }
+  if (intent === 'cold') {
+    return `\n\n[ƯU TIÊN THEO CÂU HỎI — THỜI TIẾT LẠNH]
+- User đang hỏi theo ngữ cảnh lạnh. ƯU TIÊN sản phẩm dùng trong thời tiết lạnh.
+- KHÔNG chuyển sang tư vấn mùa hè trừ khi user hỏi thêm.`;
+  }
+  if (intent === 'hot') {
+    return `\n\n[ƯU TIÊN THEO CÂU HỎI — THỜI TIẾT NÓNG]
+- User đang hỏi theo ngữ cảnh nóng. ƯU TIÊN sản phẩm giải nhiệt và tiêu dùng mùa nóng.`;
+  }
+  return '';
+}
+
+function detectAnswerFocusStyleFromQuestion(text) {
+  const s = String(text || '').toLowerCase();
+  const asksBoth = /(cả 2|ca 2|cả hai|ca hai|nội bộ.*thị trường|thi truong.*noi bo|so sánh nội bộ và thị trường|so sanh noi bo va thi truong)/i.test(s);
+  const asksMarketOnly = /(xu hướng|xu huong|thị trường|thi truong|mở rộng danh mục|mo rong danh muc|tham khảo bên ngoài|tham khao ben ngoai|ngoài hệ thống|ngoai he thong)/i.test(s);
+  const asksInternalOnly = /(nội bộ|noi bo|trong hệ thống|trong he thong|sku|tồn kho|ton kho|hết hạn|het han|nhập hàng|nhap hang|doanh thu|lợi nhuận|loi nhuan)/i.test(s);
+
+  if (asksBoth) return 'both';
+  if (asksInternalOnly && !asksMarketOnly) return 'internal_only';
+  if (asksMarketOnly && !asksInternalOnly) return 'market_only';
+  return 'focused';
+}
+
+function buildAnswerFocusGuidance(style) {
+  if (style === 'both') {
+    return `\n\n[YÊU CẦU TRẢ LỜI — GIỮ 2 PHẦN]
+- Tách rõ 2 phần: (1) Theo dữ liệu nội bộ trong hệ thống, (2) Tham khảo xu hướng thị trường mở rộng.
+- Với phần (2), được phép nêu mặt hàng chưa có trong hệ thống nhưng phải ghi nhãn "tham khảo thị trường".`;
+  }
+  if (style === 'internal_only') {
+    return `\n\n[YÊU CẦU TRẢ LỜI — CHỈ NỘI BỘ]
+- Chỉ trả lời theo dữ liệu nội bộ/SKU trong hệ thống.
+- Không thêm mục "tham khảo thị trường" nếu user không hỏi.
+- Trả lời ngắn gọn, đi thẳng vào mặt hàng/hành động liên quan câu hỏi.`;
+  }
+  if (style === 'market_only') {
+    return `\n\n[YÊU CẦU TRẢ LỜI — CHỈ THỊ TRƯỜNG]
+- Tập trung xu hướng thị trường và gợi ý mở rộng danh mục.
+- Không liệt kê chi tiết tồn kho nội bộ nếu user không yêu cầu.
+- Nếu cần nhắc nội bộ thì chỉ 1 câu cảnh báo ngắn, không mở thành mục riêng.`;
+  }
+  return `\n\n[YÊU CẦU TRẢ LỜI — ĐÚNG TRỌNG TÂM]
+- Trả lời trực tiếp câu hỏi mới nhất, ưu tiên thông tin liên quan nhất.
+- KHÔNG tự động chia mục (1) nội bộ/(2) thị trường nếu user không yêu cầu.
+- Không dump danh sách dài; chỉ nêu các dòng thực sự cần cho quyết định.
+- Ưu tiên câu ngắn, hành động rõ ràng.`;
 }
 
 function buildChatFallbackAnswer(userMessage, { lowStock, deadStock, expiringSoon, events, yearEvents, season }) {
@@ -1490,9 +1562,13 @@ router.post(
       const ctx = buildContextBlock(ctxParams);
       const askedMonths = parseAskedMonthsFromQuestion(message);
       const monthBlock = buildMonthFilteredEventsBlock(yearEvents, askedMonths);
+      const weatherIntent = parseWeatherIntentFromQuestion(message);
+      const weatherFocusBlock = buildWeatherFocusedGuidance(weatherIntent);
+      const answerFocusStyle = detectAnswerFocusStyleFromQuestion(message);
+      const answerFocusBlock = buildAnswerFocusGuidance(answerFocusStyle);
       const augmentedUserMessage = `[DỮ LIỆU NỀN — cập nhật cho yêu cầu này]\n${ctx}${monthBlock}\n\nYÊU CẦU TRÌNH BÀY:
-- Tách rõ 2 phần: (1) Theo dữ liệu nội bộ trong hệ thống, (2) Tham khảo xu hướng thị trường mở rộng.
-- Với phần (2), được phép nêu mặt hàng chưa có trong hệ thống nhưng phải ghi nhãn "tham khảo thị trường".
+\n${answerFocusBlock}
+\n${weatherFocusBlock}
 \n---\nCÂU HỎI / YÊU CẦU CỦA CHỦ TIỆM:\n${message}`;
 
       let reply;

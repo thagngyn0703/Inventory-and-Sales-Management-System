@@ -20,6 +20,8 @@ import {
   Users,
 } from 'lucide-react';
 
+const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
+
 const salesItems = [
   { to: '/staff/invoices/new', icon: PlusCircle, label: 'Tạo hóa đơn', end: true },
   { to: '/staff/invoices', icon: Receipt, label: 'Lịch sử bán lẻ', end: true },
@@ -51,7 +53,7 @@ export default function SalesSidebar({ collapsed }) {
   useEffect(() => {
     const token = localStorage.getItem('token') || '';
     if (!token) return;
-    fetch('http://localhost:8000/api/auth/me', {
+    fetch(`${API_BASE}/auth/me`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((res) => res.json().catch(() => ({})))

@@ -7,7 +7,7 @@ import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 
-const API_BASE = "http://localhost:8000/api";
+const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:8000/api";
 
 const BANNER_BG =
     "https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?auto=format&fit=crop&w=1600&q=80";

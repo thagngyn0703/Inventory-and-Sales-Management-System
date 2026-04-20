@@ -9,7 +9,7 @@ import { Badge } from './ui/badge';
 import { ShinyText } from './ai/ShinyText';
 import { cn } from '../lib/utils';
 
-const API_BASE = 'http://localhost:8000/api';
+const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
 
 const FALLBACK_FOOTER_RE = /\n\n\[Phản hồi dự phòng[^\]]*\][\s\S]*$/i;
 
@@ -241,7 +241,7 @@ export default function AIChatPanel({ className = '' }) {
 
         <CardContent className="flex flex-1 flex-col overflow-hidden p-0">
           <div
-            className="min-h-[220px] flex-1 space-y-3 overflow-y-auto bg-gradient-to-b from-slate-50/80 to-white p-4"
+            className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain bg-gradient-to-b from-slate-50/80 to-white p-4"
             style={{ scrollbarGutter: 'stable' }}
           >
             {messages.length === 0 && (

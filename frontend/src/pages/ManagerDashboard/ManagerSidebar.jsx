@@ -34,6 +34,8 @@ import {
   Zap,
 } from 'lucide-react';
 
+const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
+
 const overviewItems = [
   { type: 'item', label: 'Tổng quan', path: '/manager', icon: LayoutDashboard },
   { type: 'item', label: 'Trợ lý AI', path: '/manager/ai-assistant', icon: Sparkles },
@@ -139,7 +141,7 @@ export default function ManagerSidebar({ collapsed = false, ...restProps }) {
   useEffect(() => {
     const token = localStorage.getItem('token') || '';
     if (!token) return;
-    fetch('http://localhost:8000/api/auth/me', {
+    fetch(`${API_BASE}/auth/me`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((res) => res.json().catch(() => ({})))
