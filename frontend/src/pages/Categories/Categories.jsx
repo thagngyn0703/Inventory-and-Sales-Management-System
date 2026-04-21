@@ -29,6 +29,7 @@ const Categories = () => {
     const [showCreateModal, setShowCreateModal] = useState(false);
     // Input value cho category name mới
     const [newName, setNewName] = useState('');
+    const [newVatRate, setNewVatRate] = useState('');
 
     // ========== EDIT MODAL STATE ==========
     // Modal chỉnh sửa category
@@ -37,6 +38,7 @@ const Categories = () => {
     const [editingId, setEditingId] = useState(null);
     // Name của category đang edit
     const [editingName, setEditingName] = useState('');
+    const [editingVatRate, setEditingVatRate] = useState('');
 
     // ========== SEARCH STATE ==========
     // Search term đã được apply (filtered)
@@ -111,13 +113,17 @@ const Categories = () => {
                     'Content-Type': 'application/json',
                     Authorization: 'Bearer ' + token,
                 },
-                body: JSON.stringify({ name: newName.trim() }),
+                body: JSON.stringify({
+                    name: newName.trim(),
+                    vat_rate: newVatRate === '' ? null : Number(newVatRate),
+                }),
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.message || 'Tạo danh mục thất bại');
 
             // Reset form và đóng modal
             setNewName('');
+            setNewVatRate('');
             setShowCreateModal(false);
             refetchCategories(); // Update UI
         } catch (err) {
@@ -134,6 +140,11 @@ const Categories = () => {
     const startEdit = (cat) => {
         setEditingId(cat._id);
         setEditingName(cat.name);
+        setEditingVatRate(
+            cat.vat_rate === null || cat.vat_rate === undefined || cat.vat_rate === ''
+                ? ''
+                : String(cat.vat_rate)
+        );
         setShowEditModal(true);
     };
 
@@ -143,6 +154,7 @@ const Categories = () => {
     const cancelEdit = () => {
         setEditingId(null);
         setEditingName('');
+        setEditingVatRate('');
         setShowEditModal(false);
     };
 
@@ -162,7 +174,10 @@ const Categories = () => {
                     'Content-Type': 'application/json',
                     Authorization: 'Bearer ' + token,
                 },
-                body: JSON.stringify({ name: editingName.trim() }),
+                body: JSON.stringify({
+                    name: editingName.trim(),
+                    vat_rate: editingVatRate === '' ? null : Number(editingVatRate),
+                }),
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.message || 'Cập nhật thất bại');
@@ -263,6 +278,7 @@ const Categories = () => {
                                     <thead>
                                         <tr>
                                             <th>TÊN DANH MỤC</th>
+                                            <th>VAT (%)</th>
                                             <th>TRẠNG THÁI</th>
                                             <th>NGÀY TẠO</th>
                                             <th>THAO TÁC</th>
@@ -271,7 +287,7 @@ const Categories = () => {
                                     <tbody>
                                         {filteredCategories.length === 0 ? (
                                             <tr>
-                                                <td colSpan={4} className="manager-products-empty">
+                                                <td colSpan={5} className="manager-products-empty">
                                                     {search ? 'Không có danh mục nào phù hợp.' : 'Chưa có danh mục.'}
                                                 </td>
                                             </tr>
@@ -279,6 +295,11 @@ const Categories = () => {
                                             filteredCategories.map((cat) => (
                                                 <tr key={cat._id}>
                                                     <td>{cat.name}</td>
+                                                    <td>
+                                                        {cat.vat_rate === null || cat.vat_rate === undefined || cat.vat_rate === ''
+                                                            ? '—'
+                                                            : `${Number(cat.vat_rate)}%`}
+                                                    </td>
                                                     <td>
                                                         <button
                                                             className={`manager-products-status manager-products-status--${cat.is_active ? 'active' : 'inactive'}`}
@@ -320,11 +341,26 @@ const Categories = () => {
                                 placeholder="Nhập tên danh mục"
                                 autoFocus
                             />
+                            <input
+                                type="number"
+                                min="0"
+                                max="100"
+                                step="0.01"
+                                value={newVatRate}
+                                onChange={(e) => setNewVatRate(e.target.value)}
+                                placeholder="VAT (%) - để trống nếu không áp dụng"
+                            />
                             <div className="modal-buttons">
                                 <button
                                     type="submit"
                                     disabled={!newName.trim() || loading}
                                     className="btn-submit"
+                                    onClick={(e) => {
+                                        if (newVatRate !== '' && (Number(newVatRate) < 0 || Number(newVatRate) > 100)) {
+                                            e.preventDefault();
+                                            setError('VAT phải nằm trong khoảng 0-100%.');
+                                        }
+                                    }}
                                 >
                                     Tạo
                                 </button>
@@ -333,6 +369,7 @@ const Categories = () => {
                                     onClick={() => {
                                         setShowCreateModal(false);
                                         setNewName('');
+                                        setNewVatRate('');
                                     }}
                                     className="btn-cancel"
                                 >
@@ -360,6 +397,15 @@ const Categories = () => {
                                 onChange={(e) => setEditingName(e.target.value)}
                                 placeholder="Nhập tên danh mục"
                                 autoFocus
+                            />
+                            <input
+                                type="number"
+                                min="0"
+                                max="100"
+                                step="0.01"
+                                value={editingVatRate}
+                                onChange={(e) => setEditingVatRate(e.target.value)}
+                                placeholder="VAT (%) - để trống nếu không áp dụng"
                             />
                             <div className="modal-buttons">
                                 <button

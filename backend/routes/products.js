@@ -65,7 +65,6 @@ function parseOptionalDate(value) {
 }
 
 const TEXT_NO_SPECIAL_REGEX = /^[\p{L}\p{N}\s]+$/u;
-const PRODUCT_NAME_REGEX = /^[\p{L}\p{N}\s,]+$/u;
 const SKU_REGEX = /^[\p{L}\p{N},]+$/u;
 const DIGITS_ONLY_REGEX = /^\d+$/;
 
@@ -78,7 +77,7 @@ function isValidNoSpecialText(value) {
 }
 
 function isValidProductName(value) {
-  return PRODUCT_NAME_REGEX.test(trimText(value));
+  return trimText(value).length > 0;
 }
 
 function parseNonNegativeNumber(value) {
@@ -191,6 +190,36 @@ async function findBarcodeDuplicate({ barcode, storeId, excludeId }) {
   };
 }
 
+async function ensureBarcodeAvailableForProduct({ barcode, storeId, currentProductId }) {
+  const b = String(barcode || '').trim();
+  if (!b) return { ok: true };
+  const storeFilter = storeId ? { storeId } : { storeId: null };
+  const currentId = currentProductId && mongoose.isValidObjectId(currentProductId)
+    ? String(currentProductId)
+    : null;
+
+  const dupProduct = await Product.findOne({
+    ...storeFilter,
+    barcode: b,
+    ...(currentId ? { _id: { $ne: currentId } } : {}),
+  }).select('_id name sku').lean();
+  if (dupProduct) return { ok: false, source: 'product', conflict: dupProduct };
+
+  const dupUnit = await ProductUnit.findOne({ ...storeFilter, barcode: b }).select('_id product_id unit_name').lean();
+  if (!dupUnit) return { ok: true };
+  const ownerId = String(dupUnit.product_id || '');
+  if (currentId && ownerId === currentId) return { ok: true };
+
+  const owner = mongoose.isValidObjectId(ownerId)
+    ? await Product.findOne({ _id: ownerId, ...storeFilter }).select('_id name sku').lean()
+    : null;
+  if (!owner) {
+    await ProductUnit.deleteOne({ _id: dupUnit._id });
+    return { ok: true };
+  }
+  return { ok: false, source: 'product_unit', conflict: { ...dupUnit, owner } };
+}
+
 async function cleanupOrphanProductUnitsByBarcodes({ barcodes, storeId, session = null }) {
   const normalized = [...new Set((barcodes || []).map((x) => String(x || '').trim()).filter(Boolean))];
   if (normalized.length === 0) return;
@@ -280,6 +309,18 @@ async function syncProductUnitsFromProduct(productDoc, session = null) {
     ? (list.find((u) => Number(u.ratio) === 1)?.name ? String(list.find((u) => Number(u.ratio) === 1).name).trim() : null)
     : null;
   const resolvedBaseName = explicitBaseByName || explicitBaseByRatio || normalizedNames[0] || baseName;
+  const targetUnitNames = list.map((u) => String(u.name || '').trim() || baseName);
+
+  // Important: remove obsolete units first to avoid barcode unique-index conflicts
+  // when renaming base unit (e.g. "Chai" -> "Lon") but keeping same barcode.
+  await ProductUnit.deleteMany(
+    {
+      product_id: productDoc._id,
+      unit_name: { $nin: targetUnitNames },
+    },
+    session ? { session } : undefined
+  );
+
   const bulkOps = list.map((u) => {
     const name = String(u.name || '').trim() || baseName;
     const ratio = Number(u.ratio) > 0 ? Number(u.ratio) : 1;
@@ -308,13 +349,6 @@ async function syncProductUnitsFromProduct(productDoc, session = null) {
   if (bulkOps.length > 0) {
     await ProductUnit.bulkWrite(bulkOps, { ordered: false, ...(session ? { session } : {}) });
   }
-  await ProductUnit.deleteMany(
-    {
-      product_id: productDoc._id,
-      unit_name: { $nin: list.map((u) => String(u.name || '').trim() || baseName) },
-    },
-    session ? { session } : undefined
-  );
   await syncBaseProductUnit(productDoc, session);
 }
 
@@ -470,6 +504,7 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
       sale_price,
       stock_qty,
       reorder_level,
+      vat_rate,
       expiry_date,
       base_unit,
       selling_units: bodyUnits,
@@ -486,10 +521,14 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
     const costNum = parseNonNegativeNumber(cost_price);
     const stockNum = parseNonNegativeNumber(stock_qty);
     const reorderNum = parseNonNegativeNumber(reorder_level);
+    const vatNum = (vat_rate === null || vat_rate === undefined || vat_rate === '') ? null : Number(vat_rate);
+    if (vatNum !== null && (!Number.isFinite(vatNum) || vatNum < 0 || vatNum > 100)) {
+      return res.status(400).json({ message: 'VAT không hợp lệ (0-100).' });
+    }
 
     if (!nameTrim) return res.status(400).json({ message: 'Tên sản phẩm không được để trống.' });
     if (!isValidProductName(nameTrim)) {
-      return res.status(400).json({ message: 'Tên sản phẩm không được chứa ký tự đặc biệt.' });
+      return res.status(400).json({ message: 'Tên sản phẩm không được để trống.' });
     }
     if (!skuTrim) return res.status(400).json({ message: 'SKU không được để trống.' });
     if (!SKU_REGEX.test(skuTrim)) {
@@ -648,6 +687,7 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
           barcode: barcodeTrim || undefined,
           cost_price: Math.round(costNum),
           sale_price: Math.round(baseUnitPrice),
+          vat_rate: vatNum,
           stock_qty: 0,
           reorder_level: reorderNum,
           expiry_date: expCheck.date,
@@ -762,6 +802,7 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
       barcode: barcodeTrim || undefined,
       cost_price: Math.round(costNum),
       sale_price: Math.round(baseUnitPrice),
+      vat_rate: vatNum,
       stock_qty: 0,
       reorder_level: reorderNum,
       expiry_date: expCheck.date,
@@ -1311,6 +1352,10 @@ router.put('/:id/units', requireAuth, requireRole(['manager', 'admin']), async (
     if (!product) return res.status(404).json({ message: 'Product not found' });
 
     const normalized = payload.map((u) => normalizeUnitInput(u, product.base_unit || 'Cái'));
+    await cleanupOrphanProductUnitsByBarcodes({
+      barcodes: normalized.map((u) => trimText(u.barcode || '')),
+      storeId: product.storeId,
+    });
     const baseCount = normalized.filter((u) => u.is_base).length;
     if (baseCount !== 1) {
       return res.status(400).json({ message: 'Phải có đúng 1 đơn vị gốc (is_base=true)' });
@@ -1338,12 +1383,12 @@ router.put('/:id/units', requireAuth, requireRole(['manager', 'admin']), async (
     for (const u of normalized) {
       const barcode = trimText(u.barcode);
       if (!barcode) continue;
-      const dup = await findBarcodeDuplicate({
+      const barcodeCheck = await ensureBarcodeAvailableForProduct({
         barcode,
         storeId: product.storeId,
-        excludeId: product._id,
+        currentProductId: product._id,
       });
-      if (dup) {
+      if (!barcodeCheck.ok) {
         return res.status(409).json({
           message: `Barcode "${barcode}" đã tồn tại cho sản phẩm/đơn vị khác trong cửa hàng này`,
         });
@@ -1429,6 +1474,7 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
       sale_price,
       stock_qty,
       reorder_level,
+      vat_rate,
       expiry_date,
       base_unit,
       selling_units: bodyUnits,
@@ -1448,6 +1494,17 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
     const oldCost = Number(product.cost_price) || 0;
     const oldSale = Number(product.sale_price) || 0;
     const originalSku = trimText(product.sku || '');
+    const originalBarcode = trimText(product.barcode || '');
+    const originalBaseUnit = trimText(product.base_unit || 'Cái');
+    let shouldSyncUnits = false;
+    const incomingBarcode = barcode !== undefined ? trimText(barcode) : trimText(product.barcode || '');
+    const incomingUnitBarcodes = Array.isArray(bodyUnits)
+      ? bodyUnits.map((u) => trimText(u?.barcode || '')).filter(Boolean)
+      : [];
+    await cleanupOrphanProductUnitsByBarcodes({
+      barcodes: [incomingBarcode, ...incomingUnitBarcodes],
+      storeId: product.storeId,
+    });
 
     if (expiry_date !== undefined) {
       const expCheck = validateExpiryDateForWrite(expiry_date);
@@ -1461,7 +1518,7 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
       const nameTrim = trimText(name);
       if (!nameTrim) return res.status(400).json({ message: 'Tên sản phẩm không được để trống.' });
       if (!isValidProductName(nameTrim)) {
-        return res.status(400).json({ message: 'Tên sản phẩm không được chứa ký tự đặc biệt.' });
+        return res.status(400).json({ message: 'Tên sản phẩm không được để trống.' });
       }
       product.name = nameTrim;
     }
@@ -1482,13 +1539,19 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
       if (bc && !DIGITS_ONLY_REGEX.test(bc)) {
         return res.status(400).json({ message: 'Barcode chỉ được nhập số, không chữ hoặc ký tự đặc biệt.' });
       }
-      if (bc) {
-        const dupB = await findBarcodeDuplicate({ barcode: bc, storeId: product.storeId, excludeId: id });
-        if (dupB) {
+      const barcodeChanged = originalBarcode !== bc;
+      if (bc && barcodeChanged) {
+        const barcodeCheck = await ensureBarcodeAvailableForProduct({
+          barcode: bc,
+          storeId: product.storeId,
+          currentProductId: id,
+        });
+        if (!barcodeCheck.ok) {
           return res.status(409).json({ message: 'Barcode đã tồn tại cho sản phẩm khác trong cửa hàng này' });
         }
       }
       product.barcode = bc || undefined;
+      if (barcodeChanged) shouldSyncUnits = true;
     }
 
     if (cost_price !== undefined) {
@@ -1506,12 +1569,20 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
       if (n == null) return res.status(400).json({ message: 'Mức tồn tối thiểu không hợp lệ.' });
       product.reorder_level = n;
     }
+    if (vat_rate !== undefined) {
+      const vatNum = (vat_rate === null || vat_rate === '' ? null : Number(vat_rate));
+      if (vatNum !== null && (!Number.isFinite(vatNum) || vatNum < 0 || vatNum > 100)) {
+        return res.status(400).json({ message: 'VAT không hợp lệ (0-100).' });
+      }
+      product.vat_rate = vatNum;
+    }
     if (base_unit !== undefined) {
       const base = base_unit ? trimText(base_unit) : 'Cái';
       if (!isValidNoSpecialText(base)) {
         return res.status(400).json({ message: 'Đơn vị tồn kho không được chứa ký tự đặc biệt.' });
       }
       product.base_unit = base;
+      if (trimText(base) !== originalBaseUnit) shouldSyncUnits = true;
     }
     if (status !== undefined) product.status = status === 'inactive' ? 'inactive' : 'active';
     if (category_id !== undefined) {
@@ -1538,6 +1609,7 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
     }
 
     if (Array.isArray(bodyUnits) && bodyUnits.length > 0) {
+      shouldSyncUnits = true;
       const base = product.base_unit || 'Cái';
       const units = bodyUnits.map((u) => {
         const unitName = trimText(u.name) || base;
@@ -1577,19 +1649,26 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
       product.sale_price = Math.round(saleNum);
       product.selling_units = [{ name: product.base_unit || 'Cái', ratio: 1, sale_price: product.sale_price }];
     }
-    product.updated_at = new Date();
-    await product.save();
-    await syncProductUnitsFromProduct(product);
-    await logPriceChange({
-      productId: product._id,
-      storeId: product.storeId || null,
-      changedBy: req.user?.id,
-      source: 'manual_update',
-      oldCost,
-      newCost: product.cost_price,
-      oldSale,
-      newSale: product.sale_price,
-    });
+    const hasDocChanges = product.isModified();
+    if (hasDocChanges || shouldSyncUnits) {
+      product.updated_at = new Date();
+      await product.save();
+      if (shouldSyncUnits) {
+        await syncProductUnitsFromProduct(product);
+      }
+    }
+    if (hasDocChanges || shouldSyncUnits) {
+      await logPriceChange({
+        productId: product._id,
+        storeId: product.storeId || null,
+        changedBy: req.user?.id,
+        source: 'manual_update',
+        oldCost,
+        newCost: product.cost_price,
+        oldSale,
+        newSale: product.sale_price,
+      });
+    }
 
     return res.json({ product: normalizeProduct(product.toObject()) });
   } catch (err) {
@@ -1623,7 +1702,16 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
       if (keys.storeId && keys.sku) {
         return res.status(409).json({ message: 'SKU đã tồn tại trong cửa hàng này' });
       }
-      return res.status(409).json({ message: 'SKU đã tồn tại trong cửa hàng này' });
+      if (/storeId_1_sku_1/i.test(dupKeyText)) {
+        return res.status(409).json({ message: 'SKU đã tồn tại trong cửa hàng này' });
+      }
+      const indexMatch = dupKeyText.match(/index:\s*([^\s]+)\s*dup key/i);
+      return res.status(409).json({
+        message: 'Dữ liệu bị trùng trong hệ thống. Vui lòng kiểm tra lại thông tin.',
+        code: 'DUPLICATE_DATA',
+        duplicate_keys: keys,
+        duplicate_index: indexMatch ? indexMatch[1] : undefined,
+      });
     }
     return res.status(500).json({ message: 'Server error' });
   }

@@ -145,9 +145,6 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
     if (!trimmedName) {
       return res.status(400).json({ message: 'name is required' });
     }
-    if (!TEXT_NO_SPECIAL_REGEX.test(trimmedName)) {
-      return res.status(400).json({ message: 'Tên sản phẩm không được chứa ký tự đặc biệt.' });
-    }
     if (!trimmedSku) {
       return res.status(400).json({ message: 'sku is required' });
     }

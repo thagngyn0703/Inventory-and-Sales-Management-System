@@ -8,6 +8,7 @@ import {
   trimString,
   validateBarcode,
   validateNoSpecialText,
+  validateRequiredText,
   validateNonNegativeNumber,
   validateSku,
 } from '../../utils/productValidation';
@@ -273,7 +274,7 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setExistingMatch(null);
-    const nameCheck = validateNoSpecialText(form.name, 'Tên sản phẩm', { required: true });
+    const nameCheck = validateRequiredText(form.name, 'Tên sản phẩm');
     if (!nameCheck.ok) {
       setError(nameCheck.message);
       return;

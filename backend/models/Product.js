@@ -52,6 +52,12 @@ const productSchema = new Schema(
             type: Number,
             default: 0,
         },
+        vat_rate: {
+            type: Number,
+            default: null,
+            min: 0,
+            max: 100,
+        },
         expiry_date: {
             type: Date,
         },

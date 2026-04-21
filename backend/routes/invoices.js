@@ -7,10 +7,14 @@ const Product = require('../models/Product');
 const ProductUnit = require('../models/ProductUnit');
 const User = require('../models/User');
 const Store = require('../models/Store');
+const Category = require('../models/Category');
 const Customer = require('../models/Customer');
 const { adjustStockFIFO } = require('../utils/inventoryUtils');
 const { applyCustomerDebtAfterNewInvoice } = require('../utils/customerDebt');
 const { upsertSystemCashFlow } = require('../utils/cashflowUtils');
+const { normalizeInvoicePayment, normalizeNonNegativeInt } = require('../utils/invoicePaymentUtils');
+const ShiftSession = require('../models/ShiftSession');
+const ShiftUser = require('../models/ShiftUser');
 const {
     normalizeLoyaltySettings,
     computeRedeemPlan,
@@ -81,6 +85,37 @@ function computeTaxBreakdown(grandTotal, taxRate, priceIncludesTax) {
         const tax = Math.round(total * (rate / 100));
         return { subtotal_amount: total, tax_amount: tax };
     }
+}
+
+function allocateInvoiceDiscountToLines(lines = [], invoiceLevelDiscount = 0) {
+    const items = Array.isArray(lines) ? lines : [];
+    const discount = Math.max(0, Math.round(Number(invoiceLevelDiscount) || 0));
+    if (items.length === 0) return [];
+    const total = items.reduce((s, it) => s + (Number(it.line_total) || 0), 0);
+    if (discount <= 0 || total <= 0) {
+        return items.map((it) => ({ ...it, line_net_total: Math.round(Number(it.line_total) || 0) }));
+    }
+    const allocations = items.map((it) => {
+        const lt = Math.max(0, Number(it.line_total) || 0);
+        return Math.floor((lt / total) * discount);
+    });
+    let allocated = allocations.reduce((s, x) => s + x, 0);
+    let remainder = Math.max(0, discount - allocated);
+    // distribute remainder to largest lines
+    const idxByLineTotalDesc = items
+        .map((it, idx) => ({ idx, lt: Math.max(0, Number(it.line_total) || 0) }))
+        .sort((a, b) => b.lt - a.lt)
+        .map((x) => x.idx);
+    for (const idx of idxByLineTotalDesc) {
+        if (remainder <= 0) break;
+        allocations[idx] += 1;
+        remainder -= 1;
+    }
+    return items.map((it, i) => {
+        const lt = Math.max(0, Math.round(Number(it.line_total) || 0));
+        const net = Math.max(0, lt - (allocations[i] || 0));
+        return { ...it, line_net_total: net };
+    });
 }
 
 /** Lấy cấu hình thuế của cửa hàng (tax_rate, price_includes_tax). */
@@ -532,6 +567,7 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
             customer_id,
             items: reqItems,
             payment_method,
+            payment,
             recipient_name,
             previous_debt_paid,
             redeem_points_requested,
@@ -654,10 +690,38 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
             status = 'pending';
         }
 
-        // Với chuyển khoản: sinh payment_ref để nhúng vào nội dung QR, trạng thái chờ xác nhận
-        // Với tiền mặt: coi là đã thanh toán ngay
-        const paymentRef = method === 'bank_transfer' ? generatePaymentRef() : null;
-        let paymentStatus = method === 'cash' ? 'paid' : 'unpaid';
+        const prevDebtPaid = normalizeNonNegativeInt(previous_debt_paid);
+        const expectedTotalToCollectNow = method === 'debt' ? 0 : Math.max(0, Math.round(netInvoiceAmount + prevDebtPaid));
+        const normalizedPayment = normalizeInvoicePayment({
+            payment_method: method,
+            payment,
+            expected_total: expectedTotalToCollectNow,
+            allowZero: method === 'debt',
+        });
+        if (!normalizedPayment.ok) {
+            return res.status(400).json({
+                code: normalizedPayment.code,
+                message: normalizedPayment.message,
+                expected_total: normalizedPayment.expected_total,
+                provided_total: normalizedPayment.provided_total,
+            });
+        }
+
+        const normalizedMethod = normalizedPayment.payment_method;
+        const paymentSplit = normalizedPayment.payment;
+
+        // Với chuyển khoản hoặc split có bank_transfer: sinh payment_ref để nhúng vào nội dung QR
+        const paymentRef = paymentSplit.bank_transfer > 0 ? generatePaymentRef() : null;
+        let paymentStatus = 'unpaid';
+        if (method === 'debt') {
+            paymentStatus = 'unpaid';
+        } else if (paymentSplit.bank_transfer === 0 && paymentSplit.cash > 0) {
+            paymentStatus = 'paid';
+        } else if (paymentSplit.bank_transfer > 0 && paymentSplit.cash > 0) {
+            paymentStatus = 'partial';
+        } else {
+            paymentStatus = 'unpaid';
+        }
 
         // Snapshot người bán tại thời điểm bán — lấy từ DB để đảm bảo chính xác
         const sellerUser = await User.findById(req.user.id).select('fullName email role employeeCode').lean();
@@ -667,11 +731,50 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
 
         // Tính thuế từ cấu hình cửa hàng — server là nguồn sự thật, không tin client
         const taxConfig = await getStoreTaxConfig(req.user.storeId);
-        const { subtotal_amount, tax_amount } = computeTaxBreakdown(
-            netInvoiceAmount,
-            taxConfig.tax_rate,
-            taxConfig.price_includes_tax
-        );
+        // VAT by line: product.vat_rate > category.vat_rate > default store tax_rate
+        const productIdsForVat = [...new Set(normalizedItems.map((it) => normalizeId(it.product_id)).filter(Boolean))];
+        const vatProducts = await Product.find({
+            _id: { $in: productIdsForVat },
+            ...(req.user.storeId ? { storeId: req.user.storeId } : {}),
+        })
+            .select('_id category_id vat_rate')
+            .lean();
+        const productsById = new Map(vatProducts.map((p) => [String(p._id), p]));
+        const categoryIds = [...new Set(vatProducts.map((p) => normalizeId(p.category_id)).filter(Boolean))];
+        const categories = categoryIds.length
+            ? await Category.find({ _id: { $in: categoryIds } }).select('_id vat_rate').lean()
+            : [];
+        const categoryById = new Map(categories.map((c) => [String(c._id), c]));
+
+        const itemsWithNet = allocateInvoiceDiscountToLines(normalizedItems, invoiceLevelDiscount);
+        let subtotal_amount = 0;
+        let tax_amount = 0;
+        const vatRateSet = new Set();
+        const vatItems = itemsWithNet.map((it) => {
+            const pid = normalizeId(it.product_id);
+            const product = pid ? productsById.get(pid) : null;
+            const catId = normalizeId(product?.category_id);
+            const cat = catId ? categoryById.get(catId) : null;
+            const pr = product?.vat_rate;
+            const cr = cat?.vat_rate;
+            const resolvedRate =
+                pr !== null && pr !== undefined && pr !== '' ? Number(pr) :
+                cr !== null && cr !== undefined && cr !== '' ? Number(cr) :
+                Number(taxConfig.tax_rate) || 0;
+            const safeRate = Number.isFinite(resolvedRate) && resolvedRate >= 0 ? resolvedRate : 0;
+            vatRateSet.add(String(safeRate));
+            const net = Math.round(Number(it.line_net_total) || 0);
+            const breakdown = computeTaxBreakdown(net, safeRate, taxConfig.price_includes_tax);
+            subtotal_amount += Number(breakdown.subtotal_amount) || 0;
+            tax_amount += Number(breakdown.tax_amount) || 0;
+            return {
+                ...it,
+                vat_rate_snapshot: safeRate,
+                line_subtotal_amount: breakdown.subtotal_amount,
+                line_tax_amount: breakdown.tax_amount,
+            };
+        });
+        const taxIsMixed = vatRateSet.size > 1;
 
         const invoice = new SalesInvoice({
             store_id: req.user.storeId || null,
@@ -682,16 +785,18 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
             seller_role: sellerRoleSnap,
             seller_code: sellerCodeSnap,
             status,
-            payment_method: method,
+            payment_method: normalizedMethod,
             payment_ref: paymentRef,
             payment_status: paymentStatus,
-            paid_at: method === 'cash' ? new Date() : null,
-            items: normalizedItems,
+            paid_at: paymentStatus === 'paid' ? new Date() : null,
+            payment: paymentSplit,
             total_amount: netInvoiceAmount,
-            subtotal_amount,
-            tax_amount,
+            items: vatItems,
+            subtotal_amount: Math.round(subtotal_amount),
+            tax_amount: Math.round(tax_amount),
             tax_rate_snapshot: taxConfig.tax_rate,
-            previous_debt_paid: Number(previous_debt_paid) || 0,
+            tax_is_mixed: taxIsMixed,
+            previous_debt_paid: prevDebtPaid,
             invoice_level_discount: invoiceLevelDiscount,
             loyalty_redeem_points: redeemPlan.used_points,
             loyalty_redeem_value: redeemPlan.redeem_value,
@@ -705,21 +810,69 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
 
         // Use syncInventory to handle deduction if created as confirmed
         try {
+            // Auto-attach current open shift (staff must have an open shift)
+            if (req.user.storeId && userRole !== 'admin') {
+                const openShift = await ShiftSession.findOne({ store_id: req.user.storeId, status: 'open' })
+                    .select('_id')
+                    .lean();
+                if (!openShift && userRole === 'staff') {
+                    return res.status(400).json({
+                        code: 'SHIFT_REQUIRED',
+                        message: 'Vui lòng mở ca trước khi bán hàng.',
+                    });
+                }
+                if (openShift) {
+                    invoice.shift_id = openShift._id;
+                    // Ensure staff is recorded as active in shift (multi-user support)
+                    await ShiftUser.findOneAndUpdate(
+                        { shift_id: openShift._id, user_id: req.user.id, left_at: null },
+                        {
+                            $setOnInsert: {
+                                shift_id: openShift._id,
+                                user_id: req.user.id,
+                                joined_at: new Date(),
+                                role_in_shift: 'support',
+                                created_at: new Date(),
+                            },
+                        },
+                        { upsert: true, new: true }
+                    );
+                }
+            }
+
             await syncInventory(invoice, status, normalizedItems);
             await invoice.save();
-            if (invoice.payment_status === 'paid' && invoice.status === 'confirmed') {
-                await upsertSystemCashFlow({
-                    storeId: invoice.store_id,
-                    type: 'INCOME',
-                    category: 'SALES',
-                    amount: invoice.total_amount,
-                    paymentMethod: invoice.payment_method,
-                    referenceModel: 'sales_invoice',
-                    referenceId: invoice._id,
-                    note: `Thu tien hoa don #${String(invoice._id).slice(-6).toUpperCase()}`,
-                    actorId: req.user.id,
-                    transactedAt: invoice.paid_at || invoice.invoice_at || new Date(),
-                });
+            // Create derived cashflow entries by payment split (invoice is source of truth)
+            if (invoice.status === 'confirmed') {
+                if (Number(invoice.payment?.cash || 0) > 0) {
+                    await upsertSystemCashFlow({
+                        storeId: invoice.store_id,
+                        type: 'INCOME',
+                        category: 'SALES',
+                        amount: Number(invoice.payment.cash) || 0,
+                        paymentMethod: 'cash',
+                        referenceModel: 'sales_invoice_cash',
+                        referenceId: invoice._id,
+                        note: `Thu tien mat hoa don #${String(invoice._id).slice(-6).toUpperCase()}`,
+                        actorId: req.user.id,
+                        transactedAt: invoice.invoice_at || new Date(),
+                    });
+                }
+                // bank_transfer part is recorded only when confirmed paid by SePay
+                if (String(invoice.payment_status) === 'paid' && Number(invoice.payment?.bank_transfer || 0) > 0) {
+                    await upsertSystemCashFlow({
+                        storeId: invoice.store_id,
+                        type: 'INCOME',
+                        category: 'SALES',
+                        amount: Number(invoice.payment.bank_transfer) || 0,
+                        paymentMethod: 'bank_transfer',
+                        referenceModel: 'sales_invoice_bank',
+                        referenceId: invoice._id,
+                        note: `Thu chuyen khoan hoa don #${String(invoice._id).slice(-6).toUpperCase()}`,
+                        actorId: req.user.id,
+                        transactedAt: invoice.paid_at || invoice.invoice_at || new Date(),
+                    });
+                }
             }
 
             if (customer_id && redeemPlan.used_points > 0) {
@@ -758,7 +911,7 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
             const payOldDebt =
                 Number(previous_debt_paid) > 0 ? Math.abs(Number(previous_debt_paid)) : 0;
             // Chuyển khoản: chỉ khi SePay xác nhận paid mới trừ nợ + chốt HĐ nợ (xem settlePreviousDebtIfNeeded)
-            const deferPayOldDebtSettlement = method === 'bank_transfer' && payOldDebt > 0;
+            const deferPayOldDebtSettlement = (Number(paymentSplit.bank_transfer) > 0) && payOldDebt > 0;
             const payOldDebtNow = deferPayOldDebtSettlement ? 0 : payOldDebt;
 
             if (customer_id && (status === 'confirmed' || status === 'pending') && (addDebt > 0 || payOldDebtNow > 0)) {
@@ -786,8 +939,8 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
             .map((item) => normalizeId(item.product_id))
             .filter(Boolean);
         const products = await Product.find({ _id: { $in: productIds } }).lean();
-        const productsById = new Map(products.map((p) => [String(p._id), p]));
-        populated.items = buildStockAvailability(populated.items, productsById);
+        const productsByIdStock = new Map(products.map((p) => [String(p._id), p]));
+        populated.items = buildStockAvailability(populated.items, productsByIdStock);
 
         const refreshedCustomer = customer_id
             ? await Customer.findById(customer_id).select('loyalty_points').lean()
@@ -929,17 +1082,42 @@ router.get('/stats/daily-sales', requireAuth, requireRole(['staff', 'manager', '
                     $match: {
                         status: 'confirmed',
                         invoice_at: { $gte: start, $lte: end },
-                        // Chỉ tính chuyển khoản khi đã xác nhận thanh toán
-                        $or: [
-                            { payment_method: { $ne: 'bank_transfer' } },
-                            { payment_status: 'paid' },
-                        ],
+                    },
+                },
+                {
+                    $addFields: {
+                        _cash: { $ifNull: ['$payment.cash', 0] },
+                        _bank: { $ifNull: ['$payment.bank_transfer', 0] },
+                        _legacy_total: { $add: ['$total_amount', { $ifNull: ['$previous_debt_paid', 0] }] },
+                    },
+                },
+                {
+                    $addFields: {
+                        _amount_counted: {
+                            $cond: [
+                                { $gt: [{ $add: ['$_cash', '$_bank'] }, 0] },
+                                {
+                                    $add: [
+                                        '$_cash',
+                                        { $cond: [{ $eq: ['$payment_status', 'paid'] }, '$_bank', 0] },
+                                    ],
+                                },
+                                // legacy fallback: bank_transfer only counted when paid
+                                {
+                                    $cond: [
+                                        { $eq: ['$payment_method', 'bank_transfer'] },
+                                        { $cond: [{ $eq: ['$payment_status', 'paid'] }, '$_legacy_total', 0] },
+                                        '$_legacy_total',
+                                    ],
+                                },
+                            ],
+                        },
                     },
                 },
                 {
                     $group: {
                         _id: null,
-                        total: { $sum: '$total_amount' },
+                        total: { $sum: '$_amount_counted' },
                     },
                 },
             ]);
@@ -1107,16 +1285,56 @@ router.patch('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), as
                     : nextItems.reduce((s, it) => s + (Number(it.line_total) || 0), 0);
                 invoice.total_amount = newTotal;
 
-                // Tính lại thuế khi items thay đổi
+                // Tính lại thuế VAT theo line khi items thay đổi
                 const patchTaxConfig = await getStoreTaxConfig(invoice.store_id);
-                const { subtotal_amount: patchSubtotal, tax_amount: patchTax } = computeTaxBreakdown(
-                    newTotal,
-                    patchTaxConfig.tax_rate,
-                    patchTaxConfig.price_includes_tax
-                );
-                invoice.subtotal_amount = patchSubtotal;
-                invoice.tax_amount = patchTax;
+                const productIdsForVat = [...new Set((nextItems || []).map((it) => normalizeId(it.product_id)).filter(Boolean))];
+                const vatProducts = await Product.find({
+                    _id: { $in: productIdsForVat },
+                    ...(invoice.store_id ? { storeId: invoice.store_id } : {}),
+                })
+                    .select('_id category_id vat_rate')
+                    .lean();
+                const productsById = new Map(vatProducts.map((p) => [String(p._id), p]));
+                const categoryIds = [...new Set(vatProducts.map((p) => normalizeId(p.category_id)).filter(Boolean))];
+                const categories = categoryIds.length
+                    ? await Category.find({ _id: { $in: categoryIds } }).select('_id vat_rate').lean()
+                    : [];
+                const categoryById = new Map(categories.map((c) => [String(c._id), c]));
+
+                const itemsWithNet = allocateInvoiceDiscountToLines(nextItems, invoice.invoice_level_discount);
+                let subtotalSum = 0;
+                let taxSum = 0;
+                const vatRateSet = new Set();
+                const vatItems = itemsWithNet.map((it) => {
+                    const pid = normalizeId(it.product_id);
+                    const product = pid ? productsById.get(pid) : null;
+                    const catId = normalizeId(product?.category_id);
+                    const cat = catId ? categoryById.get(catId) : null;
+                    const pr = product?.vat_rate;
+                    const cr = cat?.vat_rate;
+                    const resolvedRate =
+                        pr !== null && pr !== undefined && pr !== '' ? Number(pr) :
+                        cr !== null && cr !== undefined && cr !== '' ? Number(cr) :
+                        Number(patchTaxConfig.tax_rate) || 0;
+                    const safeRate = Number.isFinite(resolvedRate) && resolvedRate >= 0 ? resolvedRate : 0;
+                    vatRateSet.add(String(safeRate));
+                    const net = Math.round(Number(it.line_net_total) || 0);
+                    const breakdown = computeTaxBreakdown(net, safeRate, patchTaxConfig.price_includes_tax);
+                    subtotalSum += Number(breakdown.subtotal_amount) || 0;
+                    taxSum += Number(breakdown.tax_amount) || 0;
+                    return {
+                        ...it,
+                        vat_rate_snapshot: safeRate,
+                        line_subtotal_amount: breakdown.subtotal_amount,
+                        line_tax_amount: breakdown.tax_amount,
+                    };
+                });
+
+                invoice.items = vatItems;
+                invoice.subtotal_amount = Math.round(subtotalSum);
+                invoice.tax_amount = Math.round(taxSum);
                 invoice.tax_rate_snapshot = patchTaxConfig.tax_rate;
+                invoice.tax_is_mixed = vatRateSet.size > 1;
             }
             invoice.status = nextStatus;
         } catch (err) {
@@ -1154,6 +1372,19 @@ router.post('/:id/cancel', requireAuth, requireRole(['staff', 'manager', 'admin'
         const { id } = req.params;
         const invoice = await SalesInvoice.findById(id);
         if (!invoice) return res.status(404).json({ message: 'Invoice not found' });
+        // Anti-fraud: không cho hủy hóa đơn thuộc ca đã đóng (trừ admin)
+        if (invoice.shift_id) {
+            const role = String(req.user?.role || '').toLowerCase();
+            if (role !== 'admin') {
+                const shift = await ShiftSession.findById(invoice.shift_id).select('status store_id').lean();
+                if (shift && String(shift.status) === 'closed') {
+                    return res.status(409).json({
+                        code: 'SHIFT_CLOSED_INVOICE_LOCKED',
+                        message: 'Ca đã đóng: không được hủy hóa đơn. Vui lòng tạo nghiệp vụ trả hàng/điều chỉnh theo quy trình quản lý.',
+                    });
+                }
+            }
+        }
         // Store ownership check
         const cancelRole = String(req.user?.role || '').toLowerCase();
         if (cancelRole !== 'admin' && req.user.storeId && String(invoice.store_id) !== String(req.user.storeId)) {

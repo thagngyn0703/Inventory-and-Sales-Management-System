@@ -18,6 +18,7 @@ import {
   getPaymentStatus,
   cancelUnpaidBankTransferInvoice,
 } from '../../services/invoicesApi';
+import { closeShift, getCurrentShift, openShift } from '../../services/shiftsApi';
 import { getProducts, getProductUnits, scanProductByCode } from '../../services/productsApi';
 import { getCustomers, createCustomer } from '../../services/customersApi';
 import { getStoreTaxSettings, getStoreBankSettings, getStoreLoyaltySettings } from '../../services/adminApi';
@@ -156,6 +157,14 @@ export default function POSContainer({
   const isNew = id === 'new' || !id || id === 'undefined' || id === 'null';
 
   const activeTab = tabs.find((t) => t.tabId === activeTabId) || tabs[0];
+
+  const [shiftLoading, setShiftLoading] = useState(false);
+  const [currentShift, setCurrentShift] = useState(null);
+  const [openShiftCash, setOpenShiftCash] = useState('');
+  const [closeShiftCash, setCloseShiftCash] = useState('');
+  const [closeShiftBank, setCloseShiftBank] = useState('');
+  const [closeShiftStatus, setCloseShiftStatus] = useState('pending');
+  const [closeShiftNote, setCloseShiftNote] = useState('');
 
   const getNextTabNumber = useCallback((tabList) => {
     const used = new Set(
@@ -557,6 +566,22 @@ export default function POSContainer({
   useEffect(() => {
     loadInvoice();
   }, [loadInvoice]);
+
+  const loadShift = useCallback(async () => {
+    try {
+      setShiftLoading(true);
+      const shift = await getCurrentShift();
+      setCurrentShift(shift);
+    } catch (e) {
+      setCurrentShift(null);
+    } finally {
+      setShiftLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadShift();
+  }, [loadShift]);
 
   const filteredProducts = useMemo(() => {
     const term = searchTerm.toLowerCase().trim();
@@ -1035,6 +1060,10 @@ export default function POSContainer({
         notify('Đã lưu thay đổi hóa đơn.', 'success');
       }
     } catch (e) {
+      if (e?.payload?.code === 'SHIFT_REQUIRED') {
+        notify('Bạn cần mở ca trước khi bán hàng.', 'error');
+        await loadShift();
+      }
       updateActiveTab({ error: e.message || 'Lỗi khi lưu hóa đơn', saving: false });
       notify(e.message || 'Lỗi khi lưu hóa đơn', 'error');
     }
@@ -1337,6 +1366,123 @@ export default function POSContainer({
 
         {/* Right sidebar: summary + payment */}
         <div className="pos-right-sidebar">
+          {/* Shift */}
+          {isNew && (
+            <div className="pos-sidebar-panel" style={{ marginBottom: 12 }}>
+              <div className="pos-sidebar-panel-head">Ca hiện tại</div>
+              <div className="pos-sidebar-panel-body pos-sidebar-panel-body-pad">
+                {shiftLoading ? (
+                  <div style={{ fontSize: 12, color: '#64748b' }}>Đang tải ca...</div>
+                ) : currentShift ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div style={{ fontSize: 12, color: '#334155', fontWeight: 700 }}>
+                      Đang mở • {new Date(currentShift.opened_at || currentShift.openedAt || Date.now()).toLocaleString('vi-VN')}
+                    </div>
+                    <div style={{ fontSize: 12, color: '#64748b' }}>
+                      Tiền đầu ca: <b>{formatMoney(currentShift.opening_cash || 0)}</b>
+                    </div>
+                    {isManager && (
+                      <>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            placeholder="Tiền mặt kiểm đếm"
+                            className="pos-customer-pay-input"
+                            value={closeShiftCash}
+                            onChange={(e) => setCloseShiftCash(formatCurrencyInput(e.target.value))}
+                          />
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            placeholder="CK đã nhận"
+                            className="pos-customer-pay-input"
+                            value={closeShiftBank}
+                            onChange={(e) => setCloseShiftBank(formatCurrencyInput(e.target.value))}
+                          />
+                        </div>
+                        <select
+                          value={closeShiftStatus}
+                          onChange={(e) => setCloseShiftStatus(e.target.value)}
+                          className="pos-search-input"
+                          style={{ height: 38 }}
+                        >
+                          <option value="pending">Pending</option>
+                          <option value="confirmed">Confirmed</option>
+                          <option value="disputed">Disputed</option>
+                        </select>
+                        <input
+                          type="text"
+                          placeholder="Ghi chú (tuỳ chọn)"
+                          className="pos-search-input"
+                          value={closeShiftNote}
+                          onChange={(e) => setCloseShiftNote(e.target.value)}
+                        />
+                        <button
+                          type="button"
+                          className="pos-quick-paid-full"
+                          onClick={async () => {
+                            try {
+                              const actual_cash = parseCurrencyInput(closeShiftCash);
+                              const actual_bank = parseCurrencyInput(closeShiftBank);
+                              await closeShift(currentShift._id, {
+                                actual_cash,
+                                actual_bank,
+                                reconciliation_status: closeShiftStatus,
+                                reconciliation_note: closeShiftNote,
+                              });
+                              notify('Đã đóng ca.', 'success');
+                              setCloseShiftCash('');
+                              setCloseShiftBank('');
+                              setCloseShiftNote('');
+                              setCloseShiftStatus('pending');
+                              await loadShift();
+                            } catch (err) {
+                              notify(err.message || 'Không thể đóng ca', 'error');
+                            }
+                          }}
+                        >
+                          Đóng ca
+                        </button>
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div style={{ fontSize: 12, color: '#dc2626', fontWeight: 700 }}>
+                      Chưa mở ca
+                    </div>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="Tiền đầu ca (VD: 1.000.000)"
+                      className="pos-customer-pay-input"
+                      value={openShiftCash}
+                      onChange={(e) => setOpenShiftCash(formatCurrencyInput(e.target.value))}
+                    />
+                    <button
+                      type="button"
+                      className="pos-quick-paid-full"
+                      onClick={async () => {
+                        try {
+                          const opening_cash = parseCurrencyInput(openShiftCash);
+                          await openShift({ opening_cash });
+                          notify('Đã mở ca.', 'success');
+                          setOpenShiftCash('');
+                          await loadShift();
+                        } catch (err) {
+                          notify(err.message || 'Không thể mở ca', 'error');
+                        }
+                      }}
+                    >
+                      Mở ca
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Customer */}
           <div className="pos-customer-section">
             <div className="pos-sidebar-panel pos-sidebar-panel--customer">
