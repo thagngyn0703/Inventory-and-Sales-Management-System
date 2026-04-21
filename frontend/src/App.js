@@ -16,7 +16,6 @@ import ManagerProductDetail from "./pages/ManagerDashboard/ManagerProductDetail"
 import ManagerProductEdit from "./pages/ManagerDashboard/ManagerProductEdit";
 import ManagerInvoicesList from "./pages/ManagerDashboard/ManagerInvoicesList";
 import ManagerInvoiceDetail from "./pages/ManagerDashboard/ManagerInvoiceDetail";
-import ManagerInvoiceView from "./pages/ManagerDashboard/ManagerInvoiceView";
 import RequireRole from "./components/RequireRole";
 import WarehouseStocktakingCreate from "./pages/WarehouseDashboard/WarehouseStocktakingCreate.jsx";
 import WarehouseStocktakingList from "./pages/WarehouseDashboard/WarehouseStocktakingList.jsx";

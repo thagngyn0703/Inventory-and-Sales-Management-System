@@ -14,8 +14,12 @@ export function CardHeader({ className, ...props }) {
   return <div className={cn('flex flex-col space-y-1.5 p-5 pb-0', className)} {...props} />;
 }
 
-export function CardTitle({ className, ...props }) {
-  return <h3 className={cn('text-lg font-semibold leading-none tracking-tight text-slate-900', className)} {...props} />;
+export function CardTitle({ className, children, ...props }) {
+  return (
+    <h3 className={cn('text-lg font-semibold leading-none tracking-tight text-slate-900', className)} {...props}>
+      {children}
+    </h3>
+  );
 }
 
 export function CardDescription({ className, ...props }) {

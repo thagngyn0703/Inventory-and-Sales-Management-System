@@ -139,6 +139,12 @@ export default function ManagerInvoiceView() {
                     {formatMoney(invoice.total_amount)}
                   </span>
                 </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
+                  <span style={{ color: '#64748b' }}>Phương thức:</span>
+                  <span style={{ fontWeight: 500, color: '#1e293b' }}>
+                    {paymentMethodMap[invoice.payment_method] || invoice.payment_method || '—'}
+                  </span>
+                </div>
                 {invoice.status === 'pending' && (
                   <div style={{ marginTop: 10, padding: '10px 14px', background: '#fef3c7', borderRadius: 8, border: '1px solid #fde68a', fontSize: 13, color: '#92400e', display: 'flex', alignItems: 'center', gap: 8 }}>
                     <i className="fa-solid fa-triangle-exclamation" />

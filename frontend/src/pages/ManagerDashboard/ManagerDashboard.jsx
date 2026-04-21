@@ -118,14 +118,6 @@ function fmtPct(n, showPlus = true) {
   return `${sign}${n.toFixed(1)}%`;
 }
 
-function getMonday() {
-  const d = new Date();
-  const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-  d.setDate(diff);
-  d.setHours(0, 0, 0, 0);
-  return d.toISOString().slice(0, 10);
-}
 
 /** Chuỗi YYYY-MM-DD theo lịch máy người dùng (tránh lệch ngày so với toISOString/UTC). */
 function toDateStr(d) {

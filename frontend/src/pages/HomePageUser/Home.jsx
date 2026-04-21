@@ -1,6 +1,5 @@
 import { useNavigate } from "react-router-dom";
 import { useEffect } from "react";
-import Sidebar from "../../components/Sidebar";
 import "./Home.css";
 
 export default function Home() {
