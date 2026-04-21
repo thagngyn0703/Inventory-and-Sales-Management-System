@@ -565,7 +565,7 @@ export default function ManagerDashboard() {
               <div className="manager-panel-header">
                 <div>
                   <h2 className="manager-panel-title">Biểu đồ doanh thu</h2>
-                  <p className="manager-panel-subtitle">Doanh thu vs lợi nhuận (lợi nhuận: vốn snapshot; nếu vốn dòng = 0 thì lấy vốn SP hiện tại)</p>
+                  <p className="manager-panel-subtitle">Doanh thu bán, hoàn trả và lợi nhuận gộp (lợi nhuận: vốn snapshot; nếu vốn dòng = 0 thì lấy vốn SP hiện tại)</p>
                 </div>
                 <select
                   className="manager-select"

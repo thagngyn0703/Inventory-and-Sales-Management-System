@@ -65,6 +65,7 @@ import ManagerStocktakingListPage from "./pages/ManagerDashboard/ManagerStocktak
 import ManagerStocktakingCreatePage from "./pages/ManagerDashboard/ManagerStocktakingCreatePage";
 import ManagerReturnsListPage from "./pages/ManagerDashboard/ManagerReturnsListPage";
 import ManagerReturnCreatePage from "./pages/ManagerDashboard/ManagerReturnCreatePage";
+import ManagerReturnDetail from "./pages/ManagerDashboard/ManagerReturnDetail";
 import ManagerStockHistoryReport from "./pages/ManagerDashboard/ManagerStockHistoryReport";
 import ManagerCashflowDashboard from "./pages/ManagerDashboard/ManagerCashflowDashboard";
 import AdminSupportTickets from "./pages/AdminHome/AdminSupportTickets";
@@ -169,6 +170,7 @@ function App() {
       <Route path="/manager/stocktakes/:id" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerStocktakeDetail /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/returns" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerReturnsListPage /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/returns/new" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerReturnCreatePage /></RequireManagerStore></RequireRole></RequireAuth>} />
+      <Route path="/manager/returns/:id" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerReturnDetail /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/adjustments" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerAdjustmentList /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/adjustments/:id" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerAdjustmentDetail /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/stock-history" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerStockHistoryReport /></RequireManagerStore></RequireRole></RequireAuth>} />

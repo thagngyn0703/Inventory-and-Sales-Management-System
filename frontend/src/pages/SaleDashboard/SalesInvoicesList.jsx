@@ -12,9 +12,11 @@ import { cn } from '../../lib/utils';
 const LIMIT = 10;
 
 const STATUS_LABEL = {
-  confirmed: 'Đã thanh toán',
+  confirmed: 'Đã bán',
   pending: 'Chờ thanh toán',
-  cancelled: 'Trả hàng',
+  cancelled: 'Đã hủy',
+  returned_partial: 'Trả một phần',
+  returned_full: 'Trả toàn bộ',
   debt_unpaid: 'Nợ',
 };
 
@@ -28,14 +30,25 @@ const PAYMENT_LABEL = {
 
 function statusBadgeClass(status) {
   if (status === 'confirmed') return 'bg-emerald-100 text-emerald-900 border-emerald-200/80';
+  if (status === 'returned_partial') return 'bg-amber-100 text-amber-900 border-amber-200/80';
+  if (status === 'returned_full') return 'bg-rose-100 text-rose-900 border-rose-200/80';
   if (status === 'debt_unpaid') return 'bg-red-100 text-red-900 border-red-200/80';
-  if (status === 'cancelled') return 'bg-amber-100 text-amber-900 border-amber-200/80';
+  if (status === 'cancelled') return 'bg-slate-100 text-slate-700 border-slate-200/80';
   return 'bg-slate-100 text-slate-700 border-slate-200/80';
 }
 
 function getInvoiceStatusView(inv) {
   const isDebtUnpaid = inv?.payment_method === 'debt' && inv?.payment_status !== 'paid';
-  return isDebtUnpaid ? 'debt_unpaid' : inv?.status;
+  if (isDebtUnpaid) return 'debt_unpaid';
+  const returned = Number(inv?.returned_total_amount || 0);
+  const total = Number(inv?.total_amount || 0);
+  if (inv?.status === 'cancelled') {
+    return returned > 0 ? 'returned_full' : 'cancelled';
+  }
+  if (inv?.status === 'confirmed' && returned > 0 && returned < total) {
+    return 'returned_partial';
+  }
+  return inv?.status;
 }
 
 export default function SalesInvoicesList({ basePathOverride = null, detailPathBuilder = null }) {

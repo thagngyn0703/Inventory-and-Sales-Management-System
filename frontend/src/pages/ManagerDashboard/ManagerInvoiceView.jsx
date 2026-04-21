@@ -31,6 +31,7 @@ const PAYMENT_LABEL = {
 function getInvoiceStatusView(invoice) {
   const isDebtUnpaid = invoice?.payment_method === 'debt' && invoice?.payment_status !== 'paid';
   if (isDebtUnpaid) return 'debt_unpaid';
+  if (invoice?.status === 'confirmed') return 'sold';
   return invoice?.status;
 }
 
@@ -59,6 +60,8 @@ export default function ManagerInvoiceView() {
 
   const shortId = invoice?._id ? String(invoice._id).slice(-8).toUpperCase() : '';
   const statusView = getInvoiceStatusView(invoice);
+  const soldGrossAmount = (invoice?.items || []).reduce((sum, it) => sum + (Number(it.line_total) || 0), 0);
+  const invoiceLevelDiscount = Number(invoice?.invoice_level_discount || 0);
   const debtSettlementNote =
     invoice?.debt_settlement_by_invoice_id
       ? `Trả nợ thông qua đơn hàng #${invoice.debt_settlement_by_invoice_id}`
@@ -132,6 +135,10 @@ export default function ManagerInvoiceView() {
                 <h3 className="mb-3 text-base font-bold text-slate-800">Thông tin đơn hàng</h3>
                 <dl className="space-y-3 text-sm">
                   <div className="flex justify-between gap-2">
+                    <dt className="text-slate-500">Mã hóa đơn</dt>
+                    <dd className="font-mono text-xs font-semibold text-slate-900">{invoice._id || '—'}</dd>
+                  </div>
+                  <div className="flex justify-between gap-2">
                     <dt className="text-slate-500">Ngày tạo</dt>
                     <dd className="font-medium text-slate-900">{formatDate(invoice.created_at || invoice.invoice_at)}</dd>
                   </div>
@@ -152,20 +159,26 @@ export default function ManagerInvoiceView() {
                         className={
                           statusView === 'confirmed'
                             ? 'inline-block rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-bold text-emerald-900'
+                            : statusView === 'sold'
+                              ? 'inline-block rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-bold text-emerald-900'
                             : statusView === 'pending'
                               ? 'inline-block rounded-md border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-xs font-bold text-amber-900'
                               : statusView === 'debt_unpaid'
                                 ? 'inline-block rounded-md border border-red-200 bg-red-50 px-2.5 py-0.5 text-xs font-bold text-red-900'
+                                : statusView === 'cancelled'
+                                  ? 'inline-block rounded-md border border-slate-200 bg-slate-100 px-2.5 py-0.5 text-xs font-bold text-slate-700'
                                 : 'inline-block rounded-md border border-red-200 bg-red-50 px-2.5 py-0.5 text-xs font-bold text-red-900'
                         }
                       >
-                        {statusView === 'confirmed'
-                          ? 'Đã thanh toán'
+                        {statusView === 'confirmed' || statusView === 'sold'
+                          ? 'Đã bán'
                           : statusView === 'pending'
                             ? 'Chờ / nợ'
                             : statusView === 'debt_unpaid'
                               ? 'Nợ'
-                            : 'Trả hàng'}
+                              : statusView === 'cancelled'
+                                ? 'Đã hủy'
+                                : 'Trả hàng'}
                       </span>
                     </dd>
                   </div>
@@ -181,27 +194,24 @@ export default function ManagerInvoiceView() {
               <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm sm:p-6">
                 <h3 className="mb-3 text-base font-bold text-slate-800">Thanh toán</h3>
                 <div className="space-y-3 text-sm">
-                  {invoice.tax_rate_snapshot > 0 ? (
-                    <>
-                      <div className="flex justify-between text-slate-600">
-                        <span>Tạm tính ({invoice.items?.length || 0} món)</span>
-                        <span className="font-medium text-slate-900">{formatMoney(invoice.subtotal_amount)}</span>
-                      </div>
-                      <div className="flex justify-between text-slate-500">
-                        <span>VAT ({invoice.tax_rate_snapshot}%)</span>
-                        <span className="font-medium">{formatMoney(invoice.tax_amount)}</span>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="flex justify-between text-slate-600">
-                      <span>Tổng tiền hàng ({invoice.items?.length || 0} món)</span>
-                      <span className="font-medium text-slate-900">{formatMoney(invoice.total_amount)}</span>
+                  <div className="flex justify-between text-slate-600">
+                    <span>Tổng tiền hàng ({invoice.items?.length || 0} món)</span>
+                    <span className="font-medium text-slate-900">{formatMoney(soldGrossAmount)}</span>
+                  </div>
+                  {invoiceLevelDiscount > 0 && (
+                    <div className="flex justify-between text-amber-700">
+                      <span>Giảm trừ hóa đơn (khuyến mãi/đổi điểm)</span>
+                      <span className="font-medium">-{formatMoney(invoiceLevelDiscount)}</span>
                     </div>
                   )}
+                  <div className="flex justify-between text-slate-600">
+                    <span>Giá trị hóa đơn sau giảm trừ</span>
+                    <span className="font-medium text-slate-900">{formatMoney(invoice.total_amount)}</span>
+                  </div>
                   <div className="border-t border-slate-100 pt-3">
                     <div className="flex items-center justify-between">
                       <span className="font-semibold text-slate-800">
-                        {statusView === 'debt_unpaid' || statusView === 'pending' ? 'Số tiền ghi nợ' : 'Khách đã trả'}
+                        {statusView === 'debt_unpaid' || statusView === 'pending' ? 'Số tiền ghi nợ còn lại' : 'Khách đã trả'}
                       </span>
                       <span
                         className={`text-xl font-bold ${statusView === 'debt_unpaid' || statusView === 'pending' ? 'text-red-700' : 'text-teal-700'}`}

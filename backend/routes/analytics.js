@@ -1208,7 +1208,10 @@ router.get(
           result.push({
             label: `${d.day}/${d.m}`,
             key,
-            revenue: (entry.revenue || 0) - (returnRevenueMap.get(key) || 0),
+            revenue: entry.revenue || 0,
+            sales_revenue: entry.revenue || 0,
+            return_amount: returnRevenueMap.get(key) || 0,
+            net_revenue: (entry.revenue || 0) - (returnRevenueMap.get(key) || 0),
             order_count: entry.order_count,
             profit: (profitMap.get(key) ?? 0) - (returnProfitMap.get(key) || 0),
           });
@@ -1222,7 +1225,10 @@ router.get(
           result.push({
             label: `T${cm}/${cy}`,
             key,
-            revenue: (entry.revenue || 0) - (returnRevenueMap.get(key) || 0),
+            revenue: entry.revenue || 0,
+            sales_revenue: entry.revenue || 0,
+            return_amount: returnRevenueMap.get(key) || 0,
+            net_revenue: (entry.revenue || 0) - (returnRevenueMap.get(key) || 0),
             order_count: entry.order_count,
             profit: (profitMap.get(key) ?? 0) - (returnProfitMap.get(key) || 0),
           });

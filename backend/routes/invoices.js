@@ -2,6 +2,7 @@ const express = require('express');
 const crypto = require('crypto');
 const mongoose = require('mongoose');
 const SalesInvoice = require('../models/SalesInvoice');
+const SalesReturn = require('../models/SalesReturn');
 const Product = require('../models/Product');
 const ProductUnit = require('../models/ProductUnit');
 const User = require('../models/User');
@@ -435,6 +436,64 @@ function buildStockAvailability(items, productsById) {
             in_stock: available,
         };
     });
+}
+
+async function buildReturnSummary(invoiceId) {
+    if (!invoiceId) {
+        return {
+            returned_total_amount: 0,
+            has_returns: false,
+            items: [],
+        };
+    }
+    const approvedReturns = await SalesReturn.find({
+        invoice_id: invoiceId,
+        status: 'approved',
+    })
+        .select('items')
+        .lean();
+    const returnedQtyByProduct = new Map();
+    for (const rt of approvedReturns) {
+        for (const item of rt.items || []) {
+            const pid = normalizeId(item.product_id);
+            if (!pid) continue;
+            const qty = Number(item.quantity) || 0;
+            returnedQtyByProduct.set(pid, (returnedQtyByProduct.get(pid) || 0) + qty);
+        }
+    }
+    return {
+        has_returns: approvedReturns.length > 0,
+        items: Array.from(returnedQtyByProduct.entries()).map(([product_id, returned_quantity]) => ({
+            product_id,
+            returned_quantity,
+        })),
+    };
+}
+
+async function buildReturnDetails(invoiceId) {
+    if (!invoiceId) return [];
+    const returns = await SalesReturn.find({
+        invoice_id: invoiceId,
+        status: 'approved',
+    })
+        .sort({ return_at: -1 })
+        .populate('created_by', 'fullName email')
+        .populate('items.product_id', 'name sku')
+        .lean();
+    return (returns || []).map((rt) => ({
+        _id: rt._id,
+        return_at: rt.return_at || rt.created_at || null,
+        total_amount: Number(rt.total_amount) || 0,
+        reason: rt.reason || '',
+        reason_code: rt.reason_code || 'other',
+        created_by: rt.created_by || null,
+        items: (rt.items || []).map((it) => ({
+            product_id: it.product_id,
+            quantity: Number(it.quantity) || 0,
+            unit_price: Number(it.unit_price) || 0,
+            line_total: (Number(it.quantity) || 0) * (Number(it.unit_price) || 0),
+        })),
+    }));
 }
 
 /** FE/demo: đã thanh toán đủ hoặc đơn hủy → không được PATCH items (server cũng chặn 409). */
@@ -924,6 +983,28 @@ router.get('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), asyn
         const products = await Product.find({ _id: { $in: productIds } }).lean();
         const productsById = new Map(products.map((p) => [String(p._id), p]));
         invoice.items = buildStockAvailability(invoice.items, productsById);
+        const returnSummary = await buildReturnSummary(invoice._id);
+        const returnedQtyByProduct = new Map(
+            (returnSummary.items || []).map((it) => [String(it.product_id), Number(it.returned_quantity) || 0])
+        );
+        invoice.items = (invoice.items || []).map((item) => {
+            const pid = normalizeId(item.product_id);
+            const soldQty = Number(item.quantity) || 0;
+            const returnedQty = pid ? (returnedQtyByProduct.get(pid) || 0) : 0;
+            return {
+                ...item,
+                returned_quantity: returnedQty,
+                remaining_quantity: Math.max(0, soldQty - returnedQty),
+                is_fully_returned: soldQty > 0 && returnedQty >= soldQty,
+                is_partially_returned: returnedQty > 0 && returnedQty < soldQty,
+            };
+        });
+        invoice.return_summary = {
+            has_returns: returnSummary.has_returns,
+            returned_total_amount: Number(invoice.returned_total_amount) || 0,
+            items: returnSummary.items || [],
+        };
+        invoice.returns = await buildReturnDetails(invoice._id);
 
         return res.json({ invoice: attachInvoiceEditFlags(invoice) });
     } catch (err) {
@@ -942,6 +1023,14 @@ router.patch('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), as
         }
         const invoice = await SalesInvoice.findById(id);
         if (!invoice) return res.status(404).json({ message: 'Invoice not found' });
+        const saleStatuses = ['confirmed', 'pending'];
+        if (saleStatuses.includes(String(invoice.status))) {
+            return res.status(409).json({
+                code: 'SOLD_INVOICE_LOCKED',
+                message:
+                    'Hóa đơn đã bán hàng không được phép chỉnh sửa. Nếu cần điều chỉnh, vui lòng dùng nghiệp vụ trả hàng hoặc hủy theo quy trình.',
+            });
+        }
         // Store ownership check
         const patchRole = String(req.user?.role || '').toLowerCase();
         if (patchRole !== 'admin' && req.user.storeId && String(invoice.store_id) !== String(req.user.storeId)) {

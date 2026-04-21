@@ -170,8 +170,7 @@ export default function ManagerInvoiceDetail() {
   };
 
 
-  const currentStatus = invoice?.status || 'confirmed';
-  const canEdit = isNew || ((!!invoice?._id) && (currentStatus === 'confirmed' || isManager));
+  const canEdit = isNew;
 
   if (loading) {
     return (
