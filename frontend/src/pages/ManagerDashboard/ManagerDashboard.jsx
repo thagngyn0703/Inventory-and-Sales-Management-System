@@ -1144,9 +1144,6 @@ export default function ManagerDashboard() {
                   <h2 className="manager-panel-title">📊 Báo cáo chương trình tích điểm</h2>
                   <p className="manager-panel-subtitle">Tổng quan hiệu quả và chi phí chương trình khách hàng thân thiết</p>
                 </div>
-                <Button type="button" variant="outline" onClick={handleExportLoyaltyCsv} disabled={exportingLoyalty}>
-                  {exportingLoyalty ? 'Đang xuất...' : '⬇ Tải báo cáo (.csv)'}
-                </Button>
               </div>
 
               {loyaltyLoading ? (

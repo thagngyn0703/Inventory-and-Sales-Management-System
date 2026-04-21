@@ -76,18 +76,49 @@ function parseNumber(v) {
   if (typeof v === 'number' && !Number.isNaN(v)) return v;
   let s = String(v).trim().replace(/\s/g, '');
   if (s === '') return NaN;
-  // Vietnamese thousands: 15.000 or 1.234.567,89
-  const lastComma = s.lastIndexOf(',');
-  const lastDot = s.lastIndexOf('.');
-  if (lastComma > lastDot) {
-    s = s.replace(/\./g, '').replace(',', '.');
-  } else if (lastDot > lastComma) {
-    const parts = s.split('.');
-    if (parts.length > 2) s = parts.join(''); // thousands with dots
-    else s = s.replace(',', '');
-  } else {
-    s = s.replace(/\./g, '').replace(/,/g, '.');
+  // Keep only numeric separators and sign, ignore currency symbols/text.
+  s = s.replace(/[^0-9,.\-]/g, '');
+  if (!s) return NaN;
+
+  const hasComma = s.includes(',');
+  const hasDot = s.includes('.');
+
+  // e.g. 1.234.567,89
+  const vnThousandsPattern = /^\-?\d{1,3}(\.\d{3})+(,\d+)?$/;
+  // e.g. 1,234,567.89
+  const usThousandsPattern = /^\-?\d{1,3}(,\d{3})+(\.\d+)?$/;
+
+  if (hasComma && hasDot) {
+    if (vnThousandsPattern.test(s)) {
+      s = s.replace(/\./g, '').replace(',', '.');
+    } else if (usThousandsPattern.test(s)) {
+      s = s.replace(/,/g, '');
+    } else {
+      // Fallback: treat the last separator as decimal mark.
+      const lastComma = s.lastIndexOf(',');
+      const lastDot = s.lastIndexOf('.');
+      const decimalSep = lastComma > lastDot ? ',' : '.';
+      if (decimalSep === ',') {
+        s = s.replace(/\./g, '').replace(',', '.');
+      } else {
+        s = s.replace(/,/g, '');
+      }
+    }
+  } else if (hasComma) {
+    // e.g. 1,234,567
+    if (/^\-?\d{1,3}(,\d{3})+$/.test(s)) {
+      s = s.replace(/,/g, '');
+    } else {
+      // e.g. 12,5
+      s = s.replace(',', '.');
+    }
+  } else if (hasDot) {
+    // e.g. 1.234.567
+    if (/^\-?\d{1,3}(\.\d{3})+$/.test(s)) {
+      s = s.replace(/\./g, '');
+    }
   }
+
   const n = Number(s);
   return Number.isFinite(n) ? n : NaN;
 }

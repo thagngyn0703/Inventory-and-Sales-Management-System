@@ -48,7 +48,7 @@ export default function RevenueProfitChart({ data = [], loading = false }) {
         fontFamily: 'inherit',
         animations: { enabled: true, speed: 400 },
       },
-      colors: ['#6366f1', '#f97316', '#10b981'],
+      colors: ['#6366f1', '#10b981', '#f97316'],
       plotOptions: {
         bar: {
           borderRadius: 5,
@@ -101,8 +101,8 @@ export default function RevenueProfitChart({ data = [], loading = false }) {
         },
         custom: ({ series, dataPointIndex }) => {
           const rev = series[0][dataPointIndex] ?? 0;
-          const returned = series[1][dataPointIndex] ?? 0;
-          const profit = series[2][dataPointIndex] ?? 0;
+          const profit = series[1][dataPointIndex] ?? 0;
+          const returned = series[2][dataPointIndex] ?? 0;
           const netRevenue = netRevenueData[dataPointIndex] ?? (rev - returned);
           const margin = netRevenue > 0 ? ((profit / netRevenue) * 100).toFixed(1) : '--';
           const label = categories[dataPointIndex] ?? '';
@@ -120,6 +120,9 @@ export default function RevenueProfitChart({ data = [], loading = false }) {
               <div style="display:flex;justify-content:space-between;gap:16px">
                 <span style="color:#64748b">Doanh thu thuần</span>
                 <span style="font-weight:600">${Number(netRevenue).toLocaleString('vi-VN')}₫</span>
+              </div>
+              <div style="margin-top:2px;font-size:11px;color:#94a3b8">
+                = Doanh thu bán - Hoàn trả
               </div>
               <div style="display:flex;justify-content:space-between;gap:16px">
                 <span style="color:#10b981">● Lợi nhuận gộp</span>
@@ -140,8 +143,8 @@ export default function RevenueProfitChart({ data = [], loading = false }) {
   const series = useMemo(
     () => [
       { name: 'Doanh thu', data: revenueData },
-      { name: 'Hoàn trả', data: returnData },
       { name: 'Lợi nhuận gộp', data: profitData },
+      { name: 'Hoàn trả', data: returnData },
     ],
     [revenueData, returnData, profitData]
   );

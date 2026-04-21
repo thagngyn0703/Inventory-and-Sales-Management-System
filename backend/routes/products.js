@@ -967,35 +967,32 @@ router.post(
       let newCount = 0;
       for (const r of rows) {
         if (!r.valid) continue;
-        const hasIdentity = Boolean(String(r.sku || '').trim() || String(r.barcode || '').trim());
         const existing = await findExistingProductForImport({
           sku: r.sku,
           barcode: r.barcode,
           storeId: resolvedStoreId,
         });
-        if (existing) {
+        let targetExisting = existing;
+        if (!targetExisting) {
+          // Không bắt buộc SKU/Barcode: fallback nhận diện theo tên khi không tìm thấy theo mã.
+          targetExisting = await findExistingProductByNameExact({
+            name: r.name,
+            storeId: resolvedStoreId,
+          });
+        }
+        if (targetExisting) {
           existingCount += 1;
           r.import_action = 'stock_increase_only';
-          r.match_product = { _id: existing._id, name: existing.name, sku: existing.sku || '' };
+          r.match_product = {
+            _id: targetExisting._id,
+            name: targetExisting.name,
+            sku: targetExisting.sku || '',
+          };
           if ((Number(r.stock_qty) || 0) <= 0) {
             r.valid = false;
             r.errors = [...(r.errors || []), 'Sản phẩm đã có: tồn kho import phải lớn hơn 0 để cộng dồn.'];
           }
         } else {
-          if (!hasIdentity) {
-            const conflictByName = await findExistingProductByNameExact({
-              name: r.name,
-              storeId: resolvedStoreId,
-            });
-            if (conflictByName) {
-              r.valid = false;
-              r.errors = [
-                ...(r.errors || []),
-                'Tên sản phẩm đã tồn tại nhưng thiếu SKU/Barcode để định danh. Vui lòng nhập SKU hoặc Barcode.',
-              ];
-              continue;
-            }
-          }
           if (r.cost_price == null) {
             r.valid = false;
             r.errors = [...(r.errors || []), 'Sản phẩm mới bắt buộc có Giá nhập.'];
@@ -1082,8 +1079,16 @@ router.post('/import/commit', requireAuth, requireRole(['manager', 'admin']), as
           barcode: barcodeIn,
           storeId: resolvedStoreId,
         });
+        let targetExisting = existing;
+        if (!targetExisting) {
+          // Không bắt buộc SKU/Barcode: nếu trùng tên thì xem là sản phẩm đã có để cộng tồn.
+          targetExisting = await findExistingProductByNameExact({
+            name,
+            storeId: resolvedStoreId,
+          });
+        }
 
-        if (existing) {
+        if (targetExisting) {
           if (stock_qty <= 0) {
             failed.push({
               row: rowLabel,
@@ -1092,8 +1097,9 @@ router.post('/import/commit', requireAuth, requireRole(['manager', 'admin']), as
             continue;
           }
 
-          const targetStoreId = existing.storeId || resolvedStoreId;
-          const unitCost = Math.round(cost_price != null ? cost_price : (Number(existing.cost_price) || 0));
+          const targetStoreId = targetExisting.storeId || resolvedStoreId;
+          // Giữ nguyên giá hệ thống cho sản phẩm đã có, bỏ qua giá trong file import.
+          const unitCost = Math.round(Number(targetExisting.cost_price) || 0);
           const totalAmount = unitCost * stock_qty;
           const [receipt] = await GoodsReceipt.create([{
             storeId: targetStoreId,
@@ -1102,20 +1108,20 @@ router.post('/import/commit', requireAuth, requireRole(['manager', 'admin']), as
             status: 'approved',
             received_at: new Date(),
             items: [{
-              product_id: existing._id,
-              product_name_snapshot: String(existing.name || '').trim() || undefined,
-              product_sku_snapshot: String(existing.sku || '').trim() || undefined,
+              product_id: targetExisting._id,
+              product_name_snapshot: String(targetExisting.name || '').trim() || undefined,
+              product_sku_snapshot: String(targetExisting.sku || '').trim() || undefined,
               quantity: stock_qty,
               unit_cost: unitCost,
-              system_unit_cost: Number(existing.cost_price) || unitCost,
-              unit_name: existing.base_unit || 'Cái',
+              system_unit_cost: Number(targetExisting.cost_price) || unitCost,
+              unit_name: targetExisting.base_unit || 'Cái',
               ratio: 1,
             }],
             total_amount: totalAmount,
             reason: `Import từ Excel (dòng ${rowLabel})`,
           }]);
 
-          await adjustStockFIFO(existing._id, targetStoreId, stock_qty, {
+          await adjustStockFIFO(targetExisting._id, targetStoreId, stock_qty, {
             unitCost,
             receivedAt: new Date(),
             receiptId: receipt._id,
@@ -1126,28 +1132,14 @@ router.post('/import/commit', requireAuth, requireRole(['manager', 'admin']), as
             actorId: req.user.id,
           });
 
-          const afterUpdate = await Product.findById(existing._id).lean();
+          const afterUpdate = await Product.findById(targetExisting._id).lean();
           updated.push({
             row: rowLabel,
             action: 'stock_increased',
-            note: `Cộng tồn kho +${stock_qty.toLocaleString('vi-VN')} cho sản phẩm đã có; giá giữ nguyên.`,
-            product: normalizeProduct(afterUpdate || existing.toObject()),
+            note: `Cộng tồn kho +${stock_qty.toLocaleString('vi-VN')} cho sản phẩm đã có; giá giữ nguyên theo hệ thống.`,
+            product: normalizeProduct(afterUpdate || targetExisting.toObject()),
           });
           continue;
-        }
-
-        if (!hasIdentity) {
-          const conflictByName = await findExistingProductByNameExact({
-            name,
-            storeId: resolvedStoreId,
-          });
-          if (conflictByName) {
-            failed.push({
-              row: rowLabel,
-              errors: ['Tên sản phẩm đã tồn tại nhưng thiếu SKU/Barcode để định danh. Vui lòng nhập SKU hoặc Barcode.'],
-            });
-            continue;
-          }
         }
         if (cost_price == null) {
           failed.push({
@@ -1455,6 +1447,7 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
     if (!product) return res.status(404).json({ message: 'Product not found' });
     const oldCost = Number(product.cost_price) || 0;
     const oldSale = Number(product.sale_price) || 0;
+    const originalSku = trimText(product.sku || '');
 
     if (expiry_date !== undefined) {
       const expCheck = validateExpiryDateForWrite(expiry_date);
@@ -1478,7 +1471,10 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
       if (!SKU_REGEX.test(skuTrim)) {
         return res.status(400).json({ message: 'SKU chỉ được gồm chữ và số.' });
       }
-      product.sku = skuTrim;
+      const skuChanged = originalSku.toLowerCase() !== skuTrim.toLowerCase();
+      if (skuChanged) {
+        product.sku = skuTrim;
+      }
     }
 
     if (barcode !== undefined) {
@@ -1531,9 +1527,13 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
       product.image_urls = normalizeImageUrls(image_urls);
     }
     if (sku !== undefined) {
-      const duplicate = await findSkuDuplicate({ sku, storeId: product.storeId, excludeId: id });
-      if (duplicate) {
-        return res.status(409).json({ message: 'SKU đã tồn tại trong cửa hàng này' });
+      const skuTrim = trimText(sku);
+      const skuChanged = originalSku.toLowerCase() !== skuTrim.toLowerCase();
+      if (skuChanged) {
+        const duplicate = await findSkuDuplicate({ sku: skuTrim, storeId: product.storeId, excludeId: id });
+        if (duplicate) {
+          return res.status(409).json({ message: 'SKU đã tồn tại trong cửa hàng này' });
+        }
       }
     }
 
@@ -1595,8 +1595,33 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
   } catch (err) {
     if (err?.code === 11000) {
       const keys = err.keyPattern || {};
+      const dupKeyText = String(err?.message || '');
+      if (!Object.keys(keys).length && /product_id_1_unit_name_1/.test(dupKeyText)) {
+        return res.status(409).json({
+          message: 'Danh sách đơn vị bán có tên bị trùng trên cùng sản phẩm. Vui lòng kiểm tra lại.',
+          code: 'DUPLICATE_PRODUCT_UNIT_NAME',
+        });
+      }
+      if (!Object.keys(keys).length && /storeId_1_barcode_1/.test(dupKeyText)) {
+        return res.status(409).json({
+          message: 'Barcode đã tồn tại cho sản phẩm/đơn vị khác trong cửa hàng này.',
+          code: 'DUPLICATE_BARCODE',
+        });
+      }
+      if (keys.product_id && keys.unit_name) {
+        return res.status(409).json({
+          message: 'Danh sách đơn vị bán có tên bị trùng trên cùng sản phẩm. Vui lòng kiểm tra lại.',
+          code: 'DUPLICATE_PRODUCT_UNIT_NAME',
+        });
+      }
       if (keys.barcode) {
         return res.status(409).json({ message: 'Barcode đã tồn tại cho sản phẩm khác trong cửa hàng này' });
+      }
+      if (keys.storeId && keys.barcode) {
+        return res.status(409).json({ message: 'Barcode đã tồn tại cho sản phẩm/đơn vị khác trong cửa hàng này.' });
+      }
+      if (keys.storeId && keys.sku) {
+        return res.status(409).json({ message: 'SKU đã tồn tại trong cửa hàng này' });
       }
       return res.status(409).json({ message: 'SKU đã tồn tại trong cửa hàng này' });
     }

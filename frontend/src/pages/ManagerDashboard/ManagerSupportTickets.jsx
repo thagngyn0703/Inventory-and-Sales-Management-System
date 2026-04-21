@@ -6,6 +6,7 @@ import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { Card, CardContent } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { cn } from '../../lib/utils';
+import { useToast } from '../../contexts/ToastContext';
 import { createSupportTicket, listSupportTickets } from '../../services/supportTicketsApi';
 
 const PAGE_SIZE = 8;
@@ -23,6 +24,7 @@ function statusClassName(s) {
 }
 
 export default function ManagerSupportTickets() {
+  const { toast } = useToast();
   const [tickets, setTickets] = useState([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -74,6 +76,7 @@ export default function ManagerSupportTickets() {
     setError('');
     try {
       await createSupportTicket({ subject: subject.trim(), body: body.trim() });
+      toast('Gửi phiếu hỗ trợ thành công.', 'success');
       setSubject('');
       setBody('');
       setPage(1);
@@ -81,7 +84,9 @@ export default function ManagerSupportTickets() {
       setTickets(data.tickets || []);
       setTotal(Number(data.total) || 0);
     } catch (err) {
-      setError(err.message || 'Không thể gửi phiếu');
+      const errorMessage = err.message || 'Không thể gửi phiếu';
+      setError(errorMessage);
+      toast(errorMessage, 'error');
     } finally {
       setSubmitting(false);
     }

@@ -29,6 +29,7 @@ export default function ManagerProductRequests() {
     const [successMessage, setSuccessMessage] = useState('');
     const [processingId, setProcessingId] = useState(null);
     const [confirmModal, setConfirmModal] = useState({ show: false, action: null, id: null, title: '', message: '' });
+    const [detailModal, setDetailModal] = useState({ show: false, request: null });
 
     const fetchList = useCallback(async () => {
         setLoading(true);
@@ -84,6 +85,14 @@ export default function ManagerProductRequests() {
 
     const handleConfirmClose = () => {
         setConfirmModal({ show: false, action: null, id: null, title: '', message: '' });
+    };
+
+    const openDetailModal = (request) => {
+        setDetailModal({ show: true, request });
+    };
+
+    const closeDetailModal = () => {
+        setDetailModal({ show: false, request: null });
     };
 
     const handleConfirmSubmit = async () => {
@@ -251,6 +260,14 @@ export default function ManagerProductRequests() {
                                                         </td>
                                                         <td className="whitespace-nowrap px-4 py-3 text-right">
                                                             <div className="flex items-center justify-end gap-2">
+                                                                <Button
+                                                                    type="button"
+                                                                    variant="outline"
+                                                                    className="h-8 px-3 text-xs"
+                                                                    onClick={() => openDetailModal(r)}
+                                                                >
+                                                                    Chi tiết
+                                                                </Button>
                                                                 {r.status === 'pending' && (
                                                                     <>
                                                                         <Button
@@ -331,6 +348,64 @@ export default function ManagerProductRequests() {
                                 onClick={handleConfirmSubmit}
                             >
                                 Xác nhận
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {detailModal.show && detailModal.request && (
+                <div className="manager-reason-modal-overlay" onClick={closeDetailModal}>
+                    <div className="manager-reason-modal-box !max-w-3xl" onClick={(e) => e.stopPropagation()}>
+                        <h3 className="manager-reason-modal-title">Chi tiết yêu cầu tạo sản phẩm</h3>
+                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                            <p><strong>Tên sản phẩm:</strong> {detailModal.request.name || '—'}</p>
+                            <p><strong>SKU:</strong> {detailModal.request.sku || '—'}</p>
+                            <p><strong>Barcode:</strong> {detailModal.request.barcode || '—'}</p>
+                            <p><strong>Giá vốn:</strong> {formatMoney(detailModal.request.cost_price)}</p>
+                            <p><strong>Giá bán:</strong> {formatMoney(detailModal.request.sale_price)}</p>
+                            <p><strong>Đơn vị gốc:</strong> {detailModal.request.base_unit || '—'}</p>
+                            <p><strong>Mức tồn tối thiểu:</strong> {detailModal.request.reorder_level ?? 0}</p>
+                            <p><strong>Người gửi:</strong> {detailModal.request.requested_by?.fullName || '—'}</p>
+                            <p><strong>Ngày gửi:</strong> {detailModal.request.created_at ? new Date(detailModal.request.created_at).toLocaleString('vi-VN') : '—'}</p>
+                            <p><strong>Trạng thái:</strong> {detailModal.request.status === 'pending' ? 'Chờ duyệt' : detailModal.request.status === 'approved' ? 'Đã duyệt' : 'Từ chối'}</p>
+                        </div>
+                        <div className="mt-3">
+                            <p className="text-sm font-semibold text-slate-700">Đơn vị bán</p>
+                            {Array.isArray(detailModal.request.selling_units) && detailModal.request.selling_units.length > 0 ? (
+                                <div className="mt-2 overflow-x-auto rounded-lg border border-slate-200">
+                                    <table className="w-full min-w-[520px] text-sm">
+                                        <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                                            <tr>
+                                                <th className="px-3 py-2 text-left">Đơn vị</th>
+                                                <th className="px-3 py-2 text-left">Tỷ lệ</th>
+                                                <th className="px-3 py-2 text-left">Giá bán</th>
+                                                <th className="px-3 py-2 text-left">Barcode</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {detailModal.request.selling_units.map((u, idx) => (
+                                                <tr key={`${u.name || 'unit'}-${idx}`} className="border-t border-slate-100">
+                                                    <td className="px-3 py-2">{u.name || '—'}</td>
+                                                    <td className="px-3 py-2">{u.ratio ?? 1}</td>
+                                                    <td className="px-3 py-2">{formatMoney(u.sale_price)}</td>
+                                                    <td className="px-3 py-2">{u.barcode || '—'}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            ) : (
+                                <p className="mt-1 text-sm text-slate-500">Không có đơn vị bán.</p>
+                            )}
+                        </div>
+                        <div className="mt-3">
+                            <p className="text-sm font-semibold text-slate-700">Ghi chú</p>
+                            <p className="mt-1 text-sm text-slate-600">{detailModal.request.note || '—'}</p>
+                        </div>
+                        <div className="manager-reason-modal-actions">
+                            <button className="manager-btn-secondary" onClick={closeDetailModal}>
+                                Đóng
                             </button>
                         </div>
                     </div>

@@ -53,6 +53,10 @@ export default function ManagerProductEdit() {
     const [scanMode, setScanMode] = useState(false);
     const scanBufferRef = useRef('');
     const scanTimerRef = useRef(null);
+    const initialSnapshotRef = useRef({
+        sku: '',
+        barcode: '',
+    });
 
     useEffect(() => {
         let cancelled = false;
@@ -103,6 +107,10 @@ export default function ManagerProductEdit() {
                     image_urls: Array.isArray(p.image_urls) ? p.image_urls.slice(0, 3) : [],
                     status: p.status === 'inactive' ? 'inactive' : 'active',
                 });
+                initialSnapshotRef.current = {
+                    sku: p.sku || '',
+                    barcode: p.barcode || '',
+                };
             })
             .catch((e) => setError(e.message || 'Không tải được sản phẩm'))
             .finally(() => setLoadProduct(false));
@@ -316,10 +324,15 @@ export default function ManagerProductEdit() {
                 const uploaded = await uploadProductImages(selectedImages);
                 finalImageUrls = [...existingImages, ...uploaded].slice(0, 3);
             }
-            await updateProduct(id, {
+            const initial = initialSnapshotRef.current || {};
+            const nextSku = trimString(skuCheck.value || '');
+            const nextBarcode = trimString(barcodeCheck.value || '');
+            const initialSku = trimString(initial.sku || '');
+            const initialBarcode = trimString(initial.barcode || '');
+            const payload = {
                 name: nameCheck.value,
-                sku: skuCheck.value,
-                barcode: barcodeCheck.value || undefined,
+                ...(nextSku !== initialSku ? { sku: skuCheck.value } : {}),
+                ...(nextBarcode !== initialBarcode ? { barcode: barcodeCheck.value || undefined } : {}),
                 supplier_id: trimString(form.supplier_id) || undefined,
                 cost_price: costCheck.value,
                 reorder_level: reorderCheck.value,
@@ -328,7 +341,8 @@ export default function ManagerProductEdit() {
                 selling_units: units,
                 image_urls: finalImageUrls,
                 status: form.status === 'inactive' ? 'inactive' : 'active',
-            });
+            };
+            await updateProduct(id, payload);
             await updateProductUnits(id, unitPayload);
             navigate('/manager/products', { state: { success: 'Cập nhật sản phẩm thành công.' } });
         } catch (err) {
