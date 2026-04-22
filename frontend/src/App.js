@@ -58,6 +58,7 @@ import ManagerSupplierPaymentsReport from "./pages/ManagerDashboard/ManagerSuppl
 import ManagerSupplierDebtLedger from "./pages/ManagerDashboard/ManagerSupplierDebtLedger";
 import ManagerSupplierReturnDetail from "./pages/ManagerDashboard/ManagerSupplierReturnDetail";
 import ManagerSupplierReturnsList from "./pages/ManagerDashboard/ManagerSupplierReturnsList";
+import ManagerSupplierReturnCreate from "./pages/ManagerDashboard/ManagerSupplierReturnCreate";
 import ManagerSupportTickets from "./pages/ManagerDashboard/ManagerSupportTickets";
 import ManagerSupportTicketDetail from "./pages/ManagerDashboard/ManagerSupportTicketDetail";
 import ManagerPOSPage from "./pages/ManagerDashboard/ManagerPOSPage";
@@ -184,6 +185,7 @@ function App() {
       <Route path="/manager/suppliers/:id/edit" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerSupplierEdit /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/suppliers/:id/debt-ledger" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerSupplierDebtLedger /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/supplier-returns" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerSupplierReturnsList /></RequireManagerStore></RequireRole></RequireAuth>} />
+      <Route path="/manager/supplier-returns/new" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerSupplierReturnCreate /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/supplier-returns/:id" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerSupplierReturnDetail /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/staff/new" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerCreateStaff /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/staff/manage" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerStaffManage /></RequireManagerStore></RequireRole></RequireAuth>} />

@@ -47,6 +47,8 @@ const overviewItems = [
       { label: 'Nhà cung cấp', path: '/manager/suppliers', icon: Handshake },
       { label: 'Thêm nhà cung cấp', path: '/manager/suppliers/new', icon: Plus },
       { label: 'Công nợ NCC', path: '/manager/supplier-payables', icon: CreditCard },
+      { label: 'Tạo trả NCC', path: '/manager/supplier-returns/new', icon: RotateCcw },
+      { label: 'Danh sách trả NCC', path: '/manager/supplier-returns', icon: RotateCcw },
       { label: 'Báo cáo chi tiền NCC', path: '/manager/supplier-payables/report', icon: BarChart3 },
     ],
   },
@@ -118,6 +120,7 @@ function getActivePath(pathname) {
   if (pathname.startsWith('/manager/invoices')) return '/manager/invoices';
   if (pathname.startsWith('/manager/supplier-payables/report')) return '/manager/supplier-payables/report';
   if (pathname.startsWith('/manager/supplier-payables')) return '/manager/supplier-payables';
+  if (pathname.startsWith('/manager/supplier-returns/new')) return '/manager/supplier-returns/new';
   if (pathname.startsWith('/manager/supplier-returns')) return '/manager/supplier-returns';
   if (pathname.startsWith('/manager/pos')) return '/manager/pos';
   return pathname;

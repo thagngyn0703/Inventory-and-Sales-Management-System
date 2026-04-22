@@ -58,6 +58,11 @@ export default function ManagerSupplierReturnsList() {
         eyebrowIcon={RotateCcw}
         title="Danh sách phiếu trả NCC"
         subtitle={supplierIdFromQuery ? `Lọc theo NCC #${supplierIdFromQuery.slice(-6).toUpperCase()}` : 'Toàn cửa hàng'}
+        headerActions={(
+          <Button asChild>
+            <Link to="/manager/supplier-returns/new">Tạo phiếu trả NCC</Link>
+          </Button>
+        )}
       >
         <InlineNotice message={error} type="error" className="mb-3" />
         <Card className="border-slate-200/80 shadow-sm">

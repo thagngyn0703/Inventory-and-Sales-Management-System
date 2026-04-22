@@ -11,9 +11,11 @@ const SupplierPayment = require('../models/SupplierPayment');
 const SupplierPaymentAllocation = require('../models/SupplierPaymentAllocation');
 const SupplierDebtHistory = require('../models/SupplierDebtHistory');
 const SupplierReturn = require('../models/SupplierReturn');
+const Product = require('../models/Product');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { recalculatePayable, refreshSupplierPayableCache } = require('../utils/supplierPayableUtils');
 const { upsertSystemCashFlow } = require('../utils/cashflowUtils');
+const { adjustStockFIFO } = require('../utils/inventoryUtils');
 const { ensureCloudinaryConfigured, hasCloudinaryConfig } = require('../services/cloudinary');
 
 const router = express.Router();
@@ -623,15 +625,70 @@ router.post('/:id/returns', requireAuth, requireRole(['manager', 'admin']), asyn
     if (!supplier) return res.status(404).json({ message: 'Supplier not found' });
 
     const {
+      items = [],
       total_amount,
       return_date,
       reference_code,
       reason,
       note,
     } = req.body || {};
-    const amount = Number(total_amount);
-    if (!amount || amount <= 0) {
-      return res.status(400).json({ message: 'total_amount phải lớn hơn 0' });
+    const normalizedItems = [];
+    if (Array.isArray(items) && items.length > 0) {
+      const reqQtyMap = new Map();
+      for (const it of items) {
+        const productId = String(it?.product_id || '');
+        const quantity = Number(it?.quantity);
+        if (!mongoose.isValidObjectId(productId)) {
+          return res.status(400).json({ message: 'product_id không hợp lệ trong danh sách sản phẩm trả.' });
+        }
+        if (!quantity || quantity <= 0) {
+          return res.status(400).json({ message: 'quantity phải lớn hơn 0 trong danh sách sản phẩm trả.' });
+        }
+        reqQtyMap.set(productId, (reqQtyMap.get(productId) || 0) + quantity);
+      }
+
+      const uniqueProductIds = Array.from(reqQtyMap.keys());
+      const storeProducts = await Product.find({
+        _id: { $in: uniqueProductIds },
+        storeId: supplier.storeId,
+      }).lean();
+      if (storeProducts.length !== uniqueProductIds.length) {
+        return res.status(400).json({ message: 'Một hoặc nhiều sản phẩm không thuộc cửa hàng hiện tại.' });
+      }
+      const productById = new Map(storeProducts.map((p) => [String(p._id), p]));
+
+      for (const [productId, quantity] of reqQtyMap.entries()) {
+        const product = productById.get(productId);
+        const stockQty = Number(product?.stock_qty || 0);
+        if (stockQty < quantity) {
+          return res.status(400).json({
+            message: `Sản phẩm ${product?.name || productId} không đủ tồn kho để trả (tồn ${stockQty.toLocaleString('vi-VN')}, yêu cầu ${Number(quantity).toLocaleString('vi-VN')}).`,
+            code: 'INSUFFICIENT_STOCK',
+          });
+        }
+        const unitCost = round2(Number(product?.cost_price) || 0);
+        normalizedItems.push({
+          product_id: product._id,
+          quantity: round2(quantity),
+          unit_cost: unitCost,
+          line_total: round2(unitCost * quantity),
+          product_name_snapshot: product?.name || '',
+          product_sku_snapshot: product?.sku || '',
+          unit_name: product?.base_unit || 'Cái',
+        });
+      }
+    }
+
+    let amount = 0;
+    if (normalizedItems.length > 0) {
+      amount = round2(normalizedItems.reduce((sum, it) => sum + Number(it.line_total || 0), 0));
+    } else {
+      amount = round2(Number(total_amount) || 0);
+      if (amount <= 0) {
+        return res.status(400).json({
+          message: 'Vui lòng chọn sản phẩm trả NCC hoặc nhập total_amount hợp lệ.',
+        });
+      }
     }
 
     const openPayables = await SupplierPayable.find({
@@ -657,6 +714,7 @@ router.post('/:id/returns', requireAuth, requireRole(['manager', 'admin']), asyn
         supplier_id: supplier._id,
         storeId: supplier.storeId,
         total_amount: amount,
+        items: normalizedItems,
         reason: reason || 'Trả hàng nhà cung cấp',
         note: note || undefined,
         reference_code: reference_code || undefined,
@@ -705,6 +763,23 @@ router.post('/:id/returns', requireAuth, requireRole(['manager', 'admin']), asyn
       { payment_id: payment._id, allocation_ids: allocationIds },
       { session }
     );
+
+    for (const item of normalizedItems) {
+      await adjustStockFIFO(
+        item.product_id,
+        supplier.storeId,
+        -Number(item.quantity || 0),
+        {
+          note: `Trả NCC #${String(supplierReturn._id).slice(-6).toUpperCase()}`,
+          movementType: 'OUT_GENERIC',
+          referenceType: 'supplier_return',
+          referenceId: supplierReturn._id,
+          actorId: req.user.id,
+          session,
+        }
+      );
+    }
+
     await session.commitTransaction();
 
     for (const pid of updatedPayableIds) {
@@ -745,6 +820,12 @@ router.post('/:id/returns', requireAuth, requireRole(['manager', 'admin']), asyn
     });
   } catch (err) {
     if (session.inTransaction()) await session.abortTransaction();
+    if (err?.code === 'INSUFFICIENT_STOCK' || String(err?.message || '') === 'INSUFFICIENT_STOCK') {
+      return res.status(409).json({
+        message: 'Không thể tạo phiếu trả vì tồn kho hiện tại không đủ.',
+        code: 'INSUFFICIENT_STOCK',
+      });
+    }
     return res.status(500).json({ message: err.message || 'Server error' });
   } finally {
     session.endSession();
