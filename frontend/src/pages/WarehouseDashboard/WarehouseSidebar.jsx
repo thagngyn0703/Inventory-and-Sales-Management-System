@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import StoreLockedNotice from '../../components/StoreLockedNotice';
 import './WarehouseSidebar.css';
 
 const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
@@ -42,7 +41,6 @@ export default function WarehouseSidebar() {
 
   return (
     <>
-      <StoreLockedNotice visible={currentUser?.storeStatus === 'inactive'} />
       <div className="warehouse-sidebar">
         <div className="warehouse-sidebar-header">
         <div className="warehouse-sidebar-logo">

@@ -2,6 +2,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const Store = require('../models/Store');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const { logAudit } = require('../utils/audit');
 
 const router = express.Router();
 
@@ -11,12 +12,15 @@ function escapeRegex(s) {
 
 router.get('/', requireAuth, requireRole(['admin']), async (req, res) => {
   try {
-    const { q = '', status = 'all', page = '1', limit = '20', all = 'false' } = req.query;
+    const { q = '', status = 'all', approval_status = 'all', page = '1', limit = '20', all = 'false' } = req.query;
     const shouldGetAll = String(all).toLowerCase() === 'true';
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
     const filter = {};
     if (status === 'active' || status === 'inactive') filter.status = status;
+    if (['draft_profile', 'pending_approval', 'approved', 'rejected', 'suspended'].includes(String(approval_status))) {
+      filter.approval_status = String(approval_status);
+    }
     if (String(q).trim()) {
       const re = new RegExp(escapeRegex(String(q).trim()), 'i');
       filter.$or = [{ name: re }, { phone: re }, { address: re }];
@@ -26,7 +30,7 @@ router.get('/', requireAuth, requireRole(['admin']), async (req, res) => {
     if (!shouldGetAll) {
       storesQuery = storesQuery.skip((pageNum - 1) * limitNum).limit(limitNum);
     }
-    const stores = await storesQuery.populate('managerId', 'fullName email').lean();
+    const stores = await storesQuery.populate('managerId', 'fullName email').populate('approved_by', 'fullName email').lean();
     return res.json({
       stores,
       total,
@@ -70,6 +74,76 @@ router.patch('/:id/status', requireAuth, requireRole(['admin']), async (req, res
       .populate('managerId', 'fullName email')
       .lean();
     if (!store) return res.status(404).json({ message: 'Store not found' });
+    await logAudit({
+      storeId: store._id,
+      actorId: req.user.id,
+      action: 'store_status_updated',
+      entityType: 'Store',
+      entityId: store._id,
+      note: `Admin đổi trạng thái hoạt động cửa hàng sang ${nextStatus}`,
+      metadata: { status: nextStatus },
+    });
+    return res.json({ store });
+  } catch (err) {
+    return res.status(500).json({ message: 'Server error' });
+  }
+});
+
+router.patch('/:id/approval', requireAuth, requireRole(['admin']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) return res.status(400).json({ message: 'Invalid store id' });
+    const { approval_status, rejection_reason = '' } = req.body || {};
+    if (!['approved', 'rejected', 'suspended', 'pending_approval', 'draft_profile'].includes(String(approval_status))) {
+      return res.status(400).json({ message: 'approval_status không hợp lệ.' });
+    }
+    const currentStore = await Store.findById(id)
+      .select('tax_code bank_account_number legal_representative business_license_number')
+      .lean();
+    if (!currentStore) return res.status(404).json({ message: 'Store not found' });
+
+    const legalProfileCompleted = Boolean(
+      String(currentStore.tax_code || '').trim() &&
+      String(currentStore.bank_account_number || '').trim() &&
+      String(currentStore.legal_representative || '').trim() &&
+      String(currentStore.business_license_number || '').trim()
+    );
+    if (String(approval_status) === 'approved' && !legalProfileCompleted) {
+      return res.status(400).json({
+        message: 'Không thể phê duyệt: hồ sơ pháp lý chưa đầy đủ (MST, STK ngân hàng, đại diện pháp luật, số GPKD).',
+      });
+    }
+
+    const updates = {
+      approval_status: String(approval_status),
+    };
+    if (String(approval_status) === 'approved') {
+      updates.approved_by = req.user.id;
+      updates.approved_at = new Date();
+      updates.rejection_reason = '';
+      updates.status = 'active';
+    } else if (String(approval_status) === 'rejected') {
+      updates.rejection_reason = String(rejection_reason || '').trim();
+      updates.approved_by = null;
+      updates.approved_at = null;
+      updates.status = 'inactive';
+    } else if (String(approval_status) === 'suspended') {
+      updates.status = 'inactive';
+    }
+    const store = await Store.findByIdAndUpdate(id, { $set: updates }, { new: true })
+      .populate('managerId', 'fullName email')
+      .populate('approved_by', 'fullName email')
+      .lean();
+    if (!store) return res.status(404).json({ message: 'Store not found' });
+    await logAudit({
+      storeId: store._id,
+      actorId: req.user.id,
+      action: 'store_approval_updated',
+      entityType: 'Store',
+      entityId: store._id,
+      note: `Admin cập nhật phê duyệt cửa hàng sang ${updates.approval_status}`,
+      metadata: { approval_status: updates.approval_status, rejection_reason: updates.rejection_reason || '' },
+    });
     return res.json({ store });
   } catch (err) {
     return res.status(500).json({ message: 'Server error' });

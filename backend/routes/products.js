@@ -521,8 +521,8 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
     const costNum = parseNonNegativeNumber(cost_price);
     const stockNum = parseNonNegativeNumber(stock_qty);
     const reorderNum = parseNonNegativeNumber(reorder_level);
-    const vatNum = (vat_rate === null || vat_rate === undefined || vat_rate === '') ? null : Number(vat_rate);
-    if (vatNum !== null && (!Number.isFinite(vatNum) || vatNum < 0 || vatNum > 100)) {
+    const vatNum = (vat_rate === null || vat_rate === undefined || vat_rate === '') ? 0 : Number(vat_rate);
+    if (!Number.isFinite(vatNum) || vatNum < 0 || vatNum > 100) {
       return res.status(400).json({ message: 'VAT không hợp lệ (0-100).' });
     }
 
@@ -1570,8 +1570,8 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
       product.reorder_level = n;
     }
     if (vat_rate !== undefined) {
-      const vatNum = (vat_rate === null || vat_rate === '' ? null : Number(vat_rate));
-      if (vatNum !== null && (!Number.isFinite(vatNum) || vatNum < 0 || vatNum > 100)) {
+      const vatNum = (vat_rate === null || vat_rate === '' ? 0 : Number(vat_rate));
+      if (!Number.isFinite(vatNum) || vatNum < 0 || vatNum > 100) {
         return res.status(400).json({ message: 'VAT không hợp lệ (0-100).' });
       }
       product.vat_rate = vatNum;

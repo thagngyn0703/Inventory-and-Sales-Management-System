@@ -58,6 +58,12 @@ const shiftSessionSchema = new Schema(
         // Discrepancies
         discrepancy_cash: { type: Number, default: 0 },
         discrepancy_bank: { type: Number, default: 0 },
+        sales_snapshot: {
+            total_invoice_count: { type: Number, default: 0, min: 0 },
+            total_confirmed_revenue: { type: Number, default: 0, min: 0 },
+            total_cash_collected: { type: Number, default: 0, min: 0 },
+            total_bank_collected: { type: Number, default: 0, min: 0 },
+        },
 
         reconciliation_status: {
             type: String,

@@ -10,6 +10,7 @@ const Supplier = require('../models/Supplier');
 const SupplierPayment = require('../models/SupplierPayment');
 const Customer = require('../models/Customer');
 const CustomerLoyaltyTransaction = require('../models/CustomerLoyaltyTransaction');
+const AuditLog = require('../models/AuditLog');
 const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
@@ -669,6 +670,67 @@ router.get(
  * GET /api/analytics/summary?from=YYYY-MM-DD&to=YYYY-MM-DD
  * Tổng quan kinh doanh: doanh thu, số đơn, trả hàng, lợi nhuận ước, chi phí nhập
  */
+router.get(
+  '/vat-report',
+  requireAuth,
+  requireRole(['manager', 'admin']),
+  async (req, res) => {
+    try {
+      const { from, to } = parseDateRange(req.query);
+      const storeIdObj = req.user?.storeId ? new mongoose.Types.ObjectId(req.user.storeId) : null;
+      const role = String(req.user?.role || '').toLowerCase();
+      if (role !== 'admin' && !storeIdObj) {
+        return res.status(403).json({ message: 'Chưa có cửa hàng', code: 'STORE_REQUIRED' });
+      }
+      const match = storeIdObj
+        ? { store_id: storeIdObj, status: 'confirmed', invoice_at: { $gte: from, $lte: to }, ...PAID_TRANSFER_FILTER }
+        : { status: 'confirmed', invoice_at: { $gte: from, $lte: to }, ...PAID_TRANSFER_FILTER };
+      const invoices = await SalesInvoice.aggregate([
+        { $match: match },
+        {
+          $group: {
+            _id: null,
+            output_revenue_gross: { $sum: { $ifNull: ['$total_amount', 0] } },
+            output_revenue_net: { $sum: { $ifNull: ['$subtotal_amount', 0] } },
+            output_vat: { $sum: { $ifNull: ['$tax_amount', 0] } },
+            invoice_count: { $sum: 1 },
+          },
+        },
+      ]);
+      return res.json({
+        period: { from: from.toISOString(), to: to.toISOString() },
+        output_revenue_gross: Number(invoices[0]?.output_revenue_gross || 0),
+        output_revenue_net: Number(invoices[0]?.output_revenue_net || 0),
+        output_vat: Number(invoices[0]?.output_vat || 0),
+        invoice_count: Number(invoices[0]?.invoice_count || 0),
+      });
+    } catch (err) {
+      return res.status(500).json({ message: err.message || 'Server error' });
+    }
+  }
+);
+
+router.get(
+  '/audit-logs',
+  requireAuth,
+  requireRole(['manager', 'admin']),
+  async (req, res) => {
+    try {
+      const storeIdObj = req.user?.storeId ? new mongoose.Types.ObjectId(req.user.storeId) : null;
+      const role = String(req.user?.role || '').toLowerCase();
+      if (role !== 'admin' && !storeIdObj) {
+        return res.status(403).json({ message: 'Chưa có cửa hàng', code: 'STORE_REQUIRED' });
+      }
+      const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 50));
+      const filter = storeIdObj ? { store_id: storeIdObj } : {};
+      const logs = await AuditLog.find(filter).sort({ created_at: -1 }).limit(limit).lean();
+      return res.json({ logs });
+    } catch (err) {
+      return res.status(500).json({ message: err.message || 'Server error' });
+    }
+  }
+);
+
 router.get(
   '/summary',
   requireAuth,

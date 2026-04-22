@@ -5,10 +5,12 @@ const SupplierPayment = require('../models/SupplierPayment');
 const SupplierPaymentAllocation = require('../models/SupplierPaymentAllocation');
 const Supplier = require('../models/Supplier');
 const SupplierDebtHistory = require('../models/SupplierDebtHistory');
+const SupplierDebtStatement = require('../models/SupplierDebtStatement');
 const SupplierReturn = require('../models/SupplierReturn');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { recalculatePayable, refreshSupplierPayableCache } = require('../utils/supplierPayableUtils');
 const { upsertSystemCashFlow } = require('../utils/cashflowUtils');
+const { logAudit } = require('../utils/audit');
 
 const router = express.Router();
 
@@ -495,6 +497,144 @@ router.get('/payments/history', requireAuth, requireRole(['manager', 'admin']), 
         });
     } catch (err) {
         console.error('GET /payments/history error:', err);
+        return res.status(500).json({ message: err.message || 'Server error' });
+    }
+});
+
+// ─── GET /api/supplier-payables/statements ───────────────────────────────────
+router.get('/statements', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
+    try {
+        const { supplier_id, page = '1', limit = '20' } = req.query;
+        const pageNum = Math.max(1, parseInt(page, 10) || 1);
+        const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
+        const storeOid = getStoreOidFromUser(req);
+        if (!storeOid || storeOid === '__FORBIDDEN__') {
+            return res.status(403).json({ message: 'Tài khoản chưa được gán cửa hàng.', code: 'STORE_REQUIRED' });
+        }
+        const filter = { storeId: storeOid };
+        if (supplier_id && mongoose.isValidObjectId(supplier_id)) {
+            filter.supplier_id = toOid(supplier_id);
+        }
+        const total = await SupplierDebtStatement.countDocuments(filter);
+        const statements = await SupplierDebtStatement.find(filter)
+            .sort({ created_at: -1 })
+            .skip((pageNum - 1) * limitNum)
+            .limit(limitNum)
+            .populate('supplier_id', 'name phone email')
+            .populate('created_by', 'fullName email')
+            .populate('store_signed_by', 'fullName email')
+            .lean();
+        return res.json({ statements, total, page: pageNum, totalPages: Math.ceil(total / limitNum) || 1 });
+    } catch (err) {
+        return res.status(500).json({ message: err.message || 'Server error' });
+    }
+});
+
+// ─── POST /api/supplier-payables/statements ──────────────────────────────────
+router.post('/statements', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
+    try {
+        const storeOid = getStoreOidFromUser(req);
+        if (!storeOid || storeOid === '__FORBIDDEN__') {
+            return res.status(403).json({ message: 'Tài khoản chưa được gán cửa hàng.', code: 'STORE_REQUIRED' });
+        }
+        const {
+            supplier_id,
+            period_from,
+            period_to,
+            installment_schedule = [],
+            signature_note = '',
+        } = req.body || {};
+        if (!supplier_id || !mongoose.isValidObjectId(supplier_id)) {
+            return res.status(400).json({ message: 'supplier_id không hợp lệ.' });
+        }
+        const supplierOid = toOid(supplier_id);
+        const now = new Date();
+        const from = period_from ? new Date(period_from) : new Date(now.getFullYear(), now.getMonth(), 1);
+        const to = period_to ? new Date(period_to) : now;
+        const payables = await SupplierPayable.find({
+            supplier_id: supplierOid,
+            storeId: storeOid,
+            status: { $in: ['open', 'partial'] },
+            remaining_amount: { $gt: 0 },
+        }).lean();
+        const totalRemainingAmount = payables.reduce((sum, p) => sum + (Number(p.remaining_amount) || 0), 0);
+        if (totalRemainingAmount <= 0) {
+            return res.status(400).json({ message: 'Nhà cung cấp này không còn khoản nợ mở để lập biên bản.' });
+        }
+        const normalizedSchedule = Array.isArray(installment_schedule)
+            ? installment_schedule
+                .map((s) => ({
+                    due_date: s?.due_date ? new Date(s.due_date) : null,
+                    amount: Math.max(0, Number(s?.amount) || 0),
+                    note: String(s?.note || '').trim(),
+                }))
+                .filter((s) => s.due_date && !Number.isNaN(s.due_date.getTime()) && s.amount > 0)
+            : [];
+        const statement = await SupplierDebtStatement.create({
+            supplier_id: supplierOid,
+            storeId: storeOid,
+            period_from: from,
+            period_to: to,
+            total_remaining_amount: round2(totalRemainingAmount),
+            installment_count: normalizedSchedule.length || 1,
+            installment_schedule: normalizedSchedule,
+            status: 'draft',
+            signature_note: String(signature_note || '').trim(),
+            created_by: req.user.id,
+            created_at: new Date(),
+            updated_at: new Date(),
+        });
+        await logAudit({
+            storeId: storeOid,
+            actorId: req.user.id,
+            action: 'supplier_debt_statement_created',
+            entityType: 'SupplierDebtStatement',
+            entityId: statement._id,
+            note: `Tạo biên bản công nợ NCC cho tổng dư nợ ${round2(totalRemainingAmount).toLocaleString('vi-VN')}đ`,
+            metadata: { supplier_id: supplierOid, installment_count: normalizedSchedule.length || 1 },
+        });
+        return res.status(201).json({ statement });
+    } catch (err) {
+        return res.status(500).json({ message: err.message || 'Server error' });
+    }
+});
+
+// ─── PATCH /api/supplier-payables/statements/:id/sign ───────────────────────
+router.patch('/statements/:id/sign', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
+    try {
+        const { id } = req.params;
+        if (!mongoose.isValidObjectId(id)) return res.status(400).json({ message: 'Invalid statement id' });
+        const storeOid = getStoreOidFromUser(req);
+        if (!storeOid || storeOid === '__FORBIDDEN__') {
+            return res.status(403).json({ message: 'Tài khoản chưa được gán cửa hàng.', code: 'STORE_REQUIRED' });
+        }
+        const { signer = 'store', supplier_signed_name = '' } = req.body || {};
+        const statement = await SupplierDebtStatement.findOne({ _id: id, storeId: storeOid });
+        if (!statement) return res.status(404).json({ message: 'Không tìm thấy biên bản công nợ.' });
+        if (String(signer) === 'supplier') {
+            const supplierSigner = String(supplier_signed_name || '').trim();
+            if (!supplierSigner) return res.status(400).json({ message: 'Vui lòng nhập tên người đại diện nhà cung cấp.' });
+            statement.supplier_signed_name = supplierSigner;
+            statement.supplier_signed_at = new Date();
+            statement.status = statement.store_signed_at ? 'fully_signed' : 'supplier_signed';
+        } else {
+            statement.store_signed_by = req.user.id;
+            statement.store_signed_at = new Date();
+            statement.status = statement.supplier_signed_at ? 'fully_signed' : 'store_signed';
+        }
+        statement.updated_at = new Date();
+        await statement.save();
+        await logAudit({
+            storeId: storeOid,
+            actorId: req.user.id,
+            action: 'supplier_debt_statement_signed',
+            entityType: 'SupplierDebtStatement',
+            entityId: statement._id,
+            note: String(signer) === 'supplier' ? 'Nhà cung cấp ký xác nhận công nợ.' : 'Cửa hàng ký xác nhận công nợ.',
+            metadata: { signer: String(signer), status: statement.status },
+        });
+        return res.json({ statement });
+    } catch (err) {
         return res.status(500).json({ message: err.message || 'Server error' });
     }
 });

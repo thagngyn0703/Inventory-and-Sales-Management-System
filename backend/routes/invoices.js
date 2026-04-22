@@ -22,6 +22,7 @@ const {
     getNextNudge,
     appendLoyaltyTxn,
 } = require('../utils/loyalty');
+const { logAudit } = require('../utils/audit');
 const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
@@ -123,9 +124,11 @@ async function getStoreTaxConfig(storeId) {
     if (!storeId || !mongoose.isValidObjectId(storeId)) {
         return { tax_rate: 0, price_includes_tax: true };
     }
-    const store = await Store.findById(storeId).select('tax_rate price_includes_tax').lean();
+    const store = await Store.findById(storeId).select('tax_rate price_includes_tax business_type').lean();
+    const businessType = String(store?.business_type || 'ho_kinh_doanh');
     return {
-        tax_rate: Number(store?.tax_rate) || 0,
+        // Ho kinh doanh: khong ap VAT tren hoa don.
+        tax_rate: businessType === 'ho_kinh_doanh' ? 0 : (Number(store?.tax_rate) || 0),
         price_includes_tax: store?.price_includes_tax !== false,
     };
 }
@@ -1372,6 +1375,13 @@ router.post('/:id/cancel', requireAuth, requireRole(['staff', 'manager', 'admin'
         const { id } = req.params;
         const invoice = await SalesInvoice.findById(id);
         if (!invoice) return res.status(404).json({ message: 'Invoice not found' });
+        const cancelReason = String(req.body?.cancel_reason || '').trim();
+        if (!cancelReason) {
+            return res.status(400).json({
+                code: 'CANCEL_REASON_REQUIRED',
+                message: 'Vui lòng nhập lý do hủy hóa đơn.',
+            });
+        }
         // Anti-fraud: không cho hủy hóa đơn thuộc ca đã đóng (trừ admin)
         if (invoice.shift_id) {
             const role = String(req.user?.role || '').toLowerCase();
@@ -1394,8 +1404,23 @@ router.post('/:id/cancel', requireAuth, requireRole(['staff', 'manager', 'admin'
         try {
             await syncInventory(invoice, 'cancelled');
             invoice.status = 'cancelled';
+            invoice.cancel_reason = cancelReason;
+            invoice.cancelled_by = req.user.id;
+            invoice.cancelled_at = new Date();
             invoice.updated_at = new Date();
             await invoice.save();
+            await logAudit({
+                storeId: invoice.store_id,
+                actorId: req.user.id,
+                action: 'invoice_cancelled',
+                entityType: 'SalesInvoice',
+                entityId: invoice._id,
+                note: cancelReason,
+                metadata: {
+                    payment_status: invoice.payment_status,
+                    total_amount: invoice.total_amount,
+                },
+            });
             if (invoice.customer_id && Number(invoice.loyalty_earned_points || 0) > 0) {
                 await appendLoyaltyTxn({
                     customerId: invoice.customer_id,

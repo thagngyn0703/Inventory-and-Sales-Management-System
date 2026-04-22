@@ -31,7 +31,7 @@ router.post('/', requireRole(['manager', 'staff', 'admin']), async (req, res) =>
             return res.status(400).json({ message: 'Tên danh mục không được để trống' });
         }
         const vat = vat_rate === null || vat_rate === undefined || vat_rate === ''
-            ? null
+            ? 0
             : Number(vat_rate);
         if (vat !== null && (!Number.isFinite(vat) || vat < 0 || vat > 100)) {
             return res.status(400).json({ message: 'VAT không hợp lệ (0-100)' });
@@ -59,7 +59,7 @@ router.put('/:id', requireRole(['manager', 'staff', 'admin']), async (req, res) 
             return res.status(400).json({ message: 'Tên danh mục không được để trống' });
         }
         const vat = vat_rate === null || vat_rate === undefined || vat_rate === ''
-            ? null
+            ? 0
             : Number(vat_rate);
         if (vat !== null && (!Number.isFinite(vat) || vat < 0 || vat > 100)) {
             return res.status(400).json({ message: 'VAT không hợp lệ (0-100)' });

@@ -36,6 +36,20 @@ const salesInvoiceSchema = new Schema(
             enum: ['confirmed', 'cancelled', 'pending'],
             default: 'confirmed',
         },
+        cancel_reason: {
+            type: String,
+            trim: true,
+            default: '',
+        },
+        cancelled_by: {
+            type: Schema.Types.ObjectId,
+            ref: 'User',
+            default: null,
+        },
+        cancelled_at: {
+            type: Date,
+            default: null,
+        },
         invoice_at: {
             type: Date,
             default: Date.now,

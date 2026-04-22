@@ -43,6 +43,21 @@ export async function getAnalyticsSummary({ from, to } = {}) {
   return parseResponse(res, 'Không thể tải tổng quan kinh doanh');
 }
 
+export async function getVatReport({ from, to } = {}) {
+  const url = new URL(`${API_BASE}/analytics/vat-report`);
+  if (from) url.searchParams.set('from', from);
+  if (to) url.searchParams.set('to', to);
+  const res = await fetch(url.toString(), { headers: authHeaders() });
+  return parseResponse(res, 'Không thể tải báo cáo VAT');
+}
+
+export async function getAuditLogs({ limit = 50 } = {}) {
+  const url = new URL(`${API_BASE}/analytics/audit-logs`);
+  url.searchParams.set('limit', String(limit));
+  const res = await fetch(url.toString(), { headers: authHeaders() });
+  return parseResponse(res, 'Không thể tải nhật ký nghiệp vụ');
+}
+
 /**
  * Snapshot tồn kho hiện tại.
  * @returns {{ total_sku, total_value, out_of_stock_count, low_stock_count,

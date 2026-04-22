@@ -14,7 +14,7 @@ const categorySchema = new Schema(
         },
         vat_rate: {
             type: Number,
-            default: null,
+            default: 0,
             min: 0,
             max: 100,
         },

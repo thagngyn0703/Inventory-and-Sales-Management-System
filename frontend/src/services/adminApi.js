@@ -56,11 +56,12 @@ export async function assignUserToStore(userId, storeId) {
   return parseJson(res, 'Không thể gán cửa hàng cho tài khoản');
 }
 
-export async function getAdminStores({ page = 1, limit = 20, q = '', status = 'all', all = false } = {}) {
+export async function getAdminStores({ page = 1, limit = 20, q = '', status = 'all', approval_status = 'all', all = false } = {}) {
   const token = getToken();
   const params = new URLSearchParams({ page: String(page), limit: String(limit) });
   if (q) params.set('q', q);
   if (status) params.set('status', status);
+  if (approval_status) params.set('approval_status', approval_status);
   if (all) params.set('all', 'true');
   const res = await fetch(`${apiPath('/admin/stores')}?${params}`, { headers: { Authorization: `Bearer ${token}` } });
   return parseJson(res, 'Không thể tải danh sách cửa hàng');
@@ -74,6 +75,16 @@ export async function setAdminStoreStatus(id, status) {
     body: JSON.stringify({ status }),
   });
   return parseJson(res, 'Không thể cập nhật trạng thái cửa hàng');
+}
+
+export async function setAdminStoreApproval(id, approval_status, rejection_reason = '') {
+  const token = getToken();
+  const res = await fetch(`${apiPath(`/admin/stores/${id}/approval`)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ approval_status, rejection_reason }),
+  });
+  return parseJson(res, 'Không thể cập nhật trạng thái phê duyệt cửa hàng');
 }
 
 export async function getRbacPermissions() {
@@ -175,5 +186,23 @@ export async function getStoreLoyaltySettingsHistory(limit = 20) {
     headers: { Authorization: `Bearer ${token}` },
   });
   return parseJson(res, 'Không thể tải lịch sử thay đổi tích điểm');
+}
+
+export async function getStoreLegalSettings() {
+  const token = getToken();
+  const res = await fetch(`${apiPath('/store-settings/legal')}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return parseJson(res, 'Không thể tải hồ sơ pháp lý cửa hàng');
+}
+
+export async function updateStoreLegalSettings(payload) {
+  const token = getToken();
+  const res = await fetch(`${apiPath('/store-settings/legal')}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload || {}),
+  });
+  return parseJson(res, 'Không thể cập nhật hồ sơ pháp lý cửa hàng');
 }
 

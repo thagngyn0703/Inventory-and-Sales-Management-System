@@ -51,6 +51,63 @@ const storeSchema = new Schema(
             default: 'active',
             index: true,
         },
+        approval_status: {
+            type: String,
+            enum: ['draft_profile', 'pending_approval', 'approved', 'rejected', 'suspended'],
+            default: 'draft_profile',
+            index: true,
+        },
+        tax_code: {
+            type: String,
+            default: '',
+            trim: true,
+        },
+        legal_representative: {
+            type: String,
+            default: '',
+            trim: true,
+        },
+        bank_name: {
+            type: String,
+            default: '',
+            trim: true,
+        },
+        bank_account_number: {
+            type: String,
+            default: '',
+            trim: true,
+        },
+        business_license_number: {
+            type: String,
+            default: '',
+            trim: true,
+        },
+        business_license_file: {
+            type: String,
+            default: '',
+            trim: true,
+        },
+        billing_email: {
+            type: String,
+            default: '',
+            trim: true,
+            lowercase: true,
+        },
+        approved_by: {
+            type: Schema.Types.ObjectId,
+            ref: 'User',
+            default: null,
+            index: true,
+        },
+        approved_at: {
+            type: Date,
+            default: null,
+        },
+        rejection_reason: {
+            type: String,
+            default: '',
+            trim: true,
+        },
         tax_rate: {
             type: Number,
             default: 0,

@@ -58,6 +58,31 @@ async function computeShiftExpected(storeId, shiftId) {
     };
 }
 
+async function computeShiftSalesSnapshot(storeId, shiftId) {
+    const invoices = await SalesInvoice.find({
+        store_id: storeId,
+        shift_id: shiftId,
+        status: 'confirmed',
+    })
+        .select('payment total_amount')
+        .lean();
+    let cashCollected = 0;
+    let bankCollected = 0;
+    let totalRevenue = 0;
+    for (const inv of invoices) {
+        const p = sumPayment(inv.payment || {});
+        cashCollected += Number(p.cash) || 0;
+        bankCollected += Number(p.bank_transfer) || 0;
+        totalRevenue += Number(inv.total_amount) || 0;
+    }
+    return {
+        total_invoice_count: invoices.length,
+        total_confirmed_revenue: Math.round(totalRevenue),
+        total_cash_collected: Math.round(cashCollected),
+        total_bank_collected: Math.round(bankCollected),
+    };
+}
+
 // GET /api/shifts/current
 router.get('/current', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
@@ -177,6 +202,14 @@ router.post('/:id/close', requireAuth, requireRole(['manager', 'admin']), async 
             return res.status(409).json({ code: 'SHIFT_ALREADY_CLOSED', message: 'Ca đã đóng.' });
         }
 
+        const hasActualCash = req.body?.actual_cash !== undefined && req.body?.actual_cash !== null && String(req.body?.actual_cash) !== '';
+        const hasActualBank = req.body?.actual_bank !== undefined && req.body?.actual_bank !== null && String(req.body?.actual_bank) !== '';
+        if (!hasActualCash || !hasActualBank) {
+            return res.status(400).json({
+                code: 'SHIFT_RECONCILIATION_REQUIRED',
+                message: 'Vui lòng nhập đầy đủ số kiểm kê tiền mặt và chuyển khoản khi đóng ca.',
+            });
+        }
         const actual_cash = normalizeNonNegativeInt(req.body?.actual_cash);
         const actual_bank = normalizeNonNegativeInt(req.body?.actual_bank);
         const reconciliation_status = String(req.body?.reconciliation_status || 'pending');
@@ -199,10 +232,23 @@ router.post('/:id/close', requireAuth, requireRole(['manager', 'admin']), async 
         shift.cash_to_handover = cash_to_handover;
         shift.discrepancy_cash = Math.round(actual_cash - expected.expected_cash);
         shift.discrepancy_bank = Math.round(actual_bank - expected.expected_bank);
+        const absCashDiscrepancy = Math.abs(Math.round(actual_cash - expected.expected_cash));
+        const absBankDiscrepancy = Math.abs(Math.round(actual_bank - expected.expected_bank));
+        const hasLargeDiscrepancy = absCashDiscrepancy >= 100000 || absBankDiscrepancy >= 100000;
+        if (hasLargeDiscrepancy && !reconciliation_note) {
+            return res.status(400).json({
+                code: 'SHIFT_DISCREPANCY_NOTE_REQUIRED',
+                message: 'Ca có chênh lệch lớn. Vui lòng nhập ghi chú đối soát trước khi đóng ca.',
+            });
+        }
         shift.reconciliation_status = ['pending', 'confirmed', 'disputed'].includes(reconciliation_status)
             ? reconciliation_status
             : 'pending';
+        if (hasLargeDiscrepancy && shift.reconciliation_status === 'confirmed') {
+            shift.reconciliation_status = 'disputed';
+        }
         shift.reconciliation_note = reconciliation_note;
+        shift.sales_snapshot = await computeShiftSalesSnapshot(shift.store_id, shift._id);
         shift.status = 'closed';
         shift.closed_by = req.user.id;
         shift.closed_at = new Date();

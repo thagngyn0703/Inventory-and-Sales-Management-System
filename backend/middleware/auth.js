@@ -18,10 +18,12 @@ async function requireAuth(req, res, next) {
     if (user.status === 'inactive') return res.status(403).json({ message: 'Tài khoản đã bị vô hiệu hóa' });
 
     let storeStatus = null;
+    let storeApprovalStatus = null;
     if (user.storeId) {
       const Store = require('../models/Store');
-      const store = await Store.findById(user.storeId).select('status').lean();
+      const store = await Store.findById(user.storeId).select('status approval_status').lean();
       storeStatus = store?.status || 'active';
+      storeApprovalStatus = store?.approval_status || 'approved';
     }
 
     req.user = {
@@ -30,6 +32,7 @@ async function requireAuth(req, res, next) {
       role: user.role,
       storeId: user.storeId ? String(user.storeId) : null,
       storeStatus,
+      storeApprovalStatus,
     };
     next();
   } catch (err) {
@@ -52,6 +55,7 @@ function requireRole(allowedRoles, options = {}) {
   const allowed = (allowedRoles || []).map((r) => String(r).toLowerCase());
   const allowManagerWithoutStore = Boolean(options.allowManagerWithoutStore);
   const allowLockedStoreForManager = Boolean(options.allowLockedStoreForManager);
+  const allowApprovalBlockedWriteForManager = Boolean(options.allowApprovalBlockedWriteForManager);
   const canRoleAccess = (role) => {
     if (allowed.includes(role)) return true;
     // Hierarchy: manager inherits staff permissions.
@@ -80,6 +84,19 @@ function requireRole(allowedRoles, options = {}) {
     const method = String(req.method || '').toUpperCase();
     const isReadOnlyMethod = ['GET', 'HEAD', 'OPTIONS'].includes(method);
     const skipLockedForManager = allowLockedStoreForManager && role === 'manager';
+    const skipApprovalBlockedForManager = allowApprovalBlockedWriteForManager && role === 'manager';
+    const approvalBlockedStatuses = ['draft_profile', 'pending_approval', 'rejected', 'suspended'];
+    if (
+      isStoreScopedRole &&
+      !isReadOnlyMethod &&
+      approvalBlockedStatuses.includes(String(req.user?.storeApprovalStatus || '').toLowerCase()) &&
+      !skipApprovalBlockedForManager
+    ) {
+      return res.status(403).json({
+        message: 'Cửa hàng chưa được phê duyệt hoặc đang bị tạm ngưng. Chưa thể thực hiện thao tác ghi dữ liệu.',
+        code: 'STORE_APPROVAL_REQUIRED',
+      });
+    }
     if (isStoreScopedRole && req.user?.storeStatus === 'inactive' && !skipLockedForManager && !isReadOnlyMethod) {
       return res.status(403).json({
         message: 'Cửa hàng của bạn đã bị khóa. Vui lòng liên hệ admin để được hỗ trợ.',
