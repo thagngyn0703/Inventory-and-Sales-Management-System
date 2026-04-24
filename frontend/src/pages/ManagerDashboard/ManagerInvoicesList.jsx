@@ -115,12 +115,13 @@ export default function ManagerInvoicesList() {
       }
 
       const bom = "\uFEFF";
-      const headers = ["ID", "Ngày Tạo", "Người Tạo", "Khách Hàng", "Phương Thức", "Tổng Tiền (VNĐ)"];
+      const headers = ["ID", "Ngày Tạo", "Người Bán", "Vai Trò", "Khách Hàng", "Phương Thức", "Tổng Tiền (VNĐ)"];
       
       const rows = todayInvoices.map(inv => [
         `"${inv._id}"`,
         `"${new Date(inv.invoice_at).toLocaleString('vi-VN')}"`,
-        `"${inv.created_by?.email || ''}"`,
+        `"${inv.seller_name || inv.created_by?.fullName || inv.created_by?.email || ''}"`,
+        `"${inv.seller_role || ''}"`,
         `"${inv.recipient_name || 'Khách lẻ'}"`,
         `"${PAYMENT_LABEL[inv.payment_method] || inv.payment_method || ''}"`,
         inv.total_amount || 0
@@ -229,7 +230,7 @@ export default function ManagerInvoicesList() {
                       <tr>
                         <th>Ngày tạo</th>
                         <th>Mã đơn</th>
-                        <th>Nhân viên</th>
+                        <th>Người bán</th>
                         <th>Khách hàng</th>
                         <th>Trạng thái</th>
                         <th>Thanh toán</th>
@@ -244,7 +245,16 @@ export default function ManagerInvoicesList() {
                         <tr key={inv._id}>
                           <td>{formatDate(inv.invoice_at)}</td>
                           <td style={{ fontFamily: 'monospace', fontSize: 12, color: '#64748b', maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{inv._id}</td>
-                          <td>{inv.created_by?.email ?? '—'}</td>
+                          <td>
+                            <div style={{ fontWeight: 500, color: '#1e293b' }}>
+                              {inv.seller_name || inv.created_by?.fullName || inv.created_by?.email || '—'}
+                            </div>
+                            {inv.seller_role && (
+                              <div style={{ fontSize: 11, color: inv.seller_role === 'Quản lý' ? '#0d9488' : '#64748b', fontWeight: 600 }}>
+                                {inv.seller_role}
+                              </div>
+                            )}
+                          </td>
                           <td>{inv.recipient_name || '—'}</td>
                           <td>
                             <span className={`warehouse-status-badge warehouse-status-${statusView === 'debt_unpaid' ? 'cancelled' : statusView}`}>

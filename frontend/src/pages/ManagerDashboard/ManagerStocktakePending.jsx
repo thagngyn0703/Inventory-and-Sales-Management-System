@@ -8,6 +8,7 @@ import { getStocktakes } from '../../services/stocktakesApi';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
 import { Badge } from '../../components/ui/badge';
+import { InlineNotice } from '../../components/ui/inline-notice';
 import './ManagerDashboard.css';
 
 const LIMIT = 10;
@@ -59,11 +60,7 @@ export default function ManagerStocktakePending() {
         subtitle={`Xem chi tiết trước khi duyệt hoặc từ chối. ${Platform.select({ web: 'Duyệt/từ chối chỉ trong màn chi tiết.', default: 'Thao tác trong màn chi tiết.' })}`}
         headerActions={<Badge className="border border-amber-200 bg-amber-100 text-amber-900">Tổng: {total} phiếu</Badge>}
       >
-          {error && (
-            <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-600">
-              {error}
-            </div>
-          )}
+          <InlineNotice message={error} type="error" className="mb-4" />
 
           <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
             <CardContent className="p-0">

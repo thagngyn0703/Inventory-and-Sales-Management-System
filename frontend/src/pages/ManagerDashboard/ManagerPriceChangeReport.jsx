@@ -4,6 +4,7 @@ import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { BarChart3, Download, Loader2 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
+import { InlineNotice } from '../../components/ui/inline-notice';
 import { cn } from '../../lib/utils';
 import { getPriceChangeImpactReport } from '../../services/analyticsApi';
 
@@ -272,11 +273,7 @@ export default function ManagerPriceChangeReport() {
             </CardContent>
           </Card>
 
-          {error && (
-            <div className="warehouse-alert warehouse-alert-error mb-3">
-              {error}
-            </div>
-          )}
+          <InlineNotice message={error} type="error" className="mb-3" />
 
           <Card className="overflow-hidden border-slate-200/80 shadow-sm">
             <CardContent className="p-0">

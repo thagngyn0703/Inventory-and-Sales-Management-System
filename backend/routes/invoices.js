@@ -3,12 +3,107 @@ const crypto = require('crypto');
 const mongoose = require('mongoose');
 const SalesInvoice = require('../models/SalesInvoice');
 const Product = require('../models/Product');
+const ProductUnit = require('../models/ProductUnit');
 const User = require('../models/User');
+const Store = require('../models/Store');
+const Customer = require('../models/Customer');
 const { adjustStockFIFO } = require('../utils/inventoryUtils');
 const { applyCustomerDebtAfterNewInvoice } = require('../utils/customerDebt');
+const { upsertSystemCashFlow } = require('../utils/cashflowUtils');
+const {
+    normalizeLoyaltySettings,
+    computeRedeemPlan,
+    computeEarnedPoints,
+    getNextNudge,
+    appendLoyaltyTxn,
+} = require('../utils/loyalty');
 const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
+
+/**
+ * FIFO settlement: đóng các hóa đơn ghi nợ pending từ cũ nhất đến mới nhất,
+ * chỉ khi số tiền thanh toán đủ để đóng từng hóa đơn hoàn toàn.
+ * Không bao giờ đóng hóa đơn khi không đủ tiền — tránh mất doanh thu.
+ */
+async function fifoSettleDebtInvoices(customerId, payAmount, settlementInvoiceId, storeId) {
+    const storeFilter = storeId ? { store_id: storeId } : {};
+    const pendingInvoices = await SalesInvoice.find({
+        customer_id: customerId,
+        status: 'pending',
+        payment_method: 'debt',
+        ...storeFilter,
+    }).sort({ created_at: 1 });
+
+    let unallocated = Math.abs(Number(payAmount) || 0);
+    const now = new Date();
+    for (const inv of pendingInvoices) {
+        if (unallocated <= 0) break;
+        if (unallocated >= inv.total_amount) {
+            await SalesInvoice.updateOne(
+                { _id: inv._id },
+                {
+                    $set: {
+                        status: 'confirmed',
+                        payment_status: 'paid',
+                        paid_at: now,
+                        updated_at: now,
+                        debt_settlement_note: `Trả nợ thông qua đơn hàng ${getInvoiceRefLabel(settlementInvoiceId)}`,
+                        debt_settlement_by_invoice_id: settlementInvoiceId,
+                    },
+                }
+            );
+            unallocated -= inv.total_amount;
+        } else {
+            break;
+        }
+    }
+}
+
+/**
+ * Tách subtotal (chưa thuế) và tax từ grand_total.
+ * - priceIncludesTax = true  → giá bán ĐÃ gồm VAT (tạp hóa thông thường)
+ * - priceIncludesTax = false → giá bán CHƯA gồm VAT (B2B)
+ * Kết quả làm tròn đến đồng (integer) để tránh lỗi float VN.
+ */
+function computeTaxBreakdown(grandTotal, taxRate, priceIncludesTax) {
+    const total = Number(grandTotal) || 0;
+    const rate = Number(taxRate) || 0;
+    if (rate === 0) {
+        return { subtotal_amount: total, tax_amount: 0 };
+    }
+    if (priceIncludesTax) {
+        const subtotal = Math.round(total / (1 + rate / 100));
+        const tax = total - subtotal;
+        return { subtotal_amount: subtotal, tax_amount: tax };
+    } else {
+        const tax = Math.round(total * (rate / 100));
+        return { subtotal_amount: total, tax_amount: tax };
+    }
+}
+
+/** Lấy cấu hình thuế của cửa hàng (tax_rate, price_includes_tax). */
+async function getStoreTaxConfig(storeId) {
+    if (!storeId || !mongoose.isValidObjectId(storeId)) {
+        return { tax_rate: 0, price_includes_tax: true };
+    }
+    const store = await Store.findById(storeId).select('tax_rate price_includes_tax').lean();
+    return {
+        tax_rate: Number(store?.tax_rate) || 0,
+        price_includes_tax: store?.price_includes_tax !== false,
+    };
+}
+
+async function getStoreLoyaltyConfig(storeId) {
+    if (!storeId || !mongoose.isValidObjectId(storeId)) {
+        return { loyalty_settings: normalizeLoyaltySettings({}), loyalty_policy_version: 1 };
+    }
+    const store = await Store.findById(storeId).select('loyalty_settings loyalty_policy_version').lean();
+    return {
+        loyalty_settings: normalizeLoyaltySettings(store?.loyalty_settings || {}),
+        loyalty_policy_version: Number(store?.loyalty_policy_version) || 1,
+    };
+}
 
 function assertStoreScope(req, res) {
     const role = String(req.user?.role || '').toLowerCase();
@@ -46,6 +141,10 @@ function calculateInvoiceTotals(items = [], costMap = new Map()) {
     const normalizedItems = (items || []).map((item) => {
         const product_id = normalizeId(item.product_id);
         const quantity = Number(item.quantity) || 0;
+        const base_quantity = Number(item.base_quantity) || quantity;
+        const exchange_value = Number(item.exchange_value) > 0 ? Number(item.exchange_value) : 1;
+        const unit_name = String(item.unit_name || '').trim();
+        const unit_id = normalizeId(item.unit_id);
         const unit_price = Number(item.unit_price) || 0;
         const discount = Number(item.discount) || 0;
         const line_total = computeLineTotal({ quantity, unit_price, discount });
@@ -53,12 +152,16 @@ function calculateInvoiceTotals(items = [], costMap = new Map()) {
         const cost_price =
             product_id && costMap.has(product_id) ? costMap.get(product_id) : 0;
         const line_id = newLineId();
-        const line_profit = computeLineProfit(line_total, quantity, cost_price);
+        const line_profit = computeLineProfit(line_total, base_quantity, cost_price);
         totalAmount += line_total;
         return {
             line_id,
             product_id,
+            unit_id,
+            unit_name,
+            exchange_value,
             quantity,
+            base_quantity,
             unit_price,
             cost_price,
             discount,
@@ -96,6 +199,10 @@ function calculatePatchInvoiceTotals(reqItems = [], costMap = new Map(), oldItem
     const normalizedItems = (reqItems || []).map((item) => {
         const product_id = normalizeId(item.product_id);
         const quantity = Number(item.quantity) || 0;
+        const base_quantity = Number(item.base_quantity) || quantity;
+        const exchange_value = Number(item.exchange_value) > 0 ? Number(item.exchange_value) : 1;
+        const unit_name = String(item.unit_name || '').trim();
+        const unit_id = normalizeId(item.unit_id);
         const unit_price = Number(item.unit_price) || 0;
         const discount = Number(item.discount) || 0;
         const line_total = computeLineTotal({ quantity, unit_price, discount });
@@ -147,12 +254,16 @@ function calculatePatchInvoiceTotals(reqItems = [], costMap = new Map(), oldItem
             }
         }
 
-        const line_profit = computeLineProfit(line_total, quantity, cost_price);
+        const line_profit = computeLineProfit(line_total, base_quantity, cost_price);
         totalAmount += line_total;
         return {
             line_id: line_id_out,
             product_id,
+            unit_id,
+            unit_name,
+            exchange_value,
             quantity,
+            base_quantity,
             unit_price,
             cost_price,
             discount,
@@ -165,12 +276,62 @@ function calculatePatchInvoiceTotals(reqItems = [], costMap = new Map(), oldItem
     return { totalAmount, items: normalizedItems };
 }
 
-async function buildCostMap(items) {
+async function enrichItemsWithUnitSnapshot(items = [], storeId = null) {
+    if (!Array.isArray(items) || items.length === 0) return [];
+    const productIds = [...new Set(items.map((it) => normalizeId(it.product_id)).filter(Boolean))];
+    const productQuery = { _id: { $in: productIds } };
+    if (storeId) productQuery.storeId = storeId;
+    const products = await Product.find(productQuery)
+        .select('_id base_unit sale_price')
+        .lean();
+    const productMap = new Map(products.map((p) => [String(p._id), p]));
+    const explicitUnitIds = [...new Set(items.map((it) => normalizeId(it.unit_id)).filter(Boolean))];
+    const unitQuery = { product_id: { $in: productIds } };
+    if (storeId) unitQuery.storeId = storeId;
+    const units = await ProductUnit.find(
+        explicitUnitIds.length > 0 ? { ...unitQuery, $or: [{ _id: { $in: explicitUnitIds } }, { is_base: true }] } : unitQuery
+    )
+        .select('_id product_id unit_name exchange_value price is_base')
+        .lean();
+    const baseUnitByProduct = new Map();
+    const unitById = new Map();
+    for (const u of units) {
+        unitById.set(String(u._id), u);
+        if (u.is_base && !baseUnitByProduct.has(String(u.product_id))) {
+            baseUnitByProduct.set(String(u.product_id), u);
+        }
+    }
+
+    return items.map((item) => {
+        const pid = normalizeId(item.product_id);
+        const product = pid ? productMap.get(pid) : null;
+        const inputQty = Number(item.quantity) || 0;
+        const explicitUnit = normalizeId(item.unit_id) ? unitById.get(normalizeId(item.unit_id)) : null;
+        const chosen = explicitUnit || (pid ? baseUnitByProduct.get(pid) : null);
+        const exchangeValue = Number(chosen?.exchange_value) > 0
+            ? Number(chosen.exchange_value)
+            : Number(item.exchange_value) > 0
+                ? Number(item.exchange_value)
+                : 1;
+        const unitName = String(chosen?.unit_name || item.unit_name || product?.base_unit || 'Cái').trim();
+        return {
+            ...item,
+            unit_id: chosen?._id || null,
+            unit_name: unitName,
+            exchange_value: exchangeValue,
+            base_quantity: inputQty * exchangeValue,
+        };
+    });
+}
+
+async function buildCostMap(items, storeId = null) {
     const productIds = (items || [])
         .map((item) => normalizeId(item.product_id))
         .filter(Boolean);
     if (productIds.length === 0) return new Map();
-    const products = await Product.find({ _id: { $in: productIds } }).select('_id cost_price').lean();
+    const query = { _id: { $in: productIds } };
+    if (storeId) query.storeId = storeId;
+    const products = await Product.find(query).select('_id cost_price').lean();
     return new Map(products.map((p) => [String(p._id), Number(p.cost_price) || 0]));
 }
 
@@ -183,18 +344,20 @@ function normalizeId(val) {
     return s;
 }
 
-async function checkStockAvailability(items) {
+async function checkStockAvailability(items, storeId = null) {
     if (!Array.isArray(items)) return [];
     const productIds = items
         .map((item) => normalizeId(item.product_id))
         .filter(Boolean);
-    const products = await Product.find({ _id: { $in: productIds } });
+    const query = { _id: { $in: productIds } };
+    if (storeId) query.storeId = storeId;
+    const products = await Product.find(query);
     const productMap = new Map(products.map((p) => [String(p._id), p]));
     const problems = [];
     items.forEach((item) => {
         const pid = normalizeId(item.product_id);
         const product = pid ? productMap.get(pid) : null;
-        const needed = item.quantity || 0;
+        const needed = Number(item.base_quantity) || Number(item.quantity) || 0;
         const available = product ? product.stock_qty || 0 : 0;
         if (!product) {
             problems.push({ product_id: item.product_id, message: 'Sản phẩm không tồn tại' });
@@ -215,9 +378,11 @@ async function adjustInventory(items, direction = -1, storeId = null) {
         const pid = normalizeId(item.product_id);
         if (!pid) continue;
 
-        const quantity = Math.abs(item.quantity || 0);
+        const quantity = Math.abs((Number(item.base_quantity) || Number(item.quantity) || 0));
         await adjustStockFIFO(pid, storeId, quantity * direction, {
-            note: direction === -1 ? 'Bán hàng (Hóa đơn)' : 'Khách trả hàng/Hủy hóa đơn'
+            note: direction === -1 ? 'Bán hàng (Hóa đơn)' : 'Khách trả hàng/Hủy hóa đơn',
+            movementType: direction === -1 ? 'OUT_SALES' : 'IN_SALES_RETURN',
+            referenceType: 'sales_invoice',
         });
     }
 }
@@ -238,7 +403,7 @@ async function syncInventory(invoice, nextStatus, nextItems = null) {
         // Transitional Deduct
         console.log(`[syncInventory] Deducting next items`);
         const itemsToDeduct = nextItems || invoice.items;
-        const problems = await checkStockAvailability(itemsToDeduct);
+        const problems = await checkStockAvailability(itemsToDeduct, invoice.store_id);
         if (problems.length > 0) throw { status: 400, message: 'Không đủ tồn kho', problems };
         await adjustInventory(itemsToDeduct, -1, invoice.store_id);
     } 
@@ -250,7 +415,7 @@ async function syncInventory(invoice, nextStatus, nextItems = null) {
     else if (isOldSale && isNextSale && itemsChanged) {
         // Item Update within Sale State
         console.log(`[syncInventory] Updating items in sale state.`);
-        const problems = await checkStockAvailability(nextItems);
+        const problems = await checkStockAvailability(nextItems, invoice.store_id);
         if (problems.length > 0) throw { status: 400, message: 'Không đủ tồn kho để cập nhật sản phẩm', problems };
         
         await adjustInventory(invoice.items, 1, invoice.store_id);
@@ -262,7 +427,8 @@ function buildStockAvailability(items, productsById) {
     if (!Array.isArray(items)) return [];
     return items.map((item) => {
         const prod = productsById.get(normalizeId(item.product_id));
-        const available = prod ? (prod.stock_qty ?? 0) >= (item.quantity ?? 0) : false;
+        const neededBaseQty = Number(item.base_quantity) || Number(item.quantity) || 0;
+        const available = prod ? (Number(prod.stock_qty) || 0) >= neededBaseQty : false;
         return {
             ...item,
             stock_qty: prod ? prod.stock_qty : null,
@@ -301,7 +467,20 @@ function getInvoiceRefLabel(invoiceId) {
 // POST /api/invoices — create a confirmed outbound invoice
 router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
-        const { customer_id, items: reqItems, payment_method, recipient_name, previous_debt_paid } = req.body || {};
+        if (!assertStoreScope(req, res)) return;
+        const userRole = String(req.user?.role || '').toLowerCase();
+        const {
+            customer_id,
+            items: reqItems,
+            payment_method,
+            recipient_name,
+            previous_debt_paid,
+            redeem_points_requested,
+            promo_discount = 0,
+            seller_name,
+            seller_role,
+            seller_code,
+        } = req.body || {};
         if (!Array.isArray(reqItems) || reqItems.length === 0) {
             return res.status(400).json({ message: 'items (array) is required' });
         }
@@ -310,25 +489,47 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
             return res.status(400).json({ message: 'Khách hàng không được để trống khi ghi nợ' });
         }
 
-        // Validate nợ cũ >= 100.000đ: khách phải trả nợ trước, không được tạo hóa đơn mới
+        // Validate nghiệp vụ nợ: chặn mua mới khi nợ ≥ 100k chưa trả đủ, enforce credit_limit
+        let customerForDebtCheck = null;
         if (customer_id) {
-            const Customer = require('../models/Customer');
-            const customer = await Customer.findById(customer_id).select('debt_account full_name').lean();
-            if (customer && Number(customer.debt_account) >= 100000) {
-                // Chỉ cho phép nếu đây là đơn có payOldDebt (previous_debt_paid >= debt_account)
+            const customerFilter = { _id: customer_id };
+            if (userRole !== 'admin') {
+                customerFilter.store_id = req.user.storeId;
+            }
+            customerForDebtCheck = await Customer.findOne(customerFilter)
+                .select('debt_account full_name credit_limit loyalty_points')
+                .lean();
+            if (!customerForDebtCheck) {
+                return res.status(404).json({ message: 'Không tìm thấy khách hàng trong cửa hàng hiện tại.' });
+            }
+
+            const currentDebt = Number(customerForDebtCheck.debt_account) || 0;
+            // BUG-09: cap previous_debt_paid tại debt_account thực tế, tránh trả thừa
+            const rawPrevDebt = Number(previous_debt_paid) || 0;
+            if (rawPrevDebt > currentDebt) {
+                return res.status(400).json({
+                    message: `Số tiền trả nợ (${rawPrevDebt.toLocaleString('vi-VN')}₫) vượt quá dư nợ hiện tại (${currentDebt.toLocaleString('vi-VN')}₫).`,
+                    debt_account: currentDebt,
+                    error_code: 'OVERPAYMENT_NOT_ALLOWED',
+                });
+            }
+
+            // Chặn mua mới khi nợ ≥ 100.000đ mà chưa trả đủ
+            if (currentDebt >= 100000) {
                 const debtPaid = Number(previous_debt_paid) || 0;
-                if (debtPaid < Number(customer.debt_account)) {
+                if (debtPaid < currentDebt) {
                     return res.status(400).json({
-                        message: `Khách hàng đang nợ ${Number(customer.debt_account).toLocaleString('vi-VN')}₫ (≥ 100.000₫). Vui lòng thanh toán toàn bộ nợ cũ trước khi mua hàng mới.`,
-                        debt_account: customer.debt_account,
+                        message: `Khách hàng đang nợ ${currentDebt.toLocaleString('vi-VN')}₫ (≥ 100.000₫). Vui lòng thanh toán toàn bộ nợ cũ trước khi mua hàng mới.`,
+                        debt_account: currentDebt,
                         error_code: 'DEBT_LIMIT_EXCEEDED',
                     });
                 }
             }
         }
 
-        const costMap = await buildCostMap(reqItems);
-        const { totalAmount, items: normalizedItems } = calculateInvoiceTotals(reqItems, costMap);
+        const itemSnapshots = await enrichItemsWithUnitSnapshot(reqItems, req.user.storeId);
+        const costMap = await buildCostMap(itemSnapshots, req.user.storeId);
+        const { totalAmount, items: normalizedItems } = calculateInvoiceTotals(itemSnapshots, costMap);
         const invalidLine = normalizedItems.find((it) => !it.product_id);
         if (invalidLine) {
             return res.status(400).json({ message: 'Mỗi dòng phải có sản phẩm hợp lệ' });
@@ -340,6 +541,51 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
                     'Không xác định được giá vốn: một hoặc nhiều sản phẩm không tồn tại hoặc mã không hợp lệ. Giá vốn do hệ thống lấy từ sản phẩm, không nhập từ client.',
                 product_ids: missingCost,
             });
+        }
+
+        const { loyalty_settings: loyaltySettings, loyalty_policy_version: loyaltyPolicyVersion } =
+            await getStoreLoyaltyConfig(req.user.storeId);
+        const requestedRedeemPoints = Math.max(0, Math.round(Number(redeem_points_requested) || 0));
+        const promoDiscount = Math.max(0, Math.round(Number(promo_discount) || 0));
+        if (requestedRedeemPoints > 0 && !customer_id) {
+            return res.status(400).json({ message: 'Phải chọn khách hàng để dùng điểm.' });
+        }
+        const redeemPlan = computeRedeemPlan({
+            totalAmount,
+            requestedPoints: requestedRedeemPoints,
+            currentPoints: Number(customerForDebtCheck?.loyalty_points || 0),
+            config: loyaltySettings,
+            promoDiscount,
+        });
+        if (requestedRedeemPoints > 0 && redeemPlan.reason === 'promo_conflict') {
+            return res.status(400).json({ message: 'Không cho dùng điểm cùng lúc với khuyến mãi.' });
+        }
+        if (requestedRedeemPoints > 0 && redeemPlan.used_points <= 0) {
+            return res.status(400).json({ message: 'Số điểm dùng không hợp lệ hoặc không đủ điều kiện.' });
+        }
+        const invoiceLevelDiscount = Math.max(0, redeemPlan.redeem_value + promoDiscount);
+        const netInvoiceAmount = Math.max(0, totalAmount - invoiceLevelDiscount);
+        const loyaltyEligibleAmount = Math.max(0, totalAmount - redeemPlan.redeem_value - promoDiscount);
+        const loyaltyEarnedPoints = computeEarnedPoints({
+            eligibleAmount: loyaltyEligibleAmount,
+            config: loyaltySettings,
+        });
+
+        // BUG-06: Enforce credit_limit — chỉ áp dụng cho đơn ghi nợ và khi credit_limit > 0
+        if (payment_method === 'debt' && customerForDebtCheck) {
+            const creditLimit = Number(customerForDebtCheck.credit_limit) || 0;
+            if (creditLimit > 0) {
+                const currentDebt = Number(customerForDebtCheck.debt_account) || 0;
+                const payOld = Number(previous_debt_paid) || 0;
+                const debtAfterPayOld = Math.max(0, currentDebt - payOld);
+                if (debtAfterPayOld + netInvoiceAmount > creditLimit) {
+                    return res.status(400).json({
+                        message: `Vượt hạn mức tín dụng (${creditLimit.toLocaleString('vi-VN')}₫). Dư nợ sau thanh toán: ${debtAfterPayOld.toLocaleString('vi-VN')}₫, đơn mới: ${netInvoiceAmount.toLocaleString('vi-VN')}₫.`,
+                        credit_limit: creditLimit,
+                        error_code: 'CREDIT_LIMIT_EXCEEDED',
+                    });
+                }
+            }
         }
 
         let status = (req.body.status === 'cancelled') ? 'cancelled' : 'confirmed';
@@ -354,27 +600,102 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
         const paymentRef = method === 'bank_transfer' ? generatePaymentRef() : null;
         let paymentStatus = method === 'cash' ? 'paid' : 'unpaid';
 
+        // Snapshot người bán tại thời điểm bán — lấy từ DB để đảm bảo chính xác
+        const sellerUser = await User.findById(req.user.id).select('fullName email role employeeCode').lean();
+        const sellerNameSnap = seller_name?.trim() || sellerUser?.fullName || sellerUser?.email || '';
+        const sellerRoleSnap = seller_role?.trim() || (sellerUser?.role === 'manager' ? 'Quản lý' : 'Nhân viên');
+        const sellerCodeSnap = seller_code?.trim() || sellerUser?.employeeCode || '';
+
+        // Tính thuế từ cấu hình cửa hàng — server là nguồn sự thật, không tin client
+        const taxConfig = await getStoreTaxConfig(req.user.storeId);
+        const { subtotal_amount, tax_amount } = computeTaxBreakdown(
+            netInvoiceAmount,
+            taxConfig.tax_rate,
+            taxConfig.price_includes_tax
+        );
+
         const invoice = new SalesInvoice({
             store_id: req.user.storeId || null,
             customer_id,
             recipient_name,
             created_by: req.user.id,
+            seller_name: sellerNameSnap,
+            seller_role: sellerRoleSnap,
+            seller_code: sellerCodeSnap,
             status,
             payment_method: method,
             payment_ref: paymentRef,
             payment_status: paymentStatus,
             paid_at: method === 'cash' ? new Date() : null,
             items: normalizedItems,
-            total_amount: totalAmount,
+            total_amount: netInvoiceAmount,
+            subtotal_amount,
+            tax_amount,
+            tax_rate_snapshot: taxConfig.tax_rate,
             previous_debt_paid: Number(previous_debt_paid) || 0,
+            invoice_level_discount: invoiceLevelDiscount,
+            loyalty_redeem_points: redeemPlan.used_points,
+            loyalty_redeem_value: redeemPlan.redeem_value,
+            loyalty_promo_discount: promoDiscount,
+            loyalty_eligible_amount: loyaltyEligibleAmount,
+            loyalty_earned_points: loyaltyEarnedPoints,
+            loyalty_earned_settled: false,
+            loyalty_policy_version: loyaltyPolicyVersion,
+            loyalty_settings_snapshot: loyaltySettings,
         });
 
         // Use syncInventory to handle deduction if created as confirmed
         try {
             await syncInventory(invoice, status, normalizedItems);
             await invoice.save();
+            if (invoice.payment_status === 'paid' && invoice.status === 'confirmed') {
+                await upsertSystemCashFlow({
+                    storeId: invoice.store_id,
+                    type: 'INCOME',
+                    category: 'SALES',
+                    amount: invoice.total_amount,
+                    paymentMethod: invoice.payment_method,
+                    referenceModel: 'sales_invoice',
+                    referenceId: invoice._id,
+                    note: `Thu tien hoa don #${String(invoice._id).slice(-6).toUpperCase()}`,
+                    actorId: req.user.id,
+                    transactedAt: invoice.paid_at || invoice.invoice_at || new Date(),
+                });
+            }
 
-            const addDebt = method === 'debt' ? totalAmount : 0;
+            if (customer_id && redeemPlan.used_points > 0) {
+                await appendLoyaltyTxn({
+                    customerId: customer_id,
+                    storeId: invoice.store_id,
+                    actorId: req.user.id,
+                    type: 'REDEEM',
+                    points: -Math.abs(redeemPlan.used_points),
+                    valueVnd: redeemPlan.redeem_value,
+                    referenceModel: 'SalesInvoice',
+                    referenceId: invoice._id,
+                    note: `Dùng điểm giảm ${redeemPlan.redeem_value.toLocaleString('vi-VN')}₫`,
+                    idempotencyKey: `redeem:${invoice._id}`,
+                });
+            }
+
+            if (customer_id && loyaltyEarnedPoints > 0 && invoice.payment_status === 'paid') {
+                await appendLoyaltyTxn({
+                    customerId: customer_id,
+                    storeId: invoice.store_id,
+                    actorId: req.user.id,
+                    type: 'EARN',
+                    points: loyaltyEarnedPoints,
+                    valueVnd: loyaltyEarnedPoints * Number(loyaltySettings.redeem.point_value_vnd || 500),
+                    referenceModel: 'SalesInvoice',
+                    referenceId: invoice._id,
+                    note: `Tích điểm từ hóa đơn ${getInvoiceRefLabel(invoice._id)}`,
+                    idempotencyKey: `earn:${invoice._id}`,
+                });
+                invoice.loyalty_earned_settled = true;
+                await invoice.save();
+            }
+
+            const addDebt = method === 'debt' ? netInvoiceAmount : 0;
             const payOldDebt =
                 Number(previous_debt_paid) > 0 ? Math.abs(Number(previous_debt_paid)) : 0;
             // Chuyển khoản: chỉ khi SePay xác nhận paid mới trừ nợ + chốt HĐ nợ (xem settlePreviousDebtIfNeeded)
@@ -385,23 +706,9 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
                 await applyCustomerDebtAfterNewInvoice(customer_id, { addDebt, payOldDebt: payOldDebtNow });
             }
 
+            // BUG-02: FIFO thay thế updateMany — chỉ đóng hóa đơn khi đủ tiền
             if (payOldDebt > 0 && customer_id && (status === 'confirmed' || status === 'pending') && !deferPayOldDebtSettlement) {
-                await SalesInvoice.updateMany(
-                    { customer_id, status: 'pending', payment_method: 'debt' },
-                    { 
-                      $set: { 
-                        status: 'confirmed', 
-                        payment_status: 'paid',
-                        paid_at: new Date(),
-                        updated_at: new Date(),
-                        debt_settlement_note: `Trả nợ thông qua đơn hàng ${getInvoiceRefLabel(invoice._id)}`,
-                        debt_settlement_by_invoice_id: invoice._id,
-                      } 
-                    }
-                );
-            }
-
-            if (payOldDebt > 0 && !deferPayOldDebtSettlement) {
+                await fifoSettleDebtInvoices(customer_id, payOldDebt, invoice._id, req.user.storeId);
                 invoice.previous_debt_settled = true;
                 await invoice.save();
             }
@@ -411,7 +718,7 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
         }
 
         const populated = await SalesInvoice.findById(invoice._id)
-            .populate('customer_id', 'fullName email')
+            .populate('customer_id', 'full_name phone email debt_account')
             .populate('created_by', 'fullName email')
             .populate('items.product_id', 'name sku stock_qty')
             .lean();
@@ -423,10 +730,23 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
         const productsById = new Map(products.map((p) => [String(p._id), p]));
         populated.items = buildStockAvailability(populated.items, productsById);
 
+        const refreshedCustomer = customer_id
+            ? await Customer.findById(customer_id).select('loyalty_points').lean()
+            : null;
+        const currentPoints = Number(refreshedCustomer?.loyalty_points || 0);
+        const nudge = getNextNudge(currentPoints, loyaltySettings.milestones || []);
         return res.status(201).json({
             invoice: attachInvoiceEditFlags(populated),
             payment_ref: paymentRef,
             payment_status: paymentStatus,
+            loyalty_summary: {
+                used_points: redeemPlan.used_points,
+                redeem_value: redeemPlan.redeem_value,
+                earned_points: loyaltyEarnedPoints,
+                current_points: currentPoints,
+                next_nudge: nudge,
+                policy_version: loyaltyPolicyVersion,
+            },
         });
     } catch (err) {
         console.error(err);
@@ -497,7 +817,7 @@ router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (
             .sort({ created_at: -1 })
             .skip(skip)
             .limit(limitNum)
-            .populate('customer_id', 'fullName email')
+            .populate('customer_id', 'full_name phone email debt_account')
             .populate('created_by', 'fullName email')
             .lean();
 
@@ -587,7 +907,7 @@ router.get('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), asyn
             return res.status(400).json({ message: 'Invalid invoice id' });
         }
         const invoice = await SalesInvoice.findById(id)
-            .populate('customer_id', 'fullName email')
+            .populate('customer_id', 'full_name phone email debt_account')
             .populate('created_by', 'fullName email')
             .populate('items.product_id', 'name sku stock_qty')
             .lean();
@@ -653,12 +973,13 @@ router.patch('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), as
                     message: 'Hóa đơn đã hủy: không được sửa danh sách mặt hàng.',
                 });
             }
-            const costMap = await buildCostMap(reqItems);
+            const itemSnapshots = await enrichItemsWithUnitSnapshot(reqItems, invoice.store_id);
+            const costMap = await buildCostMap(itemSnapshots, invoice.store_id);
             const oldItems = Array.isArray(invoice.items)
                 ? invoice.items.map((it) => (typeof it.toObject === 'function' ? it.toObject() : it))
                 : [];
             const { totalAmount: patchTotal, items: normalizedItems } = calculatePatchInvoiceTotals(
-                reqItems,
+                itemSnapshots,
                 costMap,
                 oldItems
             );
@@ -692,10 +1013,21 @@ router.patch('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), as
 
             if (nextItems) {
                 invoice.items = nextItems;
-                invoice.total_amount =
-                    patchItemsTotalAmount != null
-                        ? patchItemsTotalAmount
-                        : nextItems.reduce((s, it) => s + (Number(it.line_total) || 0), 0);
+                const newTotal = patchItemsTotalAmount != null
+                    ? patchItemsTotalAmount
+                    : nextItems.reduce((s, it) => s + (Number(it.line_total) || 0), 0);
+                invoice.total_amount = newTotal;
+
+                // Tính lại thuế khi items thay đổi
+                const patchTaxConfig = await getStoreTaxConfig(invoice.store_id);
+                const { subtotal_amount: patchSubtotal, tax_amount: patchTax } = computeTaxBreakdown(
+                    newTotal,
+                    patchTaxConfig.tax_rate,
+                    patchTaxConfig.price_includes_tax
+                );
+                invoice.subtotal_amount = patchSubtotal;
+                invoice.tax_amount = patchTax;
+                invoice.tax_rate_snapshot = patchTaxConfig.tax_rate;
             }
             invoice.status = nextStatus;
         } catch (err) {
@@ -707,7 +1039,7 @@ router.patch('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), as
         await invoice.save();
 
         const populated = await SalesInvoice.findById(invoice._id)
-            .populate('customer_id', 'fullName email')
+            .populate('customer_id', 'full_name phone email debt_account')
             .populate('created_by', 'fullName email')
             .populate('items.product_id', 'name sku stock_qty')
             .lean();
@@ -744,6 +1076,34 @@ router.post('/:id/cancel', requireAuth, requireRole(['staff', 'manager', 'admin'
             invoice.status = 'cancelled';
             invoice.updated_at = new Date();
             await invoice.save();
+            if (invoice.customer_id && Number(invoice.loyalty_earned_points || 0) > 0) {
+                await appendLoyaltyTxn({
+                    customerId: invoice.customer_id,
+                    storeId: invoice.store_id,
+                    actorId: req.user.id,
+                    type: 'REVERSAL',
+                    points: -Math.abs(Number(invoice.loyalty_earned_points || 0)),
+                    valueVnd: Math.abs(Number(invoice.loyalty_earned_points || 0)) * Number(invoice?.loyalty_settings_snapshot?.redeem?.point_value_vnd || 500),
+                    referenceModel: 'SalesInvoice',
+                    referenceId: invoice._id,
+                    note: 'Hoàn hủy hóa đơn: trừ lại điểm đã tích.',
+                    idempotencyKey: `reversal-earn:${invoice._id}`,
+                });
+            }
+            if (invoice.customer_id && Number(invoice.loyalty_redeem_points || 0) > 0) {
+                await appendLoyaltyTxn({
+                    customerId: invoice.customer_id,
+                    storeId: invoice.store_id,
+                    actorId: req.user.id,
+                    type: 'REFUND',
+                    points: Math.abs(Number(invoice.loyalty_redeem_points || 0)),
+                    valueVnd: Math.abs(Number(invoice.loyalty_redeem_value || 0)),
+                    referenceModel: 'SalesInvoice',
+                    referenceId: invoice._id,
+                    note: 'Hoàn hủy hóa đơn: hoàn lại điểm đã dùng.',
+                    idempotencyKey: `refund-redeem:${invoice._id}`,
+                });
+            }
             return res.json({
                 invoice: attachInvoiceEditFlags(invoice.toObject ? invoice.toObject() : invoice),
             });

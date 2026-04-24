@@ -39,7 +39,6 @@ export default function ManagerProductList() {
     const [importLoading, setImportLoading] = useState(false);
     const [importCommitting, setImportCommitting] = useState(false);
     const [importError, setImportError] = useState('');
-    const [priceChangeConfirmed, setPriceChangeConfirmed] = useState(false);
     const fileInputRef = useRef(null);
     const toastTimerRef = useRef(null);
 
@@ -133,16 +132,12 @@ export default function ManagerProductList() {
         );
     };
 
-    const thStyle = { padding: '6px 10px', textAlign: 'left', fontWeight: 600, whiteSpace: 'nowrap' };
-    const tdStyle = { padding: '6px 10px', verticalAlign: 'middle' };
-
     const closeImportModal = () => {
         setImportOpen(false);
         setImportPreview(null);
         setImportError('');
         setImportLoading(false);
         setImportCommitting(false);
-        setPriceChangeConfirmed(false);
         if (fileInputRef.current) fileInputRef.current.value = '';
     };
 
@@ -160,7 +155,6 @@ export default function ManagerProductList() {
         if (!file) return;
         setImportError('');
         setImportPreview(null);
-        setPriceChangeConfirmed(false);
         setImportLoading(true);
         try {
             const data = await previewProductImport(file);
@@ -177,12 +171,6 @@ export default function ManagerProductList() {
         const validRows = importPreview.rows.filter((r) => r.valid);
         if (validRows.length === 0) return;
 
-        // Nếu có thay đổi giá mà chưa xác nhận thì chặn
-        if (importPreview.has_price_changes && !priceChangeConfirmed) {
-            setImportError('Vui lòng đọc và tích xác nhận thay đổi giá trước khi import.');
-            return;
-        }
-
         const payload = validRows.map((r) => ({
             row: r.row,
             name: r.name,
@@ -196,18 +184,13 @@ export default function ManagerProductList() {
         setImportCommitting(true);
         setImportError('');
         try {
-            const result = await commitProductImport(payload, priceChangeConfirmed);
-
-            // Backend trả 409 — cần xác nhận (double-check an toàn)
-            if (result.needsConfirmation) {
-                setImportError('Vui lòng xác nhận thay đổi giá trước khi import.');
-                setImportCommitting(false);
-                return;
-            }
+            const result = await commitProductImport(payload);
 
             const parts = [];
             if (result.createdCount > 0) parts.push(`tạo mới ${result.createdCount} sản phẩm`);
-            if (result.updatedCount > 0) parts.push(`cập nhật ${result.updatedCount} sản phẩm (cộng tồn kho)`);
+            if (result.updatedCount > 0) {
+                parts.push(`tăng tồn kho ${result.updatedCount} sản phẩm đã có`);
+            }
             const msg =
                 parts.length > 0
                     ? `Đã ${parts.join(', ')}.${result.failedCount > 0 ? ` (${result.failedCount} dòng lỗi.)` : ''}`
@@ -222,6 +205,35 @@ export default function ManagerProductList() {
         } finally {
             setImportCommitting(false);
         }
+    };
+
+    const renderImportActionBadge = (row) => {
+        if (!row?.valid) {
+            return (
+                <span className="inline-flex rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-xs font-semibold text-rose-700">
+                    Lỗi dữ liệu
+                </span>
+            );
+        }
+        if (row.import_action === 'create_new') {
+            return (
+                <span className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">
+                    Tạo mới
+                </span>
+            );
+        }
+        if (row.import_action === 'stock_increase_only') {
+            return (
+                <span className="inline-flex rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-xs font-semibold text-sky-700">
+                    Cộng tồn kho
+                </span>
+            );
+        }
+        return (
+            <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-semibold text-slate-600">
+                Chưa phân loại
+            </span>
+        );
     };
 
     const start = total === 0 ? 0 : (page - 1) * LIMIT + 1;
@@ -258,24 +270,24 @@ export default function ManagerProductList() {
                 eyebrowIcon={Package}
                 title="Sản phẩm"
                 subtitle={`Xem danh sách và tìm kiếm sản phẩm. ${Platform.select({ web: 'Giao diện đồng bộ với trang thêm/sửa sản phẩm.', default: 'Danh sách sản phẩm.' })}`}
-                headerActions={
-                    <>
-                        <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => {
-                                setImportOpen(true);
-                                setImportPreview(null);
-                                setImportError('');
-                            }}
-                        >
-                            Import Excel
-                        </Button>
-                        <Button type="button" onClick={() => navigate('/manager/products/new')}>
-                            Thêm sản phẩm
-                        </Button>
-                    </>
-                }
+                    headerActions={
+                        <>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => {
+                                    setImportOpen(true);
+                                    setImportPreview(null);
+                                    setImportError('');
+                                }}
+                            >
+                                Import Excel
+                            </Button>
+                            <Button type="button" onClick={() => navigate('/manager/quick-receipt')}>
+                                Nhập hàng
+                            </Button>
+                        </>
+                    }
             >
                     {error && <div className="manager-products-error">{error}</div>}
 
@@ -442,13 +454,11 @@ export default function ManagerProductList() {
                                 onClick={(e) => e.stopPropagation()}
                             >
                                 <h2 id="import-modal-title">Import sản phẩm từ Excel</h2>
+
                                 <p className="manager-import-hint">
                                     Dòng đầu tiên là tiêu đề. Bắt buộc: <strong>Tên sản phẩm</strong>,{' '}
-                                    <strong>Giá gốc</strong>, <strong>Giá bán</strong>. Tùy chọn: SKU, Tồn kho, Đơn vị,
-                                    Barcode.                                     Ưu tiên khớp theo <strong>tên sản phẩm</strong> (đúng như trên hệ thống, không phân
-                                    biệt hoa thường); nếu không trùng tên thì mới xét <strong>SKU</strong> (khi đã có mã
-                                    trên hệ thống). Khi khớp, hệ thống <strong>cộng tồn kho</strong> và cập nhật giá —
-                                    không tạo bản ghi trùng.
+                                    <strong>Giá nhập</strong>, <strong>Giá bán</strong>. Tùy chọn: SKU, Barcode, Số lượng cộng thêm, Đơn vị cơ bản.
+                                    {' '}Ưu tiên định danh theo Barcode, sau đó đến SKU.
                                 </p>
                                 <div className="manager-import-actions">
                                     <button
@@ -474,83 +484,14 @@ export default function ManagerProductList() {
                                             <strong>{importPreview.validCount}</strong> —{' '}
                                             <span className="err">Lỗi: {importPreview.invalidCount}</span>
                                         </p>
-
-                                        {/* ── Cảnh báo thay đổi giá ── */}
-                                        {importPreview.has_price_changes && (
-                                            <div style={{
-                                                border: '1.5px solid #f59e0b',
-                                                borderRadius: 10,
-                                                background: '#fffbeb',
-                                                padding: '14px 16px',
-                                                marginBottom: 16,
-                                            }}>
-                                                <p style={{ margin: '0 0 8px 0', fontWeight: 700, color: '#b45309', fontSize: 14 }}>
-                                                    <i className="fa-solid fa-triangle-exclamation" style={{ marginRight: 6 }} />
-                                                    Phát hiện {importPreview.price_changes.length} sản phẩm bị thay đổi giá
-                                                </p>
-                                                <p style={{ margin: '0 0 10px 0', fontSize: 13, color: '#78350f', lineHeight: 1.5 }}>
-                                                    Các sản phẩm dưới đây đang có giá khác so với hệ thống.
-                                                    Sau khi import, giá mới sẽ được áp dụng ngay.
-                                                    Điều này <strong>không ảnh hưởng</strong> đến các đơn hàng đã bán trước đó
-                                                    (giá cũ vẫn được lưu trong từng hóa đơn),
-                                                    nhưng sẽ ảnh hưởng đến <strong>báo cáo lợi nhuận từ thời điểm này trở đi</strong>.
-                                                </p>
-                                                <div style={{ overflowX: 'auto', marginBottom: 12 }}>
-                                                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                                                        <thead>
-                                                            <tr style={{ background: '#fef3c7' }}>
-                                                                <th style={thStyle}>Sản phẩm</th>
-                                                                <th style={thStyle}>SKU</th>
-                                                                <th style={{ ...thStyle, textAlign: 'right' }}>Giá vốn cũ</th>
-                                                                <th style={{ ...thStyle, textAlign: 'right' }}>Giá vốn mới</th>
-                                                                <th style={{ ...thStyle, textAlign: 'right' }}>Giá bán cũ</th>
-                                                                <th style={{ ...thStyle, textAlign: 'right' }}>Giá bán mới</th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody>
-                                                            {importPreview.price_changes.map((pc, i) => (
-                                                                <tr key={i} style={{ borderBottom: '1px solid #fde68a' }}>
-                                                                    <td style={tdStyle}><strong>{pc.name}</strong></td>
-                                                                    <td style={tdStyle}>{pc.sku || '—'}</td>
-                                                                    <td style={{ ...tdStyle, textAlign: 'right' }}>{formatMoney(pc.old_cost_price)}</td>
-                                                                    <td style={{ ...tdStyle, textAlign: 'right', color: pc.cost_changed ? '#b91c1c' : undefined, fontWeight: pc.cost_changed ? 700 : undefined }}>
-                                                                        {formatMoney(pc.new_cost_price)}
-                                                                        {pc.cost_changed && (
-                                                                            <span style={{ fontSize: 11, marginLeft: 4 }}>
-                                                                                ({pc.new_cost_price > pc.old_cost_price ? '▲' : '▼'}
-                                                                                {Math.abs(pc.new_cost_price - pc.old_cost_price).toLocaleString('vi-VN')}₫)
-                                                                            </span>
-                                                                        )}
-                                                                    </td>
-                                                                    <td style={{ ...tdStyle, textAlign: 'right' }}>{formatMoney(pc.old_sale_price)}</td>
-                                                                    <td style={{ ...tdStyle, textAlign: 'right', color: pc.sale_changed ? '#b91c1c' : undefined, fontWeight: pc.sale_changed ? 700 : undefined }}>
-                                                                        {formatMoney(pc.new_sale_price)}
-                                                                        {pc.sale_changed && (
-                                                                            <span style={{ fontSize: 11, marginLeft: 4 }}>
-                                                                                ({pc.new_sale_price > pc.old_sale_price ? '▲' : '▼'}
-                                                                                {Math.abs(pc.new_sale_price - pc.old_sale_price).toLocaleString('vi-VN')}₫)
-                                                                            </span>
-                                                                        )}
-                                                                    </td>
-                                                                </tr>
-                                                            ))}
-                                                        </tbody>
-                                                    </table>
-                                                </div>
-                                                <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer', fontSize: 13, color: '#78350f' }}>
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={priceChangeConfirmed}
-                                                        onChange={e => setPriceChangeConfirmed(e.target.checked)}
-                                                        style={{ marginTop: 2, width: 16, height: 16, cursor: 'pointer', accentColor: '#d97706' }}
-                                                    />
-                                                    <span>
-                                                        <strong>Tôi đã kiểm tra và xác nhận</strong> các thay đổi giá trên là đúng.
-                                                        Hệ thống sẽ cập nhật giá mới ngay sau khi import.
-                                                    </span>
-                                                </label>
-                                            </div>
-                                        )}
+                                        <p className="manager-import-hint" style={{ marginTop: -6 }}>
+                                            Nhận diện: <strong>{importPreview.newCount || 0}</strong> sản phẩm mới,{' '}
+                                            <strong>{importPreview.existingCount || 0}</strong> sản phẩm đã có.
+                                        </p>
+                                        <p className="manager-import-hint" style={{ marginTop: -6 }}>
+                                            Sản phẩm đã có: chỉ cộng tồn kho, không cập nhật giá; nếu để trống Giá nhập sẽ dùng giá vốn hiện tại.
+                                            Số lượng trong file phải quy về đơn vị cơ bản (base unit).
+                                        </p>
 
                                         <div className="manager-import-table-wrap">
                                             <table className="manager-import-table">
@@ -558,11 +499,12 @@ export default function ManagerProductList() {
                                                     <tr>
                                                         <th>Dòng</th>
                                                         <th>OK</th>
+                                                        <th>Hành động</th>
                                                         <th>Tên</th>
-                                                        <th>Giá gốc</th>
+                                                        <th>Giá nhập</th>
                                                         <th>Giá bán</th>
                                                         <th>SKU</th>
-                                                        <th>Tồn (+)</th>
+                                                        <th>SL cộng thêm</th>
                                                         <th>Đơn vị</th>
                                                         <th>Barcode</th>
                                                         <th>Ghi chú lỗi</th>
@@ -586,8 +528,9 @@ export default function ManagerProductList() {
                                                                     {r.valid ? 'OK' : 'Lỗi'}
                                                                 </span>
                                                             </td>
+                                                            <td>{renderImportActionBadge(r)}</td>
                                                             <td>{r.name || '—'}</td>
-                                                            <td>{formatMoney(r.cost_price)}</td>
+                                                            <td>{r.cost_price == null ? '—' : formatMoney(r.cost_price)}</td>
                                                             <td>{formatMoney(r.sale_price)}</td>
                                                             <td>{r.sku || '—'}</td>
                                                             <td>{r.stock_qty}</td>
@@ -616,13 +559,7 @@ export default function ManagerProductList() {
                                                 className="manager-btn-primary"
                                                 disabled={
                                                     importCommitting ||
-                                                    !importPreview.validCount ||
-                                                    (importPreview.has_price_changes && !priceChangeConfirmed)
-                                                }
-                                                title={
-                                                    importPreview.has_price_changes && !priceChangeConfirmed
-                                                        ? 'Vui lòng tích xác nhận thay đổi giá ở trên trước khi import'
-                                                        : ''
+                                                    !importPreview.validCount
                                                 }
                                                 onClick={handleCommitImport}
                                             >

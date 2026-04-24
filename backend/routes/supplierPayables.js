@@ -4,8 +4,11 @@ const SupplierPayable = require('../models/SupplierPayable');
 const SupplierPayment = require('../models/SupplierPayment');
 const SupplierPaymentAllocation = require('../models/SupplierPaymentAllocation');
 const Supplier = require('../models/Supplier');
+const SupplierDebtHistory = require('../models/SupplierDebtHistory');
+const SupplierReturn = require('../models/SupplierReturn');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { recalculatePayable, refreshSupplierPayableCache } = require('../utils/supplierPayableUtils');
+const { upsertSystemCashFlow } = require('../utils/cashflowUtils');
 
 const router = express.Router();
 
@@ -18,6 +21,10 @@ function getStoreOidFromUser(req) {
     if (role === 'admin') return null;
     const oid = toOid(req.user?.storeId);
     return oid || '__FORBIDDEN__';
+}
+
+function round2(v) {
+    return Math.round((Number(v) || 0) * 100) / 100;
 }
 
 // ─── GET /api/supplier-payables ─────────────────────────────────────────────
@@ -237,7 +244,14 @@ router.get('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
 
         const payable = await SupplierPayable.findById(id)
             .populate('supplier_id', 'name phone email address')
-            .populate('source_id', 'total_amount received_at reason items')
+            .populate({
+                path: 'source_id',
+                select: 'total_amount received_at reason items',
+                populate: {
+                    path: 'items.product_id',
+                    select: 'name sku base_unit',
+                },
+            })
             .populate('created_by', 'fullName email')
             .lean();
 
@@ -255,6 +269,24 @@ router.get('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
             })
             .sort({ created_at: -1 })
             .lean();
+        const paymentIds = allocations
+            .map((a) => a.payment_id?._id)
+            .filter((pid) => mongoose.isValidObjectId(pid));
+        const linkedReturns = paymentIds.length
+            ? await SupplierReturn.find({
+                payment_id: { $in: paymentIds },
+                ...(req.user.role === 'admin' ? {} : { storeId: payable.storeId }),
+            })
+                .select('_id payment_id return_date reference_code')
+                .lean()
+            : [];
+        const returnByPayment = new Map(linkedReturns.map((row) => [String(row.payment_id), row]));
+        const allocationsWithRefs = allocations.map((a) => ({
+            ...a,
+            supplier_return: a.payment_id?._id
+                ? (returnByPayment.get(String(a.payment_id._id)) || null)
+                : null,
+        }));
 
         const now = new Date();
         return res.json({
@@ -262,7 +294,7 @@ router.get('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
                 ...payable,
                 is_overdue: payable.remaining_amount > 0 && payable.due_date && new Date(payable.due_date) < now,
             },
-            allocations,
+            allocations: allocationsWithRefs,
         });
     } catch (err) {
         console.error('GET /supplier-payables/:id error:', err);
@@ -282,6 +314,7 @@ router.post('/payments', requireAuth, requireRole(['manager', 'admin']), async (
             payment_method = 'cash',
             reference_code,
             note,
+            payable_ids,
         } = req.body || {};
 
         if (!supplier_id || !mongoose.isValidObjectId(supplier_id)) {
@@ -297,6 +330,19 @@ router.post('/payments', requireAuth, requireRole(['manager', 'admin']), async (
             return res.status(403).json({ message: 'Tài khoản chưa được gán cửa hàng.', code: 'STORE_REQUIRED' });
         }
         const supplierOid = toOid(supplier_id);
+        const supplierBefore = await Supplier.findById(supplierOid).select('current_debt').lean();
+
+        const requestedPayableIds = Array.isArray(payable_ids)
+            ? payable_ids
+                .map((id) => (mongoose.isValidObjectId(id) ? toOid(id) : null))
+                .filter(Boolean)
+            : [];
+        const requestedPayableIdSet = requestedPayableIds.length
+            ? new Set(requestedPayableIds.map((id) => String(id)))
+            : null;
+        if (Array.isArray(payable_ids) && payable_ids.length > 0 && requestedPayableIds.length === 0) {
+            return res.status(400).json({ message: 'payable_ids không hợp lệ' });
+        }
 
         // Lấy các khoản nợ còn dư — FIFO: due_date ASC, created_at ASC
         const openPayables = await SupplierPayable.find({
@@ -304,16 +350,23 @@ router.post('/payments', requireAuth, requireRole(['manager', 'admin']), async (
             storeId: storeOid,
             status: { $in: ['open', 'partial'] },
             remaining_amount: { $gt: 0 },
+            ...(requestedPayableIds.length ? { _id: { $in: requestedPayableIds } } : {}),
         }).sort({ due_date: 1, created_at: 1 });
 
         if (openPayables.length === 0) {
             return res.status(400).json({ message: 'Nhà cung cấp này hiện không có khoản nợ nào' });
         }
 
-        const totalRemaining = openPayables.reduce((s, p) => s + p.remaining_amount, 0);
-        if (amount > totalRemaining + 0.01) {
+        if (requestedPayableIdSet && openPayables.length !== requestedPayableIdSet.size) {
             return res.status(400).json({
-                message: `Số tiền thanh toán (${amount.toLocaleString('vi-VN')}đ) vượt quá tổng còn nợ (${totalRemaining.toLocaleString('vi-VN')}đ)`,
+                message: 'Một hoặc nhiều khoản nợ đã chọn không thuộc nhà cung cấp này, hoặc đã được thanh toán.',
+            });
+        }
+
+        const totalRemaining = openPayables.reduce((s, p) => s + p.remaining_amount, 0);
+        if (Math.abs(amount - totalRemaining) > 0.01) {
+            return res.status(400).json({
+                message: `Số tiền thanh toán phải đúng bằng tổng còn nợ của các đơn đã chọn (${totalRemaining.toLocaleString('vi-VN')}đ)`,
             });
         }
 
@@ -364,6 +417,34 @@ router.post('/payments', requireAuth, requireRole(['manager', 'admin']), async (
             await recalculatePayable(pid);
         }
         await refreshSupplierPayableCache(supplierOid, storeOid);
+        const supplierAfter = await Supplier.findById(supplierOid).select('current_debt').lean();
+        const beforeDebt = round2(supplierBefore?.current_debt);
+        const afterDebt = round2(supplierAfter?.current_debt);
+        await SupplierDebtHistory.create({
+            supplier_id: supplierOid,
+            storeId: storeOid,
+            type: 'DEBT_DECREASE_PAYMENT',
+            reference_type: 'supplier_payment',
+            reference_id: payment._id,
+            before_debt: beforeDebt,
+            change_amount: -round2(amount),
+            after_debt: afterDebt,
+            note: note || `Thanh toán công nợ NCC`,
+            actor_id: req.user.id,
+            created_at: new Date(),
+        });
+        await upsertSystemCashFlow({
+            storeId: storeOid,
+            type: 'EXPENSE',
+            category: 'PURCHASE_PAYMENT',
+            amount,
+            paymentMethod: payment.payment_method,
+            referenceModel: 'supplier_payment',
+            referenceId: payment._id,
+            note: `Thanh toan NCC #${String(payment._id).slice(-6).toUpperCase()}`,
+            actorId: req.user.id,
+            transactedAt: payment.payment_date || new Date(),
+        });
 
         const populated = await SupplierPayment.findById(payment._id)
             .populate('supplier_id', 'name')

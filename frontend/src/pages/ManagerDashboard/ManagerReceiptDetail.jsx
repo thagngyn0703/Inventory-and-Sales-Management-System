@@ -6,7 +6,9 @@ import { useToast } from '../../contexts/ToastContext';
 import { ConfirmDialog } from '../../components/ui/confirm-dialog';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { Button } from '../../components/ui/button';
+import { InlineNotice } from '../../components/ui/inline-notice';
 import { ArrowLeft, ClipboardList, CreditCard } from 'lucide-react';
+import { parseCurrencyInput, toCurrencyInputFromNumber } from '../../utils/currencyInput';
 import './ManagerDashboard.css';
 
 const PAYMENT_TYPE_LABEL = {
@@ -60,7 +62,7 @@ export default function ManagerReceiptDetail() {
             prev.map((it) => {
                 if (String(it.product_id) !== String(productId)) return it;
                 if (field === 'price_gap_note') return { ...it, price_gap_note: value };
-                const n = Number(value);
+                const n = parseCurrencyInput(value);
                 return { ...it, [field]: Number.isFinite(n) && n >= 0 ? n : 0 };
             })
         );
@@ -133,7 +135,7 @@ export default function ManagerReceiptDetail() {
     if (error) {
         return (
             <ManagerPageFrame showNotificationBell={false}>
-                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800">{error}</div>
+                <InlineNotice message={error} type="error" />
             </ManagerPageFrame>
         );
     }
@@ -350,9 +352,9 @@ export default function ManagerReceiptDetail() {
                                     <td style={{ padding: '12px', textAlign: 'right', fontSize: 14 }}>
                                         {receipt.status === 'pending' ? (
                                             <input
-                                                type="number"
-                                                min="0"
-                                                value={displayUnitCost}
+                                                inputMode="numeric"
+                                                type="text"
+                                                value={toCurrencyInputFromNumber(displayUnitCost)}
                                                 onChange={(e) => handleEditItemChange(pid, 'unit_cost', e.target.value)}
                                                 style={{ width: 120, textAlign: 'right', padding: '6px 8px', borderRadius: 8, border: '1px solid #d1d5db' }}
                                             />
@@ -363,9 +365,9 @@ export default function ManagerReceiptDetail() {
                                     {receipt.status === 'pending' && (
                                         <td style={{ padding: '12px', textAlign: 'right', fontSize: 14 }}>
                                             <input
-                                                type="number"
-                                                min="0"
-                                                value={displaySalePrice}
+                                                type="text"
+                                                inputMode="numeric"
+                                                value={toCurrencyInputFromNumber(displaySalePrice)}
                                                 onChange={(e) => handleEditItemChange(pid, 'sale_price', e.target.value)}
                                                 style={{ width: 120, textAlign: 'right', padding: '6px 8px', borderRadius: 8, border: '1px solid #d1d5db' }}
                                             />

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { Button } from '../../components/ui/button';
@@ -22,6 +22,7 @@ function statusPill(status, isOverdue) {
 const fmt = (n) => Number(n || 0).toLocaleString('vi-VN') + ' đ';
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString('vi-VN') : '—';
 const fmtDT = (d) => d ? new Date(d).toLocaleString('vi-VN') : '—';
+const fmtNum = (n) => Number(n || 0).toLocaleString('vi-VN');
 
 export default function ManagerSupplierPayableDetail() {
     const { id } = useParams();
@@ -54,6 +55,7 @@ export default function ManagerSupplierPayableDetail() {
     if (!data) return null;
 
     const { payable, allocations } = data;
+    const receiptItems = Array.isArray(payable.source_id?.items) ? payable.source_id.items : [];
     const progressPct = payable.total_amount > 0 ? Math.min(100, (payable.paid_amount / payable.total_amount) * 100) : 0;
 
     return (
@@ -118,6 +120,75 @@ export default function ManagerSupplierPayableDetail() {
                     </div>
                 </div>
 
+                {/* ── Sản phẩm của phiếu nhập gốc ── */}
+                <div className="mb-6 rounded-2xl border border-slate-200/80 bg-white shadow-sm overflow-hidden">
+                    <div className="px-5 py-4 border-b border-slate-100">
+                        <h2 className="text-base font-semibold text-slate-700">
+                            Sản phẩm trong phiếu nhập ({receiptItems.length})
+                        </h2>
+                        <p className="mt-1 text-xs text-slate-500">
+                            Đây là các mặt hàng đã nhập cho khoản phải trả này.
+                        </p>
+                    </div>
+                    {receiptItems.length === 0 ? (
+                        <p className="py-10 text-center text-slate-500 text-sm">Không có dữ liệu sản phẩm trong phiếu nhập.</p>
+                    ) : (
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                                <thead>
+                                    <tr className="border-b border-slate-100 bg-slate-50/70 text-xs font-semibold uppercase text-slate-500">
+                                        <th className="px-4 py-3 text-left">Sản phẩm</th>
+                                        <th className="px-4 py-3 text-left">SKU</th>
+                                        <th className="px-4 py-3 text-left">Đơn vị</th>
+                                        <th className="px-4 py-3 text-right">Số lượng</th>
+                                        <th className="px-4 py-3 text-right">Đơn giá</th>
+                                        <th className="px-4 py-3 text-right">Thành tiền</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                    {receiptItems.map((item, idx) => {
+                                        const lineTotal = Number(item.quantity || 0) * Number(item.unit_cost || 0);
+                                        const productName =
+                                            item.product_id?.name ||
+                                            item.product_name_snapshot ||
+                                            (item.product_id ? `Sản phẩm đã ẩn/xóa (${String(item.product_id).slice(-6).toUpperCase()})` : 'Sản phẩm không xác định');
+                                        const productSku =
+                                            item.product_id?.sku ||
+                                            item.product_sku_snapshot ||
+                                            '—';
+                                        return (
+                                            <tr key={`${item.product_id?._id ?? item.product_id ?? 'row'}-${idx}`} className="hover:bg-slate-50/60">
+                                                <td className="px-4 py-3 font-medium text-slate-800">
+                                                    {productName}
+                                                </td>
+                                                <td className="px-4 py-3 font-mono text-xs text-slate-600">
+                                                    {productSku}
+                                                </td>
+                                                <td className="px-4 py-3 text-slate-600">
+                                                    {item.unit_name || item.product_id?.base_unit || '—'}
+                                                </td>
+                                                <td className="px-4 py-3 text-right tabular-nums">{fmtNum(item.quantity)}</td>
+                                                <td className="px-4 py-3 text-right tabular-nums">{fmt(item.unit_cost)}</td>
+                                                <td className="px-4 py-3 text-right tabular-nums font-semibold text-slate-800">{fmt(lineTotal)}</td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                                <tfoot>
+                                    <tr className="border-t border-slate-200 bg-slate-50/60">
+                                        <td className="px-4 py-3 text-right font-semibold text-slate-700" colSpan={5}>
+                                            Tổng tiền phiếu nhập
+                                        </td>
+                                        <td className="px-4 py-3 text-right font-bold text-emerald-700">
+                                            {fmt(payable.source_id?.total_amount ?? payable.total_amount)}
+                                        </td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                    )}
+                </div>
+
                 {/* ── Lịch sử thanh toán ── */}
                 <div className="rounded-2xl border border-slate-200/80 bg-white shadow-sm overflow-hidden">
                     <div className="px-5 py-4 border-b border-slate-100">
@@ -131,6 +202,7 @@ export default function ManagerSupplierPayableDetail() {
                                 <thead>
                                     <tr className="border-b border-slate-100 bg-slate-50/70 text-xs font-semibold uppercase text-slate-500">
                                         <th className="px-4 py-3 text-left">Ngày</th>
+                                        <th className="px-4 py-3 text-left">Chứng từ</th>
                                         <th className="px-4 py-3 text-right">Số tiền phân bổ</th>
                                         <th className="px-4 py-3 text-left">Hình thức</th>
                                         <th className="px-4 py-3 text-left">Mã tham chiếu</th>
@@ -142,6 +214,18 @@ export default function ManagerSupplierPayableDetail() {
                                     {allocations.map((a) => (
                                         <tr key={a._id} className="hover:bg-slate-50/60">
                                             <td className="px-4 py-3 whitespace-nowrap">{fmtDT(a.payment_id?.payment_date)}</td>
+                                            <td className="px-4 py-3 whitespace-nowrap">
+                                                <div className="flex flex-col gap-1">
+                                                    <Link to="/manager/supplier-payables/report" className="text-xs text-sky-700 hover:underline">
+                                                        Phiếu chi NCC
+                                                    </Link>
+                                                    {a.supplier_return?._id ? (
+                                                        <Link to={`/manager/supplier-returns/${a.supplier_return._id}`} className="text-xs text-teal-700 hover:underline">
+                                                            Phiếu trả NCC
+                                                        </Link>
+                                                    ) : null}
+                                                </div>
+                                            </td>
                                             <td className="px-4 py-3 text-right tabular-nums font-semibold text-emerald-700">{fmt(a.amount)}</td>
                                             <td className="px-4 py-3">{METHOD_LABEL[a.payment_id?.payment_method] ?? a.payment_id?.payment_method ?? '—'}</td>
                                             <td className="px-4 py-3 font-mono text-xs">{a.payment_id?.reference_code || '—'}</td>

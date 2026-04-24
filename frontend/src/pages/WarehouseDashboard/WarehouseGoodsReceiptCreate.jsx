@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useWarehouseBase } from '../../utils/useWarehouseBase';
-import { getProducts } from '../../services/productsApi';
-import { getSuppliers } from '../../services/suppliersApi';
+import { getProducts, getProductUnits } from '../../services/productsApi';
+import { createSupplier, getSuppliers } from '../../services/suppliersApi';
 import { createGoodsReceipt } from '../../services/goodsReceiptsApi';
 import WarehouseProductCreateModal from './WarehouseProductCreateModal';
 import { useToast } from '../../contexts/ToastContext';
@@ -27,6 +27,8 @@ export default function WarehouseGoodsReceiptCreate() {
   const { toast } = useToast();
 
   const [suppliers, setSuppliers] = useState([]);
+  const [creatingSupplier, setCreatingSupplier] = useState(false);
+  const [newSupplier, setNewSupplier] = useState({ name: '', phone: '' });
   const [selectedSupplierId, setSelectedSupplierId] = useState('');
   const [reason, setReason] = useState('');
 
@@ -35,6 +37,7 @@ export default function WarehouseGoodsReceiptCreate() {
   const [searching, setSearching] = useState(false);
 
   const [items, setItems] = useState([]);
+  const [unitMapByProduct, setUnitMapByProduct] = useState({});
 
   const [submitting, setSubmitting] = useState(false);
   const [showProductModal, setShowProductModal] = useState(false);
@@ -96,26 +99,52 @@ export default function WarehouseGoodsReceiptCreate() {
     return Math.round(base * r * 100) / 100;
   };
 
-  const handleAddProduct = (product) => {
+  const ensureUnitsLoaded = useCallback(async (product) => {
+    const pid = String(product?._id || '');
+    if (!pid) return [];
+    if (unitMapByProduct[pid]) return unitMapByProduct[pid];
+    try {
+      const units = await getProductUnits(pid);
+      const normalized = (units || []).sort(
+        (a, b) => Number(a.exchange_value || 0) - Number(b.exchange_value || 0)
+      );
+      setUnitMapByProduct((prev) => ({ ...prev, [pid]: normalized }));
+      return normalized;
+    } catch (_) {
+      return [];
+    }
+  }, [unitMapByProduct]);
+
+  const handleAddProduct = async (product) => {
     if (addedIds.has(product._id)) {
       toast('Sản phẩm đã có trong danh sách nhập', 'info');
       return;
     }
-    const defaultUnit =
-      product.selling_units && product.selling_units.length > 0
-        ? product.selling_units[0]
-        : { name: product.base_unit || 'Cái', ratio: 1 };
-    const lineUnitCost = unitCostFromBaseCost(product, defaultUnit.ratio);
+    const units = await ensureUnitsLoaded(product);
+    if (!units || units.length === 0) {
+      toast('Sản phẩm chưa được cấu hình đơn vị bán. Vui lòng quản lý cập nhật đơn vị trước.', 'error');
+      return;
+    }
+    const baseUnit = units.find((u) => u.is_base) || units[0];
+    if (!baseUnit?._id) {
+      toast('Đơn vị cơ sở của sản phẩm chưa hợp lệ. Vui lòng kiểm tra cấu hình đơn vị.', 'error');
+      return;
+    }
+    const defaultRatio = Number(baseUnit?.exchange_value) > 0 ? Number(baseUnit.exchange_value) : 1;
+    const defaultUnitName = String(baseUnit?.unit_name || product.base_unit || 'Cái').trim();
+    const lineUnitCost = unitCostFromBaseCost(product, defaultRatio);
 
     setItems((prev) => [
       ...prev,
       {
         product,
+        unit_id: baseUnit?._id || null,
         quantity: 1,
         unit_cost: lineUnitCost,
         system_unit_cost: lineUnitCost,
-        unit_name: defaultUnit.name,
-        ratio: defaultUnit.ratio,
+        unit_name: defaultUnitName,
+        ratio: defaultRatio,
+        available_units: units,
         price_gap_note: '',
       },
     ]);
@@ -130,12 +159,14 @@ export default function WarehouseGoodsReceiptCreate() {
       prev.map((item) => {
         if (item.product._id !== productId) return item;
         if (field === 'unit') {
-          const selectedUnit = item.product.selling_units?.find((u) => u.name === value);
-          const nextRatio = selectedUnit ? selectedUnit.ratio : 1;
+          const selectedUnit = (item.available_units || unitMapByProduct[String(item.product._id)] || [])
+            .find((u) => String(u._id || '') === String(value || ''));
+          const nextRatio = Number(selectedUnit?.exchange_value) > 0 ? Number(selectedUnit.exchange_value) : 1;
           const nextLineCost = unitCostFromBaseCost(item.product, nextRatio);
           return {
             ...item,
-            unit_name: selectedUnit ? selectedUnit.name : value,
+            unit_id: selectedUnit?._id || null,
+            unit_name: selectedUnit ? selectedUnit.unit_name : item.unit_name,
             ratio: nextRatio,
             unit_cost: nextLineCost,
             system_unit_cost: nextLineCost,
@@ -148,6 +179,31 @@ export default function WarehouseGoodsReceiptCreate() {
   };
 
   const totalAmount = items.reduce((sum, item) => sum + item.quantity * item.unit_cost, 0);
+
+  const handleCreateSupplier = useCallback(async () => {
+    const name = String(newSupplier.name || '').trim();
+    const phone = String(newSupplier.phone || '').trim();
+    if (!name) {
+      toast('Vui lòng nhập tên nhà cung cấp mới', 'error');
+      return;
+    }
+    setCreatingSupplier(true);
+    try {
+      const created = await createSupplier({
+        name,
+        phone: phone || undefined,
+        status: 'active',
+      });
+      setSuppliers((prev) => [created, ...prev.filter((s) => String(s._id) !== String(created._id))]);
+      setSelectedSupplierId(created._id);
+      setNewSupplier({ name: '', phone: '' });
+      toast('Đã tạo nhà cung cấp mới và chọn tự động', 'success');
+    } catch (e) {
+      toast(e.message || 'Không thể tạo nhà cung cấp', 'error');
+    } finally {
+      setCreatingSupplier(false);
+    }
+  }, [newSupplier.name, newSupplier.phone, toast]);
 
   const handleSubmit = async (status) => {
     if (!selectedSupplierId) {
@@ -163,11 +219,17 @@ export default function WarehouseGoodsReceiptCreate() {
       toast('Số lượng mỗi dòng phải lớn hơn 0', 'error');
       return;
     }
+    const missingUnitItems = items.filter((item) => !item.unit_id);
+    if (missingUnitItems.length > 0) {
+      toast('Có dòng chưa chọn đơn vị nhập hợp lệ. Vui lòng chọn lại trước khi gửi.', 'error');
+      return;
+    }
 
     setSubmitting(true);
     try {
       const payloadItems = items.map((item) => ({
         product_id: item.product._id,
+        unit_id: item.unit_id || null,
         quantity: item.quantity,
         unit_cost: item.unit_cost,
         system_unit_cost: item.system_unit_cost,
@@ -226,6 +288,30 @@ export default function WarehouseGoodsReceiptCreate() {
                   </option>
                 ))}
               </select>
+            </div>
+            <div>
+              <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                Tạo nhanh nhà cung cấp
+              </label>
+              <div className="grid gap-2 sm:grid-cols-3">
+                <input
+                  type="text"
+                  className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-sky-200 focus:ring-2"
+                  value={newSupplier.name}
+                  onChange={(e) => setNewSupplier((prev) => ({ ...prev, name: e.target.value }))}
+                  placeholder="Tên NCC mới *"
+                />
+                <input
+                  type="text"
+                  className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-sky-200 focus:ring-2"
+                  value={newSupplier.phone}
+                  onChange={(e) => setNewSupplier((prev) => ({ ...prev, phone: e.target.value }))}
+                  placeholder="SĐT (tùy chọn)"
+                />
+                <Button type="button" variant="outline" className="h-11" onClick={handleCreateSupplier} disabled={creatingSupplier}>
+                  {creatingSupplier ? 'Đang tạo...' : 'Tạo NCC & chọn'}
+                </Button>
+              </div>
             </div>
             <div>
               <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">
@@ -342,20 +428,19 @@ export default function WarehouseGoodsReceiptCreate() {
                           <div className="font-medium text-slate-900">{item.product.name}</div>
                           <select
                             className="mt-1 max-w-[200px] rounded-lg border border-slate-200 px-2 py-1 text-xs"
-                            value={item.unit_name}
+                            value={item.unit_id || ''}
+                            onFocus={() => ensureUnitsLoaded(item.product).then((units) => {
+                              setItems((prev) => prev.map((it) => (
+                                it.product._id === item.product._id ? { ...it, available_units: units } : it
+                              )));
+                            })}
                             onChange={(e) => handleItemChange(item.product._id, 'unit', e.target.value)}
                           >
-                            {item.product.selling_units && item.product.selling_units.length > 0 ? (
-                              item.product.selling_units.map((u) => (
-                                <option key={u.name} value={u.name}>
-                                  {u.name} (×{u.ratio})
+                            {(item.available_units && item.available_units.length > 0 ? item.available_units : []).map((u) => (
+                                <option key={String(u._id || u.unit_name)} value={u._id || ''}>
+                                  {u.unit_name} (×{u.exchange_value})
                                 </option>
-                              ))
-                            ) : (
-                              <option value={item.product.base_unit || 'Cái'}>
-                                {item.product.base_unit || 'Cái'} (×1)
-                              </option>
-                            )}
+                              ))}
                           </select>
                         </td>
                         <td className="px-3 py-2">

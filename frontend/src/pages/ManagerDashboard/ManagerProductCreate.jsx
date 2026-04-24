@@ -4,7 +4,7 @@ import { Platform } from 'react-bits/lib/modules/Platform';
 import { Search, Plus, X, Barcode, Package } from 'lucide-react';
 import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
-import { createProduct, getProducts, updateProduct, uploadProductImages } from '../../services/productsApi';
+import { createProduct, getProducts, updateProductUnits, uploadProductImages } from '../../services/productsApi';
 import { minExpiryDateString, isExpiryDateNotInPast } from '../../utils/dateInput';
 import {
     trimString,
@@ -17,12 +17,13 @@ import { getSuppliers } from '../../services/suppliersApi';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
 import { Badge } from '../../components/ui/badge';
+import { formatCurrencyInput, parseCurrencyInput, toCurrencyInputFromNumber } from '../../utils/currencyInput';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
 
 const PRODUCT_BASE_UNITS = ['Cái', 'Chai', 'Lon', 'Thùng', 'Hộp', 'Kg', 'Gói', 'Lít'];
 
-const defaultSellingUnit = () => ({ name: 'Cái', ratio: 1, sale_price: '' });
+const defaultSellingUnit = () => ({ name: 'Cái', ratio: 1, sale_price: '', barcode: '' });
 
 const createDefaultForm = () => ({
     name: '',
@@ -31,6 +32,7 @@ const createDefaultForm = () => ({
     supplier_id: '',
     cost_price: '',
     stock_qty: '',
+    payment_type: 'cash',
     reorder_level: '',
     expiry_date: '',
     base_unit: 'Cái',
@@ -54,6 +56,7 @@ export default function ManagerProductCreate() {
     const [scanConfirmOpen, setScanConfirmOpen] = useState(false);
     const [pendingScanCode, setPendingScanCode] = useState('');
     const [toast, setToast] = useState(null);
+    const [existingMatch, setExistingMatch] = useState(null);
     const scanBufferRef = useRef('');
     const scanTimerRef = useRef(null);
     const toastTimerRef = useRef(null);
@@ -173,7 +176,7 @@ export default function ManagerProductCreate() {
     const addSellingUnit = () => {
         setForm((prev) => ({
             ...prev,
-            selling_units: [...prev.selling_units, { name: prev.base_unit || 'Cái', ratio: '', sale_price: '' }],
+            selling_units: [...prev.selling_units, { name: prev.base_unit || 'Cái', ratio: '', sale_price: '', barcode: '' }],
         }));
     };
 
@@ -204,6 +207,7 @@ export default function ManagerProductCreate() {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        setExistingMatch(null);
         const nameCheck = validateNoSpecialText(form.name, 'Tên sản phẩm', { required: true });
         if (!nameCheck.ok) return setError(nameCheck.message);
         const skuCheck = validateSku(form.sku);
@@ -212,10 +216,13 @@ export default function ManagerProductCreate() {
         if (!barcodeCheck.ok) return setError(barcodeCheck.message);
         const baseUnitCheck = validateNoSpecialText(form.base_unit, 'Đơn vị tồn kho', { required: true });
         if (!baseUnitCheck.ok) return setError(baseUnitCheck.message);
-        const costCheck = validateNonNegativeNumber(form.cost_price, 'Giá vốn');
+        const costCheck = validateNonNegativeNumber(parseCurrencyInput(form.cost_price), 'Giá vốn');
         if (!costCheck.ok) return setError(costCheck.message);
         const stockCheck = validateNonNegativeNumber(form.stock_qty, 'Tồn kho');
         if (!stockCheck.ok) return setError(stockCheck.message);
+        if (stockCheck.value > 0 && !trimString(form.supplier_id)) {
+            return setError('Vui lòng chọn nhà cung cấp khi nhập tồn kho ban đầu.');
+        }
         const reorderCheck = validateNonNegativeNumber(form.reorder_level, 'Mức tồn tối thiểu');
         if (!reorderCheck.ok) return setError(reorderCheck.message);
         const units = [];
@@ -226,12 +233,13 @@ export default function ManagerProductCreate() {
             if (!ratioCheck.ok || ratioCheck.value <= 0) {
                 return setError('Tỉ lệ đơn vị bán phải lớn hơn 0.');
             }
-            const salePriceCheck = validateNonNegativeNumber(u.sale_price, 'Giá bán đơn vị', { required: true });
+            const salePriceCheck = validateNonNegativeNumber(parseCurrencyInput(u.sale_price), 'Giá bán đơn vị', { required: true });
             if (!salePriceCheck.ok) return setError(salePriceCheck.message);
             units.push({
                 name: nameUnitCheck.value,
                 ratio: ratioCheck.value,
                 sale_price: salePriceCheck.value,
+                barcode: trimString(u.barcode || ''),
             });
         }
         if (units.length === 0) {
@@ -240,7 +248,44 @@ export default function ManagerProductCreate() {
         }
         const hasBase = units.some((u) => u.ratio === 1);
         if (!hasBase) {
-            units.unshift({ name: form.base_unit || 'Cái', ratio: 1, sale_price: units[0]?.sale_price ?? 0 });
+            units.unshift({
+                name: form.base_unit || 'Cái',
+                ratio: 1,
+                sale_price: units[0]?.sale_price ?? 0,
+                barcode: '',
+            });
+        }
+        const seenUnitNames = new Set();
+        const seenUnitBarcodes = new Set();
+        const unitPayload = [];
+        for (const u of units) {
+            const unitNameKey = String(u.name || '').trim().toLowerCase();
+            if (seenUnitNames.has(unitNameKey)) {
+                setError(`Đơn vị "${u.name}" bị trùng. Mỗi sản phẩm chỉ có một dòng cho mỗi đơn vị.`);
+                return;
+            }
+            seenUnitNames.add(unitNameKey);
+            const unitBarcode = validateBarcode(u.barcode || '');
+            if (!unitBarcode.ok) return setError(`${u.name}: ${unitBarcode.message}`);
+            const normalizedBarcode = unitBarcode.value || '';
+            if (normalizedBarcode) {
+                if (seenUnitBarcodes.has(normalizedBarcode)) {
+                    setError(`Barcode "${normalizedBarcode}" bị trùng giữa các đơn vị bán.`);
+                    return;
+                }
+                seenUnitBarcodes.add(normalizedBarcode);
+            }
+            unitPayload.push({
+                unit_name: u.name,
+                exchange_value: u.ratio,
+                price: u.sale_price,
+                barcode: normalizedBarcode || undefined,
+                is_base: Number(u.ratio) === 1,
+            });
+        }
+        if (barcodeCheck.value) {
+            const baseUnit = unitPayload.find((u) => u.is_base) || unitPayload[0];
+            if (baseUnit && !baseUnit.barcode) baseUnit.barcode = barcodeCheck.value;
         }
 
         if (form.expiry_date && !isExpiryDateNotInPast(form.expiry_date)) {
@@ -249,6 +294,26 @@ export default function ManagerProductCreate() {
         }
         if (selectedImages.length > 3) {
             setError('Chỉ được chọn tối đa 3 ảnh cho mỗi sản phẩm.');
+            return;
+        }
+
+        const normalizedName = String(nameCheck.value || '').trim().toLowerCase();
+        const normalizedSku = String(skuCheck.value || '').trim().toLowerCase();
+        const normalizedBarcode = String(barcodeCheck.value || '').trim().toLowerCase();
+        const duplicate = (existingProducts || []).find((p) => {
+            const pName = String(p?.name || '').trim().toLowerCase();
+            const pSku = String(p?.sku || '').trim().toLowerCase();
+            const pBarcode = String(p?.barcode || '').trim().toLowerCase();
+            if (normalizedBarcode && pBarcode && pBarcode === normalizedBarcode) return true;
+            if (normalizedSku && pSku && pSku === normalizedSku) return true;
+            if (normalizedName && pName && pName === normalizedName) return true;
+            return false;
+        });
+        if (duplicate) {
+            setExistingMatch(duplicate);
+            setError(
+                `Sản phẩm "${duplicate.name}" đã tồn tại. Theo SOP, hãy dùng luồng nhập hàng cho sản phẩm đã có để tránh tạo trùng dữ liệu.`
+            );
             return;
         }
 
@@ -266,6 +331,7 @@ export default function ManagerProductCreate() {
                 supplier_id: trimString(form.supplier_id) || undefined,
                 cost_price: costCheck.value,
                 stock_qty: stockCheck.value,
+                payment_type: form.payment_type || 'cash',
                 reorder_level: reorderCheck.value,
                 expiry_date: form.expiry_date || undefined,
                 base_unit: baseUnitCheck.value,
@@ -274,20 +340,18 @@ export default function ManagerProductCreate() {
                 status: form.status === 'inactive' ? 'inactive' : 'active',
             };
 
-            if (selectedExistingId) {
-                const existing = existingProducts.find((x) => x._id === selectedExistingId);
-                const currentStock = Number(existing?.stock_qty) || 0;
-                const incomingQty = Number(form.stock_qty) || 0;
-                await updateProduct(selectedExistingId, {
-                    ...payload,
-                    stock_qty: currentStock + incomingQty,
-                });
-                navigate('/manager/products', { state: { success: 'Da cap nhat san pham hien co va cong don ton kho.' } });
-                return;
+            const created = await createProduct(payload);
+            if (created?._id && unitPayload.length > 0) {
+                await updateProductUnits(created._id, unitPayload);
             }
-
-            await createProduct(payload);
-            navigate('/manager/products', { state: { success: 'Thêm sản phẩm thành công.' } });
+            const hasStock = stockCheck.value > 0;
+            navigate('/manager/products', {
+                state: {
+                    success: hasStock
+                        ? 'Thêm sản phẩm thành công. Phiếu nhập kho ban đầu đã được tạo tự động.'
+                        : 'Thêm sản phẩm vào danh mục thành công.',
+                },
+            });
         } catch (err) {
             const msg = err.message || 'Không thể tạo sản phẩm.';
             setError(msg);
@@ -313,7 +377,7 @@ export default function ManagerProductCreate() {
             sku: p.sku || prev.sku,
             barcode: p.barcode || '',
             supplier_id: typeof p.supplier_id === 'object' ? (p.supplier_id?._id || '') : (p.supplier_id || ''),
-            cost_price: p.cost_price != null ? String(p.cost_price) : prev.cost_price,
+            cost_price: p.cost_price != null ? toCurrencyInputFromNumber(p.cost_price) : prev.cost_price,
             expiry_date: (() => {
                 if (!p.expiry_date) return '';
                 const s = new Date(p.expiry_date).toISOString().slice(0, 10);
@@ -324,7 +388,14 @@ export default function ManagerProductCreate() {
                 ? p.selling_units.map((u) => ({
                     name: u.name || p.base_unit || 'Cái',
                     ratio: u.ratio != null ? u.ratio : 1,
-                    sale_price: u.sale_price != null ? String(u.sale_price) : '',
+                    sale_price: u.sale_price != null ? toCurrencyInputFromNumber(u.sale_price) : '',
+                    barcode: (() => {
+                        const matchedUnit = (p.units || []).find(
+                            (x) => String(x.unit_name || '').trim() === String(u.name || '').trim()
+                                && Number(x.exchange_value || 1) === Number(u.ratio || 1)
+                        );
+                        return matchedUnit?.barcode || '';
+                    })(),
                 }))
                 : prev.selling_units,
             image_urls: Array.isArray(p.image_urls) ? p.image_urls.slice(0, 3) : [],
@@ -366,8 +437,8 @@ export default function ManagerProductCreate() {
             <StaffPageShell
                 eyebrow="Sản phẩm"
                 eyebrowIcon={Package}
-                title="Thêm sản phẩm"
-                subtitle="Điền nhanh từ mẫu có sẵn, sau đó chỉnh lại để tạo sản phẩm mới."
+                    title="Thêm sản phẩm mới"
+                    subtitle="Thêm sản phẩm vào danh mục. Nếu có tồn kho ban đầu, hệ thống tự tạo phiếu nhập kho."
                 headerActions={
                     <Button type="button" variant="outline" onClick={() => navigate('/manager/products')}>
                         Quay lại danh sách
@@ -376,6 +447,19 @@ export default function ManagerProductCreate() {
             >
                 <div className="manager-product-create-fullwidth">
                     <form onSubmit={handleSubmit} className="space-y-4">
+                        <Card className="xl:col-span-12">
+                            <CardContent className="space-y-2 py-4">
+                                <h2 className="text-sm font-semibold text-slate-700">SOP vận hành tối ưu cho tạp hóa nhỏ</h2>
+                                <ol className="list-decimal space-y-1 pl-5 text-xs text-slate-600">
+                                    <li>Tạo sản phẩm một lần duy nhất theo hàng gốc.</li>
+                                    <li>Khai báo đầy đủ đơn vị bán (lon, thùng, ...) và barcode riêng cho từng đơn vị.</li>
+                                    <li>Nhập hàng theo đơn vị thực tế (thùng/lon), hệ thống tự quy đổi về đơn vị gốc.</li>
+                                    <li>Từ lần nhập sau, luôn dùng màn Nhập hàng nhanh/Phiếu nhập cho sản phẩm đã có.</li>
+                                    <li>Chỉ thêm đơn vị mới khi nhà cung cấp có quy cách mới (ví dụ lốc 6, thùng 12).</li>
+                                </ol>
+                            </CardContent>
+                        </Card>
+
                         <div className="grid gap-4 xl:grid-cols-12">
                             <Card className="xl:col-span-12">
                                 <CardContent className="space-y-2 py-4">
@@ -383,6 +467,39 @@ export default function ManagerProductCreate() {
                                         <h2 className="text-sm font-semibold text-slate-700">Điền nhanh từ sản phẩm có sẵn</h2>
                                         {selectedExistingId ? <Badge>Đang dùng mẫu có sẵn</Badge> : <Badge className="bg-slate-100 text-slate-600">Không chọn</Badge>}
                                     </div>
+                                    <p className="rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-700">
+                                        Tính năng này chỉ để <strong>điền nhanh thông tin mẫu</strong> — hệ thống vẫn tạo sản phẩm MỚI khi bạn lưu.
+                                        Nếu muốn nhập thêm hàng cho sản phẩm đã có, hãy dùng tính năng <strong>Nhập hàng nhanh</strong>.
+                                    </p>
+                                    {existingMatch && (
+                                        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                                            <div>
+                                                Phát hiện sản phẩm đã có: <strong>{existingMatch.name}</strong> (SKU: {existingMatch.sku || '—'}).
+                                            </div>
+                                            <div className="mt-2 flex flex-wrap gap-2">
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    onClick={() =>
+                                                        navigate(
+                                                            `/manager/quick-receipt?q=${encodeURIComponent(
+                                                                existingMatch.name || existingMatch.sku || ''
+                                                            )}&productId=${encodeURIComponent(existingMatch._id)}`
+                                                        )
+                                                    }
+                                                >
+                                                    Chuyển sang Nhập hàng nhanh
+                                                </Button>
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    onClick={() => navigate(`/manager/products/${existingMatch._id}`)}
+                                                >
+                                                    Xem sản phẩm hiện có
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    )}
                                     <div className="grid gap-3 md:grid-cols-2">
                                         <div className="relative">
                                             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -500,6 +617,7 @@ export default function ManagerProductCreate() {
                                                     <th className="py-2 pr-2">Đơn vị</th>
                                                     <th className="py-2 pr-2">Tỉ lệ</th>
                                                     <th className="py-2 pr-2">Giá bán (₫)</th>
+                                                    <th className="py-2 pr-2">Barcode</th>
                                                     <th className="py-2 text-right">Thao tác</th>
                                                 </tr>
                                             </thead>
@@ -528,12 +646,20 @@ export default function ManagerProductCreate() {
                                                         </td>
                                                         <td className="py-2 pr-2">
                                                             <input
-                                                                type="number"
-                                                                min="0"
-                                                                step="1"
+                                                                type="text"
+                                                                inputMode="numeric"
                                                                 value={u.sale_price}
-                                                                onChange={(e) => updateSellingUnit(i, 'sale_price', e.target.value)}
+                                                                onChange={(e) => updateSellingUnit(i, 'sale_price', formatCurrencyInput(e.target.value))}
                                                                 placeholder="0"
+                                                                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
+                                                            />
+                                                        </td>
+                                                        <td className="py-2 pr-2">
+                                                            <input
+                                                                type="text"
+                                                                value={u.barcode || ''}
+                                                                onChange={(e) => updateSellingUnit(i, 'barcode', e.target.value)}
+                                                                placeholder="Mã vạch đơn vị"
                                                                 className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
                                                             />
                                                         </td>
@@ -575,11 +701,10 @@ export default function ManagerProductCreate() {
                                         <div>
                                             <label className="mb-1 block text-sm font-medium text-slate-600">Giá vốn (₫) / 1 đơn vị gốc</label>
                                             <input
-                                                type="number"
-                                                min="0"
-                                                step="1"
+                                                type="text"
+                                                inputMode="numeric"
                                                 value={form.cost_price}
-                                                onChange={(e) => setForm((prev) => ({ ...prev, cost_price: e.target.value }))}
+                                                onChange={(e) => setForm((prev) => ({ ...prev, cost_price: formatCurrencyInput(e.target.value) }))}
                                                 placeholder="0"
                                                 className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
                                             />
@@ -591,11 +716,27 @@ export default function ManagerProductCreate() {
                                                 min="0"
                                                 value={form.stock_qty}
                                                 onChange={(e) => update('stock_qty', e.target.value)}
-                                                placeholder="vd: 24"
+                                                placeholder="Để trống nếu chưa có hàng"
                                                 className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
                                             />
                                         </div>
-                                        <div>
+                                        {Number(form.stock_qty) > 0 && (
+                                            <div>
+                                                <label className="mb-1 block text-sm font-medium text-slate-600">Thanh toán NCC</label>
+                                                <select
+                                                    value={form.payment_type}
+                                                    onChange={(e) => update('payment_type', e.target.value)}
+                                                    className="h-10 w-full rounded-lg border border-teal-300 bg-teal-50/50 px-3 text-sm outline-none ring-teal-200 transition focus:ring-2"
+                                                >
+                                                    <option value="cash">Đã thanh toán (tiền mặt)</option>
+                                                    <option value="credit">Ghi nợ NCC</option>
+                                                </select>
+                                                <p className="mt-1 text-xs text-teal-700">
+                                                    Hệ thống sẽ tự tạo phiếu nhập kho để theo dõi chứng từ.
+                                                </p>
+                                            </div>
+                                        )}
+                                        <div className={Number(form.stock_qty) > 0 ? '' : ''}>
                                             <label className="mb-1 block text-sm font-medium text-slate-600">Mức tồn tối thiểu</label>
                                             <input
                                                 type="number"

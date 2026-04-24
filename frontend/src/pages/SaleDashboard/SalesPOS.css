@@ -214,10 +214,12 @@
 .pos-tabs {
   background: transparent;
   display: flex;
-  padding: 0 10px;
+  padding: 2px 10px;
   align-items: center;
   gap: 6px;
   overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.35) transparent;
 }
 
 .pos-tabs-inline {
@@ -227,6 +229,9 @@
   flex: 1 1 0;
   min-width: 0;
   overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  scroll-behavior: smooth;
 }
 
 /* Góc phải ngoài cùng — sau vùng tab */
@@ -314,21 +319,60 @@
 }
 
 .pos-tab {
-  padding: 8px 14px;
-  color: white;
-  font-size: 14px;
+  padding: 6px 9px 6px 12px;
+  color: #f8fafc;
+  font-size: 12px;
+  font-weight: 600;
   cursor: pointer;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  border-right: 1px solid rgba(255,255,255,0.2);
+  gap: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.12);
+  flex: 0 0 auto;
+  max-width: 156px;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.pos-tab:hover {
+  border-color: rgba(255, 255, 255, 0.42);
+  background: rgba(255, 255, 255, 0.17);
+}
+
+.pos-tab-label {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.pos-tab-close-btn {
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: currentColor;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex: 0 0 auto;
+  opacity: 0.82;
+}
+
+.pos-tab-close-btn:hover {
+  background: rgba(15, 23, 42, 0.1);
+  opacity: 1;
 }
 
 .pos-tab.active {
   background: white;
   color: #0f766e;
   border-radius: 10px;
-  margin-top: 0;
+  border-color: rgba(255, 255, 255, 0.9);
   box-shadow: 0 2px 8px rgba(15, 23, 42, 0.12);
   font-weight: 700;
 }
@@ -336,8 +380,30 @@
 .pos-add-tab-btn {
   height: 32px;
   border-color: rgba(255, 255, 255, 0.35) !important;
-  background: transparent !important;
+  background: rgba(15, 23, 42, 0.14) !important;
   color: #fff !important;
+  border-radius: 10px !important;
+  flex: 0 0 auto;
+  position: relative;
+  margin-left: 2px;
+}
+
+.pos-add-tab-btn:hover {
+  background: rgba(255, 255, 255, 0.22) !important;
+  border-color: rgba(255, 255, 255, 0.55) !important;
+}
+
+.pos-tabs::-webkit-scrollbar {
+  height: 5px;
+}
+
+.pos-tabs::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.35);
+  border-radius: 999px;
+}
+
+.pos-tabs::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .pos-cart-container {
@@ -369,12 +435,98 @@
 }
 
 .pos-cart-table td {
-  padding: 10px 12px;
+  padding: 8px 10px;
   border-bottom: 1px solid #f1f5f9;
   font-size: 13px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  vertical-align: middle;
+}
+
+.pos-item-name-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  min-width: 0;
+  width: 100%;
+}
+
+.pos-item-main-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  width: 100%;
+}
+
+.pos-item-name-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.pos-item-unit-text {
+  color: #64748b;
+  font-size: 12px;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.pos-item-subline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  width: 100%;
+  justify-content: flex-start;
+}
+
+.pos-item-unit-select {
+  width: 118px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid #cfd8e3;
+  border-radius: 8px;
+  background: #fff;
+  text-align: left;
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: #0f172a;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+.pos-item-unit-select:hover {
+  border-color: #94a3b8;
+  background: #fcfdff;
+}
+
+.pos-item-unit-select:focus {
+  outline: none;
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.18);
+}
+
+.pos-item-stock-text {
+  font-size: 11px;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 0 1 auto;
+}
+
+.pos-sku-cell {
+  font-weight: 600;
+  color: #1e293b;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  white-space: normal !important;
+  word-break: break-all;
+  line-height: 1.25;
 }
 
 .pos-qty-input {
@@ -385,6 +537,24 @@
   text-align: center;
 }
 
+.pos-price-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pos-price-hint {
+  font-size: 11px;
+  font-weight: 600;
+  color: #0f766e;
+  white-space: nowrap;
+}
+
+.pos-money-cell {
+  font-weight: 600;
+  color: #0f172a;
+}
+
 .pos-cart-empty-cell {
   text-align: center;
   padding: 42px;
@@ -393,10 +563,10 @@
 
 /* Right Sidebar: Payment */
 .pos-right-sidebar {
-  width: clamp(320px, 29vw, 360px);
+  width: clamp(330px, 32vw, 390px);
   background: white;
   border-left: 1px solid var(--pos-border);
-  box-shadow: -8px 0 32px -20px rgba(15, 23, 42, 0.12);
+  box-shadow: none;
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
@@ -409,11 +579,11 @@
 
 /* Sidebar panels — cùng “nhịp” với thead bảng giỏ hàng */
 .pos-sidebar-panel {
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
   overflow: hidden;
   background: #fff;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+  box-shadow: none;
 }
 
 /* Cho phép dropdown khách tràn xuống panel dưới */
@@ -439,11 +609,11 @@
 .pos-sidebar-panel-head {
   display: flex;
   align-items: center;
-  padding: 10px 12px;
-  background: #f1f5f9;
-  color: #475569;
+  padding: 8px 10px;
+  background: #f3f4f6;
+  color: #4b5563;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -467,6 +637,12 @@
 
 .pos-sidebar-panel-body-pad {
   padding: 12px;
+}
+
+/* Khoá layout body panel để tránh bị co sai trên màn hẹp */
+.pos-sidebar-panel-body {
+  display: block;
+  width: 100%;
 }
 
 .pos-sidebar-text-btn {
@@ -495,22 +671,26 @@
 }
 
 .pos-customer-search {
-  display: flex;
-  align-items: stretch;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
   position: relative;
+  width: 100%;
 }
 
 .pos-customer-search-field {
   position: relative;
-  flex: 1;
+  width: 100%;
+  min-width: 0;
+  flex: 1 1 auto;
   min-width: 0;
 }
 
 .pos-customer-search-field .pos-search-input {
   width: 100%;
   height: 40px;
-  padding: 0 14px;
+  padding: 0 13px;
   border-radius: 10px;
   border: 1px solid #e2e8f0;
   background: #fafbfc;
@@ -615,7 +795,7 @@
   justify-content: space-between;
   align-items: center;
   gap: 12px;
-  padding: 10px 12px;
+  padding: 9px 12px;
   font-size: 14px;
   color: #475569;
   border-bottom: 1px solid #f1f5f9;
@@ -640,7 +820,7 @@
   justify-content: space-between;
   align-items: center;
   gap: 10px;
-  padding: 14px 12px;
+  padding: 12px 12px;
   background: linear-gradient(180deg, #ecfdf5 0%, #d1fae5 55%, #ccfbf1 100%);
   border-top: 1px solid rgba(45, 212, 191, 0.35);
   font-size: 14px;
@@ -690,7 +870,7 @@
 }
 
 .pos-customer-add-btn {
-  width: 40px;
+  width: 42px;
   flex-shrink: 0;
   height: 40px;
   align-self: center;
@@ -705,6 +885,18 @@
   justify-content: center;
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s, color 0.15s, box-shadow 0.15s;
+}
+
+@media (max-width: 520px) {
+  .pos-customer-search {
+    grid-template-columns: minmax(0, 1fr) 42px;
+    gap: 8px;
+  }
+
+  .pos-customer-search-field .pos-search-input {
+    height: 38px;
+    font-size: 14px;
+  }
 }
 
 .pos-customer-add-btn:hover {
@@ -747,14 +939,14 @@
 .pos-payment-methods {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 14px;
+  gap: 10px;
+  margin-bottom: 12px;
 }
 
 .pos-method-btn {
   flex: 1;
   min-width: 0;
-  padding: 10px 8px;
+  padding: 9px 10px;
   border-radius: 10px;
   border: 1px solid #e2e8f0;
   background: #fff;
@@ -795,7 +987,7 @@
   font-weight: 700;
   border: 1px solid #e2e8f0;
   border-radius: 10px;
-  padding: 0 12px;
+  padding: 0 13px;
   background: #fff;
   font-variant-numeric: tabular-nums;
   transition: border-color 0.15s, box-shadow 0.15s;
@@ -811,7 +1003,7 @@
   display: flex;
   justify-content: space-between;
   font-size: 14px;
-  margin-top: 12px;
+  margin-top: 8px;
   color: #64748b;
 }
 
@@ -829,7 +1021,7 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
-  margin-top: 12px;
+  margin-top: 10px;
 }
 
 .pos-quick-paid-btn {
@@ -869,10 +1061,10 @@
 }
 
 .pos-bank-note {
-  margin-top: 12px;
+  margin-top: 8px;
   text-align: center;
   background: linear-gradient(180deg, #f0fdfa 0%, #fff 100%);
-  padding: 12px;
+  padding: 10px;
   border-radius: 12px;
   border: 1px solid rgba(45, 212, 191, 0.45);
 }
@@ -898,13 +1090,14 @@
 }
 
 .pos-submit-wrap {
-  margin-top: 4px;
-  padding: 0 2px 4px;
+  margin-top: 6px;
+  padding: 0 2px 2px;
 }
 
 .pos-pay-button {
   width: 100%;
-  padding: 16px;
+  min-height: 46px;
+  padding: 13px 14px;
   background: linear-gradient(135deg, #14b8a6 0%, #0ea5e9 52%, #0284c7 100%);
   color: white;
   border: none;
@@ -915,6 +1108,76 @@
   cursor: pointer;
   box-shadow: 0 6px 20px -6px rgba(13, 148, 136, 0.55);
   transition: transform 0.1s, filter 0.2s, box-shadow 0.2s;
+}
+
+@media (max-height: 860px) {
+  .pos-customer-section {
+    padding: 10px;
+  }
+
+  .pos-summary-section {
+    padding: 10px;
+    gap: 9px;
+  }
+
+  .pos-sidebar-panel-head {
+    padding: 8px 10px;
+  }
+
+  .pos-summary-line {
+    padding: 8px 10px;
+    font-size: 13px;
+  }
+
+  .pos-total-banner {
+    padding: 10px 10px;
+    font-size: 13px;
+  }
+
+  .pos-total-amount {
+    font-size: 16px;
+  }
+
+  .pos-payment-panel-body {
+    padding: 9px;
+  }
+
+  .pos-method-btn {
+    padding: 8px 8px;
+    font-size: 12px;
+  }
+
+  .pos-customer-pay-row {
+    margin-bottom: 6px;
+    font-size: 13px;
+  }
+
+  .pos-customer-pay-input {
+    height: 34px;
+    padding: 0 10px;
+  }
+
+  .pos-money-state-row {
+    margin-top: 6px;
+    font-size: 13px;
+  }
+
+  .pos-quick-paid-grid {
+    gap: 5px;
+    margin-top: 6px;
+  }
+
+  .pos-quick-paid-btn,
+  .pos-quick-paid-full {
+    padding: 7px 8px;
+    font-size: 11px;
+  }
+
+  .pos-pay-button {
+    min-height: 42px;
+    padding: 10px 12px;
+    font-size: 15px;
+  }
 }
 
 .pos-pay-button:hover:not(:disabled) {

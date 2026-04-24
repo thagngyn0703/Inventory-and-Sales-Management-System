@@ -56,6 +56,10 @@ const supplierSchema = new Schema(
             type: Number,
             default: 0,
         },
+        current_debt: {
+            type: Number,
+            default: 0,
+        },
         // Số ngày nợ mặc định — dùng để tự tính due_date khi tạo payable
         default_payment_term_days: {
             type: Number,

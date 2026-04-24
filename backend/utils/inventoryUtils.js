@@ -1,21 +1,53 @@
 const mongoose = require('mongoose');
 const Product = require('../models/Product');
 const StockBatch = require('../models/StockBatch');
+const StockHistory = require('../models/StockHistory');
+
+function roundTo4(value) {
+    return Math.round((Number(value) || 0) * 10000) / 10000;
+}
+
+function toValidDate(value) {
+    if (!value) return null;
+    const d = value instanceof Date ? value : new Date(value);
+    return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function compareBatchesForFEFO(a, b) {
+    const aExpiry = toValidDate(a?.expiry_date);
+    const bExpiry = toValidDate(b?.expiry_date);
+    if (aExpiry && bExpiry) {
+        const expiryDiff = aExpiry.getTime() - bExpiry.getTime();
+        if (expiryDiff !== 0) return expiryDiff;
+    } else if (aExpiry && !bExpiry) {
+        return -1;
+    } else if (!aExpiry && bExpiry) {
+        return 1;
+    }
+    const aReceived = toValidDate(a?.received_at) || new Date(0);
+    const bReceived = toValidDate(b?.received_at) || new Date(0);
+    return aReceived.getTime() - bReceived.getTime();
+}
 
 /**
  * Adjust stock using FIFO principles.
  * @param {string} productId
  * @param {string} storeId
  * @param {number} amount - The amount to change (positive for add, negative for deduct)
- * @param {object} options - { receiptId, unitCost, note, receivedAt, session?, newCostPrice? }
+ * @param {object} options - { receiptId, unitCost, note, receivedAt, session?, newCostPrice?, movementType?, referenceType?, referenceId?, actorId? }
  *   When `session` is passed, all reads/writes participate in the same MongoDB transaction
  *   (required when called from multi-document transactions — avoids write conflicts).
  *   `newCostPrice` (optional, ADD only): set Product.cost_price in the same update as $inc stock.
  */
 async function adjustStockFIFO(productId, storeId, amount, options = {}) {
-    if (!productId || !storeId || amount === 0) return;
+    if (amount === 0 || amount === null || amount === undefined) return;
+    if (!productId || !storeId) {
+        const err = new Error('STORE_ID_AND_PRODUCT_ID_REQUIRED');
+        err.code = 'STORE_ID_AND_PRODUCT_ID_REQUIRED';
+        throw err;
+    }
 
-    const { session, newCostPrice, ...batchMeta } = options;
+    const { session, newCostPrice, allowNegative = false, ...batchMeta } = options;
     const pid = String(productId);
     const sid = String(storeId);
     const absAmount = Math.abs(amount);
@@ -23,33 +55,63 @@ async function adjustStockFIFO(productId, storeId, amount, options = {}) {
     const createOpts = session ? { session } : {};
     const findQuery = (q) => (session ? q.session(session) : q);
 
+    const productBefore = await findQuery(Product.findOne({ _id: pid, storeId: sid })).lean();
+    if (!productBefore) {
+        const err = new Error('PRODUCT_NOT_FOUND_IN_STORE');
+        err.code = 'PRODUCT_NOT_FOUND_IN_STORE';
+        throw err;
+    }
+    const beforeQty = Number(productBefore.stock_qty) || 0;
+
     if (amount < 0) {
-        // DEDUCT (FIFO)
+        // DEDUCT (FIFO) — kiểm tra đủ tồn FIFO *trước* khi ghi batch để tránh lệch batch vs stock_qty khi thiếu hàng
         let remainingToDeduct = absAmount;
         let batches = await findQuery(
-            StockBatch.find({ productId: pid, storeId: sid, remaining_qty: { $gt: 0 } }).sort({
-                received_at: 1,
-            })
+            StockBatch.find({ productId: pid, storeId: sid, remaining_qty: { $gt: 0 } })
         );
+        batches = batches.sort(compareBatchesForFEFO);
 
         if (batches.length === 0) {
-            const product = await findQuery(Product.findById(pid)).lean();
-            if (product && product.stock_qty > 0) {
+            const stockQty = Number(productBefore.stock_qty) || 0;
+            if (stockQty > 0) {
+                if (!allowNegative && absAmount > stockQty) {
+                    const err = new Error('INSUFFICIENT_STOCK');
+                    err.code = 'INSUFFICIENT_STOCK';
+                    throw err;
+                }
                 const [legacyBatch] = await StockBatch.create(
                     [
                         {
                             productId: pid,
                             storeId: sid,
-                            initial_qty: product.stock_qty,
-                            remaining_qty: product.stock_qty,
-                            unit_cost: product.cost_price || 0,
-                            received_at: product.created_at || new Date(),
+                            initial_qty: stockQty,
+                            remaining_qty: stockQty,
+                            unit_cost: roundTo4(productBefore.cost_price || 0),
+                            received_at: productBefore.created_at || new Date(),
+                            expiry_date: null,
+                            is_near_expiry: false,
                             note: 'Hàng tồn kho ban đầu (Legacy)',
                         },
                     ],
                     createOpts
                 );
                 batches = [legacyBatch];
+            } else if (!allowNegative && absAmount > 0) {
+                const err = new Error('INSUFFICIENT_STOCK');
+                err.code = 'INSUFFICIENT_STOCK';
+                throw err;
+            }
+        }
+
+        if (batches.length > 0 && !allowNegative) {
+            const totalAvailable = batches.reduce(
+                (sum, b) => sum + Math.max(0, Number(b.remaining_qty) || 0),
+                0
+            );
+            if (absAmount > totalAvailable) {
+                const err = new Error('INSUFFICIENT_STOCK');
+                err.code = 'INSUFFICIENT_STOCK';
+                throw err;
             }
         }
 
@@ -61,8 +123,11 @@ async function adjustStockFIFO(productId, storeId, amount, options = {}) {
             await batch.save(session ? { session } : {});
         }
 
-        // Note: If remainingToDeduct > 0, it means we deducted more than we had in batches.
-        // This can happen in some systems (negative stock), though ideally handled.
+        if (remainingToDeduct > 0 && !allowNegative) {
+            const err = new Error('INSUFFICIENT_STOCK');
+            err.code = 'INSUFFICIENT_STOCK';
+            throw err;
+        }
     } else {
         // ADD
         await StockBatch.create(
@@ -72,8 +137,10 @@ async function adjustStockFIFO(productId, storeId, amount, options = {}) {
                     storeId: sid,
                     initial_qty: absAmount,
                     remaining_qty: absAmount,
-                    unit_cost: batchMeta.unitCost || 0,
+                    unit_cost: roundTo4(batchMeta.unitCost || 0),
                     received_at: batchMeta.receivedAt || new Date(),
+                    expiry_date: toValidDate(batchMeta.expiryDate),
+                    is_near_expiry: false,
                     receipt_id: batchMeta.receiptId || undefined,
                     note: batchMeta.note || undefined,
                 },
@@ -87,12 +154,38 @@ async function adjustStockFIFO(productId, storeId, amount, options = {}) {
         $set: { updated_at: new Date() },
     };
     if (amount > 0 && newCostPrice != null && Number.isFinite(Number(newCostPrice))) {
-        productUpdate.$set.cost_price = Number(newCostPrice);
+        productUpdate.$set.cost_price = roundTo4(newCostPrice);
     }
 
-    const updateQ = Product.findByIdAndUpdate(pid, productUpdate);
+    const updateQ = Product.findOneAndUpdate({ _id: pid, storeId: sid }, productUpdate, { new: true });
     if (session) updateQ.session(session);
-    await updateQ;
+    const productAfter = await updateQ;
+    if (!productAfter) {
+        const err = new Error('PRODUCT_NOT_FOUND_IN_STORE');
+        err.code = 'PRODUCT_NOT_FOUND_IN_STORE';
+        throw err;
+    }
+
+    const afterQty = Number(productAfter.stock_qty) || 0;
+    const historyPayload = {
+        storeId: sid,
+        product_id: pid,
+        type: batchMeta.movementType || (amount > 0 ? 'IN_GENERIC' : 'OUT_GENERIC'),
+        reference_type: batchMeta.referenceType || undefined,
+        reference_id: batchMeta.referenceId || batchMeta.receiptId || undefined,
+        before_qty: beforeQty,
+        change_qty: Number(amount) || 0,
+        after_qty: afterQty,
+        unit_cost: batchMeta.unitCost != null ? roundTo4(batchMeta.unitCost) : null,
+        note: batchMeta.note || undefined,
+        actor_id: batchMeta.actorId || undefined,
+        created_at: new Date(),
+    };
+    if (session) {
+        await StockHistory.create([historyPayload], { session });
+    } else {
+        await StockHistory.create(historyPayload);
+    }
 }
 
 module.exports = {

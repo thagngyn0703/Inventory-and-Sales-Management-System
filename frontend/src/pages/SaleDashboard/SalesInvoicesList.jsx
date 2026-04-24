@@ -5,6 +5,7 @@ import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { Card, CardContent } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Badge } from '../../components/ui/badge';
+import { InlineNotice } from '../../components/ui/inline-notice';
 import { FileText, Loader2, Receipt, Search } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
@@ -37,7 +38,7 @@ function getInvoiceStatusView(inv) {
   return isDebtUnpaid ? 'debt_unpaid' : inv?.status;
 }
 
-export default function SalesInvoicesList() {
+export default function SalesInvoicesList({ basePathOverride = null, detailPathBuilder = null }) {
   const navigate = useNavigate();
   const location = useLocation();
   const [invoices, setInvoices] = useState([]);
@@ -47,7 +48,7 @@ export default function SalesInvoicesList() {
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
 
-  const basePath = '/staff';
+  const basePath = basePathOverride || (location.pathname.startsWith('/manager') ? '/manager' : '/staff');
   const isReturnsPage = location.pathname.includes('/returns');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
@@ -136,11 +137,7 @@ export default function SalesInvoicesList() {
           : 'Theo dõi toàn bộ hóa đơn bán lẻ và trạng thái thanh toán.'
       }
     >
-      {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800" role="alert">
-          {error}
-        </div>
-      )}
+      <InlineNotice message={error} type="error" />
 
       <Card className="border-slate-200/80 shadow-sm shadow-slate-900/5">
         <CardContent className="p-4 sm:p-6">
@@ -251,7 +248,12 @@ export default function SalesInvoicesList() {
                             variant="outline"
                             size="default"
                             className="h-9"
-                            onClick={() => navigate(`${basePath}/${inv._id}`)}
+                            onClick={() => {
+                              const nextPath = detailPathBuilder
+                                ? detailPathBuilder(inv)
+                                : `${basePath}/${inv._id}`;
+                              navigate(nextPath);
+                            }}
                           >
                             Xem
                           </Button>

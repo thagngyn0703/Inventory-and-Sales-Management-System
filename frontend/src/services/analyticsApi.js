@@ -1,4 +1,4 @@
-const API_BASE = 'http://localhost:8000/api';
+const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
 
 function getToken() {
   return localStorage.getItem('token') || '';
@@ -32,8 +32,8 @@ export async function getIncomingFrequencyBySupplier({ year, month } = {}) {
 /**
  * Tổng quan kinh doanh trong kỳ.
  * @param {Object} params - { from: 'YYYY-MM-DD', to: 'YYYY-MM-DD' }
- * @returns {{ revenue, order_count, avg_order_value, return_count, return_rate,
- *             incoming_cost, gross_profit_estimate, today: {...} }}
+ * @returns {{ revenue, revenue_net, total_vat_collected, order_count, avg_order_value, return_count, return_rate,
+ *             incoming_cost, gross_profit, gross_profit_estimate, today: {...} }}
  */
 export async function getAnalyticsSummary({ from, to } = {}) {
   const url = new URL(`${API_BASE}/analytics/summary`);
@@ -81,6 +81,19 @@ export async function getTopProducts({ from, to, limit = 10, sort } = {}) {
 }
 
 /**
+ * Phân tích lý do trả hàng trong kỳ.
+ * @param {Object} params - { from, to }
+ * @returns {{ period, total_return_amount, total_return_count, total_revenue, return_rate_by_revenue, data: Array }}
+ */
+export async function getReturnReasonsAnalytics({ from, to } = {}) {
+  const url = new URL(`${API_BASE}/analytics/return-reasons`);
+  if (from) url.searchParams.set('from', from);
+  if (to) url.searchParams.set('to', to);
+  const res = await fetch(url.toString(), { headers: authHeaders() });
+  return parseResponse(res, 'Không thể tải phân tích lý do trả hàng');
+}
+
+/**
  * Báo cáo tác động theo từng lần đổi giá sản phẩm.
  * @param {Object} params - { from, to, productId, supplierId, costDirection }
  */
@@ -93,4 +106,40 @@ export async function getPriceChangeImpactReport({ from, to, productId, supplier
   if (costDirection) url.searchParams.set('costDirection', costDirection);
   const res = await fetch(url.toString(), { headers: authHeaders() });
   return parseResponse(res, 'Không thể tải báo cáo thay đổi giá');
+}
+
+/**
+ * Báo cáo loyalty intelligence trong kỳ.
+ * @param {Object} params - { from, to }
+ */
+export async function getLoyaltyAnalytics({ from, to } = {}) {
+  const url = new URL(`${API_BASE}/analytics/loyalty`);
+  if (from) url.searchParams.set('from', from);
+  if (to) url.searchParams.set('to', to);
+  const res = await fetch(url.toString(), { headers: authHeaders() });
+  return parseResponse(res, 'Không thể tải báo cáo loyalty');
+}
+
+export async function downloadLoyaltyAnalyticsCsv({ from, to } = {}) {
+  const url = new URL(`${API_BASE}/analytics/loyalty/export`);
+  if (from) url.searchParams.set('from', from);
+  if (to) url.searchParams.set('to', to);
+  const res = await fetch(url.toString(), { headers: authHeaders() });
+  if (!res.ok) {
+    let message = 'Không thể xuất CSV loyalty';
+    try {
+      const data = await res.json();
+      if (data?.message) message = data.message;
+    } catch (_) {
+      // ignore non-json error payload
+    }
+    throw new Error(message);
+  }
+  const blob = await res.blob();
+  const contentDisposition = res.headers.get('content-disposition') || '';
+  const match = /filename="?([^"]+)"?/i.exec(contentDisposition);
+  return {
+    blob,
+    fileName: match?.[1] || 'loyalty-report.csv',
+  };
 }

@@ -114,3 +114,66 @@ export async function assignUserRole(userId, role) {
   return parseJson(res, 'Không thể gán role cho user');
 }
 
+export async function getStoreTaxSettings() {
+  const token = getToken();
+  const res = await fetch(`${apiPath('/store-settings/tax')}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return parseJson(res, 'Không thể tải cấu hình thuế');
+}
+
+export async function updateStoreTaxSettings({ business_type, tax_rate, price_includes_tax }) {
+  const token = getToken();
+  const res = await fetch(`${apiPath('/store-settings/tax')}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ business_type, tax_rate, price_includes_tax }),
+  });
+  return parseJson(res, 'Không thể cập nhật cấu hình thuế');
+}
+
+export async function getStoreBankSettings() {
+  const token = getToken();
+  const res = await fetch(`${apiPath('/store-settings/bank')}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return parseJson(res, 'Không thể tải cấu hình ngân hàng');
+}
+
+export async function updateStoreBankSettings({ bank_id, bank_account, bank_account_name }) {
+  const token = getToken();
+  const res = await fetch(`${apiPath('/store-settings/bank')}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ bank_id, bank_account, bank_account_name }),
+  });
+  return parseJson(res, 'Không thể cập nhật cấu hình ngân hàng');
+}
+
+export async function getStoreLoyaltySettings() {
+  const token = getToken();
+  const res = await fetch(`${apiPath('/store-settings/loyalty')}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return parseJson(res, 'Không thể tải cấu hình tích điểm');
+}
+
+export async function updateStoreLoyaltySettings({ loyalty_settings, change_reason = '' }) {
+  const token = getToken();
+  const res = await fetch(`${apiPath('/store-settings/loyalty')}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ loyalty_settings, change_reason }),
+  });
+  return parseJson(res, 'Không thể cập nhật cấu hình tích điểm');
+}
+
+export async function getStoreLoyaltySettingsHistory(limit = 20) {
+  const token = getToken();
+  const qs = new URLSearchParams({ limit: String(limit) });
+  const res = await fetch(`${apiPath('/store-settings/loyalty/history')}?${qs.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return parseJson(res, 'Không thể tải lịch sử thay đổi tích điểm');
+}
+

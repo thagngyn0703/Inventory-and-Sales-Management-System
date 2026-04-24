@@ -8,6 +8,7 @@ import { getAdjustments } from '../../services/adjustmentsApi';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
 import { Badge } from '../../components/ui/badge';
+import { InlineNotice } from '../../components/ui/inline-notice';
 import './ManagerDashboard.css';
 
 const LIMIT = 5;
@@ -64,11 +65,7 @@ export default function ManagerAdjustmentList() {
         subtitle={`Theo dõi phiếu duyệt/từ chối kiểm kê và hoàn tác. ${Platform.select({ web: '5 phiếu mỗi trang.', default: '5 phiếu mỗi trang.' })}`}
         headerActions={<Badge className="border border-indigo-200 bg-indigo-100 text-indigo-800">Tổng: {total} phiếu</Badge>}
       >
-          {error && (
-            <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-600">
-              {error}
-            </div>
-          )}
+          <InlineNotice message={error} type="error" className="mb-4" />
 
           <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
             <CardContent className="p-4">

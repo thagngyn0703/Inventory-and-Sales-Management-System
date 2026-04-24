@@ -143,7 +143,7 @@ export default function ManagerCreateStaff() {
             setForm({ ...defaultForm });
         } catch (err) {
             const msg = err.message || 'Không thể tạo tài khoản nhân viên.';
-            setError(msg.includes('fetch') || msg.includes('Network') ? 'Không kết nối được máy chủ. Kiểm tra backend đã chạy tại http://localhost:8000 chưa.' : msg);
+            setError(msg.includes('fetch') || msg.includes('Network') ? 'Không kết nối được máy chủ. Vui lòng kiểm tra cấu hình API và backend.' : msg);
         } finally {
             setLoading(false);
         }

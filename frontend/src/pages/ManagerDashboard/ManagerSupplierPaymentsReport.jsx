@@ -15,6 +15,9 @@ const fmt = (n) => Number(n || 0).toLocaleString('vi-VN') + ' đ';
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString('vi-VN') : '—';
 const toCsvCell = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
 const todayStr = new Date().toISOString().slice(0, 10);
+const PAGE_SIZE = 8;
+const pagingBtnClass =
+  'h-8 rounded-full border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-teal-300 hover:bg-teal-50 hover:text-teal-700 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none';
 
 function statusPill(status, isOverdue) {
   if (isOverdue) return 'border-red-300 bg-red-100 text-red-900 ring-1 ring-red-200';
@@ -57,7 +60,7 @@ export default function ManagerSupplierPaymentsReport() {
       const d = await getSupplierPayables({
         supplier_id: filterSupplierId || undefined,
         page,
-        limit: 10,
+        limit: PAGE_SIZE,
         created_from: dateFrom || undefined,
         created_to: dateTo || undefined,
       });
@@ -262,8 +265,24 @@ export default function ManagerSupplierPaymentsReport() {
               <div className="flex items-center justify-between border-t border-slate-100 px-4 py-3 text-sm text-slate-600">
                 <span>Trang {page}/{totalPages} ({total} đơn)</span>
                 <div className="flex gap-2">
-                  <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Trước</Button>
-                  <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>Sau</Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className={pagingBtnClass}
+                    disabled={page <= 1}
+                    onClick={() => setPage((p) => p - 1)}
+                  >
+                    Trước
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className={pagingBtnClass}
+                    disabled={page >= totalPages}
+                    onClick={() => setPage((p) => p + 1)}
+                  >
+                    Sau
+                  </Button>
                 </div>
               </div>
             )}

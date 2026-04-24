@@ -10,7 +10,7 @@ const goodsReceiptSchema = new Schema(
         supplier_id: {
             type: Schema.Types.ObjectId,
             ref: 'Supplier',
-            required: true,
+            required: false,
         },
         storeId: {
             type: Schema.Types.ObjectId,
@@ -43,6 +43,19 @@ const goodsReceiptSchema = new Schema(
                     ref: 'Product',
                     required: true,
                 },
+                product_name_snapshot: {
+                    type: String,
+                    trim: true,
+                },
+                product_sku_snapshot: {
+                    type: String,
+                    trim: true,
+                },
+                unit_id: {
+                    type: Schema.Types.ObjectId,
+                    ref: 'ProductUnit',
+                    required: false,
+                },
                 quantity: {
                     type: Number,
                     required: true,
@@ -62,6 +75,10 @@ const goodsReceiptSchema = new Schema(
                     trim: true,
                 },
                 ratio: {
+                    type: Number,
+                    default: 1,
+                },
+                exchange_value: {
                     type: Number,
                     default: 1,
                 },
@@ -93,6 +110,11 @@ const goodsReceiptSchema = new Schema(
             enum: ['cash', 'credit', 'partial'],
         },
         amount_paid_at_approval: {
+            type: Number,
+            default: 0,
+            min: 0,
+        },
+        debt_amount: {
             type: Number,
             default: 0,
             min: 0,

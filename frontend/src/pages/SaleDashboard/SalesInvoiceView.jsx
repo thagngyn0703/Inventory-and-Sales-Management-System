@@ -119,6 +119,31 @@ export default function SalesInvoiceView() {
                 <span style={{ color: '#64748b' }}>Khách hàng:</span>
                 <span style={{ fontWeight: 500, color: '#1e293b' }}>{invoice.recipient_name || 'Khách lẻ'}</span>
               </div>
+              {(invoice.seller_name || invoice.created_by?.fullName) && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <span style={{ color: '#64748b' }}>Người bán:</span>
+                  <span style={{ textAlign: 'right' }}>
+                    <span style={{ fontWeight: 500, color: '#1e293b' }}>
+                      {invoice.seller_name || invoice.created_by?.fullName || invoice.created_by?.email || '—'}
+                    </span>
+                    {invoice.seller_role && (
+                      <span style={{
+                        display: 'inline-block',
+                        marginLeft: 6,
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: invoice.seller_role === 'Quản lý' ? '#0d9488' : '#64748b',
+                        background: invoice.seller_role === 'Quản lý' ? '#f0fdfa' : '#f8fafc',
+                        border: `1px solid ${invoice.seller_role === 'Quản lý' ? '#99f6e4' : '#e2e8f0'}`,
+                        borderRadius: 4,
+                        padding: '1px 6px',
+                      }}>
+                        {invoice.seller_role}
+                      </span>
+                    )}
+                  </span>
+                </div>
+              )}
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ color: '#64748b' }}>Trạng thái:</span>
                 <span style={{ 
@@ -147,10 +172,24 @@ export default function SalesInvoiceView() {
                 <span style={{ color: '#64748b' }}>Phương thức:</span>
                 <span style={{ fontWeight: 500, color: '#1e293b' }}>{paymentMethodMap[invoice.payment_method] || invoice.payment_method}</span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: '#64748b' }}>Tổng tiền hàng ({invoice.items?.length || 0} món):</span>
-                <span style={{ fontWeight: 500, color: '#1e293b' }}>{formatMoney(invoice.total_amount)}</span>
-              </div>
+
+              {invoice.tax_rate_snapshot > 0 ? (
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: '#64748b' }}>Tạm tính ({invoice.items?.length || 0} món):</span>
+                    <span style={{ fontWeight: 500, color: '#1e293b' }}>{formatMoney(invoice.subtotal_amount)}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: '#64748b' }}>VAT ({invoice.tax_rate_snapshot}%):</span>
+                    <span style={{ fontWeight: 500, color: '#64748b' }}>{formatMoney(invoice.tax_amount)}</span>
+                  </div>
+                </>
+              ) : (
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#64748b' }}>Tổng tiền hàng ({invoice.items?.length || 0} món):</span>
+                  <span style={{ fontWeight: 500, color: '#1e293b' }}>{formatMoney(invoice.total_amount)}</span>
+                </div>
+              )}
               
               <div style={{ borderTop: '1px solid #f1f5f9', margin: '8px 0' }}></div>
               

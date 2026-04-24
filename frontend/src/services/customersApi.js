@@ -11,13 +11,15 @@ async function parseResponse(res, defaultError) {
     return data;
 }
 
-export const getCustomers = async (searchKey = '', status = '', is_regular = '', limit = 50) => {
+export const getCustomers = async ({ searchKey = '', status = '', is_regular = '', limit = 50, page = 1, has_debt = '' } = {}) => {
     try {
         const url = new URL(`${API_URL}/customers`);
         if (searchKey) url.searchParams.append('searchKey', searchKey);
         if (status) url.searchParams.append('status', status);
-        if (is_regular) url.searchParams.append('is_regular', is_regular);
-        if (limit) url.searchParams.append('limit', limit);
+        if (is_regular !== '') url.searchParams.append('is_regular', is_regular);
+        if (has_debt !== '') url.searchParams.append('has_debt', has_debt);
+        url.searchParams.append('limit', limit);
+        url.searchParams.append('page', page);
 
         const res = await fetch(url.toString(), {
             headers: getAuthHeaders(),
@@ -25,6 +27,17 @@ export const getCustomers = async (searchKey = '', status = '', is_regular = '',
         return await parseResponse(res, 'Lỗi khi tải danh sách khách hàng');
     } catch (err) {
         throw err;
+    }
+};
+
+export const getStoreBankInfo = async () => {
+    try {
+        const res = await fetch(`${API_URL}/store-settings/bank`, {
+            headers: getAuthHeaders(),
+        });
+        return await parseResponse(res, 'Lỗi khi tải thông tin ngân hàng');
+    } catch (err) {
+        return { bank_id: '', bank_account: '', bank_account_name: '' };
     }
 };
 
@@ -82,6 +95,81 @@ export const payCustomerDebt = async (id, amount, paymentMethod = 'cash') => {
             body: JSON.stringify({ amount, payment_method: paymentMethod }),
         });
         return await parseResponse(res, 'Lỗi khi thanh toán nợ');
+    } catch (err) {
+        throw err;
+    }
+};
+
+export const prepareCustomerDebtTransfer = async (id, amount) => {
+    try {
+        const res = await fetch(`${API_URL}/customers/${id}/pay-debt/prepare-transfer`, {
+            method: 'POST',
+            headers: {
+                ...getAuthHeaders(),
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ amount }),
+        });
+        return await parseResponse(res, 'Lỗi khi tạo mã QR thu nợ');
+    } catch (err) {
+        throw err;
+    }
+};
+
+export const confirmCustomerDebtTransfer = async (id, amount, paymentRef) => {
+    try {
+        const res = await fetch(`${API_URL}/customers/${id}/pay-debt/confirm-transfer`, {
+            method: 'POST',
+            headers: {
+                ...getAuthHeaders(),
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ amount, payment_ref: paymentRef }),
+        });
+        return await parseResponse(res, 'Lỗi khi xác nhận chuyển khoản thu nợ');
+    } catch (err) {
+        throw err;
+    }
+};
+
+export const cancelCustomerDebtTransfer = async (id, paymentRef) => {
+    try {
+        const res = await fetch(`${API_URL}/customers/${id}/pay-debt/cancel-transfer`, {
+            method: 'POST',
+            headers: {
+                ...getAuthHeaders(),
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ payment_ref: paymentRef }),
+        });
+        return await parseResponse(res, 'Lỗi khi hủy yêu cầu chuyển khoản thu nợ');
+    } catch (err) {
+        throw err;
+    }
+};
+
+export const getCustomerDebtPayments = async (id, limit = 100) => {
+    try {
+        const url = new URL(`${API_URL}/customers/${id}/debt-payments`);
+        if (limit) url.searchParams.append('limit', limit);
+        const res = await fetch(url.toString(), {
+            headers: getAuthHeaders(),
+        });
+        return await parseResponse(res, 'Lỗi khi tải lịch sử thanh toán nợ');
+    } catch (err) {
+        throw err;
+    }
+};
+
+export const getTopCustomersAnalytics = async ({ limit = 10, sort = 'spent' } = {}) => {
+    try {
+        const url = new URL(`${API_URL}/analytics/top-customers`);
+        url.searchParams.append('limit', String(limit));
+        url.searchParams.append('sort', sort);
+        const res = await fetch(url.toString(), {
+            headers: getAuthHeaders(),
+        });
+        return await parseResponse(res, 'Lỗi khi tải xếp hạng khách hàng');
     } catch (err) {
         throw err;
     }

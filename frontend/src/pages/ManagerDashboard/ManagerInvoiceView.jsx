@@ -4,6 +4,7 @@ import { getInvoice } from '../../services/invoicesApi';
 import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { Button } from '../../components/ui/button';
+import { InlineNotice } from '../../components/ui/inline-notice';
 import { Receipt, ArrowLeft } from 'lucide-react';
 import './ManagerDashboard.css';
 import '../SaleDashboard/SalesPOS.css';
@@ -94,14 +95,7 @@ export default function ManagerInvoiceView() {
             Đang tải dữ liệu…
           </p>
         )}
-        {!loading && error && (
-          <div
-            className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-center text-sm text-red-800"
-            role="alert"
-          >
-            {error}
-          </div>
-        )}
+        {!loading && error && <InlineNotice message={error} type="error" />}
         {!loading && !error && invoice && (
           <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
             <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm sm:p-6">
@@ -187,10 +181,23 @@ export default function ManagerInvoiceView() {
               <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm sm:p-6">
                 <h3 className="mb-3 text-base font-bold text-slate-800">Thanh toán</h3>
                 <div className="space-y-3 text-sm">
-                  <div className="flex justify-between text-slate-600">
-                    <span>Tổng tiền hàng ({invoice.items?.length || 0} món)</span>
-                    <span className="font-medium text-slate-900">{formatMoney(invoice.total_amount)}</span>
-                  </div>
+                  {invoice.tax_rate_snapshot > 0 ? (
+                    <>
+                      <div className="flex justify-between text-slate-600">
+                        <span>Tạm tính ({invoice.items?.length || 0} món)</span>
+                        <span className="font-medium text-slate-900">{formatMoney(invoice.subtotal_amount)}</span>
+                      </div>
+                      <div className="flex justify-between text-slate-500">
+                        <span>VAT ({invoice.tax_rate_snapshot}%)</span>
+                        <span className="font-medium">{formatMoney(invoice.tax_amount)}</span>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex justify-between text-slate-600">
+                      <span>Tổng tiền hàng ({invoice.items?.length || 0} món)</span>
+                      <span className="font-medium text-slate-900">{formatMoney(invoice.total_amount)}</span>
+                    </div>
+                  )}
                   <div className="border-t border-slate-100 pt-3">
                     <div className="flex items-center justify-between">
                       <span className="font-semibold text-slate-800">

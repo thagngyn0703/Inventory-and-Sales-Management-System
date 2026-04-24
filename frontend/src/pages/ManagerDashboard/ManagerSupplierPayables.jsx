@@ -14,16 +14,19 @@ import {
 import { getSuppliers } from '../../services/suppliersApi';
 import { Banknote, Loader2, CreditCard, History } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { parseCurrencyInput, toCurrencyInputFromNumber } from '../../utils/currencyInput';
 
 const STATUS_LABEL = { open: 'Chưa trả', partial: 'Trả một phần', paid: 'Đã trả', cancelled: 'Đã hủy' };
 const METHOD_LABEL = { cash: 'Tiền mặt', bank_transfer: 'Chuyển khoản', e_wallet: 'Ví điện tử', other: 'Khác' };
+const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
+const API_ORIGIN = API_BASE.replace(/\/api\/?$/, '');
+const PAGE_SIZE = 8;
 
 const PAY_MODAL_INITIAL = {
     supplier_id: '',
     total_amount: '',
     payment_date: new Date().toISOString().split('T')[0],
     payment_method: 'cash',
-    reference_code: '',
     note: '',
 };
 
@@ -37,6 +40,8 @@ function statusPill(status, isOverdue) {
 
 const fmt = (n) => Number(n || 0).toLocaleString('vi-VN') + ' đ';
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString('vi-VN') : '—';
+const pagingBtnClass =
+    'h-8 rounded-full border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-teal-300 hover:bg-teal-50 hover:text-teal-700 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none';
 const normalizeSearchText = (v) =>
     String(v || '')
         .toLowerCase()
@@ -48,7 +53,7 @@ const toQrSrc = (url) => {
     const u = String(url || '').trim();
     if (!u) return '';
     if (/^https?:\/\//i.test(u)) return u;
-    return `http://localhost:8000${u.startsWith('/') ? '' : '/'}${u}`;
+    return `${API_ORIGIN}${u.startsWith('/') ? '' : '/'}${u}`;
 };
 
 export default function ManagerSupplierPayables() {
@@ -91,6 +96,9 @@ export default function ManagerSupplierPayables() {
     const [modalSupplierOptions, setModalSupplierOptions] = useState([]);
     const [loadingModalSupplierOptions, setLoadingModalSupplierOptions] = useState(false);
     const [modalSupplierDropdownOpen, setModalSupplierDropdownOpen] = useState(false);
+    const [modalOpenPayables, setModalOpenPayables] = useState([]);
+    const [loadingModalPayables, setLoadingModalPayables] = useState(false);
+    const [selectedPayableIds, setSelectedPayableIds] = useState([]);
     const modalSupplierPickerRef = useRef(null);
 
     const loadSummary = useCallback(async (opts = {}) => {
@@ -119,12 +127,37 @@ export default function ManagerSupplierPayables() {
         && modalSupplierRemaining != null
         && modalSupplierRemaining > 0;
 
+    const selectedModalPayables = useMemo(
+        () => modalOpenPayables.filter((p) => selectedPayableIds.includes(String(p._id))),
+        [modalOpenPayables, selectedPayableIds]
+    );
+    const selectedRemainingTotal = useMemo(
+        () => selectedModalPayables.reduce((sum, p) => sum + (Number(p.remaining_amount) || 0), 0),
+        [selectedModalPayables]
+    );
+    const allModalPayablesSelected = useMemo(
+        () => modalOpenPayables.length > 0 && selectedPayableIds.length === modalOpenPayables.length,
+        [modalOpenPayables, selectedPayableIds]
+    );
+
+    useEffect(() => {
+        const exactDebtText = toCurrencyInputFromNumber(selectedRemainingTotal || 0);
+        setPayForm((prev) => (
+            prev.total_amount === exactDebtText
+                ? prev
+                : { ...prev, total_amount: exactDebtText }
+        ));
+    }, [selectedRemainingTotal]);
+
     // Khi mở modal: làm mới tổng hợp nợ (không làm “đang tải” cả trang)
     useEffect(() => {
         if (!payModalOpen) {
             setLoadingModalDebt(false);
             setLoadingModalSupplierOptions(false);
             setModalSupplierDropdownOpen(false);
+            setLoadingModalPayables(false);
+            setModalOpenPayables([]);
+            setSelectedPayableIds([]);
             return;
         }
         setPayForm({ ...PAY_MODAL_INITIAL, payment_date: new Date().toISOString().split('T')[0] });
@@ -187,10 +220,47 @@ export default function ManagerSupplierPayables() {
         return () => clearTimeout(timer);
     }, [modalSupplierQuery, payModalOpen, suppliers]);
 
+    useEffect(() => {
+        if (!payModalOpen || !payForm.supplier_id) {
+            setLoadingModalPayables(false);
+            setModalOpenPayables([]);
+            setSelectedPayableIds([]);
+            return;
+        }
+        let cancelled = false;
+        setLoadingModalPayables(true);
+        (async () => {
+            try {
+                const d = await getSupplierPayables({
+                    supplier_id: payForm.supplier_id,
+                    page: 1,
+                    limit: 100,
+                });
+                if (cancelled) return;
+                const list = (d?.payables || []).filter((p) =>
+                    ['open', 'partial'].includes(String(p.status)) && Number(p.remaining_amount || 0) > 0
+                );
+                setModalOpenPayables(list);
+                setSelectedPayableIds(list.map((p) => String(p._id)));
+            } catch (e) {
+                if (!cancelled) {
+                    toast(e.message || 'Không thể tải danh sách khoản nợ của nhà cung cấp', 'error');
+                    setModalOpenPayables([]);
+                    setSelectedPayableIds([]);
+                }
+            } finally {
+                if (!cancelled) setLoadingModalPayables(false);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [payModalOpen, payForm.supplier_id, toast]);
+
     const loadPayables = useCallback(async () => {
         setLoadingPayables(true);
         try {
-            const d = await getSupplierPayables({ supplier_id: filterSupplierId || undefined, status: filterStatus || undefined, page: payPage, limit: 15 });
+            const d = await getSupplierPayables({ supplier_id: filterSupplierId || undefined, status: filterStatus || undefined, page: payPage, limit: PAGE_SIZE });
             setPayables(d.payables || []);
             setPayTotal(d.total ?? 0);
             setPayTotalPages(d.totalPages ?? 1);
@@ -202,7 +272,7 @@ export default function ManagerSupplierPayables() {
     const loadPaymentHistory = useCallback(async () => {
         setLoadingPayH(true);
         try {
-            const d = await getSupplierPaymentHistory({ supplier_id: filterSupplierId || undefined, page: payHPage, limit: 15 });
+            const d = await getSupplierPaymentHistory({ supplier_id: filterSupplierId || undefined, page: payHPage, limit: PAGE_SIZE });
             setPayments(d.payments || []);
             setPayHTotal(d.total ?? 0);
             setPayHTotalPages(d.totalPages ?? 1);
@@ -230,15 +300,19 @@ export default function ManagerSupplierPayables() {
             toast('Không có khoản nợ để thanh toán với nhà cung cấp này.', 'error');
             return;
         }
-        const amt = Number(payForm.total_amount);
+        if (selectedPayableIds.length === 0) {
+            toast('Vui lòng chọn ít nhất một đơn nợ cần thanh toán.', 'error');
+            return;
+        }
+        const amt = parseCurrencyInput(payForm.total_amount);
         if (!amt || amt <= 0) { toast('Vui lòng nhập số tiền thanh toán', 'error'); return; }
-        if (amt > modalSupplierRemaining + 0.0001) {
-            toast(`Số tiền không được vượt quá số còn nợ (${fmt(modalSupplierRemaining)}).`, 'error');
+        if (Math.abs(amt - selectedRemainingTotal) > 0.0001) {
+            toast(`Số tiền phải đúng bằng tổng nợ của các đơn đã chọn (${fmt(selectedRemainingTotal)}).`, 'error');
             return;
         }
         setPaySubmitting(true);
         try {
-            await createSupplierPayment({ ...payForm, total_amount: amt });
+            await createSupplierPayment({ ...payForm, total_amount: amt, payable_ids: selectedPayableIds });
             toast('Đã ghi nhận thanh toán thành công', 'success');
             setPayModalOpen(false);
             setPayForm({ ...PAY_MODAL_INITIAL, payment_date: new Date().toISOString().split('T')[0] });
@@ -252,6 +326,8 @@ export default function ManagerSupplierPayables() {
     const closePayModal = () => {
         setPayModalOpen(false);
         setPayForm({ ...PAY_MODAL_INITIAL, payment_date: new Date().toISOString().split('T')[0] });
+        setModalOpenPayables([]);
+        setSelectedPayableIds([]);
     };
 
     return (
@@ -398,8 +474,24 @@ export default function ManagerSupplierPayables() {
                                 <div className="flex items-center justify-between border-t border-slate-100 px-4 py-3 text-sm text-slate-600">
                                     <span>Trang {payPage}/{payTotalPages} ({payTotal} phiếu)</span>
                                     <div className="flex gap-2">
-                                        <Button variant="outline" size="sm" disabled={payPage <= 1} onClick={() => setPayPage(p => p - 1)}>Trước</Button>
-                                        <Button variant="outline" size="sm" disabled={payPage >= payTotalPages} onClick={() => setPayPage(p => p + 1)}>Sau</Button>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className={pagingBtnClass}
+                                            disabled={payPage <= 1}
+                                            onClick={() => setPayPage(p => p - 1)}
+                                        >
+                                            Trước
+                                        </Button>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className={pagingBtnClass}
+                                            disabled={payPage >= payTotalPages}
+                                            onClick={() => setPayPage(p => p + 1)}
+                                        >
+                                            Sau
+                                        </Button>
                                     </div>
                                 </div>
                             )}
@@ -424,7 +516,6 @@ export default function ManagerSupplierPayables() {
                                                 <th className="px-4 py-3">Ngày thanh toán</th>
                                                 <th className="px-4 py-3 text-right">Số tiền</th>
                                                 <th className="px-4 py-3">Hình thức</th>
-                                                <th className="px-4 py-3">Mã tham chiếu</th>
                                                 <th className="px-4 py-3">Người ghi</th>
                                                 <th className="px-4 py-3">Ghi chú</th>
                                             </tr>
@@ -436,7 +527,6 @@ export default function ManagerSupplierPayables() {
                                                     <td className="px-4 py-3.5 whitespace-nowrap text-slate-600">{fmtDate(pm.payment_date)}</td>
                                                     <td className="px-4 py-3.5 text-right tabular-nums font-semibold text-emerald-700">{fmt(pm.total_amount)}</td>
                                                     <td className="px-4 py-3.5 text-slate-700">{METHOD_LABEL[pm.payment_method] ?? pm.payment_method}</td>
-                                                    <td className="px-4 py-3.5 font-mono text-xs text-slate-600">{pm.reference_code || '—'}</td>
                                                     <td className="px-4 py-3.5 text-slate-700">{pm.created_by?.fullName || pm.created_by?.email || '—'}</td>
                                                     <td className="px-4 py-3.5 max-w-[180px] truncate text-slate-500">{pm.note || '—'}</td>
                                                 </tr>
@@ -449,8 +539,24 @@ export default function ManagerSupplierPayables() {
                                 <div className="flex items-center justify-between border-t border-slate-100 px-4 py-3 text-sm text-slate-600">
                                     <span>Trang {payHPage}/{payHTotalPages} ({payHTotal} lần)</span>
                                     <div className="flex gap-2">
-                                        <Button variant="outline" size="sm" disabled={payHPage <= 1} onClick={() => setPayHPage(p => p - 1)}>Trước</Button>
-                                        <Button variant="outline" size="sm" disabled={payHPage >= payHTotalPages} onClick={() => setPayHPage(p => p + 1)}>Sau</Button>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className={pagingBtnClass}
+                                            disabled={payHPage <= 1}
+                                            onClick={() => setPayHPage(p => p - 1)}
+                                        >
+                                            Trước
+                                        </Button>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className={pagingBtnClass}
+                                            disabled={payHPage >= payHTotalPages}
+                                            onClick={() => setPayHPage(p => p + 1)}
+                                        >
+                                            Sau
+                                        </Button>
                                     </div>
                                 </div>
                             )}
@@ -467,12 +573,12 @@ export default function ManagerSupplierPayables() {
                     className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[1px]"
                     onClick={(e) => { if (e.target === e.currentTarget && !paySubmitting) closePayModal(); }}
                 >
-                    <div className="relative w-full max-w-[560px] overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_20px_60px_-10px_rgba(15,23,42,0.35)]">
+                    <div className="relative flex h-[66vh] w-full max-w-[760px] flex-col overflow-visible rounded-2xl border border-slate-200/90 bg-white shadow-[0_20px_60px_-10px_rgba(15,23,42,0.35)]">
                         <div className="border-b border-slate-200/80 bg-[linear-gradient(135deg,#f0fdfa_0%,#ecfeff_45%,#f8fafc_100%)] px-4 py-3">
                             <h2 className="m-0 text-[22px] font-bold tracking-tight text-slate-900">Ghi nhận thanh toán NCC</h2>
                             <p className="mt-0.5 text-xs text-slate-600">Thanh toán công nợ nhanh, rõ ràng và đồng bộ sổ quỹ.</p>
                         </div>
-                        <div className="max-h-[80vh] overflow-y-auto p-4">
+                        <div className="flex-1 overflow-y-auto overflow-x-visible p-5">
                             <div className="flex flex-col gap-3">
                             <div className="rounded-xl border border-slate-200/80 bg-slate-50/60 p-2.5">
                                 <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Tìm nhà cung cấp</label>
@@ -485,6 +591,8 @@ export default function ManagerSupplierPayables() {
                                         setModalSupplierDropdownOpen(true);
                                         if (payForm.supplier_id) {
                                             setPayForm((f) => ({ ...f, supplier_id: '', total_amount: '' }));
+                                            setModalOpenPayables([]);
+                                            setSelectedPayableIds([]);
                                         }
                                     }}
                                     placeholder="Gõ tên, điện thoại, email..."
@@ -518,7 +626,6 @@ export default function ManagerSupplierPayables() {
                                                         setPayForm((f) => ({
                                                             ...f,
                                                             supplier_id: s._id,
-                                                            total_amount: '',
                                                             payment_method:
                                                                 f.payment_method === 'bank_transfer' || f.payment_method === 'cash'
                                                                     ? f.payment_method
@@ -564,18 +671,93 @@ export default function ManagerSupplierPayables() {
                                         <strong className="text-[17px] font-bold text-sky-700">{fmt(modalSupplierRemaining)}</strong>
                                     </div>
                                     <form onSubmit={handlePay} className="flex flex-col gap-3">
+                                        <div className="rounded-xl border border-slate-200 bg-white">
+                                            <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
+                                                <p className="text-[12px] font-semibold text-slate-700">Chọn đơn cần thanh toán</p>
+                                                <div className="flex items-center gap-2">
+                                                    <Button
+                                                        type="button"
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="h-7 px-2 text-[11px]"
+                                                        disabled={loadingModalPayables || modalOpenPayables.length === 0}
+                                                        onClick={() => setSelectedPayableIds(modalOpenPayables.map((p) => String(p._id)))}
+                                                    >
+                                                        Chọn tất cả
+                                                    </Button>
+                                                    <Button
+                                                        type="button"
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="h-7 px-2 text-[11px]"
+                                                        disabled={loadingModalPayables || selectedPayableIds.length === 0}
+                                                        onClick={() => setSelectedPayableIds([])}
+                                                    >
+                                                        Bỏ chọn
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                            <div className="max-h-48 overflow-y-auto px-3 py-2">
+                                                {loadingModalPayables ? (
+                                                    <div className="flex items-center gap-2 py-2 text-[12px] text-slate-500">
+                                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                                        Đang tải danh sách đơn nợ...
+                                                    </div>
+                                                ) : modalOpenPayables.length === 0 ? (
+                                                    <p className="py-2 text-[12px] text-slate-500">Không có đơn nợ nào khả dụng.</p>
+                                                ) : (
+                                                    <div className="space-y-1.5">
+                                                        {modalOpenPayables.map((p) => {
+                                                            const id = String(p._id);
+                                                            const checked = selectedPayableIds.includes(id);
+                                                            return (
+                                                                <label key={id} className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-slate-100 px-2.5 py-2 hover:bg-slate-50">
+                                                                    <div className="flex min-w-0 items-center gap-2">
+                                                                        <input
+                                                                            type="checkbox"
+                                                                            checked={checked}
+                                                                            onChange={(e) => {
+                                                                                setSelectedPayableIds((prev) => {
+                                                                                    if (e.target.checked) return [...prev, id];
+                                                                                    return prev.filter((pid) => pid !== id);
+                                                                                });
+                                                                            }}
+                                                                        />
+                                                                        <div className="min-w-0">
+                                                                            <p className="truncate text-[12px] font-semibold text-slate-700">
+                                                                                Phiếu nhập {(p.source_id?._id ?? String(p.source_id || '')).slice(-8).toUpperCase()}
+                                                                            </p>
+                                                                            <p className="text-[11px] text-slate-500">
+                                                                                Ngày tạo: {fmtDate(p.created_at)}{p.due_date ? ` • Hạn: ${fmtDate(p.due_date)}` : ''}
+                                                                            </p>
+                                                                        </div>
+                                                                    </div>
+                                                                    <p className="shrink-0 text-[12px] font-semibold text-red-600">{fmt(p.remaining_amount)}</p>
+                                                                </label>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <div className="border-t border-slate-100 px-3 py-2 text-[12px] text-slate-700">
+                                                Đã chọn <strong>{selectedPayableIds.length}</strong> / {modalOpenPayables.length} đơn
+                                                {' • '}Tổng cần trả: <strong className="text-sky-700">{fmt(selectedRemainingTotal)}</strong>
+                                                {allModalPayablesSelected ? ' (đang chọn tất cả)' : ''}
+                                            </div>
+                                        </div>
                                         <div>
                                             <label className="mb-1 block text-[12px] font-semibold text-slate-700">Số tiền thanh toán (đ) <span className="text-red-500">*</span></label>
                                             <input
-                                                type="number"
-                                                min="1"
-                                                max={modalSupplierRemaining}
-                                                step="1"
+                                                type="text"
+                                                inputMode="numeric"
                                                 value={payForm.total_amount}
-                                                onChange={(e) => setPayForm((f) => ({ ...f, total_amount: e.target.value }))}
-                                                placeholder={`Tối đa ${fmt(modalSupplierRemaining)}`}
+                                                readOnly
+                                                placeholder="Sẽ tự tính theo đơn đã chọn"
                                                 className="h-9 w-full rounded-xl border border-slate-200 px-3 text-[13px] outline-none ring-teal-200 transition focus:border-teal-300 focus:ring-2"
                                             />
+                                            <p className="mt-1 text-[11px] text-slate-500">
+                                                Hệ thống tự động tính theo các đơn đã tích chọn ở trên.
+                                            </p>
                                         </div>
                                         <div className="grid grid-cols-2 gap-3">
                                             <div>
@@ -616,7 +798,7 @@ export default function ManagerSupplierPayables() {
                                                                 Dùng app ngân hàng quét mã QR để chuyển khoản.
                                                             </p>
                                                             <p className="mt-1.5 mb-0">
-                                                                Sau khi chuyển, nhập mã tham chiếu bên dưới rồi bấm “Ghi nhận”.
+                                                                Sau khi chuyển khoản xong, bấm “Ghi nhận” để cập nhật công nợ.
                                                             </p>
                                                         </div>
                                                     </div>
@@ -627,16 +809,6 @@ export default function ManagerSupplierPayables() {
                                                 )}
                                             </div>
                                         )}
-                                        <div>
-                                            <label className="mb-1 block text-[12px] font-semibold text-slate-700">Mã tham chiếu (nếu có)</label>
-                                            <input
-                                                type="text"
-                                                value={payForm.reference_code}
-                                                onChange={(e) => setPayForm((f) => ({ ...f, reference_code: e.target.value }))}
-                                                placeholder="Mã giao dịch, số biên lai…"
-                                                className="h-9 w-full rounded-xl border border-slate-200 px-3 text-[13px] outline-none ring-teal-200 transition focus:border-teal-300 focus:ring-2"
-                                            />
-                                        </div>
                                         <div>
                                             <label className="mb-1 block text-[12px] font-semibold text-slate-700">Ghi chú</label>
                                             <textarea

@@ -1,0 +1,50 @@
+services:
+  mongo:
+    image: mongo:4.4
+    container_name: ims-mongo
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - ims-net
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ims-backend
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    environment:
+      NODE_ENV: production
+      PORT: 8000
+      MONGO_URI: ${MONGO_URI:-mongodb://mongo:27017/ims}
+    depends_on:
+      - mongo
+    ports:
+      - "8000:8000"
+    networks:
+      - ims-net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        REACT_APP_API_URL: ${REACT_APP_API_URL:-/api}
+    container_name: ims-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "8001:80"
+    networks:
+      - ims-net
+
+volumes:
+  mongo_data:
+
+networks:
+  ims-net:
+    driver: bridge
