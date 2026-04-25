@@ -694,8 +694,29 @@ router.get(
             output_revenue_net: { $sum: { $ifNull: ['$subtotal_amount', 0] } },
             output_vat: { $sum: { $ifNull: ['$tax_amount', 0] } },
             invoice_count: { $sum: 1 },
+            invoice_with_policy_snapshot: {
+              $sum: {
+                $cond: [{ $ifNull: ['$tax_policy_version_id', false] }, 1, 0],
+              },
+            },
           },
         },
+      ]);
+      const bucketByFinalRate = await SalesInvoice.aggregate([
+        { $match: match },
+        { $unwind: '$items' },
+        {
+          $group: {
+            _id: {
+              final_rate: { $ifNull: ['$items.final_rate', '$items.vat_rate_snapshot'] },
+              tax_status: { $ifNull: ['$items.tax_status', 'taxable'] },
+            },
+            line_net_total: { $sum: { $ifNull: ['$items.line_subtotal_amount', 0] } },
+            line_tax_total: { $sum: { $ifNull: ['$items.line_tax_amount', 0] } },
+            line_count: { $sum: 1 },
+          },
+        },
+        { $sort: { '_id.final_rate': 1 } },
       ]);
       return res.json({
         period: { from: from.toISOString(), to: to.toISOString() },
@@ -703,6 +724,16 @@ router.get(
         output_revenue_net: Number(invoices[0]?.output_revenue_net || 0),
         output_vat: Number(invoices[0]?.output_vat || 0),
         invoice_count: Number(invoices[0]?.invoice_count || 0),
+        invoice_with_policy_snapshot: Number(invoices[0]?.invoice_with_policy_snapshot || 0),
+        invoice_missing_policy_snapshot:
+          Math.max(0, Number(invoices[0]?.invoice_count || 0) - Number(invoices[0]?.invoice_with_policy_snapshot || 0)),
+        buckets: bucketByFinalRate.map((b) => ({
+          final_rate: Number(b?._id?.final_rate || 0),
+          tax_status: String(b?._id?.tax_status || 'taxable'),
+          line_net_total: Number(b?.line_net_total || 0),
+          line_tax_total: Number(b?.line_tax_total || 0),
+          line_count: Number(b?.line_count || 0),
+        })),
       });
     } catch (err) {
       return res.status(500).json({ message: err.message || 'Server error' });

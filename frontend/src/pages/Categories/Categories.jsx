@@ -30,6 +30,8 @@ const Categories = () => {
     // Input value cho category name mới
     const [newName, setNewName] = useState('');
     const [newVatRate, setNewVatRate] = useState('');
+    const [newTaxProfile, setNewTaxProfile] = useState('default');
+    const [newTaxTags, setNewTaxTags] = useState('');
 
     // ========== EDIT MODAL STATE ==========
     // Modal chỉnh sửa category
@@ -39,6 +41,8 @@ const Categories = () => {
     // Name của category đang edit
     const [editingName, setEditingName] = useState('');
     const [editingVatRate, setEditingVatRate] = useState('');
+    const [editingTaxProfile, setEditingTaxProfile] = useState('default');
+    const [editingTaxTags, setEditingTaxTags] = useState('');
 
     // ========== SEARCH STATE ==========
     // Search term đã được apply (filtered)
@@ -116,6 +120,8 @@ const Categories = () => {
                 body: JSON.stringify({
                     name: newName.trim(),
                     vat_rate: newVatRate === '' ? null : Number(newVatRate),
+                    tax_profile: newTaxProfile || 'default',
+                    tax_tags: String(newTaxTags || '').split(',').map((x) => x.trim()).filter(Boolean),
                 }),
             });
             const data = await res.json();
@@ -124,6 +130,8 @@ const Categories = () => {
             // Reset form và đóng modal
             setNewName('');
             setNewVatRate('');
+            setNewTaxProfile('default');
+            setNewTaxTags('');
             setShowCreateModal(false);
             refetchCategories(); // Update UI
         } catch (err) {
@@ -145,6 +153,8 @@ const Categories = () => {
                 ? ''
                 : String(cat.vat_rate)
         );
+        setEditingTaxProfile(cat.tax_profile || 'default');
+        setEditingTaxTags(Array.isArray(cat.tax_tags) ? cat.tax_tags.join(', ') : '');
         setShowEditModal(true);
     };
 
@@ -155,6 +165,8 @@ const Categories = () => {
         setEditingId(null);
         setEditingName('');
         setEditingVatRate('');
+        setEditingTaxProfile('default');
+        setEditingTaxTags('');
         setShowEditModal(false);
     };
 
@@ -177,6 +189,8 @@ const Categories = () => {
                 body: JSON.stringify({
                     name: editingName.trim(),
                     vat_rate: editingVatRate === '' ? null : Number(editingVatRate),
+                    tax_profile: editingTaxProfile || 'default',
+                    tax_tags: String(editingTaxTags || '').split(',').map((x) => x.trim()).filter(Boolean),
                 }),
             });
             const data = await res.json();
@@ -350,6 +364,18 @@ const Categories = () => {
                                 onChange={(e) => setNewVatRate(e.target.value)}
                                 placeholder="VAT (%) - để trống nếu không áp dụng"
                             />
+                            <input
+                                type="text"
+                                value={newTaxProfile}
+                                onChange={(e) => setNewTaxProfile(e.target.value)}
+                                placeholder="Tax profile (default)"
+                            />
+                            <input
+                                type="text"
+                                value={newTaxTags}
+                                onChange={(e) => setNewTaxTags(e.target.value)}
+                                placeholder="Tax tags (comma separated)"
+                            />
                             <div className="modal-buttons">
                                 <button
                                     type="submit"
@@ -370,6 +396,8 @@ const Categories = () => {
                                         setShowCreateModal(false);
                                         setNewName('');
                                         setNewVatRate('');
+                                        setNewTaxProfile('default');
+                                        setNewTaxTags('');
                                     }}
                                     className="btn-cancel"
                                 >
@@ -406,6 +434,18 @@ const Categories = () => {
                                 value={editingVatRate}
                                 onChange={(e) => setEditingVatRate(e.target.value)}
                                 placeholder="VAT (%) - để trống nếu không áp dụng"
+                            />
+                            <input
+                                type="text"
+                                value={editingTaxProfile}
+                                onChange={(e) => setEditingTaxProfile(e.target.value)}
+                                placeholder="Tax profile"
+                            />
+                            <input
+                                type="text"
+                                value={editingTaxTags}
+                                onChange={(e) => setEditingTaxTags(e.target.value)}
+                                placeholder="Tax tags (comma separated)"
                             />
                             <div className="modal-buttons">
                                 <button

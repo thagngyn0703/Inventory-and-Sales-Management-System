@@ -505,6 +505,8 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
       stock_qty,
       reorder_level,
       vat_rate,
+      tax_override_enabled,
+      tax_tags,
       expiry_date,
       base_unit,
       selling_units: bodyUnits,
@@ -688,6 +690,8 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
           cost_price: Math.round(costNum),
           sale_price: Math.round(baseUnitPrice),
           vat_rate: vatNum,
+          tax_override_enabled: Boolean(tax_override_enabled),
+          tax_tags: Array.isArray(tax_tags) ? tax_tags.map((t) => String(t).trim()).filter(Boolean) : [],
           stock_qty: 0,
           reorder_level: reorderNum,
           expiry_date: expCheck.date,
@@ -1475,6 +1479,8 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
       stock_qty,
       reorder_level,
       vat_rate,
+      tax_override_enabled,
+      tax_tags,
       expiry_date,
       base_unit,
       selling_units: bodyUnits,
@@ -1575,6 +1581,12 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
         return res.status(400).json({ message: 'VAT không hợp lệ (0-100).' });
       }
       product.vat_rate = vatNum;
+    }
+    if (tax_override_enabled !== undefined) {
+      product.tax_override_enabled = Boolean(tax_override_enabled);
+    }
+    if (tax_tags !== undefined) {
+      product.tax_tags = Array.isArray(tax_tags) ? tax_tags.map((t) => String(t).trim()).filter(Boolean) : [];
     }
     if (base_unit !== undefined) {
       const base = base_unit ? trimText(base_unit) : 'Cái';

@@ -7,7 +7,6 @@ const Product = require('../models/Product');
 const ProductUnit = require('../models/ProductUnit');
 const User = require('../models/User');
 const Store = require('../models/Store');
-const Category = require('../models/Category');
 const Customer = require('../models/Customer');
 const { adjustStockFIFO } = require('../utils/inventoryUtils');
 const { applyCustomerDebtAfterNewInvoice } = require('../utils/customerDebt');
@@ -23,6 +22,7 @@ const {
     appendLoyaltyTxn,
 } = require('../utils/loyalty');
 const { logAudit } = require('../utils/audit');
+const { computeInvoiceTaxSnapshot } = require('../services/vatEngine');
 const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
@@ -732,52 +732,20 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
         const sellerRoleSnap = seller_role?.trim() || (sellerUser?.role === 'manager' ? 'Quản lý' : 'Nhân viên');
         const sellerCodeSnap = seller_code?.trim() || sellerUser?.employeeCode || '';
 
-        // Tính thuế từ cấu hình cửa hàng — server là nguồn sự thật, không tin client
-        const taxConfig = await getStoreTaxConfig(req.user.storeId);
-        // VAT by line: product.vat_rate > category.vat_rate > default store tax_rate
-        const productIdsForVat = [...new Set(normalizedItems.map((it) => normalizeId(it.product_id)).filter(Boolean))];
-        const vatProducts = await Product.find({
-            _id: { $in: productIdsForVat },
-            ...(req.user.storeId ? { storeId: req.user.storeId } : {}),
-        })
-            .select('_id category_id vat_rate')
-            .lean();
-        const productsById = new Map(vatProducts.map((p) => [String(p._id), p]));
-        const categoryIds = [...new Set(vatProducts.map((p) => normalizeId(p.category_id)).filter(Boolean))];
-        const categories = categoryIds.length
-            ? await Category.find({ _id: { $in: categoryIds } }).select('_id vat_rate').lean()
-            : [];
-        const categoryById = new Map(categories.map((c) => [String(c._id), c]));
-
-        const itemsWithNet = allocateInvoiceDiscountToLines(normalizedItems, invoiceLevelDiscount);
-        let subtotal_amount = 0;
-        let tax_amount = 0;
-        const vatRateSet = new Set();
-        const vatItems = itemsWithNet.map((it) => {
-            const pid = normalizeId(it.product_id);
-            const product = pid ? productsById.get(pid) : null;
-            const catId = normalizeId(product?.category_id);
-            const cat = catId ? categoryById.get(catId) : null;
-            const pr = product?.vat_rate;
-            const cr = cat?.vat_rate;
-            const resolvedRate =
-                pr !== null && pr !== undefined && pr !== '' ? Number(pr) :
-                cr !== null && cr !== undefined && cr !== '' ? Number(cr) :
-                Number(taxConfig.tax_rate) || 0;
-            const safeRate = Number.isFinite(resolvedRate) && resolvedRate >= 0 ? resolvedRate : 0;
-            vatRateSet.add(String(safeRate));
-            const net = Math.round(Number(it.line_net_total) || 0);
-            const breakdown = computeTaxBreakdown(net, safeRate, taxConfig.price_includes_tax);
-            subtotal_amount += Number(breakdown.subtotal_amount) || 0;
-            tax_amount += Number(breakdown.tax_amount) || 0;
-            return {
-                ...it,
-                vat_rate_snapshot: safeRate,
-                line_subtotal_amount: breakdown.subtotal_amount,
-                line_tax_amount: breakdown.tax_amount,
-            };
-        });
-        const taxIsMixed = vatRateSet.size > 1;
+        let taxSnapshot;
+        try {
+            taxSnapshot = await computeInvoiceTaxSnapshot({
+                storeId: req.user.storeId,
+                invoiceTaxPointAt: req.body?.invoice_tax_point_at || new Date(),
+                items: normalizedItems,
+                invoiceLevelDiscount,
+            });
+        } catch (taxErr) {
+            if (taxErr?.code === 'TAX_MAPPING_REQUIRED') {
+                return res.status(400).json({ code: 'TAX_MAPPING_REQUIRED', message: 'Thiếu mapping thuế cho sản phẩm/danh mục.' });
+            }
+            throw taxErr;
+        }
 
         const invoice = new SalesInvoice({
             store_id: req.user.storeId || null,
@@ -794,11 +762,21 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
             paid_at: paymentStatus === 'paid' ? new Date() : null,
             payment: paymentSplit,
             total_amount: netInvoiceAmount,
-            items: vatItems,
-            subtotal_amount: Math.round(subtotal_amount),
-            tax_amount: Math.round(tax_amount),
-            tax_rate_snapshot: taxConfig.tax_rate,
-            tax_is_mixed: taxIsMixed,
+            invoice_tax_point_at: req.body?.invoice_tax_point_at || new Date(),
+            items: taxSnapshot.items,
+            subtotal_amount: Math.round(Number(taxSnapshot.subtotal_amount) || 0),
+            tax_amount: Math.round(Number(taxSnapshot.tax_amount) || 0),
+            tax_rate_snapshot: taxSnapshot.tax_rate_snapshot,
+            tax_is_mixed: Boolean(taxSnapshot.tax_is_mixed),
+            tax_policy_version_id: taxSnapshot.policy?._id || null,
+            tax_policy_version_code: String(taxSnapshot.policy?.version_code || ''),
+            tax_legal_basis_ref: String(taxSnapshot.policy?.legal_basis_ref || ''),
+            tax_rounding_mode: String(taxSnapshot.policy?.rounding_mode || 'half_up'),
+            strict_compliance_snapshot: Boolean(taxSnapshot.strict_compliance),
+            tax_decision_trace: {
+                reduction_exclusions: taxSnapshot.policy?.exclusion_rules || [],
+                mandatory_reason_codes: taxSnapshot.policy?.mandatory_reason_codes || [],
+            },
             previous_debt_paid: prevDebtPaid,
             invoice_level_discount: invoiceLevelDiscount,
             loyalty_redeem_points: redeemPlan.used_points,
@@ -1288,56 +1266,31 @@ router.patch('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), as
                     : nextItems.reduce((s, it) => s + (Number(it.line_total) || 0), 0);
                 invoice.total_amount = newTotal;
 
-                // Tính lại thuế VAT theo line khi items thay đổi
-                const patchTaxConfig = await getStoreTaxConfig(invoice.store_id);
-                const productIdsForVat = [...new Set((nextItems || []).map((it) => normalizeId(it.product_id)).filter(Boolean))];
-                const vatProducts = await Product.find({
-                    _id: { $in: productIdsForVat },
-                    ...(invoice.store_id ? { storeId: invoice.store_id } : {}),
-                })
-                    .select('_id category_id vat_rate')
-                    .lean();
-                const productsById = new Map(vatProducts.map((p) => [String(p._id), p]));
-                const categoryIds = [...new Set(vatProducts.map((p) => normalizeId(p.category_id)).filter(Boolean))];
-                const categories = categoryIds.length
-                    ? await Category.find({ _id: { $in: categoryIds } }).select('_id vat_rate').lean()
-                    : [];
-                const categoryById = new Map(categories.map((c) => [String(c._id), c]));
+                let patchTaxSnapshot;
+                try {
+                    patchTaxSnapshot = await computeInvoiceTaxSnapshot({
+                        storeId: invoice.store_id,
+                        invoiceTaxPointAt: invoice.invoice_tax_point_at || invoice.invoice_at || new Date(),
+                        items: nextItems,
+                        invoiceLevelDiscount: invoice.invoice_level_discount,
+                    });
+                } catch (taxErr) {
+                    if (taxErr?.code === 'TAX_MAPPING_REQUIRED') {
+                        return res.status(400).json({ code: 'TAX_MAPPING_REQUIRED', message: 'Thiếu mapping thuế cho sản phẩm/danh mục.' });
+                    }
+                    throw taxErr;
+                }
 
-                const itemsWithNet = allocateInvoiceDiscountToLines(nextItems, invoice.invoice_level_discount);
-                let subtotalSum = 0;
-                let taxSum = 0;
-                const vatRateSet = new Set();
-                const vatItems = itemsWithNet.map((it) => {
-                    const pid = normalizeId(it.product_id);
-                    const product = pid ? productsById.get(pid) : null;
-                    const catId = normalizeId(product?.category_id);
-                    const cat = catId ? categoryById.get(catId) : null;
-                    const pr = product?.vat_rate;
-                    const cr = cat?.vat_rate;
-                    const resolvedRate =
-                        pr !== null && pr !== undefined && pr !== '' ? Number(pr) :
-                        cr !== null && cr !== undefined && cr !== '' ? Number(cr) :
-                        Number(patchTaxConfig.tax_rate) || 0;
-                    const safeRate = Number.isFinite(resolvedRate) && resolvedRate >= 0 ? resolvedRate : 0;
-                    vatRateSet.add(String(safeRate));
-                    const net = Math.round(Number(it.line_net_total) || 0);
-                    const breakdown = computeTaxBreakdown(net, safeRate, patchTaxConfig.price_includes_tax);
-                    subtotalSum += Number(breakdown.subtotal_amount) || 0;
-                    taxSum += Number(breakdown.tax_amount) || 0;
-                    return {
-                        ...it,
-                        vat_rate_snapshot: safeRate,
-                        line_subtotal_amount: breakdown.subtotal_amount,
-                        line_tax_amount: breakdown.tax_amount,
-                    };
-                });
-
-                invoice.items = vatItems;
-                invoice.subtotal_amount = Math.round(subtotalSum);
-                invoice.tax_amount = Math.round(taxSum);
-                invoice.tax_rate_snapshot = patchTaxConfig.tax_rate;
-                invoice.tax_is_mixed = vatRateSet.size > 1;
+                invoice.items = patchTaxSnapshot.items;
+                invoice.subtotal_amount = Math.round(Number(patchTaxSnapshot.subtotal_amount) || 0);
+                invoice.tax_amount = Math.round(Number(patchTaxSnapshot.tax_amount) || 0);
+                invoice.tax_rate_snapshot = patchTaxSnapshot.tax_rate_snapshot;
+                invoice.tax_is_mixed = Boolean(patchTaxSnapshot.tax_is_mixed);
+                invoice.tax_policy_version_id = patchTaxSnapshot.policy?._id || null;
+                invoice.tax_policy_version_code = String(patchTaxSnapshot.policy?.version_code || '');
+                invoice.tax_legal_basis_ref = String(patchTaxSnapshot.policy?.legal_basis_ref || '');
+                invoice.tax_rounding_mode = String(patchTaxSnapshot.policy?.rounding_mode || 'half_up');
+                invoice.strict_compliance_snapshot = Boolean(patchTaxSnapshot.strict_compliance);
             }
             invoice.status = nextStatus;
         } catch (err) {

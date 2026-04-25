@@ -26,7 +26,7 @@ router.get('/', requireRole(['manager', 'staff', 'admin']), async (req, res) => 
 // POST /api/categories - create new category
 router.post('/', requireRole(['manager', 'staff', 'admin']), async (req, res) => {
     try {
-        const { name, vat_rate } = req.body;
+        const { name, vat_rate, tax_profile, tax_tags } = req.body;
         if (!name || !name.trim()) {
             return res.status(400).json({ message: 'Tên danh mục không được để trống' });
         }
@@ -42,7 +42,12 @@ router.post('/', requireRole(['manager', 'staff', 'admin']), async (req, res) =>
         if (exists) {
             return res.status(400).json({ message: 'Danh mục đã tồn tại' });
         }
-        const cat = await Category.create({ name: normalized, vat_rate: vat });
+        const cat = await Category.create({
+            name: normalized,
+            vat_rate: vat,
+            tax_profile: String(tax_profile || 'default').trim() || 'default',
+            tax_tags: Array.isArray(tax_tags) ? tax_tags.map((t) => String(t).trim()).filter(Boolean) : [],
+        });
         res.status(201).json(cat);
     } catch (err) {
         console.error('Failed to create category', err);
@@ -54,7 +59,7 @@ router.post('/', requireRole(['manager', 'staff', 'admin']), async (req, res) =>
 router.put('/:id', requireRole(['manager', 'staff', 'admin']), async (req, res) => {
     try {
         const { id } = req.params;
-        const { name, vat_rate } = req.body;
+        const { name, vat_rate, tax_profile, tax_tags } = req.body;
         if (!name || !name.trim()) {
             return res.status(400).json({ message: 'Tên danh mục không được để trống' });
         }
@@ -79,6 +84,10 @@ router.put('/:id', requireRole(['manager', 'staff', 'admin']), async (req, res) 
         }
         cat.name = normalized;
         if (vat_rate !== undefined) cat.vat_rate = vat;
+        if (tax_profile !== undefined) cat.tax_profile = String(tax_profile || 'default').trim() || 'default';
+        if (tax_tags !== undefined) {
+            cat.tax_tags = Array.isArray(tax_tags) ? tax_tags.map((t) => String(t).trim()).filter(Boolean) : [];
+        }
         await cat.save();
         res.json(cat);
     } catch (err) {

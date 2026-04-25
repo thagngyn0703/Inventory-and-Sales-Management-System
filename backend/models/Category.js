@@ -18,6 +18,15 @@ const categorySchema = new Schema(
             min: 0,
             max: 100,
         },
+        tax_profile: {
+            type: String,
+            default: 'default',
+            trim: true,
+        },
+        tax_tags: {
+            type: [String],
+            default: [],
+        },
         created_at: {
             type: Date,
             default: Date.now,

@@ -36,6 +36,9 @@ const createDefaultForm = () => ({
     stock_qty: '',
     payment_type: 'cash',
     reorder_level: '',
+    vat_rate: '',
+    tax_override_enabled: false,
+    tax_tags_text: '',
     expiry_date: '',
     base_unit: 'Cái',
     selling_units: [defaultSellingUnit()],
@@ -354,6 +357,9 @@ export default function ManagerProductCreate() {
                 stock_qty: stockCheck.value,
                 payment_type: form.payment_type || 'cash',
                 reorder_level: reorderCheck.value,
+                vat_rate: form.vat_rate === '' ? undefined : Number(form.vat_rate),
+                tax_override_enabled: Boolean(form.tax_override_enabled),
+                tax_tags: String(form.tax_tags_text || '').split(',').map((x) => x.trim()).filter(Boolean),
                 expiry_date: form.expiry_date || undefined,
                 base_unit: baseUnitCheck.value,
                 selling_units: units,
@@ -785,6 +791,38 @@ export default function ManagerProductCreate() {
                                                 placeholder="0"
                                                 className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
                                             />
+                                        </div>
+                                        <div>
+                                            <label className="mb-1 block text-sm font-medium text-slate-600">VAT override (%)</label>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                max="100"
+                                                step="0.01"
+                                                value={form.vat_rate}
+                                                onChange={(e) => update('vat_rate', e.target.value)}
+                                                placeholder="Để trống để dùng theo danh mục"
+                                                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
+                                            />
+                                        </div>
+                                        <div className="md:col-span-2">
+                                            <label className="mb-1 block text-sm font-medium text-slate-600">Tax tags (comma separated)</label>
+                                            <input
+                                                type="text"
+                                                value={form.tax_tags_text}
+                                                onChange={(e) => update('tax_tags_text', e.target.value)}
+                                                placeholder="ttdb, beverage, excluded_reduction"
+                                                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
+                                            />
+                                            <label className="mt-2 flex items-center gap-2 text-xs text-slate-600">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={Boolean(form.tax_override_enabled)}
+                                                    onChange={(e) => update('tax_override_enabled', e.target.checked)}
+                                                    className="h-4 w-4 accent-teal-600"
+                                                />
+                                                Bật VAT override ở cấp sản phẩm
+                                            </label>
                                         </div>
                                         <div className="md:col-span-2">
                                             <label className="mb-1 block text-sm font-medium text-slate-600">Hạn sử dụng</label>

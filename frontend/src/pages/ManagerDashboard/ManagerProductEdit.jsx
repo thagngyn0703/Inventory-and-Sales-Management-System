@@ -36,6 +36,8 @@ const defaultForm = {
     stock_qty: '',
     reorder_level: '',
     vat_rate: '',
+    tax_override_enabled: false,
+    tax_tags_text: '',
     expiry_date: '',
     base_unit: 'Cái',
     selling_units: [defaultSellingUnit()],
@@ -152,6 +154,8 @@ export default function ManagerProductEdit() {
                     stock_qty: p.stock_qty != null ? String(p.stock_qty) : '',
                     reorder_level: p.reorder_level != null ? String(p.reorder_level) : '',
                     vat_rate: p.vat_rate === null || p.vat_rate === undefined ? '' : String(p.vat_rate),
+                    tax_override_enabled: Boolean(p.tax_override_enabled),
+                    tax_tags_text: Array.isArray(p.tax_tags) ? p.tax_tags.join(', ') : '',
                     expiry_date: expStr && expStr >= minD ? expStr : '',
                     base_unit: p.base_unit || 'Cái',
                     selling_units: units,
@@ -169,6 +173,8 @@ export default function ManagerProductEdit() {
                     cost_price: Number(p.cost_price || 0),
                     reorder_level: Number(p.reorder_level || 0),
                     vat_rate: p.vat_rate === null || p.vat_rate === undefined ? '' : String(p.vat_rate),
+                    tax_override_enabled: Boolean(p.tax_override_enabled),
+                    tax_tags_text: Array.isArray(p.tax_tags) ? p.tax_tags.join(', ') : '',
                     expiry_date: expStr && expStr >= minD ? expStr : '',
                     base_unit: p.base_unit || 'Cái',
                     status: p.status === 'inactive' ? 'inactive' : 'active',
@@ -432,6 +438,8 @@ export default function ManagerProductEdit() {
             const nextCostPrice = Number(costCheck.value || 0);
             const nextReorderLevel = Number(reorderCheck.value || 0);
             const nextVatRate = form.vat_rate === '' ? '' : String(form.vat_rate);
+            const nextTaxOverride = Boolean(form.tax_override_enabled);
+            const nextTaxTagsText = String(form.tax_tags_text || '').trim();
             const nextExpiryDate = form.expiry_date ? String(form.expiry_date) : '';
             const nextBaseUnit = trimString(baseUnitCheck.value || '');
             const nextStatus = form.status === 'inactive' ? 'inactive' : 'active';
@@ -443,6 +451,8 @@ export default function ManagerProductEdit() {
             const initialCostPrice = Number(initial.cost_price || 0);
             const initialReorderLevel = Number(initial.reorder_level || 0);
             const initialVatRate = initial.vat_rate === '' ? '' : String(initial.vat_rate || '');
+            const initialTaxOverride = Boolean(initial.tax_override_enabled);
+            const initialTaxTagsText = String(initial.tax_tags_text || '').trim();
             const initialExpiryDate = initial.expiry_date ? String(initial.expiry_date) : '';
             const initialBaseUnit = trimString(initial.base_unit || '');
             const initialStatus = initial.status === 'inactive' ? 'inactive' : 'active';
@@ -460,6 +470,8 @@ export default function ManagerProductEdit() {
                 ...(nextCostPrice !== initialCostPrice ? { cost_price: costCheck.value } : {}),
                 ...(nextReorderLevel !== initialReorderLevel ? { reorder_level: reorderCheck.value } : {}),
                 ...(nextVatRate !== initialVatRate ? { vat_rate: form.vat_rate === '' ? null : Number(form.vat_rate) } : {}),
+                ...(nextTaxOverride !== initialTaxOverride ? { tax_override_enabled: nextTaxOverride } : {}),
+                ...(nextTaxTagsText !== initialTaxTagsText ? { tax_tags: nextTaxTagsText.split(',').map((x) => x.trim()).filter(Boolean) } : {}),
                 ...(nextExpiryDate !== initialExpiryDate ? { expiry_date: form.expiry_date ? form.expiry_date : null } : {}),
                 ...(nextBaseUnit !== initialBaseUnit ? { base_unit: baseUnitCheck.value } : {}),
                 ...(imageChanged ? { image_urls: finalImageUrls } : {}),
@@ -624,6 +636,27 @@ export default function ManagerProductEdit() {
                                                 placeholder="Để trống: dùng VAT theo danh mục"
                                                 className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
                                             />
+                                        </div>
+                                        <div>
+                                            <label className="mb-1 block text-sm font-medium text-slate-600">Tax tags (comma separated)</label>
+                                            <input
+                                                type="text"
+                                                value={form.tax_tags_text}
+                                                onChange={(e) => update('tax_tags_text', e.target.value)}
+                                                placeholder="ttdb, beverage, excluded_reduction"
+                                                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
+                                            />
+                                        </div>
+                                        <div className="md:col-span-2">
+                                            <label className="flex items-center gap-2 text-sm text-slate-700">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={Boolean(form.tax_override_enabled)}
+                                                    onChange={(e) => update('tax_override_enabled', e.target.checked)}
+                                                    className="h-4 w-4 accent-teal-600"
+                                                />
+                                                Bật VAT override ở cấp sản phẩm
+                                            </label>
                                         </div>
                                         <div className="md:col-span-2">
                                             <label className="mb-1 block text-sm font-medium text-slate-600">Hạn sử dụng</label>

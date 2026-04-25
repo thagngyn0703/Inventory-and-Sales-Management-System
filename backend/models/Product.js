@@ -58,6 +58,14 @@ const productSchema = new Schema(
             min: 0,
             max: 100,
         },
+        tax_override_enabled: {
+            type: Boolean,
+            default: false,
+        },
+        tax_tags: {
+            type: [String],
+            default: [],
+        },
         expiry_date: {
             type: Date,
         },
