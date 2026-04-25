@@ -42,7 +42,10 @@ export async function openShift({ opening_cash = 0 } = {}) {
   return data.shift;
 }
 
-export async function closeShift(shiftId, { actual_cash = 0, actual_bank = 0, reconciliation_status = 'pending', reconciliation_note = '' } = {}) {
+export async function closeShift(
+  shiftId,
+  { actual_cash = 0, actual_bank = 0, reconciliation_status = 'pending', reconciliation_note = '', override_close = false } = {}
+) {
   const token = getToken();
   const res = await fetch(`${API_BASE}/shifts/${shiftId}/close`, {
     method: 'POST',
@@ -50,7 +53,7 @@ export async function closeShift(shiftId, { actual_cash = 0, actual_bank = 0, re
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify({ actual_cash, actual_bank, reconciliation_status, reconciliation_note }),
+    body: JSON.stringify({ actual_cash, actual_bank, reconciliation_status, reconciliation_note, override_close }),
   });
   const data = await parseResponse(res, 'Không thể đóng ca');
   return data.shift;

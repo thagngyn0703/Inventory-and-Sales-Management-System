@@ -1515,7 +1515,19 @@ export default function POSContainer({
                           setOpenShiftCash('');
                           await loadShift();
                         } catch (err) {
-                          notify(err.message || 'Không thể mở ca', 'error');
+                          if (err?.code === 'SHIFT_ALREADY_OPEN') {
+                            const openerName =
+                              err?.payload?.open_shift?.opened_by?.fullName
+                              || err?.payload?.open_shift?.opened_by?.email
+                              || 'một tài khoản khác';
+                            const openedAtRaw = err?.payload?.open_shift?.opened_at;
+                            const openedAtText = openedAtRaw
+                              ? new Date(openedAtRaw).toLocaleString('vi-VN')
+                              : 'không xác định';
+                            notify(`Ca đã được mở bởi ${openerName} lúc ${openedAtText}. Vui lòng đóng ca hiện tại trước khi mở ca mới.`, 'error');
+                          } else {
+                            notify(err.message || 'Không thể mở ca', 'error');
+                          }
                         }
                       }}
                     >

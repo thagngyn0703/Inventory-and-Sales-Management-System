@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { CalendarDays, CircleDollarSign, Clock3, Eye, ReceiptText, Search, UserRound, X } from 'lucide-react';
-import { getShiftInvoices, getShiftSessions } from '../../services/shiftsApi';
+import { closeShift, getShiftInvoices, getShiftSessions } from '../../services/shiftsApi';
 import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
 
 function formatMoney(n) {
@@ -226,6 +226,34 @@ export default function ManagerShiftSessionsPage() {
     }
   }, []);
 
+  const handleOverrideClose = useCallback(async (shift) => {
+    const opener = shift?.opened_by?.fullName || shift?.opened_by?.email || 'nhân viên';
+    const confirmed = window.confirm(`Bạn sắp đóng ca hộ cho ${opener}. Tiếp tục?`);
+    if (!confirmed) return;
+
+    const cashInput = window.prompt('Nhập tổng tiền mặt kiểm đếm khi đóng ca:', String(Number(shift?.expected_cash || 0) || '0'));
+    if (cashInput == null) return;
+    const actualCash = Number(String(cashInput).replace(/[^\d]/g, ''));
+    if (!Number.isFinite(actualCash) || actualCash < 0) {
+      setError('Số tiền kiểm đếm không hợp lệ.');
+      return;
+    }
+
+    const note = window.prompt('Ghi chú đóng ca hộ (khuyến nghị nhập lý do):', 'Nhân viên quên đóng ca');
+    try {
+      await closeShift(shift._id, {
+        actual_cash: actualCash,
+        reconciliation_status: 'confirmed',
+        reconciliation_note: String(note || '').trim(),
+        override_close: true,
+      });
+      await fetchData();
+      setError('');
+    } catch (e) {
+      setError(e.message || 'Không thể đóng ca hộ');
+    }
+  }, [fetchData]);
+
   return (
     <ManagerPageFrame>
       <div className="mx-auto max-w-[1200px] p-4 md:p-6">
@@ -384,15 +412,22 @@ export default function ManagerShiftSessionsPage() {
                   <th className="px-3 py-2 text-right">Hóa đơn</th>
                   <th className="px-3 py-2 text-right">Chênh lệch</th>
                   <th className="px-3 py-2 text-center">Trạng thái</th>
-                  <th className="px-3 py-2 text-right">Xem</th>
+                  <th className="px-3 py-2 text-right">Thao tác</th>
                 </tr>
               </thead>
               <tbody>
                 {(data.shifts || []).map((shift) => {
                   const openUser = shift?.opened_by;
+                  const closeUser = shift?.closed_by;
                   const discrepancy = Number(shift?.discrepancy_cash || 0);
                   const handover = Number(shift?.cash_to_handover || 0);
                   const isCritical = discrepancy < 0;
+                  const isOverrideClosed = Boolean(
+                    shift?.status === 'closed'
+                    && openUser?._id
+                    && closeUser?._id
+                    && String(openUser._id) !== String(closeUser._id)
+                  );
                   return (
                     <tr
                       key={shift._id}
@@ -436,25 +471,44 @@ export default function ManagerShiftSessionsPage() {
                         </span>
                       </td>
                       <td className="px-3 py-3 text-center">
-                        <span
-                          className={`rounded-full px-2.5 py-1 text-xs font-bold ${
-                            shift.status === 'open'
-                              ? 'bg-amber-100 text-amber-700'
-                              : 'bg-emerald-100 text-emerald-700'
-                          }`}
-                        >
-                          {shift.status === 'open' ? 'Đang mở' : 'Đã đóng'}
-                        </span>
+                        <div className="inline-flex flex-col items-center gap-1">
+                          <span
+                            className={`rounded-full px-2.5 py-1 text-xs font-bold ${
+                              shift.status === 'open'
+                                ? 'bg-amber-100 text-amber-700'
+                                : 'bg-emerald-100 text-emerald-700'
+                            }`}
+                          >
+                            {shift.status === 'open' ? 'Đang mở' : 'Đã đóng'}
+                          </span>
+                          {isOverrideClosed && (
+                            <span className="rounded-full bg-violet-100 px-2.5 py-1 text-[11px] font-bold text-violet-700">
+                              Đóng ca hộ
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-3 py-3 text-right">
-                        <button
-                          type="button"
-                          onClick={() => openShiftDetail(shift)}
-                          className="inline-flex items-center gap-1 rounded-md border border-teal-200 bg-teal-50 px-2.5 py-1.5 text-xs font-bold text-teal-700 hover:bg-teal-100"
-                        >
-                          <Eye className="h-3.5 w-3.5" />
-                          Hóa đơn
-                        </button>
+                        <div className="inline-flex items-center gap-2">
+                          {shift.status === 'open' && (
+                            <button
+                              type="button"
+                              onClick={() => handleOverrideClose(shift)}
+                              className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-bold text-amber-700 hover:bg-amber-100"
+                              title="Đóng ca hộ (override)"
+                            >
+                              Đóng ca hộ
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => openShiftDetail(shift)}
+                            className="inline-flex items-center gap-1 rounded-md border border-teal-200 bg-teal-50 px-2.5 py-1.5 text-xs font-bold text-teal-700 hover:bg-teal-100"
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                            Hóa đơn
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );

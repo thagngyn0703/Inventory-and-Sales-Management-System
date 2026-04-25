@@ -323,9 +323,21 @@ router.post('/open', requireAuth, requireRole(['staff', 'manager', 'admin']), as
         const storeId = req.user.storeId;
         const opening_cash = normalizeNonNegativeInt(req.body?.opening_cash);
 
-        const existing = await ShiftSession.findOne({ store_id: storeId, status: 'open' }).select('_id').lean();
+        const existing = await ShiftSession.findOne({ store_id: storeId, status: 'open' })
+            .select('_id opened_by opened_at')
+            .populate('opened_by', 'fullName email')
+            .lean();
         if (existing) {
-            return res.status(409).json({ code: 'SHIFT_ALREADY_OPEN', message: 'Đang có ca mở trong cửa hàng.' });
+            return res.status(409).json({
+                code: 'SHIFT_ALREADY_OPEN',
+                message: 'Đang có ca mở trong cửa hàng.',
+                open_shift: {
+                    _id: existing._id,
+                    opened_at: existing.opened_at || null,
+                    opened_by: existing.opened_by || null,
+                    store_id: storeId,
+                },
+            });
         }
 
         const shift = await ShiftSession.create({
@@ -414,16 +426,18 @@ router.post('/:id/close', requireAuth, requireRole(['staff', 'manager', 'admin']
         const shift = await ShiftSession.findById(id);
         if (!shift) return res.status(404).json({ message: 'Shift not found' });
         const userRole = String(req.user?.role || '').toLowerCase();
+        const isPrivileged = userRole === 'manager' || userRole === 'admin';
+        const isOwner = String(shift.opened_by) === String(req.user.id);
+        const isOverrideClose = Boolean(req.body?.override_close);
         if (String(shift.store_id) !== String(req.user.storeId) && userRole !== 'admin') {
             return res.status(403).json({ message: 'Không có quyền đóng ca này.' });
         }
-        if (
-            userRole === 'staff' &&
-            String(shift.opened_by) !== String(req.user.id)
-        ) {
+        // Mặc định: ai mở ca thì người đó đóng ca.
+        // Dự phòng: manager/admin có thể đóng ca hộ khi bật override_close.
+        if (!isOwner && !(isPrivileged && isOverrideClose)) {
             return res.status(403).json({
                 code: 'SHIFT_CLOSE_FORBIDDEN',
-                message: 'Nhân viên chỉ được đóng ca do chính mình mở.',
+                message: 'Chỉ người mở ca mới được phép đóng ca này.',
             });
         }
         if (shift.status !== 'open') {
@@ -473,7 +487,10 @@ router.post('/:id/close', requireAuth, requireRole(['staff', 'manager', 'admin']
         if (hasLargeDiscrepancy && shift.reconciliation_status === 'confirmed') {
             shift.reconciliation_status = 'disputed';
         }
-        shift.reconciliation_note = reconciliation_note;
+        const overrideNote = !isOwner && isOverrideClose
+            ? `Đóng ca hộ bởi ${req.user.email || req.user.id} lúc ${new Date().toLocaleString('vi-VN')}.`
+            : '';
+        shift.reconciliation_note = [overrideNote, reconciliation_note].filter(Boolean).join(' ');
         shift.sales_snapshot = await computeShiftSalesSnapshot(shift, participantUserIds);
         shift.status = 'closed';
         shift.closed_by = req.user.id;
