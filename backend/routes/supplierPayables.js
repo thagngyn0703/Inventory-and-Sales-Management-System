@@ -366,9 +366,9 @@ router.post('/payments', requireAuth, requireRole(['manager', 'admin']), async (
         }
 
         const totalRemaining = openPayables.reduce((s, p) => s + p.remaining_amount, 0);
-        if (Math.abs(amount - totalRemaining) > 0.01) {
+        if (amount - totalRemaining > 0.01) {
             return res.status(400).json({
-                message: `Số tiền thanh toán phải đúng bằng tổng còn nợ của các đơn đã chọn (${totalRemaining.toLocaleString('vi-VN')}đ)`,
+                message: `Số tiền thanh toán không được vượt tổng còn nợ của các đơn đã chọn (${totalRemaining.toLocaleString('vi-VN')}đ)`,
             });
         }
 

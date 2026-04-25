@@ -14,7 +14,7 @@ import {
 import { getSuppliers } from '../../services/suppliersApi';
 import { Banknote, Loader2, CreditCard, History } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { parseCurrencyInput, toCurrencyInputFromNumber } from '../../utils/currencyInput';
+import { formatCurrencyInput, parseCurrencyInput } from '../../utils/currencyInput';
 
 const STATUS_LABEL = { open: 'Chưa trả', partial: 'Trả một phần', paid: 'Đã trả', cancelled: 'Đã hủy' };
 const METHOD_LABEL = { cash: 'Tiền mặt', bank_transfer: 'Chuyển khoản', e_wallet: 'Ví điện tử', other: 'Khác' };
@@ -139,15 +139,6 @@ export default function ManagerSupplierPayables() {
         () => modalOpenPayables.length > 0 && selectedPayableIds.length === modalOpenPayables.length,
         [modalOpenPayables, selectedPayableIds]
     );
-
-    useEffect(() => {
-        const exactDebtText = toCurrencyInputFromNumber(selectedRemainingTotal || 0);
-        setPayForm((prev) => (
-            prev.total_amount === exactDebtText
-                ? prev
-                : { ...prev, total_amount: exactDebtText }
-        ));
-    }, [selectedRemainingTotal]);
 
     // Khi mở modal: làm mới tổng hợp nợ (không làm “đang tải” cả trang)
     useEffect(() => {
@@ -306,8 +297,8 @@ export default function ManagerSupplierPayables() {
         }
         const amt = parseCurrencyInput(payForm.total_amount);
         if (!amt || amt <= 0) { toast('Vui lòng nhập số tiền thanh toán', 'error'); return; }
-        if (Math.abs(amt - selectedRemainingTotal) > 0.0001) {
-            toast(`Số tiền phải đúng bằng tổng nợ của các đơn đã chọn (${fmt(selectedRemainingTotal)}).`, 'error');
+        if (amt - selectedRemainingTotal > 0.0001) {
+            toast(`Số tiền không được vượt tổng nợ các đơn đã chọn (${fmt(selectedRemainingTotal)}).`, 'error');
             return;
         }
         setPaySubmitting(true);
@@ -751,13 +742,24 @@ export default function ManagerSupplierPayables() {
                                                 type="text"
                                                 inputMode="numeric"
                                                 value={payForm.total_amount}
-                                                readOnly
-                                                placeholder="Sẽ tự tính theo đơn đã chọn"
+                                                onChange={(e) => setPayForm((f) => ({ ...f, total_amount: formatCurrencyInput(e.target.value) }))}
+                                                placeholder="Nhập số tiền muốn thanh toán"
                                                 className="h-9 w-full rounded-xl border border-slate-200 px-3 text-[13px] outline-none ring-teal-200 transition focus:border-teal-300 focus:ring-2"
                                             />
                                             <p className="mt-1 text-[11px] text-slate-500">
-                                                Hệ thống tự động tính theo các đơn đã tích chọn ở trên.
+                                                Có thể nhập số tiền bất kỳ, tối đa bằng tổng nợ các đơn đã chọn.
                                             </p>
+                                            <div className="mt-1">
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="h-7 px-2 text-[11px]"
+                                                    onClick={() => setPayForm((f) => ({ ...f, total_amount: formatCurrencyInput(String(selectedRemainingTotal || 0)) }))}
+                                                >
+                                                    Trả hết các đơn đã chọn
+                                                </Button>
+                                            </div>
                                         </div>
                                         <div className="grid grid-cols-2 gap-3">
                                             <div>
