@@ -59,6 +59,7 @@ import ManagerSupplierDebtLedger from "./pages/ManagerDashboard/ManagerSupplierD
 import ManagerSupplierReturnDetail from "./pages/ManagerDashboard/ManagerSupplierReturnDetail";
 import ManagerSupplierReturnsList from "./pages/ManagerDashboard/ManagerSupplierReturnsList";
 import ManagerSupplierReturnCreate from "./pages/ManagerDashboard/ManagerSupplierReturnCreate";
+import ManagerIncomingTransactionsBySupplier from "./pages/ManagerDashboard/ManagerIncomingTransactionsBySupplier";
 import ManagerSupportTickets from "./pages/ManagerDashboard/ManagerSupportTickets";
 import ManagerSupportTicketDetail from "./pages/ManagerDashboard/ManagerSupportTicketDetail";
 import ManagerPOSPage from "./pages/ManagerDashboard/ManagerPOSPage";
@@ -187,6 +188,7 @@ function App() {
       <Route path="/manager/supplier-returns" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerSupplierReturnsList /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/supplier-returns/new" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerSupplierReturnCreate /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/supplier-returns/:id" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerSupplierReturnDetail /></RequireManagerStore></RequireRole></RequireAuth>} />
+      <Route path="/manager/incoming-transactions" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerIncomingTransactionsBySupplier /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/staff/new" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerCreateStaff /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/staff/manage" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerStaffManage /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/notifications" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerNotifications /></RequireManagerStore></RequireRole></RequireAuth>} />

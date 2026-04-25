@@ -4,7 +4,7 @@ import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { Truck } from 'lucide-react';
 import { getSuppliers } from '../../services/suppliersApi';
-import { getPurchaseOrders, getGoodsReceipts } from '../../services/incomingTransactionsApi';
+import { getPurchaseOrders, getGoodsReceipts, cancelPurchaseOrder } from '../../services/incomingTransactionsApi';
 import { cn } from '../../lib/utils';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
@@ -102,6 +102,10 @@ function purchaseOrderStatusPillClass(status) {
   return 'border-slate-200 bg-slate-50 text-slate-700 ring-1 ring-slate-200/60';
 }
 
+function canCancelPurchaseOrder(status) {
+  return status && !['cancelled', 'received'].includes(status);
+}
+
 export default function ManagerIncomingTransactionsBySupplier() {
   const navigate = useNavigate();
   const [suppliers, setSuppliers] = useState([]);
@@ -172,6 +176,16 @@ export default function ManagerIncomingTransactionsBySupplier() {
 
   const formatDate = (d) => (d ? new Date(d).toLocaleDateString('vi-VN') : '—');
   const formatMoney = (n) => Number(n || 0).toLocaleString('vi-VN') + '₫';
+  const handleCancelPurchaseOrder = async (po) => {
+    const reason = window.prompt('Nhập lý do hủy đơn mua (có thể để trống):', '') ?? '';
+    if (!window.confirm(`Xác nhận hủy đơn mua #${po._id?.slice(-8).toUpperCase()}?`)) return;
+    try {
+      await cancelPurchaseOrder(po._id, reason);
+      await fetchData();
+    } catch (e) {
+      setError(e.message || 'Không thể hủy đơn mua hàng');
+    }
+  };
 
   return (
     <ManagerPageFrame
@@ -218,12 +232,13 @@ export default function ManagerIncomingTransactionsBySupplier() {
                         <th>Ngày tạo</th>
                         <th>Trạng thái</th>
                         <th>Tổng tiền</th>
+                        <th></th>
                       </tr>
                     </thead>
                     <tbody>
                       {purchaseOrders.length === 0 ? (
                         <tr>
-                          <td colSpan={5} className="manager-products-empty">
+                          <td colSpan={6} className="manager-products-empty">
                             Không có đơn mua hàng nào.
                           </td>
                         </tr>
@@ -244,6 +259,18 @@ export default function ManagerIncomingTransactionsBySupplier() {
                               </span>
                             </td>
                             <td>{formatMoney(po.total_amount)}</td>
+                            <td>
+                              {canCancelPurchaseOrder(po.status) && (
+                                <button
+                                  type="button"
+                                  className="manager-btn-secondary"
+                                  style={{ padding: '4px 12px', fontSize: 13 }}
+                                  onClick={() => handleCancelPurchaseOrder(po)}
+                                >
+                                  Hủy đơn
+                                </button>
+                              )}
+                            </td>
                           </tr>
                         ))
                       )}
