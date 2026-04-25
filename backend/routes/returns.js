@@ -79,6 +79,182 @@ function computeReturnTaxBreakdown(grossTotal, invoice, previousTotals = {}) {
     };
 }
 
+async function applyApprovedReturn({
+    salesReturn,
+    invoice,
+    actorId,
+}) {
+    const soldQtyMap = new Map();
+    (invoice.items || []).forEach((item) => {
+        const pid = item.product_id?._id?.toString() || item.product_id?.toString();
+        const qty = Number(item.quantity) || 0;
+        soldQtyMap.set(pid, (soldQtyMap.get(pid) || 0) + qty);
+    });
+
+    const approvedReturns = await SalesReturn.find({
+        invoice_id: invoice._id,
+        status: 'approved',
+        _id: { $ne: salesReturn._id },
+    }).select('items total_amount subtotal_amount tax_amount').lean();
+
+    const returnedQtyMap = new Map();
+    let previousReturnGross = 0;
+    let previousReturnSubtotal = 0;
+    let previousReturnTax = 0;
+    for (const rt of approvedReturns) {
+        previousReturnGross += Number(rt.total_amount) || 0;
+        previousReturnSubtotal += Number(rt.subtotal_amount) || 0;
+        previousReturnTax += Number(rt.tax_amount) || 0;
+        (rt.items || []).forEach((item) => {
+            const pid = item.product_id?.toString();
+            if (!pid) return;
+            const qty = Number(item.quantity) || 0;
+            returnedQtyMap.set(pid, (returnedQtyMap.get(pid) || 0) + qty);
+        });
+    }
+
+    let returnTotalAmount = 0;
+    for (const item of salesReturn.items || []) {
+        const pid = item.product_id?.toString();
+        const reqQty = Number(item.quantity) || 0;
+        const soldQty = soldQtyMap.get(pid) || 0;
+        const alreadyReturnedQty = returnedQtyMap.get(pid) || 0;
+        const remainingQty = soldQty - alreadyReturnedQty;
+        if (soldQty === 0) {
+            const err = new Error('[TC_INV_021] Product not in invoice (Sản phẩm không tồn tại trong hóa đơn bán hàng gốc)');
+            err.status = 400;
+            throw err;
+        }
+        if (reqQty > remainingQty) {
+            const err = new Error(
+                `[TC_INV_020] Return more than sold (Số lượng trả ${reqQty} vượt quá số lượng còn có thể trả ${remainingQty})`
+            );
+            err.status = 400;
+            throw err;
+        }
+
+        const product = await Product.findById(pid);
+        if (!product) {
+            const err = new Error(`Không tìm thấy sản phẩm trong kho: ${pid}`);
+            err.status = 400;
+            throw err;
+        }
+        product.stock_qty = (Number(product.stock_qty) || 0) + reqQty;
+        await product.save();
+
+        returnTotalAmount += reqQty * (Number(item.unit_price) || 0);
+    }
+
+    const taxBreakdown = computeReturnTaxBreakdown(returnTotalAmount, invoice, {
+        gross: previousReturnGross,
+        subtotal: previousReturnSubtotal,
+        tax: previousReturnTax,
+    });
+
+    salesReturn.total_amount = taxBreakdown.total_amount;
+    salesReturn.subtotal_amount = taxBreakdown.subtotal_amount;
+    salesReturn.tax_amount = taxBreakdown.tax_amount;
+    salesReturn.tax_rate_snapshot = taxBreakdown.tax_rate_snapshot;
+    salesReturn.status = 'approved';
+    salesReturn.approved_by = actorId;
+    salesReturn.approved_at = new Date();
+    salesReturn.return_at = new Date();
+    await salesReturn.save();
+
+    const cumulativeReturnGross = previousReturnGross + returnTotalAmount;
+    const cumulativeReturnSubtotal = previousReturnSubtotal + taxBreakdown.subtotal_amount;
+    const cumulativeReturnTax = previousReturnTax + taxBreakdown.tax_amount;
+    invoice.status = cumulativeReturnGross >= (Number(invoice.total_amount) || 0) ? 'cancelled' : 'confirmed';
+    invoice.returned_total_amount = cumulativeReturnGross;
+    invoice.returned_subtotal_amount = cumulativeReturnSubtotal;
+    invoice.returned_tax_amount = cumulativeReturnTax;
+
+    const loyaltyPointValue = Number(invoice?.loyalty_settings_snapshot?.redeem?.point_value_vnd || 500);
+    const loyaltySettingsSnapshot = normalizeLoyaltySettings(invoice?.loyalty_settings_snapshot || {});
+    const loyaltyEligibleOriginal = Math.max(0, Number(invoice.loyalty_eligible_amount || 0));
+    const loyaltyEligibleRemaining = Math.max(0, loyaltyEligibleOriginal - cumulativeReturnGross);
+
+    if (invoice.customer_id && invoice.loyalty_earned_settled && Number(invoice.loyalty_earned_points || 0) > 0) {
+        const recomputedEarnedPoints = computeEarnedPoints({
+            eligibleAmount: loyaltyEligibleRemaining,
+            config: loyaltySettingsSnapshot,
+        });
+        const targetReversed = Math.max(0, Number(invoice.loyalty_earned_points || 0) - recomputedEarnedPoints);
+        const alreadyReversed = Math.max(0, Number(invoice.loyalty_reversed_points || 0));
+        const deltaReversed = targetReversed - alreadyReversed;
+        if (deltaReversed > 0) {
+            await appendLoyaltyTxn({
+                customerId: invoice.customer_id,
+                storeId: salesReturn.store_id,
+                actorId,
+                type: 'REVERSAL',
+                points: -Math.abs(deltaReversed),
+                valueVnd: deltaReversed * loyaltyPointValue,
+                referenceModel: 'SalesReturn',
+                referenceId: salesReturn._id,
+                note: `Hoàn trả hàng một phần: thu hồi ${deltaReversed} điểm.`,
+                idempotencyKey: `return-reversal-earn:${salesReturn._id}`,
+            });
+            invoice.loyalty_reversed_points = alreadyReversed + deltaReversed;
+        }
+    }
+
+    if (invoice.customer_id && Number(invoice.loyalty_redeem_points || 0) > 0 && Number(invoice.loyalty_redeem_value || 0) > 0) {
+        const totalAmount = Math.max(1, Number(invoice.total_amount || 0));
+        const cumulativeRatio = Math.min(1, cumulativeReturnGross / totalAmount);
+        const targetRefundValue = Math.round(Number(invoice.loyalty_redeem_value || 0) * cumulativeRatio);
+        const targetRefundPoints = Math.min(
+            Number(invoice.loyalty_redeem_points || 0),
+            Math.floor(targetRefundValue / loyaltyPointValue)
+        );
+        const alreadyRefunded = Math.max(0, Number(invoice.loyalty_refunded_redeem_points || 0));
+        const deltaRefund = targetRefundPoints - alreadyRefunded;
+        if (deltaRefund > 0) {
+            await appendLoyaltyTxn({
+                customerId: invoice.customer_id,
+                storeId: salesReturn.store_id,
+                actorId,
+                type: 'REFUND',
+                points: deltaRefund,
+                valueVnd: deltaRefund * loyaltyPointValue,
+                referenceModel: 'SalesReturn',
+                referenceId: salesReturn._id,
+                note: `Hoàn điểm theo tỷ lệ trả hàng: +${deltaRefund} điểm.`,
+                idempotencyKey: `return-refund-redeem:${salesReturn._id}`,
+            });
+            invoice.loyalty_refunded_redeem_points = alreadyRefunded + deltaRefund;
+        }
+    }
+
+    await invoice.save();
+
+    if (invoice.payment_method === 'debt') {
+        const customerId = invoice.customer_id?._id || invoice.customer_id;
+        if (customerId) {
+            await adjustCustomerDebtAccount(customerId, -returnTotalAmount, {});
+        }
+    }
+    const eligibleRefundMethods = ['cash', 'bank_transfer', 'card', 'credit'];
+    if (
+        invoice.payment_status === 'paid'
+        && eligibleRefundMethods.includes(String(invoice.payment_method || '').toLowerCase())
+        && Number(returnTotalAmount) > 0
+    ) {
+        await upsertSystemCashFlow({
+            storeId: salesReturn.store_id,
+            type: 'EXPENSE',
+            category: 'SALES_RETURN',
+            amount: returnTotalAmount,
+            paymentMethod: invoice.payment_method,
+            referenceModel: 'sales_return',
+            referenceId: salesReturn._id,
+            note: `Hoan tien tra hang #${String(salesReturn._id).slice(-6).toUpperCase()}`,
+            actorId,
+            transactedAt: salesReturn.approved_at || new Date(),
+        });
+    }
+}
+
 // GET /api/returns — list returns for the user's store
 router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
@@ -195,30 +371,6 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
             return res.status(400).json({ message: 'reason_code không hợp lệ.' });
         }
 
-        const approvedReturns = await SalesReturn.find({
-            invoice_id,
-            status: 'approved',
-        }).select('items total_amount subtotal_amount tax_amount').lean();
-
-        const returnedQtyMap = new Map();
-        const returnedGrossMap = new Map();
-        let previousReturnGross = 0;
-        let previousReturnSubtotal = 0;
-        let previousReturnTax = 0;
-        for (const rt of approvedReturns) {
-            previousReturnGross += Number(rt.total_amount) || 0;
-            previousReturnSubtotal += Number(rt.subtotal_amount) || 0;
-            previousReturnTax += Number(rt.tax_amount) || 0;
-            (rt.items || []).forEach((item) => {
-                const pid = item.product_id?.toString();
-                if (!pid) return;
-                const qty = Number(item.quantity) || 0;
-                returnedQtyMap.set(pid, (returnedQtyMap.get(pid) || 0) + qty);
-                const gross = (Number(item.unit_price) || 0) * qty;
-                returnedGrossMap.set(pid, (returnedGrossMap.get(pid) || 0) + gross);
-            });
-        }
-
         const reqQtyMap = new Map();
         for (const it of reqItems) {
             const reqPid = it.product_id?.toString();
@@ -238,17 +390,8 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
         for (let idx = 0; idx < reqEntries.length; idx += 1) {
             const [reqPid, reqQty] = reqEntries[idx];
             const soldQty = soldQtyMap.get(reqPid) || 0;
-            const alreadyReturnedQty = returnedQtyMap.get(reqPid) || 0;
-            const remainingQty = soldQty - alreadyReturnedQty;
             if (soldQty === 0) {
                 const err = new Error('[TC_INV_021] Product not in invoice (Sản phẩm không tồn tại trong hóa đơn bán hàng gốc)');
-                err.status = 400;
-                throw err;
-            }
-            if (reqQty > remainingQty) {
-                const err = new Error(
-                    `[TC_INV_020] Return more than sold (Số lượng trả ${reqQty} vượt quá số lượng còn có thể trả ${remainingQty})`
-                );
                 err.status = 400;
                 throw err;
             }
@@ -265,16 +408,9 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
             }
 
             const soldGross = soldGrossMap.get(reqPid) || 0;
-            const returnedGross = returnedGrossMap.get(reqPid) || 0;
-            const remainingGross = Math.max(0, soldGross - returnedGross);
             const proportionalGross = Math.round((soldGross * reqQty) / soldQty);
-            const lineGross = idx === reqEntries.length - 1
-                ? Math.min(remainingGross, proportionalGross)
-                : Math.min(remainingGross, proportionalGross);
+            const lineGross = idx === reqEntries.length - 1 ? proportionalGross : proportionalGross;
             returnTotalAmount += lineGross;
-
-            product.stock_qty = (Number(product.stock_qty) || 0) + reqQty;
-            await product.save();
 
             returnItems.push({
                 product_id: reqPid,
@@ -285,11 +421,13 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
             });
         }
 
-        const taxBreakdown = computeReturnTaxBreakdown(returnTotalAmount, invoice, {
-            gross: previousReturnGross,
-            subtotal: previousReturnSubtotal,
-            tax: previousReturnTax,
-        });
+        const initialStatus = 'approved';
+        const taxBreakdown = {
+            total_amount: returnTotalAmount,
+            subtotal_amount: returnTotalAmount,
+            tax_amount: 0,
+            tax_rate_snapshot: Number(invoice?.tax_rate_snapshot) || 0,
+        };
 
         const salesReturn = new SalesReturn({
             store_id: req.user.storeId || invoice.store_id || null,
@@ -304,103 +442,15 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
             tax_rate_snapshot: taxBreakdown.tax_rate_snapshot,
             reason: reason || 'Khách trả hàng',
             reason_code: reasonCode,
-            status: 'approved',
+            status: initialStatus,
         });
 
         await salesReturn.save();
-
-        const cumulativeReturnGross = previousReturnGross + returnTotalAmount;
-        const cumulativeReturnSubtotal = previousReturnSubtotal + taxBreakdown.subtotal_amount;
-        const cumulativeReturnTax = previousReturnTax + taxBreakdown.tax_amount;
-        invoice.status = cumulativeReturnGross >= (Number(invoice.total_amount) || 0) ? 'cancelled' : 'confirmed';
-        invoice.returned_total_amount = cumulativeReturnGross;
-        invoice.returned_subtotal_amount = cumulativeReturnSubtotal;
-        invoice.returned_tax_amount = cumulativeReturnTax;
-
-        const loyaltyPointValue = Number(invoice?.loyalty_settings_snapshot?.redeem?.point_value_vnd || 500);
-        const loyaltySettingsSnapshot = normalizeLoyaltySettings(invoice?.loyalty_settings_snapshot || {});
-        const loyaltyEligibleOriginal = Math.max(0, Number(invoice.loyalty_eligible_amount || 0));
-        const loyaltyEligibleRemaining = Math.max(0, loyaltyEligibleOriginal - cumulativeReturnGross);
-
-        if (invoice.customer_id && invoice.loyalty_earned_settled && Number(invoice.loyalty_earned_points || 0) > 0) {
-            const recomputedEarnedPoints = computeEarnedPoints({
-                eligibleAmount: loyaltyEligibleRemaining,
-                config: loyaltySettingsSnapshot,
-            });
-            const targetReversed = Math.max(0, Number(invoice.loyalty_earned_points || 0) - recomputedEarnedPoints);
-            const alreadyReversed = Math.max(0, Number(invoice.loyalty_reversed_points || 0));
-            const deltaReversed = targetReversed - alreadyReversed;
-            if (deltaReversed > 0) {
-                await appendLoyaltyTxn({
-                    customerId: invoice.customer_id,
-                    storeId: salesReturn.store_id,
-                    actorId: req.user.id,
-                    type: 'REVERSAL',
-                    points: -Math.abs(deltaReversed),
-                    valueVnd: deltaReversed * loyaltyPointValue,
-                    referenceModel: 'SalesReturn',
-                    referenceId: salesReturn._id,
-                    note: `Hoàn trả hàng một phần: thu hồi ${deltaReversed} điểm.`,
-                    idempotencyKey: `return-reversal-earn:${salesReturn._id}`,
-                });
-                invoice.loyalty_reversed_points = alreadyReversed + deltaReversed;
-            }
-        }
-
-        if (invoice.customer_id && Number(invoice.loyalty_redeem_points || 0) > 0 && Number(invoice.loyalty_redeem_value || 0) > 0) {
-            const totalAmount = Math.max(1, Number(invoice.total_amount || 0));
-            const cumulativeRatio = Math.min(1, cumulativeReturnGross / totalAmount);
-            const targetRefundValue = Math.round(Number(invoice.loyalty_redeem_value || 0) * cumulativeRatio);
-            const targetRefundPoints = Math.min(
-                Number(invoice.loyalty_redeem_points || 0),
-                Math.floor(targetRefundValue / loyaltyPointValue)
-            );
-            const alreadyRefunded = Math.max(0, Number(invoice.loyalty_refunded_redeem_points || 0));
-            const deltaRefund = targetRefundPoints - alreadyRefunded;
-            if (deltaRefund > 0) {
-                await appendLoyaltyTxn({
-                    customerId: invoice.customer_id,
-                    storeId: salesReturn.store_id,
-                    actorId: req.user.id,
-                    type: 'REFUND',
-                    points: deltaRefund,
-                    valueVnd: deltaRefund * loyaltyPointValue,
-                    referenceModel: 'SalesReturn',
-                    referenceId: salesReturn._id,
-                    note: `Hoàn điểm theo tỷ lệ trả hàng: +${deltaRefund} điểm.`,
-                    idempotencyKey: `return-refund-redeem:${salesReturn._id}`,
-                });
-                invoice.loyalty_refunded_redeem_points = alreadyRefunded + deltaRefund;
-            }
-        }
-
-        await invoice.save();
-
-        if (invoice.payment_method === 'debt') {
-            const customerId = invoice.customer_id?._id || invoice.customer_id;
-            if (customerId) {
-                await adjustCustomerDebtAccount(customerId, -returnTotalAmount, {});
-            }
-        }
-        const eligibleRefundMethods = ['cash', 'bank_transfer', 'card', 'credit'];
-        if (
-            invoice.payment_status === 'paid'
-            && eligibleRefundMethods.includes(String(invoice.payment_method || '').toLowerCase())
-            && Number(returnTotalAmount) > 0
-        ) {
-            await upsertSystemCashFlow({
-                storeId: salesReturn.store_id,
-                type: 'EXPENSE',
-                category: 'SALES_RETURN',
-                amount: returnTotalAmount,
-                paymentMethod: invoice.payment_method,
-                referenceModel: 'sales_return',
-                referenceId: salesReturn._id,
-                note: `Hoan tien tra hang #${String(salesReturn._id).slice(-6).toUpperCase()}`,
-                actorId: req.user.id,
-                transactedAt: salesReturn.created_at || new Date(),
-            });
-        }
+        await applyApprovedReturn({
+            salesReturn,
+            invoice,
+            actorId: req.user.id,
+        });
 
         const populated = await SalesReturn.findById(salesReturn._id)
             .populate('invoice_id', '_id recipient_name total_amount invoice_at')
@@ -422,6 +472,56 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
         return res.status(err.status || 400).json({
             message: err.message || 'Lỗi hệ thống khi thực hiện trả hàng',
             error: err.toString(),
+        });
+    }
+});
+
+// POST /api/returns/:id/approve — Manager/Admin duyệt phiếu trả hàng pending
+router.post('/:id/approve', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
+    try {
+        if (!assertStoreScope(req, res)) return;
+        const { id } = req.params;
+        if (!mongoose.isValidObjectId(id)) {
+            return res.status(400).json({ message: 'return id không hợp lệ' });
+        }
+        const salesReturn = await SalesReturn.findById(id);
+        if (!salesReturn) return res.status(404).json({ message: 'Không tìm thấy phiếu trả hàng.' });
+
+        const role = String(req.user?.role || '').toLowerCase();
+        if (role !== 'admin' && req.user.storeId && String(salesReturn.store_id) !== String(req.user.storeId)) {
+            return res.status(403).json({ message: 'Không có quyền duyệt phiếu trả hàng này.' });
+        }
+        if (String(salesReturn.status) !== 'pending') {
+            return res.status(409).json({ message: 'Phiếu trả hàng không ở trạng thái chờ duyệt.' });
+        }
+
+        const invoice = await SalesInvoice.findById(salesReturn.invoice_id).populate('customer_id');
+        if (!invoice) return res.status(404).json({ message: 'Không tìm thấy hóa đơn gốc.' });
+        if (invoice.status === 'cancelled') {
+            return res.status(400).json({ message: 'Hóa đơn gốc đã hủy, không thể duyệt phiếu trả.' });
+        }
+
+        await applyApprovedReturn({
+            salesReturn,
+            invoice,
+            actorId: req.user.id,
+        });
+
+        const populated = await SalesReturn.findById(salesReturn._id)
+            .populate('invoice_id', '_id recipient_name total_amount invoice_at')
+            .populate('created_by', 'fullName email')
+            .populate('approved_by', 'fullName email')
+            .populate('items.product_id', 'name sku')
+            .lean();
+
+        return res.json({
+            message: 'Duyệt phiếu trả hàng thành công',
+            salesReturn: populated,
+        });
+    } catch (err) {
+        console.error('Approve Return Error:', err);
+        return res.status(err.status || 400).json({
+            message: err.message || 'Lỗi hệ thống khi duyệt trả hàng',
         });
     }
 });

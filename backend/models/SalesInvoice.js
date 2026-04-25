@@ -70,6 +70,12 @@ const salesInvoiceSchema = new Schema(
             default: 'unpaid',
             index: true,
         },
+        display_code: {
+            type: String,
+            trim: true,
+            default: '',
+            index: true,
+        },
         payment_ref: {
             type: String,
             trim: true,

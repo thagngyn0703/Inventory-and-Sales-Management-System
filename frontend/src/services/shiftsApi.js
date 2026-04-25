@@ -56,3 +56,38 @@ export async function closeShift(shiftId, { actual_cash = 0, actual_bank = 0, re
   return data.shift;
 }
 
+export async function getShiftSessions({
+  page = 1,
+  limit = 20,
+  status = '',
+  from = '',
+  to = '',
+  user_id = '',
+  keyword = '',
+} = {}) {
+  const token = getToken();
+  const params = new URLSearchParams();
+  params.set('page', String(page));
+  params.set('limit', String(limit));
+  if (status) params.set('status', status);
+  if (from) params.set('from', from);
+  if (to) params.set('to', to);
+  if (user_id) params.set('user_id', user_id);
+  if (keyword) params.set('keyword', keyword);
+  const res = await fetch(`${API_BASE}/shifts?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return parseResponse(res, 'Không thể tải danh sách ca');
+}
+
+export async function getShiftInvoices(shiftId, { page = 1, limit = 20 } = {}) {
+  const token = getToken();
+  const params = new URLSearchParams();
+  params.set('page', String(page));
+  params.set('limit', String(limit));
+  const res = await fetch(`${API_BASE}/shifts/${shiftId}/invoices?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return parseResponse(res, 'Không thể tải hóa đơn theo ca');
+}
+

@@ -78,7 +78,7 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
         type: 'sale',
         _id: String(inv._id),
         createdAt: inv.invoice_at,
-        code: String(inv._id),
+        code: String(inv.display_code || inv._id),
         customerName: inv.recipient_name || 'Khách lẻ',
         sellerName: inv.seller_name || inv.created_by?.fullName || inv.created_by?.email || '—',
         status: getInvoiceStatusView(inv),
@@ -163,6 +163,18 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
       return new Date(d).toLocaleString('vi-VN');
     } catch {
       return '—';
+    }
+  };
+  const formatDateParts = (d) => {
+    if (!d) return { date: '—', time: '' };
+    try {
+      const dt = new Date(d);
+      return {
+        date: dt.toLocaleDateString('vi-VN'),
+        time: dt.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+      };
+    } catch {
+      return { date: formatDate(d), time: '' };
     }
   };
 
@@ -285,9 +297,13 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
                   <tbody className="divide-y divide-slate-100 bg-white">
                     {invoices.map((inv) => {
                       const statusView = getInvoiceStatusView(inv);
+                      const dt = formatDateParts(inv.createdAt);
                       return (
                       <tr key={inv._id} className="transition-colors odd:bg-white even:bg-slate-50/30 hover:bg-sky-50/40">
-                        <td className="whitespace-nowrap px-4 py-3.5 text-slate-600">{formatDate(inv.createdAt)}</td>
+                        <td className="whitespace-nowrap px-4 py-3.5 text-slate-600">
+                          <div className="font-semibold text-slate-900">{dt.date}</div>
+                          {dt.time ? <div className="text-xs text-slate-500">{dt.time}</div> : null}
+                        </td>
                         <td className="max-w-[160px] truncate px-4 py-3.5 font-mono text-xs text-slate-700" title={inv.code}>{inv.code}</td>
                         <td className="max-w-[180px] truncate px-4 py-3.5 font-medium text-slate-900">
                           {inv.customerName || 'Khách lẻ'}

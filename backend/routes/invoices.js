@@ -24,6 +24,7 @@ const {
 const { logAudit } = require('../utils/audit');
 const { computeInvoiceTaxSnapshot } = require('../services/vatEngine');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const { decorateInvoiceDisplayCode, decorateInvoiceListDisplayCode, buildInvoiceDisplayCode } = require('../utils/invoiceDisplayCode');
 
 const router = express.Router();
 
@@ -788,6 +789,7 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
             loyalty_policy_version: loyaltyPolicyVersion,
             loyalty_settings_snapshot: loyaltySettings,
         });
+        invoice.display_code = buildInvoiceDisplayCode(invoice);
 
         // Use syncInventory to handle deduction if created as confirmed
         try {
@@ -796,7 +798,7 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
                 const openShift = await ShiftSession.findOne({ store_id: req.user.storeId, status: 'open' })
                     .select('_id')
                     .lean();
-                if (!openShift && userRole === 'staff') {
+                if (!openShift && userRole !== 'admin') {
                     return res.status(400).json({
                         code: 'SHIFT_REQUIRED',
                         message: 'Vui lòng mở ca trước khi bán hàng.',
@@ -929,7 +931,7 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
         const currentPoints = Number(refreshedCustomer?.loyalty_points || 0);
         const nudge = getNextNudge(currentPoints, loyaltySettings.milestones || []);
         return res.status(201).json({
-            invoice: attachInvoiceEditFlags(populated),
+            invoice: decorateInvoiceDisplayCode(attachInvoiceEditFlags(populated)),
             payment_ref: paymentRef,
             payment_status: paymentStatus,
             loyalty_summary: {
@@ -959,6 +961,10 @@ router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (
         const userRole = String(req.user?.role || '').toLowerCase();
         if (req.user.storeId && userRole !== 'admin') {
             filter.store_id = req.user.storeId;
+        }
+        // Staff chỉ xem hóa đơn do chính mình tạo.
+        if (userRole === 'staff') {
+            filter.created_by = req.user.id;
         }
         if (status) {
             filter.status = status;
@@ -997,10 +1003,16 @@ router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (
             if (matchingUserIds.length > 0) {
                 filter.$or = [
                     { recipient_name: regex },
-                    { created_by: { $in: matchingUserIds } }
+                    { created_by: { $in: matchingUserIds } },
+                    { display_code: regex },
+                    { $expr: { $regexMatch: { input: { $toString: '$_id' }, regex: searchKey.trim(), options: 'i' } } },
                 ];
             } else {
-                filter.recipient_name = regex;
+                filter.$or = [
+                    { recipient_name: regex },
+                    { display_code: regex },
+                    { $expr: { $regexMatch: { input: { $toString: '$_id' }, regex: searchKey.trim(), options: 'i' } } },
+                ];
             }
         }
 
@@ -1033,7 +1045,7 @@ router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (
         );
 
         return res.json({
-            invoices: invoicesWithStock,
+            invoices: decorateInvoiceListDisplayCode(invoicesWithStock),
             total,
             page: pageNum,
             limit: limitNum,
@@ -1135,6 +1147,10 @@ router.get('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), asyn
         if (userRole2 !== 'admin' && req.user.storeId && String(invoice.store_id) !== String(req.user.storeId)) {
             return res.status(403).json({ message: 'Không có quyền xem hóa đơn này' });
         }
+        // Staff chỉ xem hóa đơn của chính mình.
+        if (userRole2 === 'staff' && String(invoice.created_by) !== String(req.user.id)) {
+            return res.status(403).json({ message: 'Nhân viên chỉ được xem hóa đơn do chính mình tạo' });
+        }
 
         const productIds = (invoice.items || [])
             .map((item) => normalizeId(item.product_id))
@@ -1165,7 +1181,7 @@ router.get('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), asyn
         };
         invoice.returns = await buildReturnDetails(invoice._id);
 
-        return res.json({ invoice: attachInvoiceEditFlags(invoice) });
+        return res.json({ invoice: decorateInvoiceDisplayCode(attachInvoiceEditFlags(invoice)) });
     } catch (err) {
         console.error(err);
         return res.status(500).json({ message: err.message || 'Server error' });
@@ -1314,7 +1330,7 @@ router.patch('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), as
         const productsById = new Map(products.map((p) => [String(p._id), p]));
         populated.items = buildStockAvailability(populated.items, productsById);
 
-        return res.json({ invoice: attachInvoiceEditFlags(populated) });
+        return res.json({ invoice: decorateInvoiceDisplayCode(attachInvoiceEditFlags(populated)) });
     } catch (err) {
         console.error(err);
         return res.status(500).json({ message: err.message || 'Server error' });
@@ -1322,7 +1338,7 @@ router.patch('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), as
 });
 
 // POST /api/invoices/:id/cancel — Simplify cancel
-router.post('/:id/cancel', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
+router.post('/:id/cancel', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
     try {
         if (!assertStoreScope(req, res)) return;
         const { id } = req.params;
@@ -1403,7 +1419,9 @@ router.post('/:id/cancel', requireAuth, requireRole(['staff', 'manager', 'admin'
                 });
             }
             return res.json({
-                invoice: attachInvoiceEditFlags(invoice.toObject ? invoice.toObject() : invoice),
+                invoice: decorateInvoiceDisplayCode(
+                    attachInvoiceEditFlags(invoice.toObject ? invoice.toObject() : invoice)
+                ),
             });
         } catch (err) {
             if (err.status) return res.status(err.status).json({ message: err.message });

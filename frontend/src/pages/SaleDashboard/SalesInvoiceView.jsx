@@ -73,7 +73,7 @@ export default function SalesInvoiceView() {
           >
             <i className="fa-solid fa-arrow-left" /> Quay lại
           </button>
-          <h2 style={{ margin: 0, color: '#1e293b' }}>Chi tiết hóa đơn: {invoice._id}</h2>
+          <h2 style={{ margin: 0, color: '#1e293b' }}>Chi tiết hóa đơn: {invoice.display_code || invoice._id}</h2>
         </div>
       </div>
 
