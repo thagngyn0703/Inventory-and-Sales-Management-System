@@ -16,6 +16,11 @@ const RETURN_REASON_OPTIONS = [
     { code: 'other', label: 'Lý do khác' },
 ];
 
+function shouldLogServerError(err) {
+    const status = Number(err?.status || 0);
+    return !status || status >= 500;
+}
+
 function assertStoreScope(req, res) {
     const role = String(req.user?.role || '').toLowerCase();
     if (role === 'admin') return true;
@@ -468,7 +473,9 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
             },
         });
     } catch (err) {
-        console.error('Sales Return Error:', err);
+        if (shouldLogServerError(err)) {
+            console.error('Sales Return Error:', err);
+        }
         return res.status(err.status || 400).json({
             message: err.message || 'Lỗi hệ thống khi thực hiện trả hàng',
             error: err.toString(),
@@ -519,7 +526,9 @@ router.post('/:id/approve', requireAuth, requireRole(['manager', 'admin']), asyn
             salesReturn: populated,
         });
     } catch (err) {
-        console.error('Approve Return Error:', err);
+        if (shouldLogServerError(err)) {
+            console.error('Approve Return Error:', err);
+        }
         return res.status(err.status || 400).json({
             message: err.message || 'Lỗi hệ thống khi duyệt trả hàng',
         });

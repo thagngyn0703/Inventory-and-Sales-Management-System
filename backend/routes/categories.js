@@ -4,6 +4,11 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
+function logUnexpectedError(context, err) {
+    if (String(err?.name) === 'CastError') return;
+    console.error(context, err);
+}
+
 // Apply JWT verification to all routes
 router.use(requireAuth);
 
@@ -18,7 +23,7 @@ router.get('/', requireRole(['manager', 'staff', 'admin']), async (req, res) => 
         const categories = await Category.find(filter).sort({ created_at: -1 });
         res.json(categories);
     } catch (err) {
-        console.error('Failed to fetch categories', err);
+        logUnexpectedError('Failed to fetch categories', err);
         res.status(500).json({ message: 'Server error' });
     }
 });
@@ -50,7 +55,7 @@ router.post('/', requireRole(['manager', 'staff', 'admin']), async (req, res) =>
         });
         res.status(201).json(cat);
     } catch (err) {
-        console.error('Failed to create category', err);
+        logUnexpectedError('Failed to create category', err);
         res.status(500).json({ message: 'Server error' });
     }
 });
@@ -91,7 +96,7 @@ router.put('/:id', requireRole(['manager', 'staff', 'admin']), async (req, res) 
         await cat.save();
         res.json(cat);
     } catch (err) {
-        console.error('Failed to update category', err);
+        logUnexpectedError('Failed to update category', err);
         res.status(500).json({ message: 'Server error' });
     }
 });
@@ -117,7 +122,7 @@ router.patch('/:id/activate', requireRole(['manager', 'staff', 'admin']), async 
         }
         res.json(updated);
     } catch (err) {
-        console.error('Failed to change active state', err);
+        logUnexpectedError('Failed to change active state', err);
         res.status(500).json({ message: 'Server error' });
     }
 });
