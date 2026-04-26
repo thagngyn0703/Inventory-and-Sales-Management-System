@@ -42,7 +42,10 @@ export async function openShift({ opening_cash = 0 } = {}) {
   return data.shift;
 }
 
-export async function closeShift(shiftId, { actual_cash = 0, actual_bank = 0, reconciliation_status = 'pending', reconciliation_note = '' } = {}) {
+export async function closeShift(
+  shiftId,
+  { actual_cash = 0, actual_bank = 0, reconciliation_status = 'pending', reconciliation_note = '', override_close = false } = {}
+) {
   const token = getToken();
   const res = await fetch(`${API_BASE}/shifts/${shiftId}/close`, {
     method: 'POST',
@@ -50,9 +53,44 @@ export async function closeShift(shiftId, { actual_cash = 0, actual_bank = 0, re
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify({ actual_cash, actual_bank, reconciliation_status, reconciliation_note }),
+    body: JSON.stringify({ actual_cash, actual_bank, reconciliation_status, reconciliation_note, override_close }),
   });
   const data = await parseResponse(res, 'Không thể đóng ca');
   return data.shift;
+}
+
+export async function getShiftSessions({
+  page = 1,
+  limit = 20,
+  status = '',
+  from = '',
+  to = '',
+  user_id = '',
+  keyword = '',
+} = {}) {
+  const token = getToken();
+  const params = new URLSearchParams();
+  params.set('page', String(page));
+  params.set('limit', String(limit));
+  if (status) params.set('status', status);
+  if (from) params.set('from', from);
+  if (to) params.set('to', to);
+  if (user_id) params.set('user_id', user_id);
+  if (keyword) params.set('keyword', keyword);
+  const res = await fetch(`${API_BASE}/shifts?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return parseResponse(res, 'Không thể tải danh sách ca');
+}
+
+export async function getShiftInvoices(shiftId, { page = 1, limit = 20 } = {}) {
+  const token = getToken();
+  const params = new URLSearchParams();
+  params.set('page', String(page));
+  params.set('limit', String(limit));
+  const res = await fetch(`${API_BASE}/shifts/${shiftId}/invoices?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return parseResponse(res, 'Không thể tải hóa đơn theo ca');
 }
 

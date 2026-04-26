@@ -1,8 +1,10 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const Store = require('../models/Store');
+const TaxPolicy = require('../models/TaxPolicy');
 const LoyaltyConfigHistory = require('../models/LoyaltyConfigHistory');
 const { normalizeLoyaltySettings } = require('../utils/loyalty');
+const { logAudit } = require('../utils/audit');
 const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
@@ -64,9 +66,15 @@ router.patch('/tax', requireAuth, requireRole(['manager', 'admin']), async (req,
             return res.status(403).json({ message: 'Tài khoản chưa được gán cửa hàng.', code: 'STORE_REQUIRED' });
         }
 
-        const { business_type, tax_rate, price_includes_tax } = req.body || {};
+        const { business_type, tax_rate, price_includes_tax, strict_tax_compliance, default_tax_profile } = req.body || {};
 
-        if (business_type === undefined && tax_rate === undefined && price_includes_tax === undefined) {
+        if (
+            business_type === undefined &&
+            tax_rate === undefined &&
+            price_includes_tax === undefined &&
+            strict_tax_compliance === undefined &&
+            default_tax_profile === undefined
+        ) {
             return res.status(400).json({ message: 'Vui lòng cung cấp ít nhất một trường cần cập nhật.' });
         }
 
@@ -111,12 +119,18 @@ router.patch('/tax', requireAuth, requireRole(['manager', 'admin']), async (req,
         if (price_includes_tax !== undefined) {
             updates.price_includes_tax = Boolean(price_includes_tax);
         }
+        if (strict_tax_compliance !== undefined) {
+            updates.strict_tax_compliance = Boolean(strict_tax_compliance);
+        }
+        if (default_tax_profile !== undefined) {
+            updates.default_tax_profile = String(default_tax_profile || 'default').trim() || 'default';
+        }
 
         const store = await Store.findByIdAndUpdate(
             storeId,
             { $set: updates },
             { new: true }
-        ).select('name tax_rate price_includes_tax business_type').lean();
+        ).select('name tax_rate price_includes_tax business_type strict_tax_compliance default_tax_profile').lean();
 
         if (!store) return res.status(404).json({ message: 'Không tìm thấy cửa hàng.' });
 
@@ -128,9 +142,81 @@ router.patch('/tax', requireAuth, requireRole(['manager', 'admin']), async (req,
             business_type: savedType,
             tax_rate: savedType === 'ho_kinh_doanh' ? 0 : (Number(store.tax_rate) || 0),
             price_includes_tax: store.price_includes_tax !== false,
+            strict_tax_compliance: store.strict_tax_compliance !== false,
+            default_tax_profile: store.default_tax_profile || 'default',
         });
     } catch (err) {
         console.error(err);
+        return res.status(500).json({ message: err.message || 'Server error' });
+    }
+});
+
+router.get('/tax-policies', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
+    try {
+        const storeId = req.user?.storeId;
+        if (!storeId || !mongoose.isValidObjectId(storeId)) {
+            return res.status(403).json({ message: 'Tài khoản chưa được gán cửa hàng.', code: 'STORE_REQUIRED' });
+        }
+        const policies = await TaxPolicy.find({
+            $or: [
+                { scope: 'global' },
+                { scope: 'store', store_id: storeId },
+            ],
+        })
+            .sort({ effective_from: -1 })
+            .lean();
+        return res.json({ policies });
+    } catch (err) {
+        return res.status(500).json({ message: err.message || 'Server error' });
+    }
+});
+
+router.post('/tax-policies', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
+    try {
+        const storeId = req.user?.storeId;
+        if (!storeId || !mongoose.isValidObjectId(storeId)) {
+            return res.status(403).json({ message: 'Tài khoản chưa được gán cửa hàng.', code: 'STORE_REQUIRED' });
+        }
+        const {
+            name,
+            effective_from,
+            effective_to = null,
+            legal_basis_ref = '',
+            exclusion_rules = [],
+            mandatory_reason_codes = [],
+            strict_compliance = true,
+            rounding_mode = 'half_up',
+            version_code,
+            change_note = '',
+        } = req.body || {};
+        if (!String(name || '').trim()) return res.status(400).json({ message: 'name là bắt buộc.' });
+        if (!String(version_code || '').trim()) return res.status(400).json({ message: 'version_code là bắt buộc.' });
+        const policy = await TaxPolicy.create({
+            scope: 'store',
+            store_id: storeId,
+            name: String(name).trim(),
+            version_code: String(version_code).trim(),
+            effective_from: effective_from ? new Date(effective_from) : new Date(),
+            effective_to: effective_to ? new Date(effective_to) : null,
+            legal_basis_ref: String(legal_basis_ref || '').trim(),
+            exclusion_rules: Array.isArray(exclusion_rules) ? exclusion_rules : [],
+            mandatory_reason_codes: Array.isArray(mandatory_reason_codes) ? mandatory_reason_codes : [],
+            strict_compliance: Boolean(strict_compliance),
+            rounding_mode: String(rounding_mode || 'half_up'),
+            approval_state: 'draft',
+            change_note: String(change_note || '').trim(),
+            created_by: req.user.id,
+        });
+        await logAudit({
+            storeId,
+            actorId: req.user.id,
+            action: 'tax_policy_created',
+            entityType: 'TaxPolicy',
+            entityId: policy._id,
+            metadata: { version_code: policy.version_code },
+        });
+        return res.status(201).json({ policy });
+    } catch (err) {
         return res.status(500).json({ message: err.message || 'Server error' });
     }
 });

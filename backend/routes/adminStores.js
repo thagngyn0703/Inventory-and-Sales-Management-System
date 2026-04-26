@@ -1,6 +1,7 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const Store = require('../models/Store');
+const TaxPolicy = require('../models/TaxPolicy');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
 
@@ -145,6 +146,63 @@ router.patch('/:id/approval', requireAuth, requireRole(['admin']), async (req, r
       metadata: { approval_status: updates.approval_status, rejection_reason: updates.rejection_reason || '' },
     });
     return res.json({ store });
+  } catch (err) {
+    return res.status(500).json({ message: 'Server error' });
+  }
+});
+
+router.patch('/:id/tax-policies/:policyId/approval', requireAuth, requireRole(['admin']), async (req, res) => {
+  try {
+    const { id, policyId } = req.params;
+    const { approval_state, reason_code = '', change_note = '' } = req.body || {};
+    if (!mongoose.isValidObjectId(id) || !mongoose.isValidObjectId(policyId)) {
+      return res.status(400).json({ message: 'Invalid id' });
+    }
+    if (!['in_review', 'approved', 'active', 'inactive'].includes(String(approval_state))) {
+      return res.status(400).json({ message: 'approval_state không hợp lệ.' });
+    }
+    const policy = await TaxPolicy.findOne({ _id: policyId, store_id: id, scope: 'store' });
+    if (!policy) return res.status(404).json({ message: 'Tax policy not found' });
+    if (String(approval_state) === 'active' && !String(reason_code || '').trim()) {
+      return res.status(400).json({ message: 'reason_code là bắt buộc khi kích hoạt policy.' });
+    }
+    if (String(policy.approval_state) === 'active' && String(approval_state) === 'active') {
+      return res.status(400).json({ message: 'Policy đã active.' });
+    }
+    if (String(policy.approval_state) === 'active' && String(approval_state) !== 'inactive') {
+      return res.status(400).json({ message: 'Không được sửa policy đã effective, chỉ cho phép inactive/supersede.' });
+    }
+    policy.approval_state = String(approval_state);
+    policy.change_reason_code = String(reason_code || '').trim();
+    policy.change_note = String(change_note || '').trim();
+    policy.reviewed_by = req.user.id;
+    if (String(approval_state) === 'approved' || String(approval_state) === 'active') {
+      policy.approved_by = req.user.id;
+      policy.approved_at = new Date();
+    }
+    if (String(approval_state) === 'active') {
+      policy.activated_at = new Date();
+      await TaxPolicy.updateMany(
+        {
+          _id: { $ne: policy._id },
+          store_id: id,
+          scope: 'store',
+          approval_state: 'active',
+        },
+        { $set: { approval_state: 'inactive' } }
+      );
+    }
+    await policy.save();
+    await logAudit({
+      storeId: id,
+      actorId: req.user.id,
+      action: 'tax_policy_state_updated',
+      entityType: 'TaxPolicy',
+      entityId: policy._id,
+      note: `Cập nhật policy sang ${policy.approval_state}`,
+      metadata: { reason_code: policy.change_reason_code },
+    });
+    return res.json({ policy });
   } catch (err) {
     return res.status(500).json({ message: 'Server error' });
   }

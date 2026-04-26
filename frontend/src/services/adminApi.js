@@ -133,14 +133,32 @@ export async function getStoreTaxSettings() {
   return parseJson(res, 'Không thể tải cấu hình thuế');
 }
 
-export async function updateStoreTaxSettings({ business_type, tax_rate, price_includes_tax }) {
+export async function updateStoreTaxSettings({ business_type, tax_rate, price_includes_tax, strict_tax_compliance, default_tax_profile }) {
   const token = getToken();
   const res = await fetch(`${apiPath('/store-settings/tax')}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ business_type, tax_rate, price_includes_tax }),
+    body: JSON.stringify({ business_type, tax_rate, price_includes_tax, strict_tax_compliance, default_tax_profile }),
   });
   return parseJson(res, 'Không thể cập nhật cấu hình thuế');
+}
+
+export async function getStoreTaxPolicies() {
+  const token = getToken();
+  const res = await fetch(`${apiPath('/store-settings/tax-policies')}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return parseJson(res, 'Không thể tải danh sách phiên bản chính sách thuế');
+}
+
+export async function createStoreTaxPolicy(payload) {
+  const token = getToken();
+  const res = await fetch(`${apiPath('/store-settings/tax-policies')}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload || {}),
+  });
+  return parseJson(res, 'Không thể tạo phiên bản chính sách thuế');
 }
 
 export async function getStoreBankSettings() {

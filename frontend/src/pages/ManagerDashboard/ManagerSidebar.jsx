@@ -8,6 +8,7 @@ import { getRealtimeSocket } from '../../services/realtimeSocket';
 import {
   BarChart3,
   Bell,
+  CalendarClock,
   ChevronDown,
   ClipboardCheck,
   ClipboardList,
@@ -86,6 +87,7 @@ const manageItems = [
   { type: 'item', label: 'Lịch sử điều chỉnh', path: '/manager/adjustments', icon: History },
   { type: 'item', label: 'Báo cáo thẻ kho', path: '/manager/stock-history', icon: ClipboardList },
   { type: 'item', label: 'Bán hàng trực tiếp', path: '/manager/pos', icon: Drill },
+  { type: 'item', label: 'Nhật ký thu ngân', path: '/manager/shifts', icon: CalendarClock },
   { type: 'item', label: 'Trợ lý AI (tham khảo)', path: '/manager/ai-assistant', icon: Sparkles },
   {
     type: 'group',
@@ -125,6 +127,7 @@ function getActivePath(pathname) {
   if (pathname.startsWith('/manager/supplier-returns/new')) return '/manager/supplier-returns/new';
   if (pathname.startsWith('/manager/supplier-returns')) return '/manager/supplier-returns';
   if (pathname.startsWith('/manager/pos')) return '/manager/pos';
+  if (pathname.startsWith('/manager/shifts')) return '/manager/shifts';
   return pathname;
 }
 

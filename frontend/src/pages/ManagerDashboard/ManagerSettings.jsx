@@ -6,6 +6,8 @@ import { FolderTree, Settings, UsersRound, Bell, UserPlus, Receipt, Percent, Sto
 import {
   getStoreTaxSettings,
   updateStoreTaxSettings,
+  getStoreTaxPolicies,
+  createStoreTaxPolicy,
   getStoreBankSettings,
   updateStoreBankSettings,
   getStoreLoyaltySettings,
@@ -43,7 +45,11 @@ export default function ManagerSettings() {
     business_type: 'ho_kinh_doanh',
     tax_rate: 0,
     price_includes_tax: true,
+    strict_tax_compliance: true,
+    default_tax_profile: 'default',
   });
+  const [taxPolicies, setTaxPolicies] = useState([]);
+  const [newPolicy, setNewPolicy] = useState({ name: '', version_code: '', legal_basis_ref: '' });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState({ type: '', text: '' });
@@ -91,10 +97,15 @@ export default function ManagerSettings() {
           business_type: data.business_type || 'ho_kinh_doanh',
           tax_rate: data.tax_rate ?? 0,
           price_includes_tax: data.price_includes_tax !== false,
+          strict_tax_compliance: data.strict_tax_compliance !== false,
+          default_tax_profile: data.default_tax_profile || 'default',
         })
       )
       .catch(() => {})
       .finally(() => setLoading(false));
+    getStoreTaxPolicies()
+      .then((data) => setTaxPolicies(data.policies || []))
+      .catch(() => setTaxPolicies([]));
 
     getStoreBankSettings()
       .then((data) =>
@@ -156,18 +167,38 @@ export default function ManagerSettings() {
               business_type: 'doanh_nghiep',
               price_includes_tax: config.price_includes_tax,
               tax_rate: config.tax_rate,
+              strict_tax_compliance: config.strict_tax_compliance,
+              default_tax_profile: config.default_tax_profile || 'default',
             };
       const res = await updateStoreTaxSettings(payload);
       setConfig({
         business_type: res.business_type || 'ho_kinh_doanh',
         tax_rate: res.tax_rate ?? 0,
         price_includes_tax: res.price_includes_tax !== false,
+        strict_tax_compliance: res.strict_tax_compliance !== false,
+        default_tax_profile: res.default_tax_profile || 'default',
       });
       setMsg({ type: 'success', text: 'Đã lưu cấu hình thành công.' });
     } catch (err) {
       setMsg({ type: 'error', text: err.message || 'Lỗi khi lưu cấu hình.' });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleCreateTaxPolicy = async () => {
+    if (!newPolicy.name.trim() || !newPolicy.version_code.trim()) {
+      setMsg({ type: 'error', text: 'Tên policy và version code là bắt buộc.' });
+      return;
+    }
+    try {
+      await createStoreTaxPolicy(newPolicy);
+      const refreshed = await getStoreTaxPolicies();
+      setTaxPolicies(refreshed.policies || []);
+      setNewPolicy({ name: '', version_code: '', legal_basis_ref: '' });
+      setMsg({ type: 'success', text: 'Đã tạo policy thuế bản nháp.' });
+    } catch (err) {
+      setMsg({ type: 'error', text: err.message || 'Không thể tạo policy thuế.' });
     }
   };
 
@@ -453,6 +484,15 @@ export default function ManagerSettings() {
                     Lưu ý: giá bán sản phẩm được hệ thống hiểu là <strong>đã bao gồm</strong> hoặc{' '}
                     <strong>chưa bao gồm</strong> thuế theo thiết lập này.
                   </p>
+                  <label className="flex items-center gap-2 text-sm text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={config.strict_tax_compliance}
+                      onChange={(e) => setConfig((prev) => ({ ...prev, strict_tax_compliance: e.target.checked }))}
+                      className="h-4 w-4 accent-teal-600"
+                    />
+                    Bật chế độ strict compliance (thiếu mapping thuế sẽ chặn bán)
+                  </label>
 
                   {preview && (
                     <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">
@@ -512,6 +552,50 @@ export default function ManagerSettings() {
               </button>
             </div>
           )}
+        </div>
+
+        <div className="mb-6 rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm sm:p-6">
+          <div className="mb-5 flex items-center gap-2">
+            <Building2 className="h-5 w-5 text-teal-600" aria-hidden />
+            <h3 className="text-base font-bold text-slate-800">Phiên bản chính sách thuế</h3>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <input
+              type="text"
+              value={newPolicy.name}
+              onChange={(e) => setNewPolicy((prev) => ({ ...prev, name: e.target.value }))}
+              placeholder="Tên policy"
+              className="h-10 rounded-lg border border-slate-200 px-3 text-sm"
+            />
+            <input
+              type="text"
+              value={newPolicy.version_code}
+              onChange={(e) => setNewPolicy((prev) => ({ ...prev, version_code: e.target.value }))}
+              placeholder="Version code"
+              className="h-10 rounded-lg border border-slate-200 px-3 text-sm"
+            />
+            <input
+              type="text"
+              value={newPolicy.legal_basis_ref}
+              onChange={(e) => setNewPolicy((prev) => ({ ...prev, legal_basis_ref: e.target.value }))}
+              placeholder="Căn cứ pháp lý"
+              className="h-10 rounded-lg border border-slate-200 px-3 text-sm"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={handleCreateTaxPolicy}
+            className="mt-3 rounded-xl bg-teal-600 px-5 py-2 text-sm font-semibold text-white"
+          >
+            Tạo policy thuế
+          </button>
+          <div className="mt-4 space-y-2">
+            {taxPolicies.slice(0, 8).map((p) => (
+              <div key={p._id} className="rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-700">
+                <strong>{p.version_code}</strong> - {p.name} ({p.approval_state})
+              </div>
+            ))}
+          </div>
         </div>
 
         <div className="mb-6 rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm sm:p-6">
