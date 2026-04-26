@@ -6,6 +6,7 @@ import { useToast } from '../../contexts/ToastContext';
 import '../ManagerDashboard/ManagerDashboard.css';
 import '../ManagerDashboard/ManagerProducts.css';
 import './AdminUserList.css';
+import './AdminDashBoard.css';
 
 const PAGE_SIZE = 10;
 
@@ -96,19 +97,19 @@ export default function AdminStoresManage() {
   const endItem = Math.min(page * PAGE_SIZE, total);
 
   return (
-    <div className="manager-page-with-sidebar">
+    <div className="admin-page-with-sidebar">
       <Sidebar />
-      <div className="manager-main">
-        <header className="manager-topbar">
-          <div className="manager-topbar-search-wrap" />
-          <div className="manager-topbar-actions">
-            <div className="manager-user-badge">
+      <div className="admin-users-main">
+        <header className="admin-users-topbar">
+          <div className="admin-users-topbar-spacer" />
+          <div className="admin-users-topbar-actions">
+            <div className="admin-users-badge">
               <i className="fa-solid fa-circle-user" />
-              <span>Admin</span>
+              <span>Quản trị viên</span>
             </div>
           </div>
         </header>
-        <div className="manager-content">
+        <div className="admin-users-content">
           <div className="manager-products-header">
             <div>
               <h1 className="manager-page-title">Quản lý cửa hàng</h1>
@@ -123,7 +124,7 @@ export default function AdminStoresManage() {
                   setPage(1);
                   setApprovalFilter(e.target.value);
                 }}
-                className="manager-topbar-select"
+                className="manager-topbar-select admin-topbar-select"
               >
                 <option value="all">Tất cả hồ sơ</option>
                 <option value="draft_profile">Chưa hoàn thiện hồ sơ</option>
@@ -144,7 +145,7 @@ export default function AdminStoresManage() {
                 : `Hiển thị ${startItem}-${endItem} / ${total} cửa hàng`}
           </p>
 
-          <div className="manager-panel-card manager-products-card">
+          <div className="manager-panel-card manager-products-card admin-users-table-card">
             {loading ? (
               <p className="manager-products-loading">Đang tải...</p>
             ) : (
