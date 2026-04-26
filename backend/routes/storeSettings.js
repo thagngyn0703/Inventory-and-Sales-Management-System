@@ -31,7 +31,7 @@ router.get('/tax', requireAuth, requireRole(['staff', 'manager', 'admin']), asyn
             return res.status(403).json({ message: 'Tài khoản chưa được gán cửa hàng.', code: 'STORE_REQUIRED' });
         }
         const store = await Store.findById(storeId)
-            .select('name tax_rate price_includes_tax business_type')
+            .select('name tax_rate price_includes_tax business_type strict_tax_compliance default_tax_profile')
             .lean();
         if (!store) return res.status(404).json({ message: 'Không tìm thấy cửa hàng.' });
 
@@ -43,6 +43,8 @@ router.get('/tax', requireAuth, requireRole(['staff', 'manager', 'admin']), asyn
             // HKĐ không thu VAT trên hóa đơn → luôn trả về 0
             tax_rate: businessType === 'ho_kinh_doanh' ? 0 : (Number(store.tax_rate) || 0),
             price_includes_tax: store.price_includes_tax !== false,
+            strict_tax_compliance: store.strict_tax_compliance !== false,
+            default_tax_profile: store.default_tax_profile || 'default',
         });
     } catch (err) {
         console.error(err);
@@ -184,6 +186,9 @@ router.post('/tax-policies', requireAuth, requireRole(['manager', 'admin']), asy
             legal_basis_ref = '',
             exclusion_rules = [],
             mandatory_reason_codes = [],
+            vat_reduction_rule = {},
+            tax_category_rules = {},
+            legal_basis = {},
             strict_compliance = true,
             rounding_mode = 'half_up',
             version_code,
@@ -199,7 +204,23 @@ router.post('/tax-policies', requireAuth, requireRole(['manager', 'admin']), asy
             effective_from: effective_from ? new Date(effective_from) : new Date(),
             effective_to: effective_to ? new Date(effective_to) : null,
             legal_basis_ref: String(legal_basis_ref || '').trim(),
+            legal_basis: {
+                law: String(legal_basis?.law || '').trim(),
+                article: String(legal_basis?.article || '').trim(),
+                clause: String(legal_basis?.clause || '').trim(),
+                note: String(legal_basis?.note || '').trim(),
+            },
             exclusion_rules: Array.isArray(exclusion_rules) ? exclusion_rules : [],
+            vat_reduction_rule: {
+                eligible: vat_reduction_rule?.eligible !== false,
+                reduced_rate: Number(vat_reduction_rule?.reduced_rate) || 8,
+                effective_from: vat_reduction_rule?.effective_from ? new Date(vat_reduction_rule.effective_from) : null,
+                effective_to: vat_reduction_rule?.effective_to ? new Date(vat_reduction_rule.effective_to) : null,
+                excluded_categories: Array.isArray(vat_reduction_rule?.excluded_categories) ? vat_reduction_rule.excluded_categories : [],
+                exclusion_rules: Array.isArray(vat_reduction_rule?.exclusion_rules) ? vat_reduction_rule.exclusion_rules : [],
+                eligible_categories: Array.isArray(vat_reduction_rule?.eligible_categories) ? vat_reduction_rule.eligible_categories : [],
+            },
+            tax_category_rules: tax_category_rules && typeof tax_category_rules === 'object' ? tax_category_rules : {},
             mandatory_reason_codes: Array.isArray(mandatory_reason_codes) ? mandatory_reason_codes : [],
             strict_compliance: Boolean(strict_compliance),
             rounding_mode: String(rounding_mode || 'half_up'),

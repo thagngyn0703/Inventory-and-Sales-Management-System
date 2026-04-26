@@ -161,6 +161,26 @@ const salesInvoiceSchema = new Schema(
                     min: 0,
                     max: 100,
                 },
+                excise_rate_snapshot: {
+                    type: Number,
+                    default: 0,
+                    min: 0,
+                    max: 100,
+                },
+                tax_category_snapshot: {
+                    type: String,
+                    default: 'DEFAULT',
+                    trim: true,
+                },
+                price_includes_tax_snapshot: {
+                    type: Boolean,
+                    default: true,
+                },
+                tax_override_reason_snapshot: {
+                    type: String,
+                    default: '',
+                    trim: true,
+                },
                 tax_status: {
                     type: String,
                     enum: ['taxable', 'non_taxable', 'not_subject', 'special_scheme'],
@@ -193,6 +213,21 @@ const salesInvoiceSchema = new Schema(
                     default: '',
                     trim: true,
                 },
+                legal_basis_article: {
+                    type: String,
+                    default: '',
+                    trim: true,
+                },
+                legal_basis_clause: {
+                    type: String,
+                    default: '',
+                    trim: true,
+                },
+                legal_basis_note: {
+                    type: String,
+                    default: '',
+                    trim: true,
+                },
                 policy_version_id: {
                     type: Schema.Types.ObjectId,
                     ref: 'TaxPolicy',
@@ -212,6 +247,14 @@ const salesInvoiceSchema = new Schema(
                     default: 0,
                 },
                 line_tax_amount: {
+                    type: Number,
+                    default: 0,
+                },
+                line_excise_amount: {
+                    type: Number,
+                    default: 0,
+                },
+                line_vat_amount: {
                     type: Number,
                     default: 0,
                 },
@@ -264,6 +307,21 @@ const salesInvoiceSchema = new Schema(
             default: '',
             trim: true,
         },
+        tax_legal_basis_article: {
+            type: String,
+            default: '',
+            trim: true,
+        },
+        tax_legal_basis_clause: {
+            type: String,
+            default: '',
+            trim: true,
+        },
+        tax_legal_basis_note: {
+            type: String,
+            default: '',
+            trim: true,
+        },
         tax_rounding_mode: {
             type: String,
             default: 'half_up',
@@ -275,6 +333,10 @@ const salesInvoiceSchema = new Schema(
         tax_decision_trace: {
             type: Schema.Types.Mixed,
             default: null,
+        },
+        tax_breakdown_summary: {
+            type: [Schema.Types.Mixed],
+            default: [],
         },
         replaced_by_invoice_id: {
             type: Schema.Types.ObjectId,

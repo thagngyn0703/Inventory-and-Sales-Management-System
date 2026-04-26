@@ -15,6 +15,7 @@ import {
   CreditCard,
   Drill,
   FileStack,
+  FolderTree,
   Handshake,
   History,
   LifeBuoy,
@@ -38,6 +39,7 @@ const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
 const overviewItems = [
   { type: 'item', label: 'Tổng quan', path: '/manager', icon: LayoutDashboard },
   { type: 'item', label: 'Sản phẩm', path: '/manager/products', icon: Package },
+  { type: 'item', label: 'Danh mục', path: '/manager/categories', icon: FolderTree },
   { type: 'item', label: 'Hóa đơn', path: '/manager/invoices', icon: Receipt },
   {
     type: 'group',

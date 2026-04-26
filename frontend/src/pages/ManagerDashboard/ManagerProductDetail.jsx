@@ -141,10 +141,13 @@ export default function ManagerProductDetail() {
                         <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Thông tin chung</h3>
                         <div className="grid gap-2 md:grid-cols-2">
                             <div className="text-sm text-slate-600">Tên: <strong className="text-slate-900">{p.name || '—'}</strong></div>
+                            <div className="text-sm text-slate-600">Danh mục: <strong className="text-slate-900">{typeof p.category_id === 'object' ? (p.category_id?.name || '—') : '—'}</strong></div>
                             <div className="text-sm text-slate-600">SKU: <strong className="text-slate-900">{p.sku || '—'}</strong></div>
                             <div className="text-sm text-slate-600">Barcode: <strong className="text-slate-900">{p.barcode || '—'}</strong></div>
                             <div className="text-sm text-slate-600">Nhà cung cấp: <strong className="text-slate-900">{typeof p.supplier_id === 'object' ? (p.supplier_id?.name || '—') : '—'}</strong></div>
                             <div className="text-sm text-slate-600">Hạn dùng: <strong className="text-slate-900">{p.expiry_date ? new Date(p.expiry_date).toLocaleDateString('vi-VN') : '—'}</strong></div>
+                            <div className="text-sm text-slate-600">Tax profile: <strong className="text-slate-900">{p.tax_profile || '—'}</strong></div>
+                            <div className="text-sm text-slate-600">VAT đang lưu: <strong className="text-slate-900">{p.vat_rate === null || p.vat_rate === undefined || p.vat_rate === '' ? '—' : `${Number(p.vat_rate)}%`}</strong></div>
                             <div className="text-sm text-slate-600">Trạng thái: <Badge className={p.status === 'inactive' ? 'border border-rose-200/80 bg-rose-100 text-rose-800' : 'border border-teal-200/80 bg-teal-50 text-teal-800'}>{p.status === 'inactive' ? 'Ngừng bán' : 'Đang bán'}</Badge></div>
                         </div>
                         <p className="text-xs text-slate-500">{Platform.select({ web: 'Thông tin hiển thị đồng bộ với màn thêm/sửa sản phẩm.', default: 'Thông tin sản phẩm.' })}</p>

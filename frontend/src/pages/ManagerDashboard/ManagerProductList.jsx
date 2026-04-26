@@ -36,6 +36,7 @@ export default function ManagerProductList() {
     const [togglingId, setTogglingId] = useState(null);
     const [categoryVatMap, setCategoryVatMap] = useState({});
     const [defaultVatRate, setDefaultVatRate] = useState(0);
+    const [businessType, setBusinessType] = useState('doanh_nghiep');
 
     const [importOpen, setImportOpen] = useState(false);
     const [importPreview, setImportPreview] = useState(null);
@@ -87,10 +88,12 @@ export default function ManagerProductList() {
                 });
                 setCategoryVatMap(nextMap);
                 setDefaultVatRate(Number(taxRes?.tax_rate) || 0);
+                setBusinessType(String(taxRes?.business_type || 'doanh_nghiep'));
             } catch {
                 if (!cancelled) {
                     setCategoryVatMap({});
                     setDefaultVatRate(0);
+                    setBusinessType('doanh_nghiep');
                 }
             }
         };
@@ -152,21 +155,29 @@ export default function ManagerProductList() {
     };
 
     const getEffectiveVatRate = (product) => {
+        const categoryId = product?.category_id
+            ? (typeof product.category_id === 'object' ? product.category_id._id : product.category_id)
+            : null;
+        const categoryVat = categoryId ? categoryVatMap[String(categoryId)] : undefined;
+        const hasCategoryVat = categoryVat !== null && categoryVat !== undefined && categoryVat !== '';
+        const isTaxOverrideEnabled = Boolean(product?.tax_override_enabled);
+
+        // Default mode: product tax follows category tax.
+        // Only prefer product VAT when explicit override is enabled.
+        if (!isTaxOverrideEnabled && hasCategoryVat) {
+            return Number(categoryVat) || 0;
+        }
+
         const productVat = product?.vat_rate;
         if (productVat !== null && productVat !== undefined && productVat !== '') {
             return Number(productVat) || 0;
         }
-        const categoryId = product?.category_id
-            ? (typeof product.category_id === 'object' ? product.category_id._id : product.category_id)
-            : null;
-        if (categoryId) {
-            const categoryVat = categoryVatMap[String(categoryId)];
-            if (categoryVat !== null && categoryVat !== undefined && categoryVat !== '') {
-                return Number(categoryVat) || 0;
-            }
+        if (hasCategoryVat) {
+            return Number(categoryVat) || 0;
         }
         return Number(defaultVatRate) || 0;
     };
+    const showTaxBadge = businessType !== 'ho_kinh_doanh';
 
     const highlightMatch = (text, query) => {
         const raw = String(text || '');
@@ -407,11 +418,13 @@ export default function ManagerProductList() {
                                                             >
                                                                 {highlightMatch(p.name || '—', search)}
                                                             </button>
-                                                            <div style={{ marginTop: 6 }}>
-                                                                <Badge className="border border-amber-200/80 bg-amber-50 text-amber-800">
-                                                                    VAT ap dung: {getEffectiveVatRate(p)}%
-                                                                </Badge>
-                                                            </div>
+                                                            {showTaxBadge && (
+                                                                <div style={{ marginTop: 6 }}>
+                                                                    <Badge className="border border-amber-200/80 bg-amber-50 text-amber-800">
+                                                                        VAT ap dung: {getEffectiveVatRate(p)}%
+                                                                    </Badge>
+                                                                </div>
+                                                            )}
                                                         </td>
                                                         <td>{p.barcode || '—'}</td>
                                                         <td>{formatMoney(p.cost_price)}</td>

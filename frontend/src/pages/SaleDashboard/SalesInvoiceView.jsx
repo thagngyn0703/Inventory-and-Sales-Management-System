@@ -62,6 +62,7 @@ export default function SalesInvoiceView() {
   const statusBg = isDebtUnpaid
     ? '#fee2e2'
     : (invoice.status === 'confirmed' ? '#d1fae5' : invoice.status === 'pending' ? '#fde68a' : '#fee2e2');
+  const taxBreakdown = Array.isArray(invoice.tax_breakdown_summary) ? invoice.tax_breakdown_summary : [];
 
   return (
     <div style={{ padding: 24, maxWidth: 1000, margin: '0 auto', fontFamily: 'Inter, sans-serif' }}>
@@ -99,7 +100,13 @@ export default function SalesInvoiceView() {
                   </td>
                   <td style={{ textAlign: 'center', padding: '16px', color: '#475569' }}>{item.quantity}</td>
                   <td style={{ textAlign: 'right', padding: '16px', color: '#475569' }}>{formatMoney(item.unit_price)}</td>
-                  <td style={{ textAlign: 'right', padding: '16px 0', fontWeight: 600, color: '#0f766e' }}>{formatMoney(item.line_total)}</td>
+                  <td style={{ textAlign: 'right', padding: '16px 0', fontWeight: 600, color: '#0f766e' }}>
+                    {formatMoney(item.line_total)}
+                    <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
+                      {String(item.tax_category_snapshot || 'DEFAULT')} • VAT {Number(item.vat_rate_snapshot || 0)}%
+                      {Number(item.excise_rate_snapshot || 0) > 0 ? ` • TTĐB ${Number(item.excise_rate_snapshot || 0)}%` : ''}
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -173,7 +180,7 @@ export default function SalesInvoiceView() {
                 <span style={{ fontWeight: 500, color: '#1e293b' }}>{paymentMethodMap[invoice.payment_method] || invoice.payment_method}</span>
               </div>
 
-              {invoice.tax_rate_snapshot > 0 ? (
+              {invoice.tax_rate_snapshot > 0 || taxBreakdown.length > 0 ? (
                 <>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                     <span style={{ color: '#64748b' }}>Tạm tính ({invoice.items?.length || 0} món):</span>
@@ -183,11 +190,31 @@ export default function SalesInvoiceView() {
                     <span style={{ color: '#64748b' }}>VAT ({invoice.tax_rate_snapshot}%):</span>
                     <span style={{ fontWeight: 500, color: '#64748b' }}>{formatMoney(invoice.tax_amount)}</span>
                   </div>
+                  {taxBreakdown.length > 0 && (
+                    <div style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: 10, background: '#f8fafc' }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6 }}>Chi tiết thuế theo nhóm</div>
+                      {taxBreakdown.map((row, idx) => (
+                        <div key={`${row.tax_category || 'DEFAULT'}-${idx}`} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+                          <span style={{ color: '#475569' }}>
+                            {row.tax_category || 'DEFAULT'} ({Number(row.vat_rate || 0)}%{Number(row.excise_rate || 0) > 0 ? ` + TTĐB ${Number(row.excise_rate || 0)}%` : ''})
+                          </span>
+                          <span style={{ color: '#334155', fontWeight: 600 }}>{formatMoney(row.tax_amount)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </>
               ) : (
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ color: '#64748b' }}>Tổng tiền hàng ({invoice.items?.length || 0} món):</span>
                   <span style={{ fontWeight: 500, color: '#1e293b' }}>{formatMoney(invoice.total_amount)}</span>
+                </div>
+              )}
+              {!!invoice.tax_legal_basis_ref && (
+                <div style={{ fontSize: 12, color: '#64748b' }}>
+                  Căn cứ áp dụng: {invoice.tax_legal_basis_ref}
+                  {invoice.tax_legal_basis_article ? ` - ${invoice.tax_legal_basis_article}` : ''}
+                  {invoice.tax_legal_basis_clause ? ` - ${invoice.tax_legal_basis_clause}` : ''}
                 </div>
               )}
               

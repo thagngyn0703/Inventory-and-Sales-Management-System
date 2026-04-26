@@ -1,5 +1,6 @@
 const express = require('express');
 const Category = require('../models/Category');
+const Product = require('../models/Product');
 const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
@@ -124,6 +125,30 @@ router.patch('/:id/activate', requireRole(['manager', 'staff', 'admin']), async 
     } catch (err) {
         logUnexpectedError('Failed to change active state', err);
         res.status(500).json({ message: 'Server error' });
+    }
+});
+
+// DELETE /api/categories/:id - delete category (manager/admin)
+router.delete('/:id', requireRole(['manager', 'admin']), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const cat = await Category.findById(id);
+        if (!cat) {
+            return res.status(404).json({ message: 'Không tìm thấy danh mục' });
+        }
+        const inUseCount = await Product.countDocuments({ category_id: id });
+        if (inUseCount > 0) {
+            return res.status(409).json({
+                message: `Không thể xóa danh mục vì đang có ${inUseCount} sản phẩm sử dụng. Vui lòng chuyển sản phẩm sang danh mục khác trước.`,
+                code: 'CATEGORY_IN_USE',
+                in_use_count: inUseCount,
+            });
+        }
+        await Category.deleteOne({ _id: id });
+        return res.json({ message: 'Đã xóa danh mục.' });
+    } catch (err) {
+        logUnexpectedError('Failed to delete category', err);
+        return res.status(500).json({ message: 'Server error' });
     }
 });
 

@@ -7,7 +7,6 @@ import {
   getStoreTaxSettings,
   updateStoreTaxSettings,
   getStoreTaxPolicies,
-  createStoreTaxPolicy,
   getStoreBankSettings,
   updateStoreBankSettings,
   getStoreLoyaltySettings,
@@ -48,8 +47,8 @@ export default function ManagerSettings() {
     strict_tax_compliance: true,
     default_tax_profile: 'default',
   });
-  const [taxPolicies, setTaxPolicies] = useState([]);
-  const [newPolicy, setNewPolicy] = useState({ name: '', version_code: '', legal_basis_ref: '' });
+  const [showAdvancedTax, setShowAdvancedTax] = useState(false);
+  const [taxHealth, setTaxHealth] = useState({ checking: true, hasExciseConfig: true });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState({ type: '', text: '' });
@@ -103,9 +102,38 @@ export default function ManagerSettings() {
       )
       .catch(() => {})
       .finally(() => setLoading(false));
-    getStoreTaxPolicies()
-      .then((data) => setTaxPolicies(data.policies || []))
-      .catch(() => setTaxPolicies([]));
+    Promise.all([
+      getStoreTaxPolicies().catch(() => ({ policies: [] })),
+      fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:8000/api'}/categories?all=true`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` },
+      }).then(async (res) => (res.ok ? res.json() : []))
+        .catch(() => []),
+    ])
+      .then(([policyData, categoriesData]) => {
+        const list = Array.isArray(policyData?.policies) ? policyData.policies : [];
+        const now = Date.now();
+        const activePolicies = list.filter((p) => {
+          if (String(p?.approval_state || '').toLowerCase() !== 'active') return false;
+          const from = p?.effective_from ? new Date(p.effective_from).getTime() : null;
+          const to = p?.effective_to ? new Date(p.effective_to).getTime() : null;
+          if (from && now < from) return false;
+          if (to && now > to) return false;
+          return true;
+        });
+        const hasExcisePolicy = activePolicies.some((p) => {
+          const excise = Number(p?.tax_category_rules?.BEER_2026?.excise_rate);
+          return Number.isFinite(excise) && excise > 0;
+        });
+        const categoryList = Array.isArray(categoriesData) ? categoriesData : [];
+        const hasExciseCategory = categoryList.some((c) => {
+          const profile = String(c?.tax_profile || '').toUpperCase().trim();
+          const tags = Array.isArray(c?.tax_tags) ? c.tax_tags.map((t) => String(t).toLowerCase()) : [];
+          return profile === 'BEER_2026' || tags.includes('special_consumption_tax') || tags.includes('ttdb');
+        });
+        // UX-first: đã áp mẫu thuế ở Danh mục thì coi là "đã cấu hình", không báo đỏ gây nhiễu.
+        setTaxHealth({ checking: false, hasExciseConfig: hasExcisePolicy || hasExciseCategory });
+      })
+      .catch(() => setTaxHealth({ checking: false, hasExciseConfig: false }));
 
     getStoreBankSettings()
       .then((data) =>
@@ -186,21 +214,6 @@ export default function ManagerSettings() {
     }
   };
 
-  const handleCreateTaxPolicy = async () => {
-    if (!newPolicy.name.trim() || !newPolicy.version_code.trim()) {
-      setMsg({ type: 'error', text: 'Tên policy và version code là bắt buộc.' });
-      return;
-    }
-    try {
-      await createStoreTaxPolicy(newPolicy);
-      const refreshed = await getStoreTaxPolicies();
-      setTaxPolicies(refreshed.policies || []);
-      setNewPolicy({ name: '', version_code: '', legal_basis_ref: '' });
-      setMsg({ type: 'success', text: 'Đã tạo policy thuế bản nháp.' });
-    } catch (err) {
-      setMsg({ type: 'error', text: err.message || 'Không thể tạo policy thuế.' });
-    }
-  };
 
   const handleSaveBank = async () => {
     setSavingBank(true);
@@ -253,6 +266,7 @@ export default function ManagerSettings() {
         bank_account_number: (legalConfig.bank_account_number || '').trim(),
       };
       const res = await updateStoreLegalSettings(payload);
+      await updateStoreTaxSettings({ business_type: config.business_type });
       setLegalConfig((prev) => ({
         ...prev,
         tax_code: res.tax_code || '',
@@ -336,12 +350,9 @@ export default function ManagerSettings() {
             <p className="text-sm text-slate-500">Đang tải...</p>
           ) : (
             <div className="space-y-5">
-
               {/* ── BƯỚC 1: Loại hình kinh doanh ── */}
               <div>
-                <p className="mb-2 text-sm font-semibold text-slate-700">
-                  Loại hình kinh doanh
-                </p>
+                <p className="mb-2 text-sm font-semibold text-slate-700">Bước 1: Chọn loại hình kinh doanh</p>
                 <div className="grid gap-3 sm:grid-cols-2">
                   {/* Hộ kinh doanh */}
                   <button
@@ -361,7 +372,7 @@ export default function ManagerSettings() {
                         Hộ kinh doanh
                       </p>
                       <p className="mt-0.5 text-xs text-slate-500">
-                        Nộp thuế khoán cố định theo tháng/năm cho cơ quan thuế. Không thu VAT trên hóa đơn.
+                        Không tách VAT theo từng dòng trên hóa đơn bán lẻ trong hệ thống.
                       </p>
                     </div>
                   </button>
@@ -388,7 +399,7 @@ export default function ManagerSettings() {
                         Doanh nghiệp
                       </p>
                       <p className="mt-0.5 text-xs text-slate-500">
-                        Kê khai VAT theo từng hóa đơn. Hóa đơn hiển thị tạm tính + VAT + tổng cộng.
+                        Áp dụng VAT theo danh mục sản phẩm và tự tính thuế trên hóa đơn.
                       </p>
                     </div>
                   </button>
@@ -404,15 +415,10 @@ export default function ManagerSettings() {
                   <div className="flex gap-2">
                     <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
                     <div className="text-amber-800 space-y-1">
-                      <p className="font-semibold">Hộ kinh doanh — Thuế khoán</p>
+                      <p className="font-semibold">Bạn đang dùng chế độ Hộ kinh doanh</p>
                       <p>
-                        Bạn <strong>không cần cấu hình VAT</strong> tại đây. Nghĩa vụ thuế của hộ kinh doanh
-                        là nộp <strong>thuế khoán cố định</strong> hằng tháng trực tiếp cho Chi cục Thuế
-                        dựa trên mức doanh thu ước tính — hệ thống POS không cần tính toán thêm.
-                      </p>
-                      <p className="text-xs text-amber-700">
-                        Ngưỡng doanh thu chịu thuế áp dụng theo <strong>quy định hiện hành</strong> của cơ quan thuế.
-                        Khi quy mô lớn hơn, hãy chuyển sang loại hình <strong>Doanh nghiệp</strong> để kê khai VAT đầy đủ.
+                        Hệ thống không tách VAT theo từng dòng sản phẩm trên hóa đơn bán lẻ. Nếu cửa hàng chuyển sang mô hình doanh nghiệp,
+                        hãy quay lại đây để bật cơ chế VAT theo danh mục.
                       </p>
                     </div>
                   </div>
@@ -422,112 +428,101 @@ export default function ManagerSettings() {
               {/* ── BƯỚC 2b: Doanh nghiệp → cấu hình VAT ── */}
               {!isHKD && (
                 <div className="space-y-4">
-                  <div>
-                    <p className="mb-2 text-sm font-semibold text-slate-700">Mức thuế suất VAT</p>
-                    <div className="flex flex-wrap gap-2">
-                      {TAX_RATE_OPTIONS.map((opt) => (
-                        <button
-                          key={opt.value}
-                          type="button"
-                          onClick={() => setConfig((prev) => ({ ...prev, tax_rate: opt.value }))}
-                          className={`rounded-lg border px-4 py-2 text-sm font-semibold transition ${
-                            config.tax_rate === opt.value
-                              ? 'border-teal-500 bg-teal-500 text-white shadow-sm'
-                              : 'border-slate-200 bg-white text-slate-700 hover:border-teal-300 hover:bg-teal-50'
-                          }`}
-                        >
-                          {opt.value === 0 ? 'Miễn VAT (0%)' : opt.label}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="mt-3 max-w-[220px]">
-                      <label className="mb-1 block text-xs font-medium text-slate-500">
-                        Thuế suất khác (%)
-                      </label>
-                      <input
-                        type="number"
-                        min={0}
-                        max={100}
-                        step={0.5}
-                        value={config.tax_rate}
-                        onChange={(e) => {
-                          const next = Number(e.target.value);
-                          if (!Number.isFinite(next)) return;
-                          const clamped = Math.max(0, Math.min(100, next));
-                          setConfig((prev) => ({ ...prev, tax_rate: clamped }));
-                        }}
-                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-teal-400 focus:ring-2 focus:ring-teal-100"
-                      />
-                    </div>
+                  <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                    Đang dùng chế độ doanh nghiệp: hệ thống áp VAT theo danh mục sản phẩm.
                   </div>
-
-                  {config.tax_rate > 0 && (
-                    <div className="flex items-center gap-3 rounded-xl border border-slate-200/80 bg-slate-50 px-4 py-3">
-                      <label className="flex cursor-pointer items-center gap-2.5 text-sm font-medium text-slate-700 select-none">
+                  {!taxHealth.checking && !taxHealth.hasExciseConfig && (
+                    <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+                      <p className="font-semibold">Cần cấu hình thêm cho nhóm Hàng chịu TTĐB</p>
+                      <p className="mt-1">
+                        Hệ thống chưa có cấu hình tính TTĐB cho bia/rượu/thuốc lá. Vui lòng vào Danh mục và bấm
+                        <strong> Áp mẫu thuế</strong> để áp đủ công thức thuế.
+                      </p>
+                      <Link
+                        to="/manager/categories"
+                        className="mt-2 inline-flex rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100"
+                      >
+                        Mở Danh mục để áp mẫu thuế
+                      </Link>
+                    </div>
+                  )}
+                  <div className="rounded-xl border border-slate-200/80 bg-slate-50 px-4 py-3">
+                    <label className="flex cursor-pointer items-center gap-2.5 text-sm font-medium text-slate-700 select-none">
+                      <input
+                        type="checkbox"
+                        checked={config.price_includes_tax}
+                        onChange={(e) =>
+                          setConfig((prev) => ({ ...prev, price_includes_tax: e.target.checked }))
+                        }
+                        className="h-4 w-4 accent-teal-600"
+                      />
+                      Hóa đơn 100.000đ đã bao gồm VAT
+                    </label>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Bật: giá đã gồm VAT. Tắt: hệ thống sẽ cộng thêm VAT khi thanh toán.
+                    </p>
+                  </div>
+                  {preview && (
+                    <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-xs text-blue-800">
+                      Ví dụ đơn 100.000đ: VAT {config.tax_rate}% = {preview.tax.toLocaleString('vi-VN')}đ.
+                    </div>
+                  )}
+                  {showAdvancedTax && (
+                    <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                      <p className="text-xs font-semibold text-slate-700">VAT mặc định khi sản phẩm chưa có mapping danh mục:</p>
+                      <div className="flex flex-wrap gap-2">
+                        {TAX_RATE_OPTIONS.filter((opt) => opt.value !== 0).map((opt) => (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            onClick={() => setConfig((prev) => ({ ...prev, tax_rate: opt.value }))}
+                            className={`rounded-lg border px-4 py-2 text-sm font-semibold transition ${
+                              config.tax_rate === opt.value
+                                ? 'border-teal-500 bg-teal-500 text-white shadow-sm'
+                                : 'border-slate-200 bg-white text-slate-700 hover:border-teal-300 hover:bg-teal-50'
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="max-w-[220px]">
+                        <label className="mb-1 block text-xs font-medium text-slate-500">
+                          Thuế suất khác (%)
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          step={0.5}
+                          value={config.tax_rate}
+                          onChange={(e) => {
+                            const next = Number(e.target.value);
+                            if (!Number.isFinite(next)) return;
+                            const clamped = Math.max(0, Math.min(100, next));
+                            setConfig((prev) => ({ ...prev, tax_rate: clamped }));
+                          }}
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-teal-400 focus:ring-2 focus:ring-teal-100"
+                        />
+                      </div>
+                      <label className="flex items-center gap-2 text-sm text-slate-700">
                         <input
                           type="checkbox"
-                          checked={config.price_includes_tax}
-                          onChange={(e) =>
-                            setConfig((prev) => ({ ...prev, price_includes_tax: e.target.checked }))
-                          }
+                          checked={config.strict_tax_compliance}
+                          onChange={(e) => setConfig((prev) => ({ ...prev, strict_tax_compliance: e.target.checked }))}
                           className="h-4 w-4 accent-teal-600"
                         />
-                        Giá bán đã bao gồm VAT
-                        <span className="ml-1 text-xs font-normal text-slate-500">
-                          (bỏ tick nếu giá bán chưa gồm thuế — cần cộng thêm khi xuất hóa đơn)
-                        </span>
+                        Chặn bán khi thiếu mapping thuế (strict compliance)
                       </label>
-                    </div>
-                  )}
-
-                  <p className="text-xs text-slate-500">
-                    Lưu ý: giá bán sản phẩm được hệ thống hiểu là <strong>đã bao gồm</strong> hoặc{' '}
-                    <strong>chưa bao gồm</strong> thuế theo thiết lập này.
-                  </p>
-                  <label className="flex items-center gap-2 text-sm text-slate-700">
-                    <input
-                      type="checkbox"
-                      checked={config.strict_tax_compliance}
-                      onChange={(e) => setConfig((prev) => ({ ...prev, strict_tax_compliance: e.target.checked }))}
-                      className="h-4 w-4 accent-teal-600"
-                    />
-                    Bật chế độ strict compliance (thiếu mapping thuế sẽ chặn bán)
-                  </label>
-
-                  {preview && (
-                    <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-                      <p className="font-semibold mb-1">Ví dụ với hóa đơn 100.000₫:</p>
-                      <div className="space-y-0.5 text-xs">
-                        <div className="flex justify-between">
-                          <span>Tạm tính (chưa VAT):</span>
-                          <span className="font-medium">{preview.sub.toLocaleString('vi-VN')}₫</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>VAT {config.tax_rate}%:</span>
-                          <span className="font-medium">{preview.tax.toLocaleString('vi-VN')}₫</span>
-                        </div>
-                        <div className="flex justify-between border-t border-blue-200 pt-0.5 font-semibold">
-                          <span>Tổng cộng:</span>
-                          <span>{preview.total.toLocaleString('vi-VN')}₫</span>
-                        </div>
+                      <div className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+                        Nếu bán hàng chịu TTĐB (bia/rượu/thuốc lá), hãy gán đúng nhóm thuế cho sản phẩm để tránh sai lợi nhuận.
                       </div>
-                      {config.price_includes_tax ? (
-                        <p className="mt-2 text-xs text-blue-700">
-                          Giá bán đã gồm VAT → hệ thống tách ngược để hiển thị và báo cáo.
-                        </p>
-                      ) : (
-                        <p className="mt-2 text-xs text-blue-700">
-                          Giá bán chưa gồm VAT → hệ thống cộng thêm VAT khi xuất hóa đơn.
-                        </p>
-                      )}
+                      <div className="rounded-xl border border-slate-100 bg-white px-4 py-3 text-xs text-slate-500">
+                        <Info className="mb-0.5 inline h-3.5 w-3.5 text-slate-400" /> Thuế suất phổ biến: <strong>10%</strong>,{' '}
+                        <strong>5%</strong>, và <strong>0%</strong> cho một số trường hợp đặc biệt.
+                      </div>
                     </div>
                   )}
-
-                  <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-xs text-slate-500">
-                    <Info className="mb-0.5 inline h-3.5 w-3.5 text-slate-400" />{' '}
-                    Thuế suất phổ biến tại Việt Nam: <strong>10%</strong> (hàng hoá/dịch vụ thông thường),{' '}
-                    <strong>5%</strong> (thực phẩm thiết yếu, thuốc, phân bón), <strong>0%</strong> (xuất khẩu).
-                  </div>
                 </div>
               )}
 
@@ -557,53 +552,23 @@ export default function ManagerSettings() {
         <div className="mb-6 rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm sm:p-6">
           <div className="mb-5 flex items-center gap-2">
             <Building2 className="h-5 w-5 text-teal-600" aria-hidden />
-            <h3 className="text-base font-bold text-slate-800">Phiên bản chính sách thuế</h3>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <input
-              type="text"
-              value={newPolicy.name}
-              onChange={(e) => setNewPolicy((prev) => ({ ...prev, name: e.target.value }))}
-              placeholder="Tên policy"
-              className="h-10 rounded-lg border border-slate-200 px-3 text-sm"
-            />
-            <input
-              type="text"
-              value={newPolicy.version_code}
-              onChange={(e) => setNewPolicy((prev) => ({ ...prev, version_code: e.target.value }))}
-              placeholder="Version code"
-              className="h-10 rounded-lg border border-slate-200 px-3 text-sm"
-            />
-            <input
-              type="text"
-              value={newPolicy.legal_basis_ref}
-              onChange={(e) => setNewPolicy((prev) => ({ ...prev, legal_basis_ref: e.target.value }))}
-              placeholder="Căn cứ pháp lý"
-              className="h-10 rounded-lg border border-slate-200 px-3 text-sm"
-            />
-          </div>
-          <button
-            type="button"
-            onClick={handleCreateTaxPolicy}
-            className="mt-3 rounded-xl bg-teal-600 px-5 py-2 text-sm font-semibold text-white"
-          >
-            Tạo policy thuế
-          </button>
-          <div className="mt-4 space-y-2">
-            {taxPolicies.slice(0, 8).map((p) => (
-              <div key={p._id} className="rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-700">
-                <strong>{p.version_code}</strong> - {p.name} ({p.approval_state})
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="mb-6 rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm sm:p-6">
-          <div className="mb-5 flex items-center gap-2">
-            <Building2 className="h-5 w-5 text-teal-600" aria-hidden />
             <h3 className="text-base font-bold text-slate-800">Hồ sơ pháp lý cửa hàng</h3>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-500">Loại hình kinh doanh</label>
+              <select
+                value={config.business_type}
+                onChange={(e) => setConfig((prev) => ({ ...prev, business_type: e.target.value }))}
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-teal-400 focus:ring-2 focus:ring-teal-100"
+              >
+                <option value="ho_kinh_doanh">Hộ kinh doanh</option>
+                <option value="doanh_nghiep">Doanh nghiệp</option>
+              </select>
+              <p className="mt-1 text-xs text-slate-500">
+                Trường này đồng bộ với Cấu hình thuế và quyết định cách áp dụng VAT trong hệ thống.
+              </p>
+            </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-slate-500">Mã số thuế</label>
               <input

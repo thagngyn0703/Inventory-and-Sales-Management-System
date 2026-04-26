@@ -278,6 +278,11 @@ export default function ManagerProductCreate() {
                 barcode: '',
             });
         }
+        const baseUnitCount = units.filter((u) => Number(u.ratio) === 1).length;
+        if (baseUnitCount !== 1) {
+            setError('Mỗi sản phẩm chỉ được có 1 đơn vị gốc (tỉ lệ = 1). Ví dụ: Chai = 1, Thùng phải > 1 (như 24).');
+            return;
+        }
         const seenUnitNames = new Set();
         const seenUnitBarcodes = new Set();
         const unitPayload = [];
@@ -308,7 +313,7 @@ export default function ManagerProductCreate() {
         }
         if (barcodeCheck.value) {
             const baseUnit = unitPayload.find((u) => u.is_base) || unitPayload[0];
-            if (baseUnit && !baseUnit.barcode) baseUnit.barcode = barcodeCheck.value;
+            if (baseUnit) baseUnit.barcode = barcodeCheck.value;
         }
 
         if (form.expiry_date && !isExpiryDateNotInPast(form.expiry_date)) {
@@ -357,9 +362,6 @@ export default function ManagerProductCreate() {
                 stock_qty: stockCheck.value,
                 payment_type: form.payment_type || 'cash',
                 reorder_level: reorderCheck.value,
-                vat_rate: form.vat_rate === '' ? undefined : Number(form.vat_rate),
-                tax_override_enabled: Boolean(form.tax_override_enabled),
-                tax_tags: String(form.tax_tags_text || '').split(',').map((x) => x.trim()).filter(Boolean),
                 expiry_date: form.expiry_date || undefined,
                 base_unit: baseUnitCheck.value,
                 selling_units: units,
@@ -792,37 +794,8 @@ export default function ManagerProductCreate() {
                                                 className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
                                             />
                                         </div>
-                                        <div>
-                                            <label className="mb-1 block text-sm font-medium text-slate-600">VAT override (%)</label>
-                                            <input
-                                                type="number"
-                                                min="0"
-                                                max="100"
-                                                step="0.01"
-                                                value={form.vat_rate}
-                                                onChange={(e) => update('vat_rate', e.target.value)}
-                                                placeholder="Để trống để dùng theo danh mục"
-                                                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
-                                            />
-                                        </div>
-                                        <div className="md:col-span-2">
-                                            <label className="mb-1 block text-sm font-medium text-slate-600">Tax tags (comma separated)</label>
-                                            <input
-                                                type="text"
-                                                value={form.tax_tags_text}
-                                                onChange={(e) => update('tax_tags_text', e.target.value)}
-                                                placeholder="ttdb, beverage, excluded_reduction"
-                                                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
-                                            />
-                                            <label className="mt-2 flex items-center gap-2 text-xs text-slate-600">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={Boolean(form.tax_override_enabled)}
-                                                    onChange={(e) => update('tax_override_enabled', e.target.checked)}
-                                                    className="h-4 w-4 accent-teal-600"
-                                                />
-                                                Bật VAT override ở cấp sản phẩm
-                                            </label>
+                                        <div className="md:col-span-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                                            Thuế sản phẩm đang lấy theo <strong>Danh mục</strong> để giảm thao tác. Cần chỉnh đặc biệt thì thực hiện ở chế độ nâng cao sau.
                                         </div>
                                         <div className="md:col-span-2">
                                             <label className="mb-1 block text-sm font-medium text-slate-600">Hạn sử dụng</label>

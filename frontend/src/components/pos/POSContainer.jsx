@@ -523,6 +523,12 @@ export default function POSContainer({
           discount: item.discount || 0,
           line_total: item.line_total || 0,
           stock_qty: item.product_id?.stock_qty,
+          tax_category: item.tax_category_snapshot || 'DEFAULT',
+          tax_profile: item.tax_category_snapshot || 'default',
+          vat_rate: Number(item.vat_rate_snapshot ?? 0),
+          excise_rate: Number(item.excise_rate_snapshot ?? 0),
+          price_includes_tax: item.price_includes_tax_snapshot ?? null,
+          tax_override_reason: item.tax_override_reason_snapshot || '',
         })),
         paymentMethod: data.payment_method || 'cash',
         recipientName: data.recipient_name || '',
@@ -689,6 +695,12 @@ export default function POSContainer({
             line_total: Number(chosenUnit?.price ?? product.sale_price) || 0,
             stock_qty: product.stock_qty,
             available_units: unitOptionsByProduct[String(product._id)] || [],
+            tax_category: product.tax_category || product.tax_profile || 'DEFAULT',
+            tax_profile: product.tax_profile || 'default',
+            vat_rate: Number(product.vat_rate ?? storeTax.tax_rate ?? 0),
+            excise_rate: Number(product.excise_rate ?? 0),
+            price_includes_tax: product.price_includes_tax ?? null,
+            tax_override_reason: product.tax_override_reason || '',
           });
         }
         return { ...tab, items: newItems, customerPaid: '' };
@@ -1038,6 +1050,10 @@ export default function POSContainer({
           quantity: it.quantity,
           unit_price: it.unit_price,
           discount: it.discount,
+          tax_category: it.tax_category || it.tax_profile || 'DEFAULT',
+          tax_profile: it.tax_profile || 'default',
+          tax_override_reason: it.tax_override_reason || '',
+          price_includes_tax: it.price_includes_tax,
         })),
         previous_debt_paid: activeTab.payOldDebt ? activeTab.customerData?.debt_account || 0 : 0,
         redeem_points_requested: loyaltyUsedPoints,
@@ -1738,6 +1754,18 @@ export default function POSContainer({
                     <span className="pos-summary-amount" style={{ color: '#0f766e' }}>- {formatMoney(loyaltyRedeemValue)}</span>
                   </div>
                 )}
+                {activeTab.items.some((it) => Number(it.excise_rate || 0) > 0 || /BEER|ALCOHOL|TOBACCO|VAT_EXCISE/i.test(String(it.tax_category || ''))) && (
+                  <div className="pos-summary-line">
+                    <span style={{ fontSize: 12, color: '#92400e' }}>
+                      Có mặt hàng chịu TTĐB, hệ thống sẽ tính TTĐB trước rồi mới tính VAT.
+                    </span>
+                  </div>
+                )}
+                <div className="pos-summary-line">
+                  <span style={{ fontSize: 12, color: '#64748b' }}>
+                    Thuế hiển thị tại POS là tạm tính, hóa đơn sẽ chốt theo policy hiệu lực tại thời điểm xuất.
+                  </span>
+                </div>
               </div>
               <div className="pos-total-banner">
                 <span>{activeTab.payOldDebt ? 'Tổng thanh toán (+Nợ)' : 'Khách cần trả'}</span>

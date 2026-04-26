@@ -767,11 +767,17 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
             tax_policy_version_id: taxSnapshot.policy?._id || null,
             tax_policy_version_code: String(taxSnapshot.policy?.version_code || ''),
             tax_legal_basis_ref: String(taxSnapshot.policy?.legal_basis_ref || ''),
+            tax_legal_basis_article: String(taxSnapshot.policy?.legal_basis?.article || ''),
+            tax_legal_basis_clause: String(taxSnapshot.policy?.legal_basis?.clause || ''),
+            tax_legal_basis_note: String(taxSnapshot.policy?.legal_basis?.note || ''),
             tax_rounding_mode: String(taxSnapshot.policy?.rounding_mode || 'half_up'),
             strict_compliance_snapshot: Boolean(taxSnapshot.strict_compliance),
+            tax_breakdown_summary: Array.isArray(taxSnapshot.tax_breakdown_by_category) ? taxSnapshot.tax_breakdown_by_category : [],
             tax_decision_trace: {
                 reduction_exclusions: taxSnapshot.policy?.exclusion_rules || [],
                 mandatory_reason_codes: taxSnapshot.policy?.mandatory_reason_codes || [],
+                vat_reduction_rule: taxSnapshot.policy?.vat_reduction_rule || null,
+                rounding_mode: taxSnapshot.rounding_mode || 'half_up',
             },
             previous_debt_paid: prevDebtPaid,
             invoice_level_discount: invoiceLevelDiscount,
@@ -1194,6 +1200,12 @@ router.patch('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), as
         }
         const invoice = await SalesInvoice.findById(id);
         if (!invoice) return res.status(404).json({ message: 'Invoice not found' });
+        if (String(invoice.compliance_issue_status) === 'issued') {
+            return res.status(409).json({
+                code: 'ISSUED_INVOICE_IMMUTABLE',
+                message: 'Hóa đơn đã phát hành không thể sửa. Vui lòng hủy và lập hóa đơn thay thế theo quy trình.',
+            });
+        }
         const saleStatuses = ['confirmed', 'pending'];
         if (saleStatuses.includes(String(invoice.status))) {
             return res.status(409).json({
@@ -1301,8 +1313,12 @@ router.patch('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), as
                 invoice.tax_policy_version_id = patchTaxSnapshot.policy?._id || null;
                 invoice.tax_policy_version_code = String(patchTaxSnapshot.policy?.version_code || '');
                 invoice.tax_legal_basis_ref = String(patchTaxSnapshot.policy?.legal_basis_ref || '');
+                invoice.tax_legal_basis_article = String(patchTaxSnapshot.policy?.legal_basis?.article || '');
+                invoice.tax_legal_basis_clause = String(patchTaxSnapshot.policy?.legal_basis?.clause || '');
+                invoice.tax_legal_basis_note = String(patchTaxSnapshot.policy?.legal_basis?.note || '');
                 invoice.tax_rounding_mode = String(patchTaxSnapshot.policy?.rounding_mode || 'half_up');
                 invoice.strict_compliance_snapshot = Boolean(patchTaxSnapshot.strict_compliance);
+                invoice.tax_breakdown_summary = Array.isArray(patchTaxSnapshot.tax_breakdown_by_category) ? patchTaxSnapshot.tax_breakdown_by_category : [];
             }
             invoice.status = nextStatus;
         } catch (err) {

@@ -55,6 +55,7 @@ export default function ManagerProductEdit() {
     const [loadProduct, setLoadProduct] = useState(true);
     const [error, setError] = useState('');
     const [isTouched, setIsTouched] = useState(false);
+    const [unitsTouched, setUnitsTouched] = useState(false);
     const [selectedImages, setSelectedImages] = useState([]);
     const [imagePreviews, setImagePreviews] = useState([]);
     const [scanMode, setScanMode] = useState(false);
@@ -199,6 +200,7 @@ export default function ManagerProductEdit() {
                 }
                 initialUnitPayloadRef.current = normalizeUnitsForCompare(initialUnitsRaw);
                 setIsTouched(false);
+                setUnitsTouched(false);
             })
             .catch((e) => setError(e.message || 'Không tải được sản phẩm'))
             .finally(() => setLoadProduct(false));
@@ -253,6 +255,7 @@ export default function ManagerProductEdit() {
                 next.selling_units = prev.selling_units.map((u) =>
                     Number(u.ratio) === 1 ? { ...u, name: value } : u
                 );
+                setUnitsTouched(true);
             }
             return next;
         });
@@ -267,6 +270,7 @@ export default function ManagerProductEdit() {
                 i === index ? { ...u, [field]: value } : u
             ),
         }));
+        setUnitsTouched(true);
         setIsTouched(true);
         setError('');
     };
@@ -276,6 +280,7 @@ export default function ManagerProductEdit() {
             ...prev,
             selling_units: [...prev.selling_units, { name: prev.base_unit || 'Cái', ratio: '', sale_price: '', barcode: '' }],
         }));
+        setUnitsTouched(true);
         setIsTouched(true);
     };
 
@@ -286,6 +291,7 @@ export default function ManagerProductEdit() {
             if (!hasBase && next.length > 0) next[0].ratio = 1;
             return { ...prev, selling_units: next.length ? next : [defaultSellingUnit()] };
         });
+        setUnitsTouched(true);
         setIsTouched(true);
     };
 
@@ -325,10 +331,6 @@ export default function ManagerProductEdit() {
     const handleSubmit = async (e) => {
         e.preventDefault();
         if (!id) return;
-        if (!isTouched) {
-            navigate('/manager/products', { state: { success: 'Không có thay đổi để lưu.' } });
-            return;
-        }
         const nameCheck = validateRequiredText(form.name, 'Tên sản phẩm');
         if (!nameCheck.ok) return setError(nameCheck.message);
         const skuCheck = validateSku(form.sku);
@@ -377,6 +379,12 @@ export default function ManagerProductEdit() {
                 barcode: barcodeCheck.value || '',
             });
         }
+        const baseUnitCount = units.filter((u) => Number(u.ratio) === 1).length;
+        if (baseUnitCount !== 1) {
+            return setError(
+                'Mỗi sản phẩm chỉ được có 1 đơn vị gốc (tỉ lệ = 1). Ví dụ: Chai = 1, Thùng phải > 1 (như 24).'
+            );
+        }
         const seenUnitNames = new Set();
         const seenUnitBarcodes = new Set();
         const unitPayload = [];
@@ -405,9 +413,14 @@ export default function ManagerProductEdit() {
                 is_base: Number(u.ratio) === 1,
             });
         }
-        if (barcodeCheck.value) {
+        const initialProductBarcode = trimString(initialSnapshotRef.current?.barcode || '');
+        const nextProductBarcode = trimString(barcodeCheck.value || '');
+        const didProductBarcodeChange = nextProductBarcode !== initialProductBarcode;
+        if (nextProductBarcode) {
             const baseUnit = unitPayload.find((u) => u.is_base) || unitPayload[0];
-            if (baseUnit && !baseUnit.barcode) baseUnit.barcode = barcodeCheck.value;
+            if (baseUnit && (didProductBarcodeChange || unitsTouched || !baseUnit.barcode)) {
+                baseUnit.barcode = nextProductBarcode;
+            }
         }
 
         if (form.expiry_date && !isExpiryDateNotInPast(form.expiry_date)) {
@@ -437,9 +450,6 @@ export default function ManagerProductEdit() {
             const nextSupplierId = trimString(form.supplier_id || '');
             const nextCostPrice = Number(costCheck.value || 0);
             const nextReorderLevel = Number(reorderCheck.value || 0);
-            const nextVatRate = form.vat_rate === '' ? '' : String(form.vat_rate);
-            const nextTaxOverride = Boolean(form.tax_override_enabled);
-            const nextTaxTagsText = String(form.tax_tags_text || '').trim();
             const nextExpiryDate = form.expiry_date ? String(form.expiry_date) : '';
             const nextBaseUnit = trimString(baseUnitCheck.value || '');
             const nextStatus = form.status === 'inactive' ? 'inactive' : 'active';
@@ -450,9 +460,6 @@ export default function ManagerProductEdit() {
             const initialSupplierId = trimString(initial.supplier_id || '');
             const initialCostPrice = Number(initial.cost_price || 0);
             const initialReorderLevel = Number(initial.reorder_level || 0);
-            const initialVatRate = initial.vat_rate === '' ? '' : String(initial.vat_rate || '');
-            const initialTaxOverride = Boolean(initial.tax_override_enabled);
-            const initialTaxTagsText = String(initial.tax_tags_text || '').trim();
             const initialExpiryDate = initial.expiry_date ? String(initial.expiry_date) : '';
             const initialBaseUnit = trimString(initial.base_unit || '');
             const initialStatus = initial.status === 'inactive' ? 'inactive' : 'active';
@@ -462,26 +469,21 @@ export default function ManagerProductEdit() {
             const initialUnits = normalizeUnitsForCompare(initialUnitPayloadRef.current);
             const unitChanged = JSON.stringify(currentUnits) !== JSON.stringify(initialUnits);
             const payload = {
-                ...(nextCategoryId !== initialCategoryId ? { category_id: nextCategoryId || undefined } : {}),
+                // Always send category so backend can re-sync tax fields from category on manual save.
+                category_id: nextCategoryId || null,
                 ...(nextName !== initialName ? { name: nameCheck.value } : {}),
                 ...(nextSku !== initialSku ? { sku: skuCheck.value } : {}),
                 ...(nextBarcode !== initialBarcode ? { barcode: barcodeCheck.value || undefined } : {}),
                 ...(nextSupplierId !== initialSupplierId ? { supplier_id: nextSupplierId || undefined } : {}),
                 ...(nextCostPrice !== initialCostPrice ? { cost_price: costCheck.value } : {}),
                 ...(nextReorderLevel !== initialReorderLevel ? { reorder_level: reorderCheck.value } : {}),
-                ...(nextVatRate !== initialVatRate ? { vat_rate: form.vat_rate === '' ? null : Number(form.vat_rate) } : {}),
-                ...(nextTaxOverride !== initialTaxOverride ? { tax_override_enabled: nextTaxOverride } : {}),
-                ...(nextTaxTagsText !== initialTaxTagsText ? { tax_tags: nextTaxTagsText.split(',').map((x) => x.trim()).filter(Boolean) } : {}),
                 ...(nextExpiryDate !== initialExpiryDate ? { expiry_date: form.expiry_date ? form.expiry_date : null } : {}),
                 ...(nextBaseUnit !== initialBaseUnit ? { base_unit: baseUnitCheck.value } : {}),
                 ...(imageChanged ? { image_urls: finalImageUrls } : {}),
                 ...(nextStatus !== initialStatus ? { status: nextStatus } : {}),
             };
-            const hasProductChanges = Object.keys(payload).length > 0;
-            if (hasProductChanges) {
-                await updateProduct(id, payload);
-            }
-            if (unitChanged) {
+            await updateProduct(id, payload);
+            if (unitsTouched && unitChanged) {
                 await updateProductUnits(id, unitPayload);
             }
             navigate('/manager/products', { state: { success: 'Cập nhật sản phẩm thành công.' } });
@@ -624,39 +626,8 @@ export default function ManagerProductEdit() {
                                             <label className="mb-1 block text-sm font-medium text-slate-600">Mức tồn tối thiểu</label>
                                             <input type="number" min="0" value={form.reorder_level} onChange={(e) => update('reorder_level', e.target.value)} placeholder="0" className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2" />
                                         </div>
-                                        <div>
-                                            <label className="mb-1 block text-sm font-medium text-slate-600">VAT sản phẩm (%)</label>
-                                            <input
-                                                type="number"
-                                                min="0"
-                                                max="100"
-                                                step="0.01"
-                                                value={form.vat_rate}
-                                                onChange={(e) => update('vat_rate', e.target.value)}
-                                                placeholder="Để trống: dùng VAT theo danh mục"
-                                                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="mb-1 block text-sm font-medium text-slate-600">Tax tags (comma separated)</label>
-                                            <input
-                                                type="text"
-                                                value={form.tax_tags_text}
-                                                onChange={(e) => update('tax_tags_text', e.target.value)}
-                                                placeholder="ttdb, beverage, excluded_reduction"
-                                                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
-                                            />
-                                        </div>
-                                        <div className="md:col-span-2">
-                                            <label className="flex items-center gap-2 text-sm text-slate-700">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={Boolean(form.tax_override_enabled)}
-                                                    onChange={(e) => update('tax_override_enabled', e.target.checked)}
-                                                    className="h-4 w-4 accent-teal-600"
-                                                />
-                                                Bật VAT override ở cấp sản phẩm
-                                            </label>
+                                        <div className="md:col-span-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                                            Thuế sản phẩm đang lấy theo <strong>Danh mục</strong> để thao tác đơn giản hơn. Trường VAT override/tags đang được ẩn tạm.
                                         </div>
                                         <div className="md:col-span-2">
                                             <label className="mb-1 block text-sm font-medium text-slate-600">Hạn sử dụng</label>

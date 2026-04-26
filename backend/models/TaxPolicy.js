@@ -53,6 +53,25 @@ const taxPolicySchema = new Schema(
             type: [String],
             default: [],
         },
+        vat_reduction_rule: {
+            eligible: { type: Boolean, default: true },
+            reduced_rate: { type: Number, default: 8, min: 0, max: 100 },
+            effective_from: { type: Date, default: null },
+            effective_to: { type: Date, default: null },
+            excluded_categories: { type: [String], default: [] },
+            exclusion_rules: { type: [String], default: [] },
+            eligible_categories: { type: [String], default: [] },
+        },
+        tax_category_rules: {
+            type: Schema.Types.Mixed,
+            default: {},
+        },
+        legal_basis: {
+            law: { type: String, default: '', trim: true },
+            article: { type: String, default: '', trim: true },
+            clause: { type: String, default: '', trim: true },
+            note: { type: String, default: '', trim: true },
+        },
         mandatory_reason_codes: {
             type: [String],
             default: [],
