@@ -23,6 +23,7 @@ const {
 } = require('../utils/loyalty');
 const { logAudit } = require('../utils/audit');
 const { computeInvoiceTaxSnapshot } = require('../services/vatEngine');
+const { notifyManagersInStore } = require('../services/managerNotificationService');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { decorateInvoiceDisplayCode, decorateInvoiceListDisplayCode, buildInvoiceDisplayCode } = require('../utils/invoiceDisplayCode');
 
@@ -334,9 +335,13 @@ async function enrichItemsWithUnitSnapshot(items = [], storeId = null) {
         .select('_id product_id unit_name exchange_value price is_base')
         .lean();
     const baseUnitByProduct = new Map();
+    const unitsByProduct = new Map();
     const unitById = new Map();
     for (const u of units) {
         unitById.set(String(u._id), u);
+        const pid = String(u.product_id);
+        if (!unitsByProduct.has(pid)) unitsByProduct.set(pid, []);
+        unitsByProduct.get(pid).push(u);
         if (u.is_base && !baseUnitByProduct.has(String(u.product_id))) {
             baseUnitByProduct.set(String(u.product_id), u);
         }
@@ -347,7 +352,16 @@ async function enrichItemsWithUnitSnapshot(items = [], storeId = null) {
         const product = pid ? productMap.get(pid) : null;
         const inputQty = Number(item.quantity) || 0;
         const explicitUnit = normalizeId(item.unit_id) ? unitById.get(normalizeId(item.unit_id)) : null;
-        const chosen = explicitUnit || (pid ? baseUnitByProduct.get(pid) : null);
+        const matchedBySignature = (!explicitUnit && pid)
+            ? (unitsByProduct.get(pid) || []).find((u) => {
+                const inUnitName = String(item.unit_name || '').trim().toLowerCase();
+                const dbUnitName = String(u.unit_name || '').trim().toLowerCase();
+                const inExchange = Number(item.exchange_value);
+                const dbExchange = Number(u.exchange_value);
+                return inUnitName && inUnitName === dbUnitName && Number.isFinite(inExchange) && inExchange > 0 && Math.abs(inExchange - dbExchange) < 1e-9;
+            })
+            : null;
+        const chosen = explicitUnit || matchedBySignature || (pid ? baseUnitByProduct.get(pid) : null);
         const exchangeValue = Number(chosen?.exchange_value) > 0
             ? Number(chosen.exchange_value)
             : Number(item.exchange_value) > 0
@@ -418,12 +432,40 @@ async function adjustInventory(items, direction = -1, storeId = null) {
         const pid = normalizeId(item.product_id);
         if (!pid) continue;
 
+        const productBefore = await Product.findOne({ _id: pid, storeId })
+            .select('_id name sku stock_qty reorder_level')
+            .lean();
+        const beforeQty = Number(productBefore?.stock_qty) || 0;
+        const reorderLevel = Number(productBefore?.reorder_level) || 0;
         const quantity = Math.abs((Number(item.base_quantity) || Number(item.quantity) || 0));
+        // Nghiệp vụ ưu tiên tồn tổng: còn hàng theo Product.stock_qty thì vẫn cho bán.
+        // Điều này tránh lỗi chặn bán do lệch dữ liệu batch lịch sử.
+        const shouldBypassBatchGuard = direction === -1 && beforeQty >= quantity;
         await adjustStockFIFO(pid, storeId, quantity * direction, {
             note: direction === -1 ? 'Bán hàng (Hóa đơn)' : 'Khách trả hàng/Hủy hóa đơn',
             movementType: direction === -1 ? 'OUT_SALES' : 'IN_SALES_RETURN',
             referenceType: 'sales_invoice',
+            allowNegative: shouldBypassBatchGuard,
         });
+        if (direction === -1 && reorderLevel > 0) {
+            const productAfter = await Product.findOne({ _id: pid, storeId })
+                .select('_id name sku stock_qty reorder_level')
+                .lean();
+            const afterQty = Number(productAfter?.stock_qty) || 0;
+            const crossedBelowThreshold = beforeQty > reorderLevel && afterQty <= reorderLevel;
+            if (crossedBelowThreshold) {
+                const productName = String(productAfter?.name || productBefore?.name || 'Sản phẩm');
+                const productSku = String(productAfter?.sku || productBefore?.sku || 'N/A');
+                await notifyManagersInStore({
+                    storeId,
+                    type: 'low_stock_alert',
+                    title: 'Cảnh báo tồn kho thấp',
+                    message: `${productName} (SKU: ${productSku}) chỉ còn ${afterQty}. Mức tồn tối thiểu là ${reorderLevel}. Vui lòng nhập thêm hàng.`,
+                    relatedEntity: 'product',
+                    relatedId: pid,
+                });
+            }
+        }
     }
 }
 

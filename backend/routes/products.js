@@ -1497,6 +1497,7 @@ router.get('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), asyn
       });
     }
     const product = await Product.findOne({ _id: id, ...storeFilter })
+      .populate('category_id', 'name')
       .populate('supplier_id', 'name phone email')
       .lean();
     if (!product) return res.status(404).json({ message: 'Product not found' });

@@ -104,10 +104,34 @@ async function adjustStockFIFO(productId, storeId, amount, options = {}) {
         }
 
         if (batches.length > 0 && !allowNegative) {
-            const totalAvailable = batches.reduce(
+            let totalAvailable = batches.reduce(
                 (sum, b) => sum + Math.max(0, Number(b.remaining_qty) || 0),
                 0
             );
+            // Self-healing: nếu stock_qty trên Product lớn hơn tổng tồn theo batch
+            // (dữ liệu legacy/lệch đồng bộ), bù phần thiếu bằng 1 batch legacy
+            // để tránh báo thiếu hàng giả khi POS vẫn hiển thị còn tồn.
+            if (beforeQty > totalAvailable) {
+                const missingQty = beforeQty - totalAvailable;
+                const [reconciledBatch] = await StockBatch.create(
+                    [
+                        {
+                            productId: pid,
+                            storeId: sid,
+                            initial_qty: missingQty,
+                            remaining_qty: missingQty,
+                            unit_cost: roundTo4(productBefore.cost_price || 0),
+                            received_at: productBefore.created_at || new Date(),
+                            expiry_date: null,
+                            is_near_expiry: false,
+                            note: 'Tự đồng bộ tồn kho từ Product.stock_qty',
+                        },
+                    ],
+                    createOpts
+                );
+                batches.push(reconciledBatch);
+                totalAvailable += missingQty;
+            }
             if (absAmount > totalAvailable) {
                 const err = new Error('INSUFFICIENT_STOCK');
                 err.code = 'INSUFFICIENT_STOCK';
