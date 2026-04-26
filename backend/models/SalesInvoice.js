@@ -235,7 +235,7 @@ const salesInvoiceSchema = new Schema(
                 },
                 rate_source: {
                     type: String,
-                    enum: ['policy', 'product_override', 'category', 'store_default'],
+                    enum: ['policy', 'product_override', 'category', 'store_default', 'household_business_mode'],
                     default: 'store_default',
                 },
                 requires_manual_tax_review: {
