@@ -1,6 +1,7 @@
 import './App.css';
 import { Routes, Route, Navigate } from "react-router-dom";
 import AuthPage from './pages/AuthPage/AuthPage';
+import PreLoginLandingPage from "./pages/LandingPage/PreLoginLandingPage";
 import NoStoreAssignedPage from "./pages/AuthPage/NoStoreAssignedPage";
 import Home from "./pages/HomePageUser/Home";
 import AdminDashboard from "./pages/AdminHome/AdminDashBoard";
@@ -80,7 +81,7 @@ import RequireStaffStore from "./components/RequireStaffStore";
 function App() {
   return (
     <Routes>
-      <Route path="/" element={<Navigate to="/login" />} />
+      <Route path="/" element={<PreLoginLandingPage />} />
       <Route path="/login" element={<AuthPage />} />
       <Route path="/register" element={<AuthPage />} />
       <Route path="/forgot-password" element={<AuthPage forcedMode="forgot" />} />
