@@ -157,10 +157,13 @@ export default function POSContainer({
 
   const [pendingPayment, setPendingPayment] = useState(null);
   const pollingRef = useRef(null);
+  const pollingSessionRef = useRef(0);
   const searchWrapRef = useRef(null);
   const tabsListRef = useRef(null);
+  const summaryScrollRef = useRef(null);
   const scanBufferRef = useRef('');
   const scanTimerRef = useRef(null);
+  const prevItemCountRef = useRef(0);
 
   const isNew = id === 'new' || !id || id === 'undefined' || id === 'null';
 
@@ -272,16 +275,23 @@ export default function POSContainer({
   };
 
   const stopPolling = useCallback(() => {
+    pollingSessionRef.current += 1;
     if (pollingRef.current) {
       clearInterval(pollingRef.current);
+      clearTimeout(pollingRef.current);
       pollingRef.current = null;
     }
   }, []);
 
   const handlePrintInvoice = useCallback(
-    (invoice, tab) => {
-      const printWindow = window.open('', '_blank');
-      if (!printWindow) return;
+    (invoice, tab, options = {}) => {
+      const { requireUserConfirm = false } = options;
+      if (requireUserConfirm) {
+        const shouldPrint = window.confirm(
+          'Đã xác nhận tiền chuyển khoản thành công. In hóa đơn ngay bây giờ?'
+        );
+        if (!shouldPrint) return;
+      }
       const displayCode = invoice?.display_code || invoice?._id || '';
       const isHKD = (storeTax.business_type || 'ho_kinh_doanh') === 'ho_kinh_doanh';
       const sellerLine = tab._sellerName
@@ -293,97 +303,202 @@ export default function POSContainer({
         <head>
           <title>In Hóa Đơn - ${displayCode}</title>
           <style>
-            body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: ${isHKD ? '24px' : '20px'}; font-size: ${isHKD ? '15px' : '14px'}; color: #000; }
-            h2 { text-align: center; margin-bottom: 5px; font-size: 20px; }
-            .header-info { text-align: center; margin-bottom: 20px; font-size: 13px; color: #555; }
-            .invoice-details { margin-bottom: 20px; line-height: 1.5; }
-            table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-            th, td { border-bottom: 1px dashed #ccc; padding: ${isHKD ? '10px 6px' : '8px 4px'}; text-align: left; }
-            th { border-bottom: 2px solid #000; }
+            @page {
+              size: 80mm auto;
+              margin: 0;
+            }
+            html, body {
+              width: 80mm;
+              margin: 0;
+              padding: 0;
+              background: #fff;
+            }
+            body {
+              box-sizing: border-box;
+              font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+              font-size: 12px;
+              line-height: 1.4;
+              color: #000;
+              padding: 5mm 0;
+            }
+            .receipt {
+              width: 72mm; /* vùng in an toàn cho hầu hết máy 80mm */
+              margin: 0 auto;
+            }
+            h2 {
+              text-align: center;
+              margin: 0 0 5px;
+              font-size: 16px;
+              font-weight: 700;
+              word-break: break-word;
+            }
+            .header-info {
+              text-align: center;
+              margin-bottom: 9px;
+              font-size: 11px;
+              color: #111;
+              line-height: 1.4;
+            }
+            .invoice-details {
+              margin-bottom: 8px;
+              line-height: 1.45;
+              font-size: 11px;
+            }
+            .divider {
+              border-top: 1px dashed #666;
+              margin: 7px 0;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-bottom: 8px;
+              table-layout: fixed;
+            }
+            .col-item { width: 48%; }
+            .col-qty { width: 12%; }
+            .col-price { width: 20%; }
+            .col-total { width: 20%; }
+            th, td {
+              border-bottom: 1px dashed #9ca3af;
+              padding: 4px 2px;
+              text-align: left;
+              font-size: 11px;
+              vertical-align: top;
+              word-break: break-word;
+            }
+            th {
+              border-bottom: 1px solid #111;
+              font-weight: 700;
+            }
             .text-right { text-align: right; }
-            .total-row { font-weight: bold; font-size: 16px; margin-top: 10px; }
-            .footer { text-align: center; margin-top: 30px; font-style: italic; color: #555; }
+            .text-center { text-align: center; }
+            .total-row {
+              font-weight: 700;
+              font-size: 14px;
+              margin-top: 6px;
+            }
+            .footer {
+              text-align: center;
+              margin-top: 10px;
+              font-style: italic;
+              color: #333;
+              font-size: 11px;
+            }
             @media print {
-              @page { margin: 0; }
-              body { margin: 1cm; }
+              html, body {
+                width: 80mm;
+              }
+              .receipt {
+                width: 72mm;
+              }
+              body {
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+              }
             }
           </style>
         </head>
         <body>
-          <h2>${storeName.toUpperCase()}</h2>
-          <div class="header-info">
-            HÓA ĐƠN BÁN HÀNG<br/>
-            Mã Đơn: ${displayCode}<br/>
-            Ngày: ${new Date().toLocaleString('vi-VN')}
-          </div>
-          <div class="invoice-details">
-            <strong>Khách hàng:</strong> ${tab.recipientName || 'Khách lẻ'}<br/>
-            ${sellerLine}
-            <strong>Thanh toán:</strong> ${
-              tab.paymentMethod === 'cash'
-                ? 'Tiền mặt'
-                : tab.paymentMethod === 'bank_transfer'
-                  ? 'Chuyển khoản'
-                  : tab.paymentMethod
-            }
-          </div>
-          <table>
-            <thead>
-              <tr>
-                <th>Tên hàng</th>
-                <th class="text-right">SL</th>
-                ${isHKD ? '' : '<th class="text-right">Đơn giá</th>'}
-                <th class="text-right">Thành tiền</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${tab.items
-                .map(
-                  (item) => `
-                <tr>
-                  <td>${item.name || 'Sản phẩm'}</td>
-                  <td class="text-right">${item.quantity}</td>
-                  ${isHKD ? '' : `<td class="text-right">${Number(item.unit_price || 0).toLocaleString('vi-VN')}₫</td>`}
-                  <td class="text-right">${Number(item.line_total || 0).toLocaleString('vi-VN')}₫</td>
-                </tr>`
-                )
-                .join('')}
-            </tbody>
-          </table>
-          ${(() => {
-            const rate = invoice.tax_rate_snapshot || 0;
-            const tax = invoice.tax_amount || 0;
-            const subtotal = invoice.subtotal_amount || invoice.total_amount || 0;
-            if (!isHKD && rate > 0) {
-              return `<div class="text-right" style="margin-top:8px;">Tạm tính: ${Number(subtotal).toLocaleString('vi-VN')}₫</div>
-              <div class="text-right" style="color:#64748b;">VAT (${rate}%): ${Number(tax).toLocaleString('vi-VN')}₫</div>`;
-            }
-            return `<div class="text-right">${isHKD ? 'Tổng tiền hàng (HKD):' : 'Tổng tiền hàng:'} ${Number(invoice.total_amount || 0).toLocaleString('vi-VN')}₫</div>`;
-          })()}
-          <div class="text-right total-row">
-            TỔNG CỘNG: ${Number(invoice.total_amount || 0).toLocaleString('vi-VN')}₫
-          </div>
-          ${
-            tab.payOldDebt
-              ? `<div class="text-right" style="margin-top: 5px;">
-              Nợ cũ đã trả: ${Number(tab.customerData?.debt_account || 0).toLocaleString('vi-VN')}₫
+          <div class="receipt">
+            <h2>${storeName.toUpperCase()}</h2>
+            <div class="header-info">
+              HÓA ĐƠN BÁN HÀNG<br/>
+              Mã Đơn: ${displayCode}<br/>
+              Ngày: ${new Date().toLocaleString('vi-VN')}
             </div>
-            <div class="text-right total-row" style="color: #000; border-top: 1px solid #000; padding-top: 5px; margin-top: 5px;">
-              TỔNG THANH TOÁN: ${Number(
-                (invoice.total_amount || 0) + (tab.customerData?.debt_account || 0)
-              ).toLocaleString('vi-VN')}₫
-            </div>`
-              : ''
-          }
-          <div class="footer">Cảm ơn quý khách và hẹn gặp lại!</div>
-          <script>
-            window.onload = function() { setTimeout(function() { window.print(); window.close(); }, 500); }
-          </script>
+            <div class="divider"></div>
+            <div class="invoice-details">
+              <strong>Khách hàng:</strong> ${tab.recipientName || 'Khách lẻ'}<br/>
+              ${sellerLine}
+              <strong>Thanh toán:</strong> ${
+                tab.paymentMethod === 'cash'
+                  ? 'Tiền mặt'
+                  : tab.paymentMethod === 'bank_transfer'
+                    ? 'Chuyển khoản'
+                    : tab.paymentMethod
+              }
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th class="col-item">Tên hàng</th>
+                  <th class="col-qty text-center">SL</th>
+                  ${isHKD ? '' : '<th class="col-price text-right">Đơn giá</th>'}
+                  <th class="col-total text-right">Thành tiền</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${tab.items
+                  .map(
+                    (item) => `
+                  <tr>
+                    <td>${item.name || 'Sản phẩm'}</td>
+                    <td class="text-center">${item.quantity}</td>
+                    ${isHKD ? '' : `<td class="text-right">${Number(item.unit_price || 0).toLocaleString('vi-VN')}₫</td>`}
+                    <td class="text-right">${Number(item.line_total || 0).toLocaleString('vi-VN')}₫</td>
+                  </tr>`
+                  )
+                  .join('')}
+              </tbody>
+            </table>
+            ${(() => {
+              const rate = invoice.tax_rate_snapshot || 0;
+              const tax = invoice.tax_amount || 0;
+              const subtotal = invoice.subtotal_amount || invoice.total_amount || 0;
+              if (!isHKD && rate > 0) {
+                return `<div class="text-right" style="margin-top:6px;">Tạm tính: ${Number(subtotal).toLocaleString('vi-VN')}₫</div>
+                <div class="text-right" style="color:#475569;">VAT (${rate}%): ${Number(tax).toLocaleString('vi-VN')}₫</div>`;
+              }
+              return `<div class="text-right">${isHKD ? 'Tổng tiền hàng (HKD):' : 'Tổng tiền hàng:'} ${Number(invoice.total_amount || 0).toLocaleString('vi-VN')}₫</div>`;
+            })()}
+            <div class="text-right total-row">
+              TỔNG CỘNG: ${Number(invoice.total_amount || 0).toLocaleString('vi-VN')}₫
+            </div>
+            ${
+              tab.payOldDebt
+                ? `<div class="text-right" style="margin-top: 4px;">
+                Nợ cũ đã trả: ${Number(tab.customerData?.debt_account || 0).toLocaleString('vi-VN')}₫
+              </div>
+              <div class="text-right total-row" style="color: #000; border-top: 1px solid #000; padding-top: 4px; margin-top: 4px;">
+                TỔNG THANH TOÁN: ${Number(
+                  (invoice.total_amount || 0) + (tab.customerData?.debt_account || 0)
+                ).toLocaleString('vi-VN')}₫
+              </div>`
+                : ''
+            }
+            <div class="divider"></div>
+            <div class="footer">Cảm ơn quý khách và hẹn gặp lại!</div>
+          </div>
         </body>
       </html>`;
-      printWindow.document.open();
-      printWindow.document.write(html);
-      printWindow.document.close();
+
+      const iframe = document.createElement('iframe');
+      iframe.style.position = 'fixed';
+      iframe.style.right = '0';
+      iframe.style.bottom = '0';
+      iframe.style.width = '0';
+      iframe.style.height = '0';
+      iframe.style.border = '0';
+      iframe.style.visibility = 'hidden';
+      document.body.appendChild(iframe);
+
+      const iframeDoc = iframe.contentWindow?.document;
+      if (!iframeDoc || !iframe.contentWindow) {
+        document.body.removeChild(iframe);
+        return;
+      }
+
+      iframeDoc.open();
+      iframeDoc.write(html);
+      iframeDoc.close();
+
+      setTimeout(() => {
+        iframe.contentWindow?.focus();
+        iframe.contentWindow?.print();
+        setTimeout(() => {
+          if (document.body.contains(iframe)) document.body.removeChild(iframe);
+        }, 1000);
+      }, 350);
     },
     [storeName, storeTax.business_type]
   );
@@ -436,17 +551,31 @@ export default function POSContainer({
 
   const startPolling = useCallback(
     (paymentRef, invoiceData, tabSnapshot) => {
+      const isPaymentSettled = (status) => {
+        const normalized = String(status || '').trim().toLowerCase();
+        return normalized === 'paid' || normalized === 'success' || normalized === 'completed';
+      };
+
       stopPolling();
+      const sessionId = pollingSessionRef.current;
       let attempts = 0;
-      const MAX_ATTEMPTS = 120;
-      pollingRef.current = setInterval(async () => {
+      const MAX_ATTEMPTS = 160;
+      const getNextDelayMs = (nextAttempt) => {
+        if (nextAttempt <= 10) return 1200; // 12s đầu kiểm tra rất nhanh
+        if (nextAttempt <= 25) return 2000;
+        if (nextAttempt <= 55) return 3000;
+        return 5000;
+      };
+
+      const pollOnce = async () => {
+        if (sessionId !== pollingSessionRef.current) return;
         attempts++;
         try {
           const result = await getPaymentStatus(paymentRef);
-          if (result.payment_status === 'paid') {
+          if (isPaymentSettled(result?.payment_status)) {
             stopPolling();
             setPendingPayment(null);
-            handlePrintInvoice(invoiceData, tabSnapshot);
+            handlePrintInvoice(invoiceData, tabSnapshot, { requireUserConfirm: true });
             await notifyCustomerLoyaltyMessage(tabSnapshot?.customerData, {
               earned_points: Number(result?.loyalty?.earned_points || 0),
               used_points: 0,
@@ -465,6 +594,7 @@ export default function POSContainer({
               return filtered;
             });
             loadProducts();
+            return;
           }
         } catch (e) {
           console.warn('[Polling] Error:', e.message);
@@ -478,8 +608,14 @@ export default function POSContainer({
             return null;
           });
           notify('Hết thời gian chờ thanh toán. Giao dịch đã bị hủy.', 'error');
+          return;
         }
-      }, 5000);
+        const delay = getNextDelayMs(attempts + 1);
+        pollingRef.current = setTimeout(pollOnce, delay);
+      };
+
+      // Gọi lần đầu ngay lập tức để giảm độ trễ cảm nhận tại quầy.
+      pollOnce();
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [stopPolling, handlePrintInvoice, loadProducts, notify, notifyCustomerLoyaltyMessage]
@@ -502,6 +638,21 @@ export default function POSContainer({
     },
     []
   );
+
+  useEffect(() => {
+    const currentCount = Number(activeTab?.items?.length || 0);
+    const prevCount = Number(prevItemCountRef.current || 0);
+    prevItemCountRef.current = currentCount;
+    if (currentCount <= prevCount) return;
+    const scroller = summaryScrollRef.current;
+    if (!scroller) return;
+    requestAnimationFrame(() => {
+      scroller.scrollTo({
+        top: scroller.scrollHeight,
+        behavior: 'smooth',
+      });
+    });
+  }, [activeTab?.items?.length, activeTabId]);
 
   const loadInvoice = useCallback(async () => {
     if (!id || isNew) return;
@@ -674,14 +825,17 @@ export default function POSContainer({
             notify(`Không đủ tồn kho. Tối đa ${maxQty} ${it.unit_name || 'đơn vị'}.`, 'error');
             return tab;
           }
-          newItems[existingIdx] = {
+          const updatedItem = {
             ...it,
             quantity: newQty,
             unit_barcode: chosenUnit?.barcode || it.unit_barcode || '',
             line_total: Math.max(0, newQty * Number(it.unit_price || 0) - Number(it.discount || 0)),
           };
+          // UX bán hàng: mặt hàng vừa thêm sẽ nổi lên đầu danh sách.
+          newItems.splice(existingIdx, 1);
+          newItems.unshift(updatedItem);
         } else {
-          newItems.push({
+          newItems.unshift({
             product_id: product._id,
             unit_id: chosenUnit?._id || null,
             unit_name: chosenUnit?.unit_name || product.base_unit || 'Cái',
@@ -1724,7 +1878,7 @@ export default function POSContainer({
           </div>
 
           {/* Summary + Payment */}
-          <div className="pos-summary-section">
+          <div className="pos-summary-section" ref={summaryScrollRef}>
             <div className="pos-sidebar-panel pos-summary-panel">
               <div className="pos-sidebar-panel-head pos-sidebar-panel-head-cols">
                 <span>Khoản mục</span>
@@ -1843,14 +1997,14 @@ export default function POSContainer({
                               {(amount / 1000).toLocaleString('vi-VN')}k
                             </button>
                           ))}
-                          <button
-                            type="button"
-                            onClick={() => updateActiveTab({ customerPaid: toCurrencyInputFromNumber(totalWithDebt) })}
-                            className="pos-quick-paid-full"
-                          >
-                            Đủ tiền ({formatMoney(totalWithDebt)})
-                          </button>
                         </div>
+                        <button
+                          type="button"
+                          onClick={() => updateActiveTab({ customerPaid: toCurrencyInputFromNumber(totalWithDebt) })}
+                          className="pos-quick-paid-full pos-quick-paid-full-standalone"
+                        >
+                          Đủ tiền ({formatMoney(totalWithDebt)})
+                        </button>
                       </>
                     )}
                   </>

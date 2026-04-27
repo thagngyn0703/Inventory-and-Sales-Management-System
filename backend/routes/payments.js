@@ -71,9 +71,38 @@ function normalizePaymentRef(ref = '') {
   return String(ref).toUpperCase().replace(/[^A-Z0-9]/g, '');
 }
 
+function normalizeAccountNumber(value = '') {
+  return String(value).replace(/\D/g, '');
+}
+
 function parseAmount(value) {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : 0;
+  if (value == null) return 0;
+  if (typeof value === 'number') return Number.isFinite(value) ? Math.round(value) : 0;
+
+  let raw = String(value).trim();
+  if (!raw) return 0;
+  raw = raw.replace(/\s+/g, '');
+
+  // Chuẩn hóa các định dạng số thường gặp: 5,000 | 5.000 | 5,000.00 | 5.000,00
+  if (raw.includes(',') && raw.includes('.')) {
+    if (raw.lastIndexOf(',') > raw.lastIndexOf('.')) {
+      // Kiểu EU: 5.000,00 -> 5000.00
+      raw = raw.replace(/\./g, '').replace(',', '.');
+    } else {
+      // Kiểu US: 5,000.00 -> 5000.00
+      raw = raw.replace(/,/g, '');
+    }
+  } else if (raw.includes(',')) {
+    const parts = raw.split(',');
+    raw = parts[parts.length - 1].length === 3 ? parts.join('') : raw.replace(',', '.');
+  } else if (raw.includes('.')) {
+    const parts = raw.split('.');
+    if (parts[parts.length - 1].length === 3) raw = parts.join('');
+  }
+
+  raw = raw.replace(/[^\d.-]/g, '');
+  const n = Number(raw);
+  return Number.isFinite(n) ? Math.round(n) : 0;
 }
 
 async function fetchSepayTransactionsByAmount(amount) {
@@ -115,7 +144,7 @@ async function reconcileInvoiceFromSepay(invoice) {
   const targetAmount = paymentSplit
     ? parseAmount(paymentSplit.bank_transfer)
     : parseAmount(invoice.total_amount) + parseAmount(invoice.previous_debt_paid);
-  const accountFilter = String(process.env.SEPAY_ACCOUNT_NUMBER || '').trim();
+  const accountFilter = normalizeAccountNumber(process.env.SEPAY_ACCOUNT_NUMBER || '');
 
   let transactions = [];
   try {
@@ -129,9 +158,12 @@ async function reconcileInvoiceFromSepay(invoice) {
     const contentRaw = String(tx?.transaction_content || tx?.content || tx?.description || '').toUpperCase();
     const normalizedContent = normalizePaymentRef(contentRaw);
     const amountIn = parseAmount(tx?.amount_in ?? tx?.amount ?? tx?.transferAmount);
-    const accountNumber = String(tx?.account_number || '');
+    const accountNumber = normalizeAccountNumber(
+      tx?.account_number || tx?.accountNumber || tx?.account_no || tx?.account || ''
+    );
     const accountOk = !accountFilter || accountNumber === accountFilter;
-    return accountOk && amountIn === targetAmount && normalizedContent.includes(normalizedRef);
+    const amountMatched = Math.abs(amountIn - targetAmount) <= 1;
+    return accountOk && amountMatched && normalizedContent.includes(normalizedRef);
   });
 
   if (!matchedTx) return { matched: false, reason: 'not_found' };

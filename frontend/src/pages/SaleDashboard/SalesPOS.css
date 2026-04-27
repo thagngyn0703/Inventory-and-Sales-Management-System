@@ -30,7 +30,7 @@
 .pos-container {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  height: 100vh;
   background-color: var(--pos-bg);
   overflow: hidden;
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
@@ -42,6 +42,8 @@
   min-height: 0;
   display: flex;
   width: 100%;
+  align-items: stretch;
+  overflow: hidden;
 }
 
 .pos-search-input {
@@ -60,6 +62,8 @@
   background: #f8fafc;
   min-width: 0;
   min-height: 0;
+  height: 100%;
+  overflow: hidden;
 }
 
 .pos-search-toolbar {
@@ -410,6 +414,8 @@
   flex: 1;
   padding: 10px;
   overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
   min-height: 0;
 }
 
@@ -570,11 +576,17 @@
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
+  /* Tách hẳn khỏi chiều cao khối trái: luôn theo viewport */
+  height: calc(100vh - 56px);
+  max-height: calc(100vh - 56px);
+  min-height: 0;
+  overflow: hidden;
 }
 
 .pos-customer-section {
-  padding: 12px;
+  padding: 6px;
   border-bottom: 1px solid var(--pos-border);
+  flex-shrink: 0;
 }
 
 /* Sidebar panels — cùng “nhịp” với thead bảng giỏ hàng */
@@ -609,10 +621,10 @@
 .pos-sidebar-panel-head {
   display: flex;
   align-items: center;
-  padding: 8px 10px;
+  padding: 5px 8px;
   background: #f3f4f6;
   color: #4b5563;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -656,7 +668,7 @@
 }
 
 .pos-sidebar-panel-body-pad {
-  padding: 12px;
+  padding: 7px;
 }
 
 /* Khoá layout body panel để tránh bị co sai trên màn hẹp */
@@ -831,7 +843,7 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
   position: relative;
   width: 100%;
 }
@@ -846,8 +858,8 @@
 
 .pos-customer-search-field .pos-search-input {
   width: 100%;
-  height: 40px;
-  padding: 0 13px;
+  height: 34px;
+  padding: 0 10px;
   border-radius: 10px;
   border: 1px solid #e2e8f0;
   background: #fafbfc;
@@ -935,12 +947,22 @@
 }
 
 .pos-summary-section {
-  padding: 12px;
-  flex: 1;
+  padding: 6px;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 5px;
+}
+
+@media (max-height: 820px) {
+  .pos-right-sidebar {
+    height: calc(100vh - 50px);
+    max-height: calc(100vh - 50px);
+  }
 }
 
 .pos-summary-panel-lines {
@@ -951,9 +973,9 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
-  padding: 9px 12px;
-  font-size: 14px;
+  gap: 8px;
+  padding: 5px 7px;
+  font-size: 12px;
   color: #475569;
   border-bottom: 1px solid #f1f5f9;
 }
@@ -977,16 +999,16 @@
   justify-content: space-between;
   align-items: center;
   gap: 10px;
-  padding: 12px 12px;
+  padding: 7px 8px;
   background: linear-gradient(180deg, #ecfdf5 0%, #d1fae5 55%, #ccfbf1 100%);
   border-top: 1px solid rgba(45, 212, 191, 0.35);
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 700;
   color: #0f766e;
 }
 
 .pos-total-amount {
-  font-size: 18px;
+  font-size: 14px;
   font-weight: 800;
   color: #0d9488;
   font-variant-numeric: tabular-nums;
@@ -1029,7 +1051,7 @@
 .pos-customer-add-btn {
   width: 42px;
   flex-shrink: 0;
-  height: 40px;
+  height: 34px;
   align-self: center;
   border: 1px solid #e2e8f0;
   border-radius: 10px;
@@ -1093,27 +1115,27 @@
 }
 
 .pos-payment-panel-body {
-  padding: 12px;
+  padding: 7px;
   background: linear-gradient(180deg, #fafbfc 0%, #f8fafc 100%);
 }
 
 .pos-payment-methods {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  margin-bottom: 12px;
+  gap: 7px;
+  margin-bottom: 8px;
 }
 
 .pos-method-btn {
   flex: 1;
   min-width: 0;
-  padding: 9px 10px;
+  padding: 7px 8px;
   border-radius: 10px;
   border: 1px solid #e2e8f0;
   background: #fff;
   cursor: pointer;
   font-weight: 600;
-  font-size: 13px;
+  font-size: 12px;
   color: #64748b;
   transition: border-color 0.15s, background 0.15s, color 0.15s, box-shadow 0.15s;
 }
@@ -1134,8 +1156,8 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 10px;
-  font-size: 14px;
+  margin-bottom: 6px;
+  font-size: 13px;
   font-weight: 600;
   color: #334155;
 }
@@ -1143,12 +1165,12 @@
 .pos-customer-pay-input {
   width: 130px;
   max-width: 46%;
-  height: 38px;
+  height: 34px;
   text-align: right;
   font-weight: 700;
   border: 1px solid #e2e8f0;
   border-radius: 10px;
-  padding: 0 13px;
+  padding: 0 10px;
   background: #fff;
   font-variant-numeric: tabular-nums;
   transition: border-color 0.15s, box-shadow 0.15s;
@@ -1163,8 +1185,8 @@
 .pos-money-state-row {
   display: flex;
   justify-content: space-between;
-  font-size: 14px;
-  margin-top: 8px;
+  font-size: 13px;
+  margin-top: 5px;
   color: #64748b;
 }
 
@@ -1181,8 +1203,8 @@
 .pos-quick-paid-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-  margin-top: 10px;
+  gap: 5px;
+  margin-top: 6px;
 }
 
 .pos-quick-paid-btn {
@@ -1190,9 +1212,9 @@
   border-radius: 999px;
   background: #fff;
   color: #334155;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
-  padding: 8px 8px;
+  padding: 6px 8px;
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
 }
@@ -1203,12 +1225,11 @@
 }
 
 .pos-quick-paid-full {
-  grid-column: span 3;
-  padding: 8px 10px;
+  padding: 7px 10px;
   border-radius: 10px;
   border: 1px solid #e2e8f0;
   background: #fff;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   color: #0f172a;
   cursor: pointer;
@@ -1219,6 +1240,11 @@
   border-color: rgba(13, 148, 136, 0.4);
   background: #f0fdfa;
   box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.12);
+}
+
+.pos-quick-paid-full-standalone {
+  width: 100%;
+  margin-top: 6px;
 }
 
 .pos-bank-note {
@@ -1251,14 +1277,19 @@
 }
 
 .pos-submit-wrap {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
   margin-top: 6px;
-  padding: 0 2px 2px;
+  padding: 4px 2px 2px;
+  background: linear-gradient(180deg, rgba(241, 245, 249, 0) 0%, rgba(241, 245, 249, 0.92) 30%, #f1f5f9 100%);
+  backdrop-filter: blur(1px);
 }
 
 .pos-pay-button {
   width: 100%;
-  min-height: 46px;
-  padding: 13px 14px;
+  min-height: 48px;
+  padding: 12px 14px;
   background: linear-gradient(135deg, #14b8a6 0%, #0ea5e9 52%, #0284c7 100%);
   color: white;
   border: none;
@@ -1273,34 +1304,34 @@
 
 @media (max-height: 860px) {
   .pos-customer-section {
-    padding: 10px;
+    padding: 6px;
   }
 
   .pos-summary-section {
-    padding: 10px;
-    gap: 9px;
+    padding: 6px;
+    gap: 5px;
   }
 
   .pos-sidebar-panel-head {
-    padding: 8px 10px;
+    padding: 5px 8px;
   }
 
   .pos-summary-line {
-    padding: 8px 10px;
-    font-size: 13px;
+    padding: 5px 7px;
+    font-size: 12px;
   }
 
   .pos-total-banner {
-    padding: 10px 10px;
-    font-size: 13px;
+    padding: 7px 8px;
+    font-size: 12px;
   }
 
   .pos-total-amount {
-    font-size: 16px;
+    font-size: 14px;
   }
 
   .pos-payment-panel-body {
-    padding: 9px;
+    padding: 7px;
   }
 
   .pos-method-btn {
@@ -1335,9 +1366,9 @@
   }
 
   .pos-pay-button {
-    min-height: 42px;
-    padding: 10px 12px;
-    font-size: 15px;
+    min-height: 46px;
+    padding: 11px 12px;
+    font-size: 16px;
   }
 }
 
