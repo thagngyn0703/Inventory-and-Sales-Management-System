@@ -40,6 +40,12 @@ const salesReturnSchema = new Schema(
             type: String,
             trim: true,
         },
+        reason_code: {
+            type: String,
+            enum: ['customer_changed_mind', 'defective', 'expired', 'other'],
+            default: 'other',
+            index: true,
+        },
         items: [
             {
                 product_id: {
@@ -63,6 +69,22 @@ const salesReturnSchema = new Schema(
                 },
             },
         ],
+        total_amount: {
+            type: Number,
+            default: 0,
+        },
+        subtotal_amount: {
+            type: Number,
+            default: 0,
+        },
+        tax_amount: {
+            type: Number,
+            default: 0,
+        },
+        tax_rate_snapshot: {
+            type: Number,
+            default: 0,
+        },
         approved_by: {
             type: Schema.Types.ObjectId,
             ref: 'User',

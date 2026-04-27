@@ -10,8 +10,6 @@ const customerSchema = new Schema(
         phone: {
             type: String,
             trim: true,
-            unique: true,
-            sparse: true,
         },
         email: {
             type: String,
@@ -40,6 +38,24 @@ const customerSchema = new Schema(
             type: Boolean,
             default: false,
         },
+        loyalty_points: {
+            type: Number,
+            default: 0,
+        },
+        lifetime_points_earned: {
+            type: Number,
+            default: 0,
+            min: 0,
+        },
+        lifetime_points_used: {
+            type: Number,
+            default: 0,
+            min: 0,
+        },
+        last_loyalty_activity_at: {
+            type: Date,
+            default: null,
+        },
         store_id: {
             type: Schema.Types.ObjectId,
             ref: 'Store',
@@ -66,5 +82,8 @@ customerSchema.pre('save', function customerDebtClamp(next) {
     }
     next();
 });
+
+// Compound unique index: SĐT chỉ unique trong cùng 1 cửa hàng, không global
+customerSchema.index({ phone: 1, store_id: 1 }, { unique: true, sparse: true });
 
 module.exports = model('Customer', customerSchema);

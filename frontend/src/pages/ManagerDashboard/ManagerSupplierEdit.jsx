@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import ManagerSidebar from './ManagerSidebar';
-import ManagerNotificationBell from '../../components/ManagerNotificationBell';
-import { getSupplier, updateSupplier } from '../../services/suppliersApi';
+import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
+import { StaffPageShell } from '../../components/staff/StaffPageShell';
+import { Handshake } from 'lucide-react';
+import { getSupplier, updateSupplier, uploadSupplierQrImage } from '../../services/suppliersApi';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
 
@@ -16,6 +17,7 @@ const defaultForm = {
     note: '',
     status: 'active',
     payable_account: '',
+    bank_qr_image_url: '',
 };
 
 export default function ManagerSupplierEdit() {
@@ -25,6 +27,8 @@ export default function ManagerSupplierEdit() {
     const [loading, setLoading] = useState(false);
     const [loadSupplier, setLoadSupplier] = useState(true);
     const [error, setError] = useState('');
+    const [selectedQrFile, setSelectedQrFile] = useState(null);
+    const [qrPreviewUrl, setQrPreviewUrl] = useState('');
 
     useEffect(() => {
         if (!id) return;
@@ -42,6 +46,7 @@ export default function ManagerSupplierEdit() {
                     note: s.note || '',
                     status: s.status === 'inactive' ? 'inactive' : 'active',
                     payable_account: s.payable_account != null ? String(s.payable_account) : '',
+                    bank_qr_image_url: s.bank_qr_image_url || '',
                 });
             })
             .catch((e) => setError(e.message || 'Không tải được nhà cung cấp'))
@@ -63,6 +68,10 @@ export default function ManagerSupplierEdit() {
         setLoading(true);
         setError('');
         try {
+            let qrUrl = form.bank_qr_image_url ? String(form.bank_qr_image_url).trim() : '';
+            if (selectedQrFile) {
+                qrUrl = await uploadSupplierQrImage(selectedQrFile);
+            }
             await updateSupplier(id, {
                 code: form.code ? String(form.code).trim() : undefined,
                 name: form.name.trim(),
@@ -73,6 +82,7 @@ export default function ManagerSupplierEdit() {
                 note: form.note ? String(form.note).trim() : undefined,
                 status: form.status === 'inactive' ? 'inactive' : 'active',
                 payable_account: Number(form.payable_account) || 0,
+                bank_qr_image_url: qrUrl || undefined,
             });
             navigate('/manager/suppliers', { state: { success: 'Cập nhật nhà cung cấp thành công.' } });
         } catch (err) {
@@ -84,52 +94,30 @@ export default function ManagerSupplierEdit() {
 
     if (loadSupplier) {
         return (
-            <div className="manager-page-with-sidebar">
-                <ManagerSidebar />
-                <div className="manager-main">
-                    <div className="manager-content">
-                        <p className="manager-products-loading">Đang tải...</p>
-                    </div>
-                </div>
-            </div>
+            <ManagerPageFrame showNotificationBell>
+                <p className="manager-products-loading">Đang tải...</p>
+            </ManagerPageFrame>
         );
     }
 
     return (
-        <div className="manager-page-with-sidebar">
-            <ManagerSidebar />
-            <div className="manager-main">
-                <header className="manager-topbar">
-                    <div className="manager-topbar-search-wrap" />
-                    <div className="manager-topbar-actions">
-                        <ManagerNotificationBell />
-                        <div className="manager-user-badge">
-                            <i className="fa-solid fa-circle-user" />
-                            <span>Quản lý</span>
-                        </div>
-                    </div>
-                </header>
-
-                <div className="manager-content">
-                    <div className="manager-products-header">
-                        <div>
-                            <h1 className="manager-page-title">Cập nhật nhà cung cấp</h1>
-                            <p className="manager-page-subtitle">Chỉnh sửa thông tin nhà cung cấp.</p>
-                        </div>
-                        <button
-                            type="button"
-                            className="manager-btn-secondary"
-                            onClick={() => navigate('/manager/suppliers')}
-                        >
-                            <i className="fa-solid fa-arrow-left" /> Danh sách
-                        </button>
-                    </div>
-
+        <ManagerPageFrame showNotificationBell>
+            <StaffPageShell
+                eyebrow="Nhà cung cấp"
+                eyebrowIcon={Handshake}
+                title="Cập nhật nhà cung cấp"
+                subtitle="Chỉnh sửa thông tin nhà cung cấp."
+                headerActions={
+                    <button type="button" className="manager-btn-secondary" onClick={() => navigate('/manager/suppliers')}>
+                        <i className="fa-solid fa-arrow-left" /> Danh sách
+                    </button>
+                }
+            >
                     {error && (
                         <div className="manager-products-error">{error}</div>
                     )}
 
-                    <div className="manager-panel-card manager-product-form-card">
+                    <div className="manager-panel-card manager-product-form-card rounded-2xl border border-slate-200/80 shadow-sm">
                         <form onSubmit={handleSubmit} className="manager-product-form">
                             <div className="manager-form-row manager-form-row--2">
                                 <div className="manager-form-group">
@@ -216,6 +204,24 @@ export default function ManagerSupplierEdit() {
                                     />
                                 </div>
                                 <div className="manager-form-group">
+                                    <label>Ảnh QR chuyển khoản</label>
+                                    <input type="file" accept="image/*" onChange={(e) => {
+                                        const f = e.target.files?.[0] || null;
+                                        setSelectedQrFile(f);
+                                        setQrPreviewUrl(f ? URL.createObjectURL(f) : '');
+                                    }} />
+                                    {(qrPreviewUrl || form.bank_qr_image_url) && (
+                                        <img
+                                            src={qrPreviewUrl || form.bank_qr_image_url}
+                                            alt="QR preview"
+                                            style={{ marginTop: 8, width: 140, height: 140, objectFit: 'contain', border: '1px solid #e5e7eb', borderRadius: 8 }}
+                                        />
+                                    )}
+                                    <small style={{ color: '#64748b' }}>Chọn ảnh mới để thay QR hiện tại.</small>
+                                </div>
+                            </div>
+                            <div className="manager-form-row manager-form-row--2">
+                                <div className="manager-form-group">
                                     <label>Ghi chú</label>
                                     <input
                                         type="text"
@@ -243,8 +249,7 @@ export default function ManagerSupplierEdit() {
                             </div>
                         </form>
                     </div>
-                </div>
-            </div>
-        </div>
+            </StaffPageShell>
+        </ManagerPageFrame>
     );
 }

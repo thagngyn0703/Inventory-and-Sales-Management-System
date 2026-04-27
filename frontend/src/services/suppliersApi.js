@@ -1,4 +1,4 @@
-const API_BASE = 'http://localhost:8000/api';
+const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
 
 function getToken() {
   return localStorage.getItem('token') || '';
@@ -12,9 +12,9 @@ async function parseError(res, fallback) {
 /**
  * getSuppliers()
  * - Không truyền tham số: trả về mảng suppliers (phục vụ dropdown)
- * - Có truyền (page, limit, q, status, sort): trả về object { suppliers, total, page, limit, totalPages }
+ * - Có truyền (page, limit, q, status): trả về object { suppliers, total, page, limit, totalPages }
  */
-export async function getSuppliers(page, limit, q, status = 'active', sort = 'name') {
+export async function getSuppliers(page, limit, q, status = 'active') {
   const token = getToken();
 
   // Backward-compatible: dropdown calls with no args
@@ -28,8 +28,6 @@ export async function getSuppliers(page, limit, q, status = 'active', sort = 'na
   if (status) params.set('status', status);
   if (pageNum) params.set('page', String(pageNum));
   if (limitNum) params.set('limit', String(limitNum));
-  if (sort) params.set('sort', sort);
-
   const res = await fetch(`${API_BASE}/suppliers?${params.toString()}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -52,6 +50,20 @@ export async function createSupplier(payload) {
   if (!res.ok) throw await parseError(res, 'Không thể tạo nhà cung cấp');
   const data = await res.json();
   return data.supplier;
+}
+
+export async function uploadSupplierQrImage(file) {
+  const token = getToken();
+  const form = new FormData();
+  form.append('image', file);
+  const res = await fetch(`${API_BASE}/suppliers/upload-qr`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+  if (!res.ok) throw await parseError(res, 'Không thể upload ảnh QR nhà cung cấp');
+  const data = await res.json();
+  return data.bank_qr_image_url || data?.image?.url || '';
 }
 
 export async function getSupplier(id) {
@@ -92,4 +104,107 @@ export async function setSupplierStatus(id, status) {
   if (!res.ok) throw await parseError(res, 'Không thể đổi trạng thái nhà cung cấp');
   const data = await res.json();
   return data.supplier;
+}
+
+export async function getSupplierDebtHistory(id, params = {}) {
+  const token = getToken();
+  const url = new URL(`${API_BASE}/suppliers/${id}/debt-history`);
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '') return;
+    url.searchParams.set(key, String(value));
+  });
+  const res = await fetch(url.toString(), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw await parseError(res, 'Không thể tải sổ nợ nhà cung cấp');
+  return res.json();
+}
+
+export async function createSupplierDebtPayment(id, payload) {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/suppliers/${id}/payments`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload || {}),
+  });
+  if (!res.ok) throw await parseError(res, 'Không thể ghi nhận thanh toán nợ');
+  return res.json();
+}
+
+export async function createSupplierReturn(id, payload) {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/suppliers/${id}/returns`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload || {}),
+  });
+  if (!res.ok) throw await parseError(res, 'Không thể ghi nhận trả hàng nhà cung cấp');
+  return res.json();
+}
+
+export async function exportSupplierDebtHistoryExcel(id, params = {}) {
+  const token = getToken();
+  const url = new URL(`${API_BASE}/suppliers/${id}/debt-history/export.xlsx`);
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '') return;
+    url.searchParams.set(key, String(value));
+  });
+  const res = await fetch(url.toString(), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw await parseError(res, 'Không thể xuất Excel sổ nợ');
+  return res.blob();
+}
+
+export async function getSupplierReturn(id) {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/supplier-returns/${id}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw await parseError(res, 'Không thể tải chi tiết phiếu trả NCC');
+  const data = await res.json();
+  return data.supplier_return;
+}
+
+export async function getSupplierReturnDetail(id) {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/supplier-returns/${id}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw await parseError(res, 'Không thể tải chi tiết phiếu trả NCC');
+  return res.json();
+}
+
+export async function getSupplierReturns(params = {}) {
+  const token = getToken();
+  const url = new URL(`${API_BASE}/supplier-returns`);
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '') return;
+    url.searchParams.set(key, String(value));
+  });
+  const res = await fetch(url.toString(), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw await parseError(res, 'Không thể tải danh sách phiếu trả NCC');
+  return res.json();
+}
+
+export async function exportSupplierReturnsExcel(params = {}) {
+  const token = getToken();
+  const url = new URL(`${API_BASE}/supplier-returns/export.xlsx`);
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '') return;
+    url.searchParams.set(key, String(value));
+  });
+  const res = await fetch(url.toString(), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw await parseError(res, 'Không thể xuất Excel phiếu trả NCC');
+  return res.blob();
 }

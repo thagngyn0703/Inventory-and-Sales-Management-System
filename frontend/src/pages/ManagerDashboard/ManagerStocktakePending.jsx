@@ -1,11 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Platform } from 'react-bits/lib/modules/Platform';
-import ManagerSidebar from './ManagerSidebar';
+import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
+import { StaffPageShell } from '../../components/staff/StaffPageShell';
+import { ClipboardCheck } from 'lucide-react';
 import { getStocktakes } from '../../services/stocktakesApi';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
 import { Badge } from '../../components/ui/badge';
+import { InlineNotice } from '../../components/ui/inline-notice';
 import './ManagerDashboard.css';
 
 const LIMIT = 10;
@@ -49,36 +52,17 @@ export default function ManagerStocktakePending() {
   };
 
   return (
-    <div className="manager-page-with-sidebar">
-      <ManagerSidebar />
-      <div className="manager-main">
-        <header className="manager-topbar">
-          <div className="manager-topbar-actions" style={{ marginLeft: 'auto' }}>
-            <div className="manager-user-badge">
-              <i className="fa-solid fa-circle-user" />
-              <span>Quản lý</span>
-            </div>
-          </div>
-        </header>
-        <div className="manager-content bg-slate-50">
-          <div className="mb-4 flex items-start justify-between gap-4">
-            <div>
-              <h1 className="text-2xl font-bold text-slate-900">Kiểm kê chờ duyệt</h1>
-              <p className="text-sm text-slate-500">Chỉ xem chi tiết trước khi thực hiện duyệt hoặc từ chối.</p>
-              <p className="text-xs text-slate-400">
-                {Platform.select({ web: 'Nghiệp vụ an toàn: thao tác duyệt/từ chối chỉ thực hiện trong màn chi tiết.', default: 'Thao tác chỉ thực hiện trong màn chi tiết.' })}
-              </p>
-            </div>
-            <Badge className="bg-amber-100 text-amber-700 border border-amber-200">Tổng: {total} phiếu</Badge>
-          </div>
+    <ManagerPageFrame showNotificationBell={false}>
+      <StaffPageShell
+        eyebrow="Kho & kiểm kê"
+        eyebrowIcon={ClipboardCheck}
+        title="Kiểm kê chờ duyệt"
+        subtitle={`Xem chi tiết trước khi duyệt hoặc từ chối. ${Platform.select({ web: 'Duyệt/từ chối chỉ trong màn chi tiết.', default: 'Thao tác trong màn chi tiết.' })}`}
+        headerActions={<Badge className="border border-amber-200 bg-amber-100 text-amber-900">Tổng: {total} phiếu</Badge>}
+      >
+          <InlineNotice message={error} type="error" className="mb-4" />
 
-          {error && (
-            <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-600">
-              {error}
-            </div>
-          )}
-
-          <Card>
+          <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
             <CardContent className="p-0">
               {loading ? (
                 <p className="p-8 text-center text-slate-500">Đang tải...</p>
@@ -130,8 +114,7 @@ export default function ManagerStocktakePending() {
               </Button>
             </div>
           </div>
-        </div>
-      </div>
-    </div>
+      </StaffPageShell>
+    </ManagerPageFrame>
   );
 }

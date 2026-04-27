@@ -1,12 +1,16 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import ManagerSidebar from './ManagerSidebar';
+import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
+import { StaffPageShell } from '../../components/staff/StaffPageShell';
+import { ClipboardList } from 'lucide-react';
 import { getGoodsReceipts, setGoodsReceiptStatus } from '../../services/goodsReceiptsApi';
+import { getSuppliers } from '../../services/suppliersApi';
 import { useToast } from '../../contexts/ToastContext';
 import { ConfirmDialog } from '../../components/ui/confirm-dialog';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
 import { Badge } from '../../components/ui/badge';
+import { InlineNotice } from '../../components/ui/inline-notice';
 import { Loader2, Search, SlidersHorizontal } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import './ManagerDashboard.css';
@@ -24,30 +28,51 @@ export default function ManagerReceiptList() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+  const [filterSupplierId, setFilterSupplierId] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [sortByPrice, setSortByPrice] = useState(null);
+  const [suppliers, setSuppliers] = useState([]);
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmLoading, setConfirmLoading] = useState(false);
   const [pendingAction, setPendingAction] = useState(null);
+  const [rejectionReason, setRejectionReason] = useState('');
 
   const fetchReceipts = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const data = await getGoodsReceipts(filterStatus);
-      const filtered = (data || []).filter((r) => r.status !== 'draft');
+      const data = await getGoodsReceipts({
+        status: filterStatus || undefined,
+        supplier_id: filterSupplierId || undefined,
+        page: 1,
+        limit: 200,
+      });
+      const filtered = (data.goodsReceipts || []).filter((r) => r.status !== 'draft');
       setReceipts(filtered);
     } catch (err) {
       setError(err.message || 'Không thể tải danh sách phiếu nhập kho');
     } finally {
       setLoading(false);
     }
-  }, [filterStatus]);
+  }, [filterStatus, filterSupplierId]);
+
+  const fetchSuppliers = useCallback(async () => {
+    try {
+      const data = await getSuppliers(1, 1000, '', 'all');
+      setSuppliers(data.suppliers || []);
+    } catch (err) {
+      toast(err.message || 'Không thể tải danh sách nhà cung cấp', 'error');
+    }
+  }, [toast]);
 
   useEffect(() => {
     fetchReceipts();
   }, [fetchReceipts]);
+
+  useEffect(() => {
+    fetchSuppliers();
+  }, [fetchSuppliers]);
 
   const handleSortPrice = () => {
     if (sortByPrice === null) setSortByPrice('asc');
@@ -78,22 +103,28 @@ export default function ManagerReceiptList() {
   };
 
   const openConfirm = (type, id) => {
+    setRejectionReason('');
     setPendingAction({ type, id });
     setConfirmOpen(true);
   };
 
   const runConfirmedAction = async () => {
     if (!pendingAction) return;
+    if (pendingAction.type === 'reject' && !rejectionReason.trim()) {
+      toast('Vui lòng nhập lý do từ chối', 'error');
+      return;
+    }
     setConfirmLoading(true);
     try {
       const next = pendingAction.type === 'approve' ? 'approved' : 'rejected';
-      await setGoodsReceiptStatus(pendingAction.id, next);
+      await setGoodsReceiptStatus(pendingAction.id, next, rejectionReason.trim() || undefined);
       toast(
         next === 'approved' ? 'Đã duyệt phiếu nhập kho.' : 'Đã từ chối phiếu nhập kho.',
         'success'
       );
       setConfirmOpen(false);
       setPendingAction(null);
+      setRejectionReason('');
       fetchReceipts();
     } catch (err) {
       toast(err.message || 'Thao tác thất bại', 'error');
@@ -110,27 +141,14 @@ export default function ManagerReceiptList() {
         : 'Mặc định (mới nhất)';
 
   return (
-    <div className="manager-page-with-sidebar">
-      <ManagerSidebar />
-      <div className="manager-main">
-        <header className="manager-topbar">
-          <div className="manager-topbar-actions" style={{ marginLeft: 'auto' }}>
-            <div className="manager-user-badge">
-              <i className="fa-solid fa-circle-user" />
-              <span>Quản lý</span>
-            </div>
-          </div>
-        </header>
-        <div className="manager-content">
-          <div className="mx-auto max-w-7xl space-y-6">
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight text-slate-900">Duyệt phiếu nhập kho</h1>
-              <p className="mt-1 text-sm text-slate-600">Phê duyệt hoặc từ chối phiếu từ nhân viên kho.</p>
-            </div>
-
-            {error && (
-              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>
-            )}
+    <ManagerPageFrame showNotificationBell={false}>
+      <StaffPageShell
+        eyebrow="Kho & nhập hàng"
+        eyebrowIcon={ClipboardList}
+        title="Duyệt phiếu nhập kho"
+        subtitle="Phê duyệt hoặc từ chối phiếu từ nhân viên kho."
+      >
+            <InlineNotice message={error} type="error" />
 
             <Card className="border-slate-200/80 shadow-sm">
               <CardContent className="space-y-4 p-4 sm:p-6">
@@ -140,16 +158,26 @@ export default function ManagerReceiptList() {
                     <input
                       type="text"
                       placeholder="Mã phiếu, NCC, người tạo..."
-                      className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-3 text-sm outline-none ring-sky-200 focus:ring-2"
+                      className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-3 text-sm outline-none ring-teal-200/80 focus:ring-2"
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
                     />
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <select
+                      value={filterSupplierId}
+                      onChange={(e) => setFilterSupplierId(e.target.value)}
+                      className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-teal-200/80 focus:ring-2"
+                    >
+                      <option value="">Tất cả nhà cung cấp</option>
+                      {suppliers.map((s) => (
+                        <option key={s._id} value={s._id}>{s.name}</option>
+                      ))}
+                    </select>
+                    <select
                       value={filterStatus}
                       onChange={(e) => setFilterStatus(e.target.value)}
-                      className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-sky-200 focus:ring-2"
+                      className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-teal-200/80 focus:ring-2"
                     >
                       <option value="">Tất cả trạng thái</option>
                       <option value="pending">Chờ duyệt</option>
@@ -251,27 +279,45 @@ export default function ManagerReceiptList() {
                 )}
               </CardContent>
             </Card>
-          </div>
-        </div>
-      </div>
+      </StaffPageShell>
 
       <ConfirmDialog
         open={confirmOpen}
         onOpenChange={(open) => {
           setConfirmOpen(open);
-          if (!open) setPendingAction(null);
+          if (!open) { setPendingAction(null); setRejectionReason(''); }
         }}
         title={pendingAction?.type === 'approve' ? 'Duyệt phiếu nhập kho?' : 'Từ chối phiếu nhập?'}
         description={
           pendingAction?.type === 'approve'
             ? 'Kho hàng sẽ được cập nhật theo số lượng và giá trên phiếu.'
-            : 'Phiếu sẽ chuyển sang trạng thái từ chối.'
+            : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <span>Vui lòng nhập lý do từ chối để nhân viên biết cần điều chỉnh gì.</span>
+                <textarea
+                  autoFocus
+                  rows={3}
+                  placeholder="VD: Sai số lượng, thiếu chứng từ, sản phẩm không hợp lệ..."
+                  value={rejectionReason}
+                  onChange={(e) => setRejectionReason(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '8px 10px',
+                    borderRadius: 8,
+                    border: '1px solid #d1d5db',
+                    fontSize: 14,
+                    resize: 'vertical',
+                    outline: 'none',
+                  }}
+                />
+              </div>
+            )
         }
-        confirmLabel={pendingAction?.type === 'approve' ? 'Duyệt nhập kho' : 'Từ chối'}
+        confirmLabel={pendingAction?.type === 'approve' ? 'Duyệt nhập kho' : 'Xác nhận từ chối'}
         confirmVariant={pendingAction?.type === 'reject' ? 'destructive' : 'default'}
         loading={confirmLoading}
         onConfirm={runConfirmedAction}
       />
-    </div>
+    </ManagerPageFrame>
   );
 }

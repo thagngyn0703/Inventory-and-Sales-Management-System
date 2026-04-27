@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import ManagerSidebar from './ManagerSidebar';
-import ManagerNotificationBell from '../../components/ManagerNotificationBell';
+import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
+import { StaffPageShell } from '../../components/staff/StaffPageShell';
+import { UserPlus } from 'lucide-react';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
 
@@ -23,6 +24,7 @@ export default function ManagerCreateStaff() {
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
     const [ready, setReady] = useState(false);
+    const [isStoreLocked, setIsStoreLocked] = useState(false);
 
     useEffect(() => {
         const token = localStorage.getItem('token');
@@ -43,6 +45,10 @@ export default function ManagerCreateStaff() {
             navigate('/manager/store/register', { replace: true });
             return;
         }
+        if (user?.storeStatus === 'inactive') {
+            setIsStoreLocked(true);
+            setError('Cửa hàng của bạn đã bị khóa. Bạn không thể tạo tài khoản nhân viên. Vui lòng liên hệ admin để được hỗ trợ.');
+        }
         setReady(true);
     }, [navigate]);
 
@@ -54,6 +60,10 @@ export default function ManagerCreateStaff() {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        if (isStoreLocked) {
+            setError('Cửa hàng của bạn đã bị khóa. Bạn không thể tạo tài khoản nhân viên. Vui lòng liên hệ admin để được hỗ trợ.');
+            return;
+        }
         if (!form.fullName.trim()) {
             setError('Vui lòng nhập họ tên.');
             return;
@@ -117,6 +127,11 @@ export default function ManagerCreateStaff() {
                         setLoading(false);
                         return;
                     }
+                    if (data.code === 'STORE_LOCKED') {
+                        setError('Cửa hàng của bạn đã bị khóa. Vui lòng liên hệ admin để được hỗ trợ.');
+                        setLoading(false);
+                        return;
+                    }
                     setError('Chỉ Manager mới có quyền tạo tài khoản nhân viên.');
                     setLoading(false);
                     return;
@@ -128,45 +143,27 @@ export default function ManagerCreateStaff() {
             setForm({ ...defaultForm });
         } catch (err) {
             const msg = err.message || 'Không thể tạo tài khoản nhân viên.';
-            setError(msg.includes('fetch') || msg.includes('Network') ? 'Không kết nối được máy chủ. Kiểm tra backend đã chạy tại http://localhost:8000 chưa.' : msg);
+            setError(msg.includes('fetch') || msg.includes('Network') ? 'Không kết nối được máy chủ. Vui lòng kiểm tra cấu hình API và backend.' : msg);
         } finally {
             setLoading(false);
         }
     };
 
     return (
-        <div className="manager-page-with-sidebar">
-            <ManagerSidebar />
-            <div className="manager-main">
-                <header className="manager-topbar">
-                    <div className="manager-topbar-search-wrap" />
-                    <div className="manager-topbar-actions">
-                        <ManagerNotificationBell />
-                        <div className="manager-user-badge">
-                            <i className="fa-solid fa-circle-user" />
-                            <span>Quản lý</span>
-                        </div>
-                    </div>
-                </header>
-
-                {ready && (
-                <div className="manager-content">
-                    <div className="manager-products-header">
-                        <div>
-                            <h1 className="manager-page-title">Tạo tài khoản nhân viên</h1>
-                            <p className="manager-page-subtitle">
-                                Tài khoản mới có vai trò <strong>Staff</strong> (làm việc kho và bán hàng). Nhân viên đăng nhập ngay bằng email và mật khẩu (không cần xác thực email).
-                            </p>
-                        </div>
-                        <button
-                            type="button"
-                            className="manager-btn-secondary"
-                            onClick={() => navigate('/manager')}
-                        >
-                            <i className="fa-solid fa-arrow-left" /> Quay lại
-                        </button>
-                    </div>
-
+        <ManagerPageFrame showNotificationBell>
+                {ready ? (
+                    <>
+            <StaffPageShell
+                eyebrow="Nhân sự"
+                eyebrowIcon={UserPlus}
+                title="Tạo tài khoản nhân viên"
+                subtitle="Tài khoản mới có vai trò Staff (kho và bán hàng). Nhân viên đăng nhập bằng email và mật khẩu."
+                headerActions={
+                    <button type="button" className="manager-btn-secondary" onClick={() => navigate('/manager')}>
+                        <i className="fa-solid fa-arrow-left" /> Quay lại
+                    </button>
+                }
+            >
                     {error && <div className="manager-products-error">{error}</div>}
                     {success && (
                         <div className="manager-products-success" style={{ background: '#d1fae5', color: '#065f46', border: '1px solid #a7f3d0', padding: 12, borderRadius: 10, marginBottom: 16 }}>
@@ -174,7 +171,7 @@ export default function ManagerCreateStaff() {
                         </div>
                     )}
 
-                    <div className="manager-panel-card manager-product-form-card">
+                    <div className="manager-panel-card manager-product-form-card rounded-2xl border border-slate-200/80 shadow-sm">
                         <form onSubmit={handleSubmit} className="manager-product-form">
                             <div className="manager-form-row manager-form-row--2">
                                 <div className="manager-form-group">
@@ -184,6 +181,7 @@ export default function ManagerCreateStaff() {
                                         value={form.fullName}
                                         onChange={(e) => update('fullName', e.target.value)}
                                         placeholder="Nguyễn Văn A"
+                                        disabled={isStoreLocked || loading}
                                     />
                                 </div>
                                 <div className="manager-form-group">
@@ -193,6 +191,7 @@ export default function ManagerCreateStaff() {
                                         value={form.email}
                                         onChange={(e) => update('email', e.target.value)}
                                         placeholder="nhanvien@example.com"
+                                        disabled={isStoreLocked || loading}
                                     />
                                 </div>
                             </div>
@@ -205,6 +204,7 @@ export default function ManagerCreateStaff() {
                                         onChange={(e) => update('password', e.target.value)}
                                         placeholder="Tối thiểu 6 ký tự"
                                         minLength={6}
+                                        disabled={isStoreLocked || loading}
                                     />
                                 </div>
                                 <div className="manager-form-group">
@@ -214,6 +214,7 @@ export default function ManagerCreateStaff() {
                                         value={form.confirmPassword}
                                         onChange={(e) => update('confirmPassword', e.target.value)}
                                         placeholder="Nhập lại mật khẩu"
+                                        disabled={isStoreLocked || loading}
                                     />
                                 </div>
                             </div>
@@ -228,16 +229,16 @@ export default function ManagerCreateStaff() {
                                 <button
                                     type="submit"
                                     className="manager-btn-primary"
-                                    disabled={loading}
+                                    disabled={loading || isStoreLocked}
                                 >
                                     {loading ? 'Đang tạo...' : 'Tạo tài khoản nhân viên'}
                                 </button>
                             </div>
                         </form>
                     </div>
-                </div>
-                )}
-            </div>
-        </div>
+            </StaffPageShell>
+                    </>
+                ) : null}
+        </ManagerPageFrame>
     );
 }

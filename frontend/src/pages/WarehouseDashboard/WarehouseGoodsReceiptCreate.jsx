@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useWarehouseBase } from '../../utils/useWarehouseBase';
-import { getProducts } from '../../services/productsApi';
-import { getSuppliers } from '../../services/suppliersApi';
+import { getProducts, getProductUnits } from '../../services/productsApi';
+import { createSupplier, getSuppliers } from '../../services/suppliersApi';
 import { createGoodsReceipt } from '../../services/goodsReceiptsApi';
 import WarehouseProductCreateModal from './WarehouseProductCreateModal';
 import { useToast } from '../../contexts/ToastContext';
@@ -27,6 +27,8 @@ export default function WarehouseGoodsReceiptCreate() {
   const { toast } = useToast();
 
   const [suppliers, setSuppliers] = useState([]);
+  const [creatingSupplier, setCreatingSupplier] = useState(false);
+  const [newSupplier, setNewSupplier] = useState({ name: '', phone: '' });
   const [selectedSupplierId, setSelectedSupplierId] = useState('');
   const [reason, setReason] = useState('');
 
@@ -35,9 +37,11 @@ export default function WarehouseGoodsReceiptCreate() {
   const [searching, setSearching] = useState(false);
 
   const [items, setItems] = useState([]);
+  const [unitMapByProduct, setUnitMapByProduct] = useState({});
 
   const [submitting, setSubmitting] = useState(false);
   const [showProductModal, setShowProductModal] = useState(false);
+  const searchReqSeqRef = useRef(0);
 
   const addedIds = useMemo(() => new Set(items.map((i) => i.product._id)), [items]);
 
@@ -52,44 +56,96 @@ export default function WarehouseGoodsReceiptCreate() {
       .catch((e) => toast(e.message || 'Không tải được nhà cung cấp', 'error'));
   }, [toast]);
 
-  const handleSearchProducts = useCallback(async () => {
-    if (!search.trim()) {
-      toast('Nhập từ khóa để tìm sản phẩm', 'info');
+  const runSearchProducts = useCallback(async (rawKeyword, opts = {}) => {
+    const keyword = String(rawKeyword || '').trim();
+    const showEmptyToast = Boolean(opts.showEmptyToast);
+    if (!keyword) {
+      setProducts([]);
       return;
     }
+    const reqSeq = ++searchReqSeqRef.current;
     setSearching(true);
     try {
-      const data = await getProducts(1, 20, search);
-      setProducts(data.products || []);
+      const data = await getProducts(1, 20, keyword);
+      if (reqSeq !== searchReqSeqRef.current) return;
       const list = data.products || [];
-      const available = list.filter((p) => !addedIds.has(p._id));
-      if (list.length === 0) toast('Không tìm thấy sản phẩm', 'info');
-      else if (available.length === 0) toast('Các sản phẩm tìm được đã có trong phiếu nhập', 'info');
+      setProducts(list);
+      if (list.length === 0 && showEmptyToast) toast('Không tìm thấy sản phẩm', 'info');
     } catch (e) {
-      toast(e.message || 'Lỗi tìm kiếm sản phẩm', 'error');
+      if (reqSeq === searchReqSeqRef.current) {
+        toast(e.message || 'Lỗi tìm kiếm sản phẩm', 'error');
+      }
     } finally {
-      setSearching(false);
+      if (reqSeq === searchReqSeqRef.current) setSearching(false);
     }
-  }, [search, addedIds, toast]);
+  }, [toast]);
 
-  const handleAddProduct = (product) => {
+  // Realtime search: gõ ký tự là lọc ngay (debounce 250ms)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      runSearchProducts(search, { showEmptyToast: false });
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [search, runSearchProducts]);
+
+  const handleSearchProducts = useCallback(() => {
+    runSearchProducts(search, { showEmptyToast: true });
+  }, [runSearchProducts, search]);
+
+  /** Đơn giá theo đơn vị dòng = giá gốc (theo đơn vị cơ sở trên hệ thống) × HSQĐ — khớp cách tính trên hóa đơn NCC. */
+  const unitCostFromBaseCost = (product, ratio) => {
+    const base = Number(product?.cost_price) || 0;
+    const r = Number(ratio) > 0 ? Number(ratio) : 1;
+    return Math.round(base * r * 100) / 100;
+  };
+
+  const ensureUnitsLoaded = useCallback(async (product) => {
+    const pid = String(product?._id || '');
+    if (!pid) return [];
+    if (unitMapByProduct[pid]) return unitMapByProduct[pid];
+    try {
+      const units = await getProductUnits(pid);
+      const normalized = (units || []).sort(
+        (a, b) => Number(a.exchange_value || 0) - Number(b.exchange_value || 0)
+      );
+      setUnitMapByProduct((prev) => ({ ...prev, [pid]: normalized }));
+      return normalized;
+    } catch (_) {
+      return [];
+    }
+  }, [unitMapByProduct]);
+
+  const handleAddProduct = async (product) => {
     if (addedIds.has(product._id)) {
       toast('Sản phẩm đã có trong danh sách nhập', 'info');
       return;
     }
-    const defaultUnit =
-      product.selling_units && product.selling_units.length > 0
-        ? product.selling_units[0]
-        : { name: product.base_unit || 'Cái', ratio: 1, sale_price: product.sale_price };
+    const units = await ensureUnitsLoaded(product);
+    if (!units || units.length === 0) {
+      toast('Sản phẩm chưa được cấu hình đơn vị bán. Vui lòng quản lý cập nhật đơn vị trước.', 'error');
+      return;
+    }
+    const baseUnit = units.find((u) => u.is_base) || units[0];
+    if (!baseUnit?._id) {
+      toast('Đơn vị cơ sở của sản phẩm chưa hợp lệ. Vui lòng kiểm tra cấu hình đơn vị.', 'error');
+      return;
+    }
+    const defaultRatio = Number(baseUnit?.exchange_value) > 0 ? Number(baseUnit.exchange_value) : 1;
+    const defaultUnitName = String(baseUnit?.unit_name || product.base_unit || 'Cái').trim();
+    const lineUnitCost = unitCostFromBaseCost(product, defaultRatio);
 
     setItems((prev) => [
       ...prev,
       {
         product,
+        unit_id: baseUnit?._id || null,
         quantity: 1,
-        unit_cost: product.cost_price || 0,
-        unit_name: defaultUnit.name,
-        ratio: defaultUnit.ratio,
+        unit_cost: lineUnitCost,
+        system_unit_cost: lineUnitCost,
+        unit_name: defaultUnitName,
+        ratio: defaultRatio,
+        available_units: units,
+        price_gap_note: '',
       },
     ]);
   };
@@ -103,19 +159,51 @@ export default function WarehouseGoodsReceiptCreate() {
       prev.map((item) => {
         if (item.product._id !== productId) return item;
         if (field === 'unit') {
-          const selectedUnit = item.product.selling_units?.find((u) => u.name === value);
+          const selectedUnit = (item.available_units || unitMapByProduct[String(item.product._id)] || [])
+            .find((u) => String(u._id || '') === String(value || ''));
+          const nextRatio = Number(selectedUnit?.exchange_value) > 0 ? Number(selectedUnit.exchange_value) : 1;
+          const nextLineCost = unitCostFromBaseCost(item.product, nextRatio);
           return {
             ...item,
-            unit_name: selectedUnit ? selectedUnit.name : value,
-            ratio: selectedUnit ? selectedUnit.ratio : 1,
+            unit_id: selectedUnit?._id || null,
+            unit_name: selectedUnit ? selectedUnit.unit_name : item.unit_name,
+            ratio: nextRatio,
+            unit_cost: nextLineCost,
+            system_unit_cost: nextLineCost,
           };
         }
+        if (field === 'price_gap_note') return { ...item, price_gap_note: String(value || '') };
         return { ...item, [field]: Number(value) >= 0 ? Number(value) : 0 };
       })
     );
   };
 
   const totalAmount = items.reduce((sum, item) => sum + item.quantity * item.unit_cost, 0);
+
+  const handleCreateSupplier = useCallback(async () => {
+    const name = String(newSupplier.name || '').trim();
+    const phone = String(newSupplier.phone || '').trim();
+    if (!name) {
+      toast('Vui lòng nhập tên nhà cung cấp mới', 'error');
+      return;
+    }
+    setCreatingSupplier(true);
+    try {
+      const created = await createSupplier({
+        name,
+        phone: phone || undefined,
+        status: 'active',
+      });
+      setSuppliers((prev) => [created, ...prev.filter((s) => String(s._id) !== String(created._id))]);
+      setSelectedSupplierId(created._id);
+      setNewSupplier({ name: '', phone: '' });
+      toast('Đã tạo nhà cung cấp mới và chọn tự động', 'success');
+    } catch (e) {
+      toast(e.message || 'Không thể tạo nhà cung cấp', 'error');
+    } finally {
+      setCreatingSupplier(false);
+    }
+  }, [newSupplier.name, newSupplier.phone, toast]);
 
   const handleSubmit = async (status) => {
     if (!selectedSupplierId) {
@@ -131,15 +219,23 @@ export default function WarehouseGoodsReceiptCreate() {
       toast('Số lượng mỗi dòng phải lớn hơn 0', 'error');
       return;
     }
+    const missingUnitItems = items.filter((item) => !item.unit_id);
+    if (missingUnitItems.length > 0) {
+      toast('Có dòng chưa chọn đơn vị nhập hợp lệ. Vui lòng chọn lại trước khi gửi.', 'error');
+      return;
+    }
 
     setSubmitting(true);
     try {
       const payloadItems = items.map((item) => ({
         product_id: item.product._id,
+        unit_id: item.unit_id || null,
         quantity: item.quantity,
         unit_cost: item.unit_cost,
+        system_unit_cost: item.system_unit_cost,
         unit_name: item.unit_name,
         ratio: item.ratio,
+        price_gap_note: item.price_gap_note,
       }));
 
       await createGoodsReceipt({
@@ -166,7 +262,7 @@ export default function WarehouseGoodsReceiptCreate() {
       eyebrowIcon={Sparkles}
       eyebrowTone="sky"
       title="Nhập hàng vào kho"
-      subtitle="Ghi nhận hàng từ nhà cung cấp, thêm sản phẩm có sẵn hoặc đăng ký SKU mới chờ quản lý duyệt."
+      subtitle="Ghi nhận hàng từ nhà cung cấp. Giá trên phiếu hiển thị theo giá gốc (vốn) trên hệ thống theo đơn vị — quản lý sẽ chỉnh theo hóa đơn NCC khi duyệt."
     >
       <Card className="border-slate-200/80 shadow-sm shadow-slate-900/5">
         <CardContent className="space-y-4 p-4 sm:p-6">
@@ -192,6 +288,30 @@ export default function WarehouseGoodsReceiptCreate() {
                   </option>
                 ))}
               </select>
+            </div>
+            <div>
+              <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                Tạo nhanh nhà cung cấp
+              </label>
+              <div className="grid gap-2 sm:grid-cols-3">
+                <input
+                  type="text"
+                  className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-sky-200 focus:ring-2"
+                  value={newSupplier.name}
+                  onChange={(e) => setNewSupplier((prev) => ({ ...prev, name: e.target.value }))}
+                  placeholder="Tên NCC mới *"
+                />
+                <input
+                  type="text"
+                  className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-sky-200 focus:ring-2"
+                  value={newSupplier.phone}
+                  onChange={(e) => setNewSupplier((prev) => ({ ...prev, phone: e.target.value }))}
+                  placeholder="SĐT (tùy chọn)"
+                />
+                <Button type="button" variant="outline" className="h-11" onClick={handleCreateSupplier} disabled={creatingSupplier}>
+                  {creatingSupplier ? 'Đang tạo...' : 'Tạo NCC & chọn'}
+                </Button>
+              </div>
             </div>
             <div>
               <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">
@@ -230,7 +350,6 @@ export default function WarehouseGoodsReceiptCreate() {
                 className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-3 text-sm outline-none ring-sky-200 focus:ring-2"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleSearchProducts()}
               />
             </div>
             <Button
@@ -296,8 +415,9 @@ export default function WarehouseGoodsReceiptCreate() {
                     <tr className="border-b border-slate-200 bg-slate-50/90 text-left text-xs font-semibold uppercase text-slate-500">
                       <th className="px-3 py-2">Sản phẩm</th>
                       <th className="px-3 py-2">SL</th>
-                      <th className="px-3 py-2">Đơn giá (đ)</th>
+                      <th className="px-3 py-2">Giá gốc HS (đ)</th>
                       <th className="px-3 py-2 text-right">Thành tiền</th>
+                      <th className="px-3 py-2">Ghi chú chênh lệch giá</th>
                       <th className="w-10 px-2" />
                     </tr>
                   </thead>
@@ -308,20 +428,19 @@ export default function WarehouseGoodsReceiptCreate() {
                           <div className="font-medium text-slate-900">{item.product.name}</div>
                           <select
                             className="mt-1 max-w-[200px] rounded-lg border border-slate-200 px-2 py-1 text-xs"
-                            value={item.unit_name}
+                            value={item.unit_id || ''}
+                            onFocus={() => ensureUnitsLoaded(item.product).then((units) => {
+                              setItems((prev) => prev.map((it) => (
+                                it.product._id === item.product._id ? { ...it, available_units: units } : it
+                              )));
+                            })}
                             onChange={(e) => handleItemChange(item.product._id, 'unit', e.target.value)}
                           >
-                            {item.product.selling_units && item.product.selling_units.length > 0 ? (
-                              item.product.selling_units.map((u) => (
-                                <option key={u.name} value={u.name}>
-                                  {u.name} (×{u.ratio})
+                            {(item.available_units && item.available_units.length > 0 ? item.available_units : []).map((u) => (
+                                <option key={String(u._id || u.unit_name)} value={u._id || ''}>
+                                  {u.unit_name} (×{u.exchange_value})
                                 </option>
-                              ))
-                            ) : (
-                              <option value={item.product.base_unit || 'Cái'}>
-                                {item.product.base_unit || 'Cái'} (×1)
-                              </option>
-                            )}
+                              ))}
                           </select>
                         </td>
                         <td className="px-3 py-2">
@@ -335,15 +454,24 @@ export default function WarehouseGoodsReceiptCreate() {
                         </td>
                         <td className="px-3 py-2">
                           <input
-                            type="number"
-                            min="0"
-                            className="w-28 rounded-lg border border-slate-200 px-2 py-1.5"
-                            value={item.unit_cost}
-                            onChange={(e) => handleItemChange(item.product._id, 'unit_cost', e.target.value)}
+                            type="text"
+                            className="w-32 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-slate-700"
+                            value={Number(item.unit_cost || 0).toLocaleString('vi-VN')}
+                            readOnly
+                            title="Giá gốc theo đơn vị = giá gốc sản phẩm × hệ số quy đổi. Chỉ quản lý được sửa khi duyệt."
                           />
                         </td>
                         <td className="px-3 py-2 text-right font-medium tabular-nums">
                           {(item.quantity * item.unit_cost).toLocaleString('vi-VN')}
+                        </td>
+                        <td className="px-3 py-2">
+                          <input
+                            type="text"
+                            className="w-full min-w-[220px] rounded-lg border border-amber-200 bg-amber-50/50 px-2 py-1.5 text-xs"
+                            placeholder="VD: NCC báo giá thay đổi, cần manager kiểm tra"
+                            value={item.price_gap_note || ''}
+                            onChange={(e) => handleItemChange(item.product._id, 'price_gap_note', e.target.value)}
+                          />
                         </td>
                         <td className="px-2 py-2 text-right">
                           <button

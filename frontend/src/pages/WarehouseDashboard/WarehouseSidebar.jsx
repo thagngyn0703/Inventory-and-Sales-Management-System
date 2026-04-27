@@ -3,6 +3,8 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import StoreLockedNotice from '../../components/StoreLockedNotice';
 import './WarehouseSidebar.css';
 
+const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
+
 export default function WarehouseSidebar() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -16,7 +18,7 @@ export default function WarehouseSidebar() {
   useEffect(() => {
     const token = localStorage.getItem('token') || '';
     if (!token) return;
-    fetch('http://localhost:8000/api/auth/me', {
+    fetch(`${API_BASE}/auth/me`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((res) => res.json().catch(() => ({})))

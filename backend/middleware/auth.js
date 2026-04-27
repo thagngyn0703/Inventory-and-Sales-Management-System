@@ -51,6 +51,15 @@ function normalizeRoleToThreeTier(role) {
 function requireRole(allowedRoles, options = {}) {
   const allowed = (allowedRoles || []).map((r) => String(r).toLowerCase());
   const allowManagerWithoutStore = Boolean(options.allowManagerWithoutStore);
+  const allowLockedStoreForManager = Boolean(options.allowLockedStoreForManager);
+  const canRoleAccess = (role) => {
+    if (allowed.includes(role)) return true;
+    // Hierarchy: manager inherits staff permissions.
+    if (role === 'manager' && allowed.includes('staff')) return true;
+    // Admin can access manager/staff endpoints too.
+    if (role === 'admin' && (allowed.includes('manager') || allowed.includes('staff'))) return true;
+    return false;
+  };
 
   return (req, res, next) => {
     const raw = String(req.user?.role || '').toLowerCase();
@@ -60,7 +69,6 @@ function requireRole(allowedRoles, options = {}) {
     const isManagerAllowed = allowed.includes('manager');
     const missingManagerStore = role === 'manager' && isManagerAllowed && !req.user?.storeId;
     const isStoreScopedRole = ['manager', 'staff'].includes(role);
-    const isWrite = !['GET', 'HEAD', 'OPTIONS'].includes(String(req.method || '').toUpperCase());
 
     if (missingManagerStore && !allowManagerWithoutStore) {
       return res.status(403).json({
@@ -69,14 +77,17 @@ function requireRole(allowedRoles, options = {}) {
       });
     }
 
-    if (isStoreScopedRole && isWrite && req.user?.storeStatus === 'inactive') {
+    const method = String(req.method || '').toUpperCase();
+    const isReadOnlyMethod = ['GET', 'HEAD', 'OPTIONS'].includes(method);
+    const skipLockedForManager = allowLockedStoreForManager && role === 'manager';
+    if (isStoreScopedRole && req.user?.storeStatus === 'inactive' && !skipLockedForManager && !isReadOnlyMethod) {
       return res.status(403).json({
-        message: 'Cửa hàng của bạn đã tạm bị khóa. Vui lòng liên hệ admin để được hỗ trợ.',
+        message: 'Cửa hàng của bạn đã bị khóa. Vui lòng liên hệ admin để được hỗ trợ.',
         code: 'STORE_LOCKED',
       });
     }
 
-    if (allowed.includes(role)) return next();
+    if (canRoleAccess(role)) return next();
     return res.status(403).json({ message: 'Forbidden' });
   };
 }

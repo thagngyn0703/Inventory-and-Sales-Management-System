@@ -3,6 +3,8 @@ import { Outlet } from 'react-router-dom';
 import WarehouseSidebar from './WarehouseSidebar';
 import './WarehouseDashboard.css';
 
+const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
+
 export default function WarehouseDashboard() {
   const [currentUser, setCurrentUser] = useState(() => {
     try { return JSON.parse(localStorage.getItem('user') || 'null'); }
@@ -12,7 +14,7 @@ export default function WarehouseDashboard() {
   useEffect(() => {
     const token = localStorage.getItem('token') || '';
     if (!token) return;
-    fetch('http://localhost:8000/api/auth/me', {
+    fetch(`${API_BASE}/auth/me`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then(res => res.json().catch(() => ({})))

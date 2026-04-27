@@ -1,4 +1,4 @@
-const API_BASE = 'http://localhost:8000/api';
+const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
 
 function getToken() {
   return localStorage.getItem('token') || '';
@@ -40,4 +40,21 @@ export async function createReturn(body) {
   });
   const data = await parseResponse(res, 'Không thể thực hiện trả hàng');
   return { salesReturn: data.salesReturn, message: data.message };
+}
+
+export async function getReturnReasons() {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/returns/reasons`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return parseResponse(res, 'Không thể tải danh mục lý do trả hàng');
+}
+
+export async function getReturnById(id) {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/returns/${id}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = await parseResponse(res, 'Không thể tải chi tiết phiếu trả hàng');
+  return data.salesReturn;
 }

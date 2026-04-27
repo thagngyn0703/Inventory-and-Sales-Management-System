@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
+import { InlineNotice } from "../../components/ui/inline-notice";
 
 const API_BASE = process.env.REACT_APP_API_URL || "/api";
 
@@ -120,7 +121,7 @@ export default function ManagerStoreRegister() {
             className="absolute inset-0 bg-cover bg-center"
             style={{ backgroundImage: `url(${BANNER_BG})` }}
           />
-          <div className="absolute inset-0 bg-gradient-to-b from-blue-900/85 via-blue-800/88 to-blue-950/90" />
+          <div className="absolute inset-0 bg-gradient-to-b from-teal-900/88 via-sky-900/85 to-slate-950/92" />
           <div className="relative z-10 flex flex-col items-center justify-center px-10 py-16 text-center text-white">
             <motion.div
               initial={{ opacity: 0, y: 28, filter: "blur(8px)" }}
@@ -132,10 +133,10 @@ export default function ManagerStoreRegister() {
                 <br />
                 của bạn
               </h1>
-              <p className="mt-6 max-w-sm text-sm font-medium text-blue-100/95 md:text-base">
+              <p className="mt-6 max-w-sm text-sm font-medium text-teal-50/95 md:text-base">
                 ISMS — hoàn tất thông tin cửa hàng để quản lý kho và bán hàng.
               </p>
-              <p className="mt-4 text-xs text-blue-200/90 md:text-sm">Chỉ mất vài phút</p>
+              <p className="mt-4 text-xs text-sky-100/90 md:text-sm">Chỉ mất vài phút</p>
             </motion.div>
           </div>
         </aside>
@@ -198,14 +199,7 @@ export default function ManagerStoreRegister() {
                   />
                 </div>
 
-                {error ? (
-                  <div
-                    className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"
-                    role="alert"
-                  >
-                    {error}
-                  </div>
-                ) : null}
+                <InlineNotice message={error} type="error" />
 
                 <div className="flex justify-end pt-2">
                   <Button
@@ -225,7 +219,7 @@ export default function ManagerStoreRegister() {
           <div
             className="h-36 shrink-0 bg-cover bg-center bg-no-repeat lg:hidden"
             style={{
-              backgroundImage: `linear-gradient(to top, rgba(30,58,138,0.92), rgba(37,99,235,0.55)), url(${BANNER_BG})`,
+              backgroundImage: `linear-gradient(to top, rgba(15,118,110,0.92), rgba(14,165,233,0.5)), url(${BANNER_BG})`,
             }}
           />
         </main>

@@ -6,6 +6,7 @@ import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { Card, CardContent } from '../../components/ui/card';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
+import { InlineNotice } from '../../components/ui/inline-notice';
 import { cn } from '../../lib/utils';
 
 const LIMIT = 10;
@@ -86,11 +87,7 @@ export default function SalesProductList() {
       title="Danh mục sản phẩm"
       subtitle="Xem danh sách, giá và tồn kho — 10 sản phẩm mỗi trang."
     >
-      {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800" role="alert">
-          {error}
-        </div>
-      )}
+      <InlineNotice message={error} type="error" />
 
       <Card className="border-slate-200/80 shadow-sm shadow-slate-900/5">
         <CardContent className="space-y-4 p-4 sm:p-6">

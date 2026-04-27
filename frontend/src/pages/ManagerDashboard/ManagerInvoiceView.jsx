@@ -1,7 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getInvoice } from '../../services/invoicesApi';
-import ManagerSidebar from './ManagerSidebar';
+import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
+import { StaffPageShell } from '../../components/staff/StaffPageShell';
+import { Button } from '../../components/ui/button';
+import { InlineNotice } from '../../components/ui/inline-notice';
+import { Receipt, ArrowLeft } from 'lucide-react';
 import './ManagerDashboard.css';
 import '../SaleDashboard/SalesPOS.css';
 
@@ -16,6 +20,22 @@ function formatDate(dateString) {
   return d.toLocaleDateString('vi-VN') + ' ' + d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
 }
 
+const PAYMENT_LABEL = {
+  cash: 'Tiền mặt',
+  bank_transfer: 'Chuyển khoản',
+  credit: 'Công nợ',
+  card: 'Thẻ',
+  debt: 'Ghi nợ',
+};
+
+function getInvoiceStatusView(invoice) {
+  const isDebtUnpaid = invoice?.payment_method === 'debt' && invoice?.payment_status !== 'paid';
+  if (isDebtUnpaid) return 'debt_unpaid';
+  if (invoice?.status === 'confirmed') return 'sold';
+  return invoice?.status;
+}
+
+/** Màn xem hóa đơn chỉ đọc (có thể gắn route riêng nếu cần). */
 export default function ManagerInvoiceView() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -38,143 +58,182 @@ export default function ManagerInvoiceView() {
     if (id && id !== 'new') fetchInvoice();
   }, [id]);
 
-  const paymentMethodMap = {
-    'cash': 'Tiền mặt',
-    'bank_transfer': 'Chuyển khoản',
-    'credit': 'Công nợ',
-    'card': 'Thẻ'
-  };
-
-  const renderContent = () => {
-    if (loading) return <div style={{ padding: 40, textAlign: 'center' }}>Đang tải dữ liệu...</div>;
-    if (error) return <div style={{ padding: 40, color: 'red', textAlign: 'center' }}>{error}</div>;
-    if (!invoice) return null;
-
-    return (
-      <div style={{ padding: 24, maxWidth: 1000, margin: '0 auto', fontFamily: 'Inter, sans-serif' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            <button 
-              onClick={() => navigate('/manager/invoices')}
-              style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #cbd5e1', background: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, color: '#475569' }}
-            >
-              <i className="fa-solid fa-arrow-left" /> Quay lại
-            </button>
-            <h2 style={{ margin: 0, color: '#1e293b' }}>Chi tiết hóa đơn: {invoice._id}</h2>
-          </div>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)', gap: 24 }}>
-          {/* Left Side: Items Table */}
-          <div style={{ background: 'white', padding: 24, borderRadius: 12, boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
-            <h3 style={{ margin: '0 0 16px', color: '#334155', fontSize: 16 }}>Danh sách hàng hóa</h3>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr style={{ borderBottom: '2px solid #f1f5f9' }}>
-                  <th style={{ textAlign: 'left', padding: '12px 0', color: '#64748b', fontWeight: 600 }}>Tên hàng</th>
-                  <th style={{ textAlign: 'center', padding: '12px 16px', color: '#64748b', fontWeight: 600, width: 80 }}>SL</th>
-                  <th style={{ textAlign: 'right', padding: '12px 16px', color: '#64748b', fontWeight: 600, width: 120 }}>Đơn giá</th>
-                  <th style={{ textAlign: 'right', padding: '12px 0', color: '#64748b', fontWeight: 600, width: 120 }}>Thành tiền</th>
-                </tr>
-              </thead>
-              <tbody>
-                {invoice.items?.map((item, idx) => (
-                  <tr key={idx} style={{ borderBottom: '1px solid #f8fafc' }}>
-                    <td style={{ padding: '16px 0', fontWeight: 500, color: '#1e293b' }}>
-                      {item.product_id?.name || 'Sản phẩm không xác định'}
-                      <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>{item.product_id?.sku || ''}</div>
-                    </td>
-                    <td style={{ textAlign: 'center', padding: '16px', color: '#475569' }}>{item.quantity}</td>
-                    <td style={{ textAlign: 'right', padding: '16px', color: '#475569' }}>{formatMoney(item.unit_price)}</td>
-                    <td style={{ textAlign: 'right', padding: '16px 0', fontWeight: 600, color: '#0081ff' }}>{formatMoney(item.line_total)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Right Side: Order Summary */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-            <div style={{ background: 'white', padding: 24, borderRadius: 12, boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
-              <h3 style={{ margin: '0 0 16px', color: '#334155', fontSize: 16 }}>Thông tin đơn hàng</h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, fontSize: 14 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: '#64748b' }}>Ngày tạo:</span>
-                  <span style={{ fontWeight: 500, color: '#1e293b' }}>{formatDate(invoice.created_at || invoice.invoice_at)}</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: '#64748b' }}>Khách hàng:</span>
-                  <span style={{ fontWeight: 500, color: '#1e293b' }}>{invoice.recipient_name || 'Khách lẻ'}</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: '#64748b' }}>Trạng thái nợ:</span>
-                  <span style={{
-                    fontWeight: 700,
-                    color: invoice.status === 'confirmed' ? '#065f46' : invoice.status === 'pending' ? '#92400e' : '#991b1b',
-                    background: invoice.status === 'confirmed' ? '#d1fae5' : invoice.status === 'pending' ? '#fef3c7' : '#fee2e2',
-                    border: `1px solid ${invoice.status === 'confirmed' ? '#6ee7b7' : invoice.status === 'pending' ? '#fde68a' : '#fecaca'}`,
-                    padding: '3px 10px', borderRadius: 6, fontSize: 13
-                  }}>
-                    {invoice.status === 'confirmed' ? 'Đã thanh toán' : invoice.status === 'pending' ? 'Nợ' : 'Trả hàng'}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div style={{ background: 'white', padding: 24, borderRadius: 12, boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
-              <h3 style={{ margin: '0 0 16px', color: '#334155', fontSize: 16 }}>Thanh toán</h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, fontSize: 14 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: '#64748b' }}>Tổng tiền hàng ({invoice.items?.length || 0} món):</span>
-                  <span style={{ fontWeight: 500, color: '#1e293b' }}>{formatMoney(invoice.total_amount)}</span>
-                </div>
-                
-                <div style={{ borderTop: '1px solid #f1f5f9', margin: '8px 0' }}></div>
-                
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ color: '#334155', fontWeight: 600 }}>
-                    {invoice.status === 'pending' ? 'Số tiền ghi nợ:' : 'Khách đã trả:'}
-                  </span>
-                  <span style={{ fontWeight: 700, fontSize: 20, color: invoice.status === 'pending' ? '#d97706' : '#0081ff' }}>
-                    {formatMoney(invoice.total_amount)}
-                  </span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
-                  <span style={{ color: '#64748b' }}>Phương thức:</span>
-                  <span style={{ fontWeight: 500, color: '#1e293b' }}>
-                    {paymentMethodMap[invoice.payment_method] || invoice.payment_method || '—'}
-                  </span>
-                </div>
-                {invoice.status === 'pending' && (
-                  <div style={{ marginTop: 10, padding: '10px 14px', background: '#fef3c7', borderRadius: 8, border: '1px solid #fde68a', fontSize: 13, color: '#92400e', display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <i className="fa-solid fa-triangle-exclamation" />
-                    Đơn hàng đang <strong>chờ thu nợ</strong>. Sẽ tự chuyển thành "Đã thanh toán" sau khi thu nợ.
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
+  const shortId = invoice?._id ? String(invoice._id).slice(-8).toUpperCase() : '';
+  const statusView = getInvoiceStatusView(invoice);
+  const soldGrossAmount = (invoice?.items || []).reduce((sum, it) => sum + (Number(it.line_total) || 0), 0);
+  const invoiceLevelDiscount = Number(invoice?.invoice_level_discount || 0);
+  const debtSettlementNote =
+    invoice?.debt_settlement_by_invoice_id
+      ? `Trả nợ thông qua đơn hàng #${invoice.debt_settlement_by_invoice_id}`
+      : invoice?.debt_settlement_note;
 
   return (
-    <div className="manager-page-with-sidebar">
-      <ManagerSidebar />
-      <div className="manager-main" style={{ background: '#f8fafc', overflowY: 'auto' }}>
-        <header className="manager-topbar">
-          <div className="manager-topbar-search-wrap"></div>
-          <div className="manager-topbar-actions">
-            <div className="manager-user-badge">
-              <i className="fa-solid fa-circle-user" />
-              <span>Quản lý</span>
+    <ManagerPageFrame showNotificationBell={false}>
+      <StaffPageShell
+        eyebrow="Hóa đơn"
+        eyebrowIcon={Receipt}
+        title={
+          loading
+            ? 'Đang tải…'
+            : error
+              ? 'Không tải được'
+              : invoice
+                ? `Phiếu ${shortId}`
+                : 'Xem hóa đơn'
+        }
+        subtitle={
+          invoice
+            ? `${formatDate(invoice.created_at || invoice.invoice_at)} · ${invoice.recipient_name || 'Khách lẻ'}`
+            : 'Xem nhanh nội dung đơn (chỉ đọc).'
+        }
+        headerActions={
+          <Button type="button" variant="outline" className="gap-2" onClick={() => navigate('/manager/invoices')}>
+            <ArrowLeft className="h-4 w-4" aria-hidden />
+            Quay lại
+          </Button>
+        }
+      >
+        {loading && (
+          <p className="rounded-2xl border border-slate-200/80 bg-white py-12 text-center text-sm text-slate-500 shadow-sm">
+            Đang tải dữ liệu…
+          </p>
+        )}
+        {!loading && error && <InlineNotice message={error} type="error" />}
+        {!loading && !error && invoice && (
+          <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+            <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm sm:p-6">
+              <h3 className="mb-4 text-base font-bold text-slate-800">Danh sách hàng hóa</h3>
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-sm">
+                  <thead>
+                    <tr className="border-b-2 border-slate-100 text-left text-slate-500">
+                      <th className="py-3 pr-2 font-semibold">Tên hàng</th>
+                      <th className="w-16 py-3 text-center font-semibold">SL</th>
+                      <th className="w-28 py-3 text-right font-semibold">Đơn giá</th>
+                      <th className="w-28 py-3 text-right font-semibold">Thành tiền</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {invoice.items?.map((item, idx) => (
+                      <tr key={idx} className="border-b border-slate-50">
+                        <td className="py-3.5 font-medium text-slate-900">
+                          {item.product_id?.name || 'Sản phẩm không xác định'}
+                          <div className="mt-1 text-xs text-slate-400">{item.product_id?.sku || ''}</div>
+                        </td>
+                        <td className="py-3.5 text-center text-slate-600">{item.quantity}</td>
+                        <td className="py-3.5 text-right text-slate-600">{formatMoney(item.unit_price)}</td>
+                        <td className="py-3.5 text-right font-semibold text-teal-700">{formatMoney(item.line_total)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-4">
+              <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm sm:p-6">
+                <h3 className="mb-3 text-base font-bold text-slate-800">Thông tin đơn hàng</h3>
+                <dl className="space-y-3 text-sm">
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-slate-500">Mã hóa đơn</dt>
+                    <dd className="font-mono text-xs font-semibold text-slate-900">{invoice._id || '—'}</dd>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-slate-500">Ngày tạo</dt>
+                    <dd className="font-medium text-slate-900">{formatDate(invoice.created_at || invoice.invoice_at)}</dd>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-slate-500">Khách hàng</dt>
+                    <dd className="font-medium text-slate-900">{invoice.recipient_name || 'Khách lẻ'}</dd>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-slate-500">Thanh toán</dt>
+                    <dd className="font-medium text-slate-900">
+                      {PAYMENT_LABEL[invoice.payment_method] || invoice.payment_method || '—'}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-slate-500">Trạng thái</dt>
+                    <dd>
+                      <span
+                        className={
+                          statusView === 'confirmed'
+                            ? 'inline-block rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-bold text-emerald-900'
+                            : statusView === 'sold'
+                              ? 'inline-block rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-bold text-emerald-900'
+                            : statusView === 'pending'
+                              ? 'inline-block rounded-md border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-xs font-bold text-amber-900'
+                              : statusView === 'debt_unpaid'
+                                ? 'inline-block rounded-md border border-red-200 bg-red-50 px-2.5 py-0.5 text-xs font-bold text-red-900'
+                                : statusView === 'cancelled'
+                                  ? 'inline-block rounded-md border border-slate-200 bg-slate-100 px-2.5 py-0.5 text-xs font-bold text-slate-700'
+                                : 'inline-block rounded-md border border-red-200 bg-red-50 px-2.5 py-0.5 text-xs font-bold text-red-900'
+                        }
+                      >
+                        {statusView === 'confirmed' || statusView === 'sold'
+                          ? 'Đã bán'
+                          : statusView === 'pending'
+                            ? 'Chờ / nợ'
+                            : statusView === 'debt_unpaid'
+                              ? 'Nợ'
+                              : statusView === 'cancelled'
+                                ? 'Đã hủy'
+                                : 'Trả hàng'}
+                      </span>
+                    </dd>
+                  </div>
+                  {debtSettlementNote ? (
+                    <div className="flex justify-between gap-2">
+                      <dt className="text-slate-500">Ghi chú</dt>
+                      <dd className="max-w-[65%] text-right font-medium text-slate-900">{debtSettlementNote}</dd>
+                    </div>
+                  ) : null}
+                </dl>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm sm:p-6">
+                <h3 className="mb-3 text-base font-bold text-slate-800">Thanh toán</h3>
+                <div className="space-y-3 text-sm">
+                  <div className="flex justify-between text-slate-600">
+                    <span>Tổng tiền hàng ({invoice.items?.length || 0} món)</span>
+                    <span className="font-medium text-slate-900">{formatMoney(soldGrossAmount)}</span>
+                  </div>
+                  {invoiceLevelDiscount > 0 && (
+                    <div className="flex justify-between text-amber-700">
+                      <span>Giảm trừ hóa đơn (khuyến mãi/đổi điểm)</span>
+                      <span className="font-medium">-{formatMoney(invoiceLevelDiscount)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between text-slate-600">
+                    <span>Giá trị hóa đơn sau giảm trừ</span>
+                    <span className="font-medium text-slate-900">{formatMoney(invoice.total_amount)}</span>
+                  </div>
+                  <div className="border-t border-slate-100 pt-3">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-slate-800">
+                        {statusView === 'debt_unpaid' || statusView === 'pending' ? 'Số tiền ghi nợ còn lại' : 'Khách đã trả'}
+                      </span>
+                      <span
+                        className={`text-xl font-bold ${statusView === 'debt_unpaid' || statusView === 'pending' ? 'text-red-700' : 'text-teal-700'}`}
+                      >
+                        {formatMoney(invoice.total_amount)}
+                      </span>
+                    </div>
+                  </div>
+                  {(statusView === 'debt_unpaid' || statusView === 'pending') && (
+                    <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-900">
+                      <i className="fa-solid fa-triangle-exclamation mt-0.5 shrink-0" aria-hidden />
+                      <span>
+                        Đơn đang <strong>chờ thu nợ</strong>. Sẽ chuyển &quot;Đã thanh toán&quot; sau khi thu.
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
-        </header>
-
-        {renderContent()}
-      </div>
-    </div>
+        )}
+      </StaffPageShell>
+    </ManagerPageFrame>
   );
 }

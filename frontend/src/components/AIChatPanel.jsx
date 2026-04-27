@@ -9,20 +9,58 @@ import { Badge } from './ui/badge';
 import { ShinyText } from './ai/ShinyText';
 import { cn } from '../lib/utils';
 
-const API_BASE = 'http://localhost:8000/api';
+const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
+
+const FALLBACK_FOOTER_RE = /\n\n\[Phản hồi dự phòng[^\]]*\][\s\S]*$/i;
 
 function getToken() {
   return localStorage.getItem('token') || '';
 }
 
-async function postChat(message) {
+/** Khóa lưu hội thoại theo user trong session hiện tại. */
+function getManagerAiChatStorageKey() {
+  try {
+    const u = JSON.parse(localStorage.getItem('user') || 'null');
+    const id = u?.id ?? u?._id ?? 'anon';
+    return `manager_ai_chat_${id}`;
+  } catch {
+    return 'manager_ai_chat_anon';
+  }
+}
+
+function loadStoredChatMessages() {
+  try {
+    const raw = sessionStorage.getItem(getManagerAiChatStorageKey());
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (m) => m && (m.role === 'user' || m.role === 'assistant') && String(m.content || '').trim()
+    );
+  } catch {
+    return [];
+  }
+}
+
+function stripForHistory(content) {
+  return String(content || '').replace(FALLBACK_FOOTER_RE, '').trim();
+}
+
+/** Tránh treo vĩnh viễn khi backend/AI không phản hồi (fetch mặc định không có timeout). */
+const CHAT_FETCH_TIMEOUT_MS = 78000;
+
+async function postChat(message, history, signal) {
   const res = await fetch(`${API_BASE}/ai/chat`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${getToken()}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ message }),
+    body: JSON.stringify({
+      message,
+      history: Array.isArray(history) ? history : [],
+    }),
+    signal,
   });
   const data = await res.json().catch(() => ({}));
   if (res.status === 429) {
@@ -33,39 +71,135 @@ async function postChat(message) {
 }
 
 const SUGGESTIONS = [
-  'Tháng tới tôi nên tập trung nhập nhóm hàng gì?',
-  'Có sự kiện nào sắp tới cần chuẩn bị hàng không?',
-  'Mặt hàng nào trong kho đang cần nhập gấp?',
+  'Mặt hàng nào đang đem lại lợi nhuận thực tế cao nhất tháng này?',
+  'Khung giờ nào trong ngày cửa hàng bận rộn nhất để tôi sắp xếp thêm nhân viên?',
+  'Danh sách các mặt hàng chưa phát sinh đơn hàng nào trong 30 ngày qua?',
 ];
+
+function parseTableRows(block) {
+  const lines = String(block || '')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (lines.length < 2) return null;
+  if (!lines[0].includes('|')) return null;
+
+  const rows = lines
+    .map((line) => line.split('|').map((c) => c.trim()).filter((c) => c.length > 0))
+    .filter((cells) => cells.length > 1);
+  if (rows.length < 2) return null;
+
+  const separatorIdx = rows.findIndex((r) => r.every((c) => /^-+$/.test(c.replace(/:/g, ''))));
+  if (separatorIdx < 1) return null;
+
+  const headers = rows[separatorIdx - 1];
+  const body = rows.slice(separatorIdx + 1).filter((r) => r.length >= headers.length);
+  if (!body.length) return null;
+  return { headers, body };
+}
+
+function renderAssistantContent(content) {
+  const blocks = String(content || '').split('\n\n');
+  return blocks.map((block, idx) => {
+    const parsed = parseTableRows(block);
+    if (!parsed) {
+      return (
+        <p key={`p-${idx}`} className="whitespace-pre-wrap">
+          {block}
+        </p>
+      );
+    }
+    return (
+      <div key={`t-${idx}`} className="overflow-x-auto rounded-lg border border-slate-200 bg-slate-50/80">
+        <table className="min-w-full text-xs">
+          <thead className="bg-slate-100 text-slate-700">
+            <tr>
+              {parsed.headers.map((h) => (
+                <th key={h} className="px-3 py-2 text-left font-semibold">
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {parsed.body.map((row, rowIdx) => (
+              <tr key={`${rowIdx}-${row[0] || 'row'}`} className="border-t border-slate-200 text-slate-800">
+                {parsed.headers.map((_, colIdx) => (
+                  <td key={`${rowIdx}-${colIdx}`} className="px-3 py-2 align-top">
+                    {row[colIdx] || ''}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  });
+}
 
 export default function AIChatPanel({ className = '' }) {
   const [input, setInput] = useState('');
-  const [messages, setMessages] = useState([]);
+  const [messages, setMessages] = useState(() => loadStoredChatMessages());
   const [sending, setSending] = useState(false);
   const bottomRef = useRef(null);
+  const requestIdRef = useRef(0);
+  const fetchAbortRef = useRef(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, sending]);
 
+  useEffect(() => {
+    try {
+      const key = getManagerAiChatStorageKey();
+      sessionStorage.setItem(key, JSON.stringify(messages));
+    } catch {
+      /* quota / private mode */
+    }
+  }, [messages]);
+
   const send = async (text) => {
     const trimmed = String(text || '').trim();
-    if (!trimmed || sending) return;
+    if (!trimmed) return;
+
+    fetchAbortRef.current?.abort();
+    const ac = new AbortController();
+    fetchAbortRef.current = ac;
+    const reqId = (requestIdRef.current += 1);
+
+    const historyPayload = messages.map((m) => ({
+      role: m.role,
+      content: stripForHistory(m.content),
+    }));
     setMessages((prev) => [...prev, { role: 'user', content: trimmed }]);
     setInput('');
     setSending(true);
+
+    const timeoutId = setTimeout(() => ac.abort(), CHAT_FETCH_TIMEOUT_MS);
+
     try {
-      const data = await postChat(trimmed);
+      const data = await postChat(trimmed, historyPayload, ac.signal);
+      if (reqId !== requestIdRef.current) return;
       const reply = data.reply || 'Không có phản hồi.';
       const tag = data.source === 'fallback' ? '\n\n[Phản hồi dự phòng từ dữ liệu kho — chưa qua AI.]' : '';
       setMessages((prev) => [...prev, { role: 'assistant', content: reply + tag }]);
     } catch (e) {
+      if (reqId !== requestIdRef.current) return;
+      const aborted = e?.name === 'AbortError';
+      const msg = aborted
+        ? 'Hết thời gian chờ phản hồi (mạng hoặc AI quá chậm). Bạn có thể gửi lại câu hỏi.'
+        : e.message || 'lỗi không xác định';
       setMessages((prev) => [
         ...prev,
-        { role: 'assistant', content: `Không thể trả lời: ${e.message || 'lỗi không xác định'}` },
+        { role: 'assistant', content: `Không thể trả lời: ${msg}` },
       ]);
     } finally {
-      setSending(false);
+      clearTimeout(timeoutId);
+      if (reqId === requestIdRef.current) {
+        setSending(false);
+        fetchAbortRef.current = null;
+      }
     }
   };
 
@@ -80,7 +214,7 @@ export default function AIChatPanel({ className = '' }) {
         className="pointer-events-none absolute -inset-px rounded-2xl opacity-55 blur-sm bg-gradient-to-br from-teal-400 via-cyan-500 to-violet-500"
         aria-hidden
       />
-      <Card className="relative flex h-full max-h-[min(70vh,560px)] flex-col overflow-hidden rounded-2xl border-teal-200/70 bg-white/95 shadow-glow-teal backdrop-blur-md">
+      <Card className="relative flex h-full flex-col overflow-hidden rounded-2xl border-teal-200/70 bg-white/95 shadow-glow-teal backdrop-blur-md">
         <CardHeader className="border-b border-teal-100/80 bg-gradient-to-r from-teal-50/80 to-cyan-50/40 pb-4">
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-center gap-3">
@@ -95,7 +229,7 @@ export default function AIChatPanel({ className = '' }) {
                   <span className="font-bold text-slate-800"> trực tiếp</span>
                 </CardTitle>
                 <CardDescription className="mt-1 text-slate-600">
-                  Câu hỏi được kèm ngữ cảnh kho &amp; lịch cửa hàng bạn
+                  Trả lời từ dữ liệu nội bộ + gợi ý xu hướng thị trường tham khảo từ AI
                 </CardDescription>
               </div>
             </div>
@@ -107,7 +241,7 @@ export default function AIChatPanel({ className = '' }) {
 
         <CardContent className="flex flex-1 flex-col overflow-hidden p-0">
           <div
-            className="min-h-[220px] flex-1 space-y-3 overflow-y-auto bg-gradient-to-b from-slate-50/80 to-white p-4"
+            className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain bg-gradient-to-b from-slate-50/80 to-white p-4"
             style={{ scrollbarGutter: 'stable' }}
           >
             {messages.length === 0 && (
@@ -143,13 +277,17 @@ export default function AIChatPanel({ className = '' }) {
                 )}
                 <div
                   className={cn(
-                    'max-w-[88%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed whitespace-pre-wrap shadow-sm',
+                    'max-w-[92%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed shadow-sm',
                     m.role === 'user'
                       ? 'rounded-br-md bg-gradient-to-br from-violet-600 to-fuchsia-600 text-white shadow-violet-500/20'
                       : 'rounded-bl-md border border-slate-200/80 bg-white text-slate-800'
                   )}
                 >
-                  {m.content}
+                  {m.role === 'assistant' ? (
+                    <div className="space-y-2">
+                      {renderAssistantContent(m.content)}
+                    </div>
+                  ) : m.content}
                 </div>
                 {m.role === 'user' && (
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-200 ring-2 ring-white">

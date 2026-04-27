@@ -24,6 +24,13 @@ const salesInvoiceSchema = new Schema(
             ref: 'User',
             required: true,
         },
+        /**
+         * Snapshot bất biến tại thời điểm bán — không bị ảnh hưởng khi user đổi tên/role sau này.
+         * Dùng cho audit trail, báo cáo doanh số theo người bán, in hóa đơn.
+         */
+        seller_name: { type: String, default: '' },
+        seller_role: { type: String, default: '' },
+        seller_code: { type: String, default: '' },
         status: {
             type: String,
             enum: ['confirmed', 'cancelled', 'pending'],
@@ -65,10 +72,30 @@ const salesInvoiceSchema = new Schema(
                     ref: 'Product',
                     required: true,
                 },
+                unit_id: {
+                    type: Schema.Types.ObjectId,
+                    ref: 'ProductUnit',
+                    required: false,
+                },
+                unit_name: {
+                    type: String,
+                    trim: true,
+                    default: '',
+                },
+                exchange_value: {
+                    type: Number,
+                    default: 1,
+                    min: 0.0001,
+                },
                 quantity: {
                     type: Number,
                     required: true,
                     min: 1,
+                },
+                base_quantity: {
+                    type: Number,
+                    default: 0,
+                    min: 0,
                 },
                 unit_price: {
                     type: Number,
@@ -100,6 +127,30 @@ const salesInvoiceSchema = new Schema(
             type: Number,
             default: 0,
         },
+        subtotal_amount: {
+            type: Number,
+            default: 0,
+        },
+        tax_amount: {
+            type: Number,
+            default: 0,
+        },
+        tax_rate_snapshot: {
+            type: Number,
+            default: 0,
+        },
+        returned_total_amount: {
+            type: Number,
+            default: 0,
+        },
+        returned_subtotal_amount: {
+            type: Number,
+            default: 0,
+        },
+        returned_tax_amount: {
+            type: Number,
+            default: 0,
+        },
         paid_amount: {
             type: Number,
             default: 0,
@@ -112,6 +163,69 @@ const salesInvoiceSchema = new Schema(
         previous_debt_settled: {
             type: Boolean,
             default: false,
+        },
+        invoice_level_discount: {
+            type: Number,
+            default: 0,
+            min: 0,
+        },
+        loyalty_redeem_points: {
+            type: Number,
+            default: 0,
+            min: 0,
+        },
+        loyalty_redeem_value: {
+            type: Number,
+            default: 0,
+            min: 0,
+        },
+        loyalty_promo_discount: {
+            type: Number,
+            default: 0,
+            min: 0,
+        },
+        loyalty_eligible_amount: {
+            type: Number,
+            default: 0,
+            min: 0,
+        },
+        loyalty_earned_points: {
+            type: Number,
+            default: 0,
+            min: 0,
+        },
+        loyalty_earned_settled: {
+            type: Boolean,
+            default: false,
+        },
+        loyalty_reversed_points: {
+            type: Number,
+            default: 0,
+            min: 0,
+        },
+        loyalty_refunded_redeem_points: {
+            type: Number,
+            default: 0,
+            min: 0,
+        },
+        loyalty_policy_version: {
+            type: Number,
+            default: 1,
+        },
+        loyalty_settings_snapshot: {
+            type: Schema.Types.Mixed,
+            default: null,
+        },
+        debt_settlement_note: {
+            type: String,
+            trim: true,
+            default: '',
+        },
+        debt_settlement_by_invoice_id: {
+            type: Schema.Types.ObjectId,
+            ref: 'SalesInvoice',
+            default: null,
+            index: true,
         },
         created_at: {
             type: Date,

@@ -48,6 +48,21 @@ export default function SalesInvoiceView() {
     'debt': 'Ghi nợ'
   };
 
+  const isDebtUnpaid = invoice.payment_method === 'debt' && invoice.payment_status !== 'paid';
+  const debtSettlementNote =
+    invoice?.debt_settlement_by_invoice_id
+      ? `Trả nợ thông qua đơn hàng #${invoice.debt_settlement_by_invoice_id}`
+      : invoice?.debt_settlement_note;
+  const statusLabel = isDebtUnpaid
+    ? 'Nợ'
+    : (invoice.status === 'confirmed' ? 'Đã thanh toán' : invoice.status === 'pending' ? 'Chờ thanh toán' : 'Đã hủy');
+  const statusColor = isDebtUnpaid
+    ? '#b91c1c'
+    : (invoice.status === 'confirmed' ? '#10b981' : invoice.status === 'pending' ? '#92400e' : '#ef4444');
+  const statusBg = isDebtUnpaid
+    ? '#fee2e2'
+    : (invoice.status === 'confirmed' ? '#d1fae5' : invoice.status === 'pending' ? '#fde68a' : '#fee2e2');
+
   return (
     <div style={{ padding: 24, maxWidth: 1000, margin: '0 auto', fontFamily: 'Inter, sans-serif' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
@@ -104,18 +119,49 @@ export default function SalesInvoiceView() {
                 <span style={{ color: '#64748b' }}>Khách hàng:</span>
                 <span style={{ fontWeight: 500, color: '#1e293b' }}>{invoice.recipient_name || 'Khách lẻ'}</span>
               </div>
+              {(invoice.seller_name || invoice.created_by?.fullName) && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <span style={{ color: '#64748b' }}>Người bán:</span>
+                  <span style={{ textAlign: 'right' }}>
+                    <span style={{ fontWeight: 500, color: '#1e293b' }}>
+                      {invoice.seller_name || invoice.created_by?.fullName || invoice.created_by?.email || '—'}
+                    </span>
+                    {invoice.seller_role && (
+                      <span style={{
+                        display: 'inline-block',
+                        marginLeft: 6,
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: invoice.seller_role === 'Quản lý' ? '#0d9488' : '#64748b',
+                        background: invoice.seller_role === 'Quản lý' ? '#f0fdfa' : '#f8fafc',
+                        border: `1px solid ${invoice.seller_role === 'Quản lý' ? '#99f6e4' : '#e2e8f0'}`,
+                        borderRadius: 4,
+                        padding: '1px 6px',
+                      }}>
+                        {invoice.seller_role}
+                      </span>
+                    )}
+                  </span>
+                </div>
+              )}
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ color: '#64748b' }}>Trạng thái:</span>
                 <span style={{ 
                   fontWeight: 600, 
-                  color: invoice.status === 'confirmed' ? '#10b981' : invoice.status === 'pending' ? '#92400e' : '#ef4444', 
-                  background: invoice.status === 'confirmed' ? '#d1fae5' : invoice.status === 'pending' ? '#fde68a' : '#fee2e2', 
+                  color: statusColor, 
+                  background: statusBg, 
                   padding: '2px 8px', 
                   borderRadius: 4 
                 }}>
-                  {invoice.status === 'confirmed' ? 'Đã hoàn thành' : invoice.status === 'pending' ? 'Nợ' : 'Đã hủy'}
+                  {statusLabel}
                 </span>
               </div>
+              {debtSettlementNote ? (
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                  <span style={{ color: '#64748b' }}>Ghi chú:</span>
+                  <span style={{ fontWeight: 500, color: '#334155', textAlign: 'right' }}>{debtSettlementNote}</span>
+                </div>
+              ) : null}
             </div>
           </div>
 
@@ -126,16 +172,30 @@ export default function SalesInvoiceView() {
                 <span style={{ color: '#64748b' }}>Phương thức:</span>
                 <span style={{ fontWeight: 500, color: '#1e293b' }}>{paymentMethodMap[invoice.payment_method] || invoice.payment_method}</span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: '#64748b' }}>Tổng tiền hàng ({invoice.items?.length || 0} món):</span>
-                <span style={{ fontWeight: 500, color: '#1e293b' }}>{formatMoney(invoice.total_amount)}</span>
-              </div>
+
+              {invoice.tax_rate_snapshot > 0 ? (
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: '#64748b' }}>Tạm tính ({invoice.items?.length || 0} món):</span>
+                    <span style={{ fontWeight: 500, color: '#1e293b' }}>{formatMoney(invoice.subtotal_amount)}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: '#64748b' }}>VAT ({invoice.tax_rate_snapshot}%):</span>
+                    <span style={{ fontWeight: 500, color: '#64748b' }}>{formatMoney(invoice.tax_amount)}</span>
+                  </div>
+                </>
+              ) : (
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#64748b' }}>Tổng tiền hàng ({invoice.items?.length || 0} món):</span>
+                  <span style={{ fontWeight: 500, color: '#1e293b' }}>{formatMoney(invoice.total_amount)}</span>
+                </div>
+              )}
               
               <div style={{ borderTop: '1px solid #f1f5f9', margin: '8px 0' }}></div>
               
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ color: '#334155', fontWeight: 600 }}>{invoice.status === 'pending' ? 'Khách còn nợ:' : 'Khách đã trả:'}</span>
-                <span style={{ fontWeight: 700, fontSize: 20, color: invoice.status === 'pending' ? '#f59e0b' : '#0f766e' }}>{formatMoney(invoice.total_amount)}</span>
+                <span style={{ color: '#334155', fontWeight: 600 }}>{isDebtUnpaid ? 'Khách còn nợ:' : 'Khách đã trả:'}</span>
+                <span style={{ fontWeight: 700, fontSize: 20, color: isDebtUnpaid ? '#dc2626' : '#0f766e' }}>{formatMoney(invoice.total_amount)}</span>
               </div>
             </div>
           </div>

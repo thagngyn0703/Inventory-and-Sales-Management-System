@@ -1,11 +1,12 @@
-import React, { useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { getInvoice } from '../../services/invoicesApi';
-import { createReturn } from '../../services/returnsApi';
+import { createReturn, getReturnReasons } from '../../services/returnsApi';
 import { useToast } from '../../contexts/ToastContext';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
+import { InlineNotice } from '../../components/ui/inline-notice';
 import { ArrowLeft, RotateCcw } from 'lucide-react';
 import './SalesPOS.css';
 
@@ -19,9 +20,11 @@ function formatDate(d) {
   try { return new Date(d).toLocaleString('vi-VN'); } catch { return '—'; }
 }
 
-export default function SalesReturnPage() {
+export default function SalesReturnPage({ backPathOverride = null }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const { toast } = useToast();
+  const backPath = backPathOverride || (location.pathname.startsWith('/manager') ? '/manager/returns' : '/staff/invoices');
 
   // Step 1: search invoice
   const [invoiceInput, setInvoiceInput] = useState('');
@@ -33,9 +36,45 @@ export default function SalesReturnPage() {
   const [returnQty, setReturnQty] = useState({}); // { product_id: qty }
 
   // Step 3: submit
-  const [reason, setReason] = useState('');
+  const [reasonCode, setReasonCode] = useState('customer_changed_mind');
+  const [reasonNote, setReasonNote] = useState('');
+  const [reasonOptions, setReasonOptions] = useState([]);
+  const [reasonDropdownOpen, setReasonDropdownOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
+  const reasonDropdownRef = useRef(null);
+
+  useEffect(() => {
+    getReturnReasons()
+      .then((res) => setReasonOptions(res.reasons || []))
+      .catch(() => setReasonOptions([]));
+  }, []);
+
+  useEffect(() => {
+    const handleOutsideClick = (event) => {
+      if (!reasonDropdownRef.current) return;
+      if (!reasonDropdownRef.current.contains(event.target)) {
+        setReasonDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, []);
+
+  const normalizedReasonOptions = useMemo(
+    () =>
+      reasonOptions.length > 0
+        ? reasonOptions.filter((r) => r.code !== 'wrong_item')
+        : [
+            { code: 'customer_changed_mind', label: 'Khách đổi ý' },
+            { code: 'defective', label: 'Lỗi nhà sản xuất' },
+            { code: 'expired', label: 'Hết hạn sử dụng' },
+            { code: 'other', label: 'Lý do khác' },
+          ],
+    [reasonOptions]
+  );
+  const selectedReasonLabel =
+    normalizedReasonOptions.find((r) => r.code === reasonCode)?.label || 'Chọn lý do';
 
   const handleLoadInvoice = useCallback(async () => {
     const id = invoiceInput.trim();
@@ -102,7 +141,8 @@ export default function SalesReturnPage() {
       const { message } = await createReturn({
         invoice_id: invoice._id,
         items,
-        reason: reason || 'Khách trả hàng',
+        reason_code: reasonCode || 'other',
+        reason: reasonNote || 'Khách trả hàng',
       });
       toast(
         message ||
@@ -112,7 +152,8 @@ export default function SalesReturnPage() {
       setInvoice(null);
       setInvoiceInput('');
       setReturnQty({});
-      setReason('');
+      setReasonCode('customer_changed_mind');
+      setReasonNote('');
     } catch (e) {
       setSubmitError(e.message || 'Lỗi khi thực hiện trả hàng');
       toast(e.message || 'Lỗi khi thực hiện trả hàng', 'error');
@@ -127,9 +168,9 @@ export default function SalesReturnPage() {
       eyebrowIcon={RotateCcw}
       eyebrowTone="rose"
       title="Trả hàng bán"
-      subtitle="Nhập mã hóa đơn gốc, chọn số lượng trả và xác nhận — đồng bộ giao diện với các màn staff khác."
+      subtitle="Nhập mã hóa đơn gốc, chọn số lượng trả và xác nhận."
       headerActions={
-        <Button type="button" variant="outline" className="gap-2" onClick={() => navigate('/staff/invoices')}>
+        <Button type="button" variant="outline" className="gap-2" onClick={() => navigate(backPath)}>
           <ArrowLeft className="h-4 w-4" />
           Quay lại
         </Button>
@@ -138,32 +179,29 @@ export default function SalesReturnPage() {
     >
       <Card className="border-slate-200/80 shadow-sm">
         <CardContent className="space-y-4 p-5 sm:p-6">
-        <h3 style={{ margin: '0 0 16px', fontSize: 15, color: '#334155' }}>
-          <i className="fa-solid fa-magnifying-glass" style={{ marginRight: 8, color: '#0081ff' }} />
+        <h3 className="m-0 text-sm font-semibold text-slate-700">
+          <i className="fa-solid fa-magnifying-glass mr-2 text-sky-500" />
           Bước 1: Tìm hóa đơn gốc
         </h3>
-        <div style={{ display: 'flex', gap: 12 }}>
+        <div className="flex flex-col gap-3 sm:flex-row">
           <input
             type="text"
-            className="pos-search-input"
+            className="h-11 flex-1 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-sky-200 focus:ring-2"
             placeholder="Nhập mã hóa đơn (ID)..."
             value={invoiceInput}
             onChange={e => setInvoiceInput(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleLoadInvoice()}
-            style={{ flex: 1 }}
           />
-          <button
-            className="warehouse-btn warehouse-btn-primary"
-            style={{ background: '#0081ff', color: 'white', padding: '0 20px', borderRadius: 8, border: 'none', cursor: 'pointer', fontWeight: 600 }}
+          <Button
+            type="button"
+            className="h-11 min-w-[120px]"
             onClick={handleLoadInvoice}
             disabled={loadingInvoice}
           >
             {loadingInvoice ? 'Đang tải...' : 'Tải hóa đơn'}
-          </button>
+          </Button>
         </div>
-        {invoiceError && (
-          <div className="warehouse-alert warehouse-alert-error" style={{ marginTop: 12 }}>{invoiceError}</div>
-        )}
+        <InlineNotice message={invoiceError} type="error" className="mt-3" />
         </CardContent>
       </Card>
 
@@ -171,27 +209,28 @@ export default function SalesReturnPage() {
       {invoice && (
         <Card className="border-slate-200/80 shadow-sm">
         <CardContent className="space-y-4 p-5 sm:p-6">
-          <h3 style={{ margin: '0 0 16px', fontSize: 15, color: '#334155' }}>
-            <i className="fa-solid fa-box-archive" style={{ marginRight: 8, color: '#0081ff' }} />
+          <h3 className="m-0 text-sm font-semibold text-slate-700">
+            <i className="fa-solid fa-box-archive mr-2 text-sky-500" />
             Bước 2: Chọn sản phẩm trả lại
           </h3>
 
           {/* Invoice info summary */}
-          <div style={{ background: '#f8fafc', padding: 12, borderRadius: 8, marginBottom: 16, fontSize: 13, color: '#475569', display: 'flex', flexWrap: 'wrap', gap: 20 }}>
-            <span><strong>Mã HĐ:</strong> <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{invoice._id}</span></span>
+          <div className="flex flex-wrap gap-x-6 gap-y-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+            <span><strong>Mã HĐ:</strong> <span className="font-mono text-[11px]">{invoice._id}</span></span>
             <span><strong>Ngày:</strong> {formatDate(invoice.invoice_at)}</span>
             <span><strong>Khách hàng:</strong> {invoice.recipient_name || 'Khách lẻ'}</span>
-            <span><strong>Tổng tiền HĐ:</strong> <span style={{ color: '#0081ff', fontWeight: 700 }}>{formatMoney(invoice.total_amount)}</span></span>
+            <span><strong>Tổng tiền HĐ:</strong> <span className="font-bold text-sky-600">{formatMoney(invoice.total_amount)}</span></span>
           </div>
 
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <div className="overflow-x-auto rounded-xl border border-slate-200">
+          <table className="w-full border-collapse text-sm">
             <thead>
-              <tr style={{ borderBottom: '2px solid #f1f5f9' }}>
-                <th style={{ textAlign: 'left', padding: '10px 0', color: '#64748b', fontWeight: 600, fontSize: 13 }}>Sản phẩm</th>
-                <th style={{ textAlign: 'center', padding: '10px 16px', color: '#64748b', fontWeight: 600, fontSize: 13, width: 80 }}>Đã mua</th>
-                <th style={{ textAlign: 'right', padding: '10px 16px', color: '#64748b', fontWeight: 600, fontSize: 13, width: 120 }}>Đơn giá</th>
-                <th style={{ textAlign: 'center', padding: '10px 0', color: '#64748b', fontWeight: 600, fontSize: 13, width: 120 }}>SL Trả</th>
-                <th style={{ textAlign: 'right', padding: '10px 0', color: '#64748b', fontWeight: 600, fontSize: 13, width: 120 }}>Tiền hoàn</th>
+              <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <th className="px-3 py-2">Sản phẩm</th>
+                <th className="w-20 px-3 py-2 text-center">Đã mua</th>
+                <th className="w-28 px-3 py-2 text-right">Đơn giá</th>
+                <th className="w-28 px-3 py-2 text-center">SL trả</th>
+                <th className="w-28 px-3 py-2 text-right">Tiền hoàn</th>
               </tr>
             </thead>
             <tbody>
@@ -200,25 +239,24 @@ export default function SalesReturnPage() {
                 const qty = returnQty[pid] || 0;
                 const refundLine = qty * (item.unit_price || 0);
                 return (
-                  <tr key={idx} style={{ borderBottom: '1px solid #f8fafc', background: qty > 0 ? '#eff6ff' : 'transparent' }}>
-                    <td style={{ padding: '14px 0' }}>
-                      <div style={{ fontWeight: 600, color: '#1e293b', fontSize: 14 }}>{item.product_id?.name || 'Sản phẩm'}</div>
-                      <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>{item.product_id?.sku || ''}</div>
+                  <tr key={idx} className={`border-b border-slate-100 ${qty > 0 ? 'bg-sky-50/50' : 'bg-white'}`}>
+                    <td className="px-3 py-3">
+                      <div className="text-sm font-semibold text-slate-800">{item.product_id?.name || 'Sản phẩm'}</div>
+                      <div className="mt-0.5 text-xs text-slate-400">{item.product_id?.sku || ''}</div>
                     </td>
-                    <td style={{ textAlign: 'center', padding: '14px 16px', color: '#475569', fontWeight: 500 }}>{item.quantity}</td>
-                    <td style={{ textAlign: 'right', padding: '14px 16px', color: '#475569' }}>{formatMoney(item.unit_price)}</td>
-                    <td style={{ textAlign: 'center', padding: '14px 0' }}>
+                    <td className="px-3 py-3 text-center font-medium text-slate-700">{item.quantity}</td>
+                    <td className="px-3 py-3 text-right text-slate-700">{formatMoney(item.unit_price)}</td>
+                    <td className="px-3 py-3 text-center">
                       <input
                         type="number"
                         min={0}
                         max={item.quantity}
                         value={qty}
                         onChange={e => updateQty(pid, e.target.value, item.quantity)}
-                        className="pos-qty-input"
-                        style={{ width: 70, textAlign: 'center' }}
+                        className="h-9 w-20 rounded-lg border border-slate-200 text-center text-sm outline-none ring-sky-200 focus:ring-2"
                       />
                     </td>
-                    <td style={{ textAlign: 'right', padding: '14px 0', fontWeight: 600, color: qty > 0 ? '#0081ff' : '#94a3b8' }}>
+                    <td className={`px-3 py-3 text-right font-semibold ${qty > 0 ? 'text-sky-600' : 'text-slate-400'}`}>
                       {qty > 0 ? formatMoney(refundLine) : '—'}
                     </td>
                   </tr>
@@ -226,13 +264,14 @@ export default function SalesReturnPage() {
               })}
             </tbody>
           </table>
+          </div>
 
           {/* Totals */}
-          <div style={{ marginTop: 16, padding: '16px 0 0', borderTop: '2px solid #f1f5f9', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 20 }}>
-            <span style={{ fontSize: 14, color: '#64748b' }}>
+          <div className="mt-2 flex items-center justify-end gap-4 border-t border-slate-100 pt-3">
+            <span className="text-sm text-slate-500">
               {selectedItems.length} sản phẩm được chọn trả
             </span>
-            <div style={{ fontSize: 18, fontWeight: 700, color: '#0081ff' }}>
+            <div className="text-lg font-bold text-sky-600">
               Hoàn tiền: {formatMoney(totalRefund)}
             </div>
           </div>
@@ -244,41 +283,78 @@ export default function SalesReturnPage() {
       {invoice && (
         <Card className="border-slate-200/80 shadow-sm">
         <CardContent className="space-y-4 p-5 sm:p-6">
-          <h3 style={{ margin: '0 0 16px', fontSize: 15, color: '#334155' }}>
-            <i className="fa-solid fa-pen-to-square" style={{ marginRight: 8, color: '#0081ff' }} />
+          <h3 className="m-0 text-sm font-semibold text-slate-700">
+            <i className="fa-solid fa-pen-to-square mr-2 text-sky-500" />
             Bước 3: Lý do trả hàng & xác nhận
           </h3>
-          <textarea
-            placeholder="Nhập lý do trả hàng (không bắt buộc)..."
-            value={reason}
-            onChange={e => setReason(e.target.value)}
-            rows={3}
-            style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: 14, resize: 'vertical', outline: 'none', boxSizing: 'border-box', fontFamily: 'Inter, sans-serif', color: '#334155' }}
-          />
-          {submitError && (
-            <div className="warehouse-alert warehouse-alert-error" style={{ marginTop: 12 }}>{submitError}</div>
-          )}
-          <div style={{ marginTop: 16, display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
-            <button
-              onClick={() => { setInvoice(null); setInvoiceInput(''); setReturnQty({}); }}
-              style={{ padding: '10px 24px', borderRadius: 8, border: '1px solid #cbd5e1', background: 'white', cursor: 'pointer', fontWeight: 600, color: '#475569', fontSize: 14 }}
+          <div className="grid gap-3">
+            <div>
+              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Phân loại lý do
+              </label>
+              <div className="relative" ref={reasonDropdownRef}>
+                <button
+                  type="button"
+                  className="flex h-11 w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-3 text-left text-sm text-slate-700 outline-none ring-sky-200 transition focus:ring-2"
+                  onClick={() => setReasonDropdownOpen((prev) => !prev)}
+                >
+                  <span>{selectedReasonLabel}</span>
+                  <i className={`fa-solid fa-chevron-${reasonDropdownOpen ? 'up' : 'down'} text-xs text-slate-400`} />
+                </button>
+                {reasonDropdownOpen && (
+                  <div className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
+                    {normalizedReasonOptions.map((r) => (
+                      <button
+                        key={r.code}
+                        type="button"
+                        onClick={() => {
+                          setReasonCode(r.code);
+                          setReasonDropdownOpen(false);
+                        }}
+                        className={`flex w-full items-center rounded-lg px-3 py-2 text-sm transition ${
+                          reasonCode === r.code
+                            ? 'bg-sky-50 text-sky-700'
+                            : 'text-slate-700 hover:bg-slate-50'
+                        }`}
+                      >
+                        {r.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div>
+              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Ghi chú chi tiết (tuỳ chọn)
+              </label>
+              <textarea
+                placeholder="Ví dụ: Lỗi ở khóa kéo, khách yêu cầu đổi size..."
+                value={reasonNote}
+                onChange={e => setReasonNote(e.target.value)}
+                rows={3}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none ring-sky-200 focus:ring-2"
+              />
+            </div>
+          </div>
+          <InlineNotice message={submitError} type="error" className="mt-3" />
+          <div className="mt-2 flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => { setInvoice(null); setInvoiceInput(''); setReturnQty({}); setReasonCode('customer_changed_mind'); setReasonNote(''); }}
             >
               Hủy
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               onClick={handleSubmit}
               disabled={submitting || selectedItems.length === 0}
-              style={{
-                padding: '10px 28px', borderRadius: 8, border: 'none',
-                background: submitting || selectedItems.length === 0 ? '#94a3b8' : 'linear-gradient(135deg,#ef4444,#dc2626)',
-                color: 'white', cursor: submitting || selectedItems.length === 0 ? 'not-allowed' : 'pointer',
-                fontWeight: 700, fontSize: 14, display: 'flex', alignItems: 'center', gap: 8
-              }}
+              className="gap-2 bg-rose-600 hover:bg-rose-700"
             >
               <i className="fa-solid fa-rotate-left" />
               {submitting ? 'Đang xử lý...' : 'Xác nhận trả hàng'}
-            </button>
+            </Button>
           </div>
         </CardContent>
         </Card>

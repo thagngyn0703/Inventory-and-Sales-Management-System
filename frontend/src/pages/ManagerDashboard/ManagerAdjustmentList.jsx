@@ -1,11 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Platform } from 'react-bits/lib/modules/Platform';
-import ManagerSidebar from './ManagerSidebar';
+import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
+import { StaffPageShell } from '../../components/staff/StaffPageShell';
+import { History } from 'lucide-react';
 import { getAdjustments } from '../../services/adjustmentsApi';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
 import { Badge } from '../../components/ui/badge';
+import { InlineNotice } from '../../components/ui/inline-notice';
 import './ManagerDashboard.css';
 
 const LIMIT = 5;
@@ -54,36 +57,17 @@ export default function ManagerAdjustmentList() {
   };
 
   return (
-    <div className="manager-page-with-sidebar">
-      <ManagerSidebar />
-      <div className="manager-main">
-        <header className="manager-topbar">
-          <div className="manager-topbar-actions" style={{ marginLeft: 'auto' }}>
-            <div className="manager-user-badge">
-              <i className="fa-solid fa-circle-user" />
-              <span>Quản lý</span>
-            </div>
-          </div>
-        </header>
-        <div className="manager-content bg-slate-50">
-          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h1 className="text-2xl font-bold text-slate-900">Lịch sử điều chỉnh tồn</h1>
-              <p className="text-sm text-slate-500">Theo dõi các phiếu duyệt/từ chối kiểm kê và trạng thái hoàn tác.</p>
-              <p className="text-xs text-slate-400">
-                {Platform.select({ web: 'Phân trang cố định 5 phiếu mỗi trang theo yêu cầu nghiệp vụ.', default: '5 phiếu mỗi trang.' })}
-              </p>
-            </div>
-            <Badge className="bg-indigo-100 text-indigo-700 border border-indigo-200">Tổng: {total} phiếu</Badge>
-          </div>
+    <ManagerPageFrame showNotificationBell={false}>
+      <StaffPageShell
+        eyebrow="Kho & kiểm kê"
+        eyebrowIcon={History}
+        title="Lịch sử điều chỉnh tồn"
+        subtitle={`Theo dõi phiếu duyệt/từ chối kiểm kê và hoàn tác. ${Platform.select({ web: '5 phiếu mỗi trang.', default: '5 phiếu mỗi trang.' })}`}
+        headerActions={<Badge className="border border-indigo-200 bg-indigo-100 text-indigo-800">Tổng: {total} phiếu</Badge>}
+      >
+          <InlineNotice message={error} type="error" className="mb-4" />
 
-          {error && (
-            <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-600">
-              {error}
-            </div>
-          )}
-
-          <Card>
+          <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
             <CardContent className="p-4">
               <div className="mb-4 flex items-center gap-2">
                 <span className="text-sm text-slate-600">Trạng thái:</span>
@@ -157,8 +141,7 @@ export default function ManagerAdjustmentList() {
               </Button>
             </div>
           </div>
-        </div>
-      </div>
-    </div>
+      </StaffPageShell>
+    </ManagerPageFrame>
   );
 }

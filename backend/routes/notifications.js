@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const Notification = require('../models/Notification');
 const Product = require('../models/Product');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const { buildManagerCounts, emitNotificationCountRefresh } = require('../socket');
 
 const router = express.Router();
 
@@ -82,6 +83,19 @@ router.get('/unread-count', requireAuth, requireRole(['manager', 'admin']), asyn
   }
 });
 
+router.get('/manager-badge-counts', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
+  try {
+    const storeId = req.user?.storeId ? String(req.user.storeId) : null;
+    if (!storeId) {
+      return res.status(403).json({ message: 'Tài khoản chưa được gán cửa hàng.', code: 'STORE_REQUIRED' });
+    }
+    const counts = await buildManagerCounts(storeId);
+    return res.json(counts);
+  } catch (err) {
+    return res.status(500).json({ message: 'Server error' });
+  }
+});
+
 router.get('/', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
   try {
     await syncExpiryNotifications(req);
@@ -111,6 +125,7 @@ router.patch('/:id/read', requireAuth, requireRole(['manager', 'admin']), async 
       { new: true }
     ).lean();
     if (!doc) return res.status(404).json({ message: 'Notification not found' });
+    await emitNotificationCountRefresh({ storeId, userId: req.user.id });
     return res.json({ notification: doc });
   } catch (err) {
     return res.status(500).json({ message: 'Server error' });
@@ -124,6 +139,7 @@ router.patch('/read-all', requireAuth, requireRole(['manager', 'admin']), async 
       { user_id: req.user.id, storeId, is_read: false },
       { $set: { is_read: true } }
     );
+    await emitNotificationCountRefresh({ storeId, userId: req.user.id });
     return res.json({ updated: result.modifiedCount || 0 });
   } catch (err) {
     return res.status(500).json({ message: 'Server error' });

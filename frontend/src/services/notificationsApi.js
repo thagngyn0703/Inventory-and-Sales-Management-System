@@ -1,4 +1,4 @@
-const API_BASE = 'http://localhost:8000/api';
+const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
 
 function getToken() {
   return localStorage.getItem('token') || '';
@@ -17,6 +17,14 @@ export async function getNotificationUnreadCount() {
   });
   const data = await parseJson(res, 'Không thể tải số thông báo chưa đọc');
   return Number(data.unreadCount || 0);
+}
+
+export async function getManagerBadgeCounts() {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/notifications/manager-badge-counts`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return parseJson(res, 'Không thể tải số lượng chờ duyệt');
 }
 
 export async function getNotifications() {

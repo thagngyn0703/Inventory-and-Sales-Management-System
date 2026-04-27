@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Platform } from 'react-bits/lib/modules/Platform';
-import { Plus, X, Barcode } from 'lucide-react';
-import ManagerSidebar from './ManagerSidebar';
-import ManagerNotificationBell from '../../components/ManagerNotificationBell';
-import { getProduct, updateProduct, uploadProductImages } from '../../services/productsApi';
+import { Plus, X, Barcode, Package } from 'lucide-react';
+import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
+import { StaffPageShell } from '../../components/staff/StaffPageShell';
+import { getProduct, updateProduct, updateProductUnits, uploadProductImages } from '../../services/productsApi';
 import { minExpiryDateString, isExpiryDateNotInPast } from '../../utils/dateInput';
 import {
     trimString,
@@ -16,12 +16,14 @@ import {
 import { getSuppliers } from '../../services/suppliersApi';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
+import { InlineNotice } from '../../components/ui/inline-notice';
+import { formatCurrencyInput, parseCurrencyInput, toCurrencyInputFromNumber } from '../../utils/currencyInput';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
 
 const PRODUCT_BASE_UNITS = ['Cái', 'Chai', 'Lon', 'Thùng', 'Hộp', 'Kg', 'Gói', 'Lít'];
 
-const defaultSellingUnit = () => ({ name: 'Cái', ratio: 1, sale_price: '' });
+const defaultSellingUnit = () => ({ name: 'Cái', ratio: 1, sale_price: '', barcode: '' });
 
 const defaultForm = {
     name: '',
@@ -51,6 +53,10 @@ export default function ManagerProductEdit() {
     const [scanMode, setScanMode] = useState(false);
     const scanBufferRef = useRef('');
     const scanTimerRef = useRef(null);
+    const initialSnapshotRef = useRef({
+        sku: '',
+        barcode: '',
+    });
 
     useEffect(() => {
         let cancelled = false;
@@ -70,9 +76,16 @@ export default function ManagerProductEdit() {
                     ? p.selling_units.map((u) => ({
                         name: u.name || '',
                         ratio: u.ratio != null ? u.ratio : 1,
-                        sale_price: u.sale_price != null ? String(u.sale_price) : '',
+                        sale_price: u.sale_price != null ? toCurrencyInputFromNumber(u.sale_price) : '',
+                        barcode: (() => {
+                            const matchedUnit = (p.units || []).find(
+                                (x) => String(x.unit_name || '').trim() === String(u.name || '').trim()
+                                    && Number(x.exchange_value || 1) === Number(u.ratio || 1)
+                            );
+                            return matchedUnit?.barcode || '';
+                        })(),
                     }))
-                    : [{ name: p.base_unit || 'Cái', ratio: 1, sale_price: p.sale_price != null ? String(p.sale_price) : '' }];
+                    : [{ name: p.base_unit || 'Cái', ratio: 1, sale_price: p.sale_price != null ? String(p.sale_price) : '', barcode: p.barcode || '' }];
                 const supplierId = p.supplier_id
                     ? (typeof p.supplier_id === 'object' ? p.supplier_id._id : p.supplier_id)
                     : '';
@@ -85,7 +98,7 @@ export default function ManagerProductEdit() {
                     sku: p.sku || '',
                     barcode: p.barcode || '',
                     supplier_id: supplierId || '',
-                    cost_price: p.cost_price != null ? String(p.cost_price) : '',
+                    cost_price: p.cost_price != null ? toCurrencyInputFromNumber(p.cost_price) : '',
                     stock_qty: p.stock_qty != null ? String(p.stock_qty) : '',
                     reorder_level: p.reorder_level != null ? String(p.reorder_level) : '',
                     expiry_date: expStr && expStr >= minD ? expStr : '',
@@ -94,6 +107,10 @@ export default function ManagerProductEdit() {
                     image_urls: Array.isArray(p.image_urls) ? p.image_urls.slice(0, 3) : [],
                     status: p.status === 'inactive' ? 'inactive' : 'active',
                 });
+                initialSnapshotRef.current = {
+                    sku: p.sku || '',
+                    barcode: p.barcode || '',
+                };
             })
             .catch((e) => setError(e.message || 'Không tải được sản phẩm'))
             .finally(() => setLoadProduct(false));
@@ -167,7 +184,7 @@ export default function ManagerProductEdit() {
     const addSellingUnit = () => {
         setForm((prev) => ({
             ...prev,
-            selling_units: [...prev.selling_units, { name: prev.base_unit || 'Cái', ratio: '', sale_price: '' }],
+            selling_units: [...prev.selling_units, { name: prev.base_unit || 'Cái', ratio: '', sale_price: '', barcode: '' }],
         }));
     };
 
@@ -221,10 +238,8 @@ export default function ManagerProductEdit() {
         if (!barcodeCheck.ok) return setError(barcodeCheck.message);
         const baseUnitCheck = validateNoSpecialText(form.base_unit, 'Đơn vị tồn kho', { required: true });
         if (!baseUnitCheck.ok) return setError(baseUnitCheck.message);
-        const costCheck = validateNonNegativeNumber(form.cost_price, 'Giá vốn');
+        const costCheck = validateNonNegativeNumber(parseCurrencyInput(form.cost_price), 'Giá vốn');
         if (!costCheck.ok) return setError(costCheck.message);
-        const stockCheck = validateNonNegativeNumber(form.stock_qty, 'Tồn kho');
-        if (!stockCheck.ok) return setError(stockCheck.message);
         const reorderCheck = validateNonNegativeNumber(form.reorder_level, 'Mức tồn tối thiểu');
         if (!reorderCheck.ok) return setError(reorderCheck.message);
         const units = [];
@@ -235,12 +250,13 @@ export default function ManagerProductEdit() {
             if (!ratioCheck.ok || ratioCheck.value <= 0) {
                 return setError('Tỉ lệ đơn vị bán phải lớn hơn 0.');
             }
-            const salePriceCheck = validateNonNegativeNumber(u.sale_price, 'Giá bán đơn vị', { required: true });
+            const salePriceCheck = validateNonNegativeNumber(parseCurrencyInput(u.sale_price), 'Giá bán đơn vị', { required: true });
             if (!salePriceCheck.ok) return setError(salePriceCheck.message);
             units.push({
                 name: nameUnitCheck.value,
                 ratio: ratioCheck.value,
                 sale_price: salePriceCheck.value,
+                barcode: trimString(u.barcode || ''),
             });
         }
         if (units.length === 0) {
@@ -248,7 +264,46 @@ export default function ManagerProductEdit() {
             return;
         }
         const hasBase = units.some((u) => u.ratio === 1);
-        if (!hasBase) units.unshift({ name: form.base_unit || 'Cái', ratio: 1, sale_price: units[0]?.sale_price ?? 0 });
+        if (!hasBase) {
+            units.unshift({
+                name: form.base_unit || 'Cái',
+                ratio: 1,
+                sale_price: units[0]?.sale_price ?? 0,
+                barcode: barcodeCheck.value || '',
+            });
+        }
+        const seenUnitNames = new Set();
+        const seenUnitBarcodes = new Set();
+        const unitPayload = [];
+        for (const u of units) {
+            const unitNameKey = String(u.name || '').trim().toLowerCase();
+            if (seenUnitNames.has(unitNameKey)) {
+                setError(`Đơn vị "${u.name}" bị trùng. Mỗi sản phẩm chỉ có một dòng cho mỗi đơn vị.`);
+                return;
+            }
+            seenUnitNames.add(unitNameKey);
+            const unitBarcode = validateBarcode(u.barcode || '');
+            if (!unitBarcode.ok) return setError(`${u.name}: ${unitBarcode.message}`);
+            const normalizedBarcode = unitBarcode.value || '';
+            if (normalizedBarcode) {
+                if (seenUnitBarcodes.has(normalizedBarcode)) {
+                    setError(`Barcode "${normalizedBarcode}" bị trùng giữa các đơn vị bán.`);
+                    return;
+                }
+                seenUnitBarcodes.add(normalizedBarcode);
+            }
+            unitPayload.push({
+                unit_name: u.name,
+                exchange_value: u.ratio,
+                price: u.sale_price,
+                barcode: normalizedBarcode || undefined,
+                is_base: Number(u.ratio) === 1,
+            });
+        }
+        if (barcodeCheck.value) {
+            const baseUnit = unitPayload.find((u) => u.is_base) || unitPayload[0];
+            if (baseUnit && !baseUnit.barcode) baseUnit.barcode = barcodeCheck.value;
+        }
 
         if (form.expiry_date && !isExpiryDateNotInPast(form.expiry_date)) {
             setError('Ngày hết hạn phải từ hôm nay trở đi (không chọn ngày quá khứ).');
@@ -269,20 +324,26 @@ export default function ManagerProductEdit() {
                 const uploaded = await uploadProductImages(selectedImages);
                 finalImageUrls = [...existingImages, ...uploaded].slice(0, 3);
             }
-            await updateProduct(id, {
+            const initial = initialSnapshotRef.current || {};
+            const nextSku = trimString(skuCheck.value || '');
+            const nextBarcode = trimString(barcodeCheck.value || '');
+            const initialSku = trimString(initial.sku || '');
+            const initialBarcode = trimString(initial.barcode || '');
+            const payload = {
                 name: nameCheck.value,
-                sku: skuCheck.value,
-                barcode: barcodeCheck.value || undefined,
+                ...(nextSku !== initialSku ? { sku: skuCheck.value } : {}),
+                ...(nextBarcode !== initialBarcode ? { barcode: barcodeCheck.value || undefined } : {}),
                 supplier_id: trimString(form.supplier_id) || undefined,
                 cost_price: costCheck.value,
-                stock_qty: stockCheck.value,
                 reorder_level: reorderCheck.value,
                 expiry_date: form.expiry_date ? form.expiry_date : null,
                 base_unit: baseUnitCheck.value,
                 selling_units: units,
                 image_urls: finalImageUrls,
                 status: form.status === 'inactive' ? 'inactive' : 'active',
-            });
+            };
+            await updateProduct(id, payload);
+            await updateProductUnits(id, unitPayload);
             navigate('/manager/products', { state: { success: 'Cập nhật sản phẩm thành công.' } });
         } catch (err) {
             setError(err.message || 'Không thể cập nhật sản phẩm.');
@@ -293,45 +354,32 @@ export default function ManagerProductEdit() {
 
     if (loadProduct) {
         return (
-            <div className="manager-page-with-sidebar">
-                <ManagerSidebar />
-                <div className="manager-main">
-                    <div className="manager-content">
-                        <p className="manager-products-loading">Đang tải...</p>
-                    </div>
-                </div>
-            </div>
+            <ManagerPageFrame showNotificationBell>
+                <p className="manager-products-loading">Đang tải...</p>
+            </ManagerPageFrame>
         );
     }
 
     return (
-        <div className="manager-page-with-sidebar">
-            <ManagerSidebar />
-            <div className="manager-main">
-                <header className="manager-topbar">
-                    <div className="manager-topbar-search-wrap" />
-                    <div className="manager-topbar-actions">
-                        <ManagerNotificationBell />
-                        <div className="manager-user-badge">
-                            <i className="fa-solid fa-circle-user" />
-                            <span>Quản lý</span>
-                        </div>
+        <ManagerPageFrame showNotificationBell>
+            <StaffPageShell
+                eyebrow="Sản phẩm"
+                eyebrowIcon={Package}
+                title="Sửa sản phẩm"
+                subtitle="Cập nhật thông tin và hình ảnh sản phẩm."
+                headerActions={
+                    <div className="flex flex-wrap gap-2">
+                        <Button type="button" variant="outline" onClick={() => navigate(`/manager/products/${id}`)}>
+                            Xem chi tiết
+                        </Button>
+                        <Button type="button" variant="outline" onClick={() => navigate('/manager/products')}>
+                            Danh sách
+                        </Button>
                     </div>
-                </header>
-
-                <div className="manager-content manager-product-create-fullwidth bg-slate-50">
-                    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                            <h1 className="text-2xl font-bold text-slate-900">Sửa sản phẩm</h1>
-                            <p className="text-sm text-slate-500">Cập nhật thông tin và hình ảnh sản phẩm theo bố cục đồng nhất.</p>
-                        </div>
-                        <div className="flex gap-2">
-                            <Button type="button" variant="outline" onClick={() => navigate(`/manager/products/${id}`)}>Xem chi tiết</Button>
-                            <Button type="button" variant="outline" onClick={() => navigate('/manager/products')}>Danh sách</Button>
-                        </div>
-                    </div>
-
-                    {error && <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-600">{error}</div>}
+                }
+            >
+                <div className="manager-product-create-fullwidth">
+                    <InlineNotice message={error} type="error" className="mb-4" />
 
                     <form onSubmit={handleSubmit} className="space-y-4">
                         <div className="grid gap-4 xl:grid-cols-12">
@@ -381,19 +429,20 @@ export default function ManagerProductEdit() {
                                 </CardContent>
                             </Card>
 
-                            <Card className="xl:col-span-4">
-                                <CardContent className="space-y-4">
+                            <Card className="min-w-0 xl:col-span-4">
+                                <CardContent className="min-w-0 space-y-4">
                                     <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Đơn vị bán & giá</h3>
                                     <Button type="button" variant="outline" onClick={addSellingUnit}>
                                         <Plus className="mr-1 h-4 w-4" /> Thêm đơn vị bán
                                     </Button>
-                                    <div className="space-y-2">
+                                    <div className="min-w-0 space-y-2">
                                         {form.selling_units.map((u, i) => (
-                                            <div key={i} className="grid grid-cols-[1fr_90px_1fr_36px] gap-2">
-                                                <input type="text" value={u.name} onChange={(e) => updateSellingUnit(i, 'name', e.target.value)} placeholder="Đơn vị" className="h-10 rounded-lg border border-slate-200 px-2 text-sm outline-none ring-sky-200 transition focus:ring-2" />
-                                                <input type="number" min="1" step="any" value={u.ratio} onChange={(e) => updateSellingUnit(i, 'ratio', e.target.value)} placeholder="Tỉ lệ" className="h-10 rounded-lg border border-slate-200 px-2 text-sm outline-none ring-sky-200 transition focus:ring-2" />
-                                                <input type="number" min="0" step="any" value={u.sale_price} onChange={(e) => updateSellingUnit(i, 'sale_price', e.target.value)} placeholder="Giá bán" className="h-10 rounded-lg border border-slate-200 px-2 text-sm outline-none ring-sky-200 transition focus:ring-2" />
-                                                <button type="button" onClick={() => removeSellingUnit(i)} disabled={form.selling_units.length <= 1} className="inline-flex h-10 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40">
+                                            <div key={i} className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_5.625rem_minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-2">
+                                                <input type="text" value={u.name} onChange={(e) => updateSellingUnit(i, 'name', e.target.value)} placeholder="Đơn vị" className="h-10 w-full min-w-0 rounded-lg border border-slate-200 px-2 text-sm outline-none ring-sky-200 transition focus:ring-2" />
+                                                <input type="number" min="1" step="any" value={u.ratio} onChange={(e) => updateSellingUnit(i, 'ratio', e.target.value)} placeholder="Tỉ lệ" className="h-10 w-full min-w-0 rounded-lg border border-slate-200 px-2 text-sm outline-none ring-sky-200 transition focus:ring-2" />
+                                                <input type="text" inputMode="numeric" value={u.sale_price} onChange={(e) => updateSellingUnit(i, 'sale_price', formatCurrencyInput(e.target.value))} placeholder="Giá bán" className="h-10 w-full min-w-0 rounded-lg border border-slate-200 px-2 text-sm outline-none ring-sky-200 transition focus:ring-2" />
+                                                <input type="text" value={u.barcode || ''} onChange={(e) => updateSellingUnit(i, 'barcode', e.target.value)} placeholder="Barcode đơn vị" className="h-10 w-full min-w-0 rounded-lg border border-slate-200 px-2 text-sm outline-none ring-sky-200 transition focus:ring-2" />
+                                                <button type="button" onClick={() => removeSellingUnit(i)} disabled={form.selling_units.length <= 1} className="inline-flex h-10 w-9 shrink-0 items-center justify-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40">
                                                     <X className="h-4 w-4" />
                                                 </button>
                                             </div>
@@ -404,7 +453,7 @@ export default function ManagerProductEdit() {
 
                             <Card className="xl:col-span-8">
                                 <CardContent className="space-y-4">
-                                    <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Giá sản phẩm & tồn kho</h3>
+                                    <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Giá sản phẩm</h3>
                                     <div className="grid gap-3 md:grid-cols-2">
                                         <div>
                                             <label className="mb-1 block text-sm font-medium text-slate-600">Đơn vị tồn kho (gốc)</label>
@@ -414,11 +463,7 @@ export default function ManagerProductEdit() {
                                         </div>
                                         <div>
                                             <label className="mb-1 block text-sm font-medium text-slate-600">Giá vốn (₫) / 1 đơn vị gốc</label>
-                                            <input type="number" min="0" step="any" value={form.cost_price} onChange={(e) => setForm((prev) => ({ ...prev, cost_price: e.target.value }))} placeholder="0" className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2" />
-                                        </div>
-                                        <div>
-                                            <label className="mb-1 block text-sm font-medium text-slate-600">Tồn kho hiện tại</label>
-                                            <input type="number" min="0" value={form.stock_qty} onChange={(e) => update('stock_qty', e.target.value)} placeholder="0" className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2" />
+                                            <input type="text" inputMode="numeric" value={form.cost_price} onChange={(e) => setForm((prev) => ({ ...prev, cost_price: formatCurrencyInput(e.target.value) }))} placeholder="0" className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2" />
                                         </div>
                                         <div>
                                             <label className="mb-1 block text-sm font-medium text-slate-600">Mức tồn tối thiểu</label>
@@ -487,7 +532,7 @@ export default function ManagerProductEdit() {
                         </div>
                     </form>
                 </div>
-            </div>
-        </div>
+            </StaffPageShell>
+        </ManagerPageFrame>
     );
 }

@@ -17,7 +17,7 @@ import { Badge } from './ui/badge';
 import { ShinyText } from './ai/ShinyText';
 import { cn } from '../lib/utils';
 
-const API_BASE = 'http://localhost:8000/api';
+const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
 
 function getToken() {
   return localStorage.getItem('token') || '';
@@ -45,10 +45,10 @@ const TYPE_CONFIG = {
   },
   warning: {
     icon: AlertTriangle,
-    bg: 'bg-amber-50/90',
-    border: 'border-amber-200/80',
-    iconColor: 'text-amber-600',
-    badgeClass: 'bg-amber-100 text-amber-900 border-amber-200/60',
+    bg: 'bg-amber-50/95',
+    border: 'border-amber-300/90',
+    iconColor: 'text-amber-700',
+    badgeClass: 'bg-amber-200 text-amber-950 border-amber-300/80',
     label: 'Lưu ý',
   },
   opportunity: {
@@ -94,6 +94,9 @@ function InsightSkeleton() {
 function RecommendationItem({ rec }) {
   const cfg = getConfig(rec.type);
   const Icon = cfg.icon;
+  const metricTokens = String(rec?.content || '')
+    .match(/(\d+%|~?\d+\s*ngay|SKU\s*[A-Za-z0-9-_]+|~?\d[\d.,]*\s*(?:d|đ))/gi)
+    ?.slice(0, 3) || [];
 
   return (
     <div
@@ -108,7 +111,26 @@ function RecommendationItem({ rec }) {
       </div>
       <div className="flex-1 min-w-0 pt-0.5">
         <Badge className={cn('mb-1.5 border font-semibold', cfg.badgeClass)}>{cfg.label}</Badge>
-        <p className="text-sm text-slate-700 leading-relaxed">{rec.content}</p>
+        <p className={cn('whitespace-pre-line text-sm leading-relaxed', rec.type === 'warning' ? 'text-amber-950' : 'text-slate-700')}>
+          {rec.content}
+        </p>
+        {metricTokens.length > 0 ? (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {metricTokens.map((token, idx) => (
+              <Badge
+                key={`${token}-${idx}`}
+                className="border border-slate-300/70 bg-white/90 px-2 py-0.5 text-[10px] font-semibold text-slate-700"
+              >
+                {token}
+              </Badge>
+            ))}
+          </div>
+        ) : null}
+        {rec?.source_note ? (
+          <p className="mt-2 text-[11px] font-medium text-slate-500">
+            {rec.source_note}
+          </p>
+        ) : null}
       </div>
     </div>
   );
@@ -117,8 +139,6 @@ function RecommendationItem({ rec }) {
 export default function AIInsightCard({ className = '' }) {
   const [state, setState] = useState('idle');
   const [data, setData] = useState(null);
-  const [cached, setCached] = useState(false);
-  const [generatedAt, setGeneratedAt] = useState('');
   const [error, setError] = useState('');
 
   const load = useCallback(async (forceRefresh = false) => {
@@ -127,8 +147,6 @@ export default function AIInsightCard({ className = '' }) {
     try {
       const res = await fetchInsights(forceRefresh);
       setData(res.data);
-      setCached(res.cached || false);
-      setGeneratedAt(res.generatedAt || '');
       setState('success');
     } catch (e) {
       setError(e.message || 'Không thể tải gợi ý AI');
@@ -139,6 +157,10 @@ export default function AIInsightCard({ className = '' }) {
   useEffect(() => {
     load(false);
   }, [load]);
+
+  const analysisViews = data?.analysis_views || [];
+  const overviewView = analysisViews.find((view) => view.id === 'overview') || analysisViews[0];
+  const displayedRecommendations = overviewView?.recommendations || data?.recommendations || [];
 
   return (
     <div className={cn('relative h-full min-h-[320px]', className)}>
@@ -198,7 +220,7 @@ export default function AIInsightCard({ className = '' }) {
           )}
 
           {state === 'success' && data && (
-            <div className="flex flex-1 flex-col space-y-3">
+            <div className="flex min-h-0 flex-1 flex-col space-y-3 overflow-y-auto pr-1" style={{ scrollbarGutter: 'stable' }}>
               {data.seasonal_trend && (
                 <div className="rounded-xl border border-teal-200/60 bg-gradient-to-r from-teal-50/90 via-emerald-50/50 to-transparent px-4 py-3 ring-1 ring-teal-500/10">
                   <p className="text-xs font-semibold uppercase tracking-wide text-teal-700/80 mb-1">
@@ -208,19 +230,21 @@ export default function AIInsightCard({ className = '' }) {
                 </div>
               )}
 
+              {!!analysisViews.length && (
+                <div className="rounded-xl border border-slate-200/80 bg-slate-50/70 px-3 py-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    {overviewView?.title}
+                  </p>
+                  <p className="mt-0.5 text-xs text-slate-600">
+                    {overviewView?.description}
+                  </p>
+                </div>
+              )}
+
               <div className="space-y-2.5">
-                {(data.recommendations || []).map((rec, idx) => (
+                {displayedRecommendations.map((rec, idx) => (
                   <RecommendationItem key={idx} rec={rec} />
                 ))}
-              </div>
-
-              <div className="mt-auto flex flex-wrap items-center justify-between gap-2 border-t border-violet-100 pt-3">
-                <span className="text-xs text-slate-400">
-                  {cached ? `Cache · ${generatedAt}` : `Mới phân tích · ${generatedAt}`}
-                </span>
-                <Badge className="border-0 bg-violet-100 text-violet-800 ring-1 ring-violet-200/60">
-                  Gemini → OpenAI
-                </Badge>
               </div>
             </div>
           )}

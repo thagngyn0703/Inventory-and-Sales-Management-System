@@ -10,7 +10,7 @@ const goodsReceiptSchema = new Schema(
         supplier_id: {
             type: Schema.Types.ObjectId,
             ref: 'Supplier',
-            required: true,
+            required: false,
         },
         storeId: {
             type: Schema.Types.ObjectId,
@@ -43,6 +43,19 @@ const goodsReceiptSchema = new Schema(
                     ref: 'Product',
                     required: true,
                 },
+                product_name_snapshot: {
+                    type: String,
+                    trim: true,
+                },
+                product_sku_snapshot: {
+                    type: String,
+                    trim: true,
+                },
+                unit_id: {
+                    type: Schema.Types.ObjectId,
+                    ref: 'ProductUnit',
+                    required: false,
+                },
                 quantity: {
                     type: Number,
                     required: true,
@@ -52,6 +65,11 @@ const goodsReceiptSchema = new Schema(
                     type: Number,
                     required: true,
                 },
+                // Giá gốc (theo đơn vị dòng) mà hệ thống có tại thời điểm staff tạo phiếu — chỉ để đối chiếu
+                system_unit_cost: {
+                    type: Number,
+                    default: 0,
+                },
                 unit_name: {
                     type: String,
                     trim: true,
@@ -59,6 +77,15 @@ const goodsReceiptSchema = new Schema(
                 ratio: {
                     type: Number,
                     default: 1,
+                },
+                exchange_value: {
+                    type: Number,
+                    default: 1,
+                },
+                // Ghi chú chênh lệch giá do staff ghi nhận (nếu có)
+                price_gap_note: {
+                    type: String,
+                    trim: true,
                 },
                 expiry_date: {
                     type: Date,
@@ -72,6 +99,28 @@ const goodsReceiptSchema = new Schema(
         reason: {
             type: String,
             trim: true,
+        },
+        rejection_reason: {
+            type: String,
+            trim: true,
+        },
+        // Thông tin thanh toán NCC — ghi nhận khi duyệt
+        payment_type: {
+            type: String,
+            enum: ['cash', 'credit', 'partial'],
+        },
+        amount_paid_at_approval: {
+            type: Number,
+            default: 0,
+            min: 0,
+        },
+        debt_amount: {
+            type: Number,
+            default: 0,
+            min: 0,
+        },
+        due_date_payable: {
+            type: Date,
         },
         updated_at: {
             type: Date,

@@ -7,6 +7,7 @@ import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
 import { Badge } from '../../components/ui/badge';
+import { InlineNotice } from '../../components/ui/inline-notice';
 import { ClipboardCheck } from 'lucide-react';
 
 const PRODUCT_LIMIT = 10;
@@ -97,11 +98,7 @@ export default function WarehouseStocktakingCreate() {
         </Badge>
       }
     >
-      {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800" role="alert">
-          {error}
-        </div>
-      )}
+      <InlineNotice message={error} type="error" />
 
       <Card className="border-slate-200/80 shadow-sm shadow-slate-900/5">
         <CardContent className="p-4 sm:p-6">

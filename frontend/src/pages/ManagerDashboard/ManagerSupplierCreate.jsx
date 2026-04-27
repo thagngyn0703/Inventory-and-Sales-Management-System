@@ -1,8 +1,11 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import ManagerSidebar from './ManagerSidebar';
-import ManagerNotificationBell from '../../components/ManagerNotificationBell';
-import { createSupplier } from '../../services/suppliersApi';
+import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
+import { StaffPageShell } from '../../components/staff/StaffPageShell';
+import { ArrowLeft, Loader2, Plus } from 'lucide-react';
+import { createSupplier, uploadSupplierQrImage } from '../../services/suppliersApi';
+import { Button } from '../../components/ui/button';
+import { Card, CardContent } from '../../components/ui/card';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
 
@@ -16,6 +19,7 @@ const defaultForm = {
     note: '',
     status: 'active',
     payable_account: '',
+    bank_qr_image_url: '',
 };
 
 export default function ManagerSupplierCreate() {
@@ -23,6 +27,8 @@ export default function ManagerSupplierCreate() {
     const [form, setForm] = useState(defaultForm);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const [selectedQrFile, setSelectedQrFile] = useState(null);
+    const [qrPreviewUrl, setQrPreviewUrl] = useState('');
 
     const update = (field, value) => {
         setForm((prev) => ({ ...prev, [field]: value }));
@@ -38,6 +44,10 @@ export default function ManagerSupplierCreate() {
         setLoading(true);
         setError('');
         try {
+            let qrUrl = form.bank_qr_image_url ? String(form.bank_qr_image_url).trim() : '';
+            if (selectedQrFile) {
+                qrUrl = await uploadSupplierQrImage(selectedQrFile);
+            }
             await createSupplier({
                 code: form.code ? String(form.code).trim() : undefined,
                 name: form.name.trim(),
@@ -48,6 +58,7 @@ export default function ManagerSupplierCreate() {
                 note: form.note ? String(form.note).trim() : undefined,
                 status: form.status === 'inactive' ? 'inactive' : 'active',
                 payable_account: Number(form.payable_account) || 0,
+                bank_qr_image_url: qrUrl || undefined,
             });
             navigate('/manager/suppliers', { state: { success: 'Thêm nhà cung cấp thành công.' } });
         } catch (err) {
@@ -58,116 +69,106 @@ export default function ManagerSupplierCreate() {
     };
 
     return (
-        <div className="manager-page-with-sidebar">
-            <ManagerSidebar />
-            <div className="manager-main">
-                <header className="manager-topbar">
-                    <div className="manager-topbar-search-wrap" />
-                    <div className="manager-topbar-actions">
-                        <ManagerNotificationBell />
-                        <div className="manager-user-badge">
-                            <i className="fa-solid fa-circle-user" />
-                            <span>Quản lý</span>
-                        </div>
-                    </div>
-                </header>
-
-                <div className="manager-content">
-                    <div className="manager-products-header">
-                        <div>
-                            <h1 className="manager-page-title">Thêm nhà cung cấp</h1>
-                            <p className="manager-page-subtitle">Tạo nhà cung cấp mới trong hệ thống.</p>
-                        </div>
-                        <button
-                            type="button"
-                            className="manager-btn-secondary"
-                            onClick={() => navigate('/manager/suppliers')}
-                        >
-                            <i className="fa-solid fa-arrow-left" /> Quay lại
-                        </button>
-                    </div>
-
+        <ManagerPageFrame showNotificationBell>
+            <StaffPageShell
+                eyebrow="Nhà cung cấp"
+                eyebrowIcon={Plus}
+                title="Thêm nhà cung cấp"
+                subtitle="Tạo nhà cung cấp mới trong hệ thống."
+                headerActions={
+                    <Button type="button" variant="outline" className="gap-2" onClick={() => navigate('/manager/suppliers')}>
+                        <ArrowLeft className="h-4 w-4" />
+                        Quay lại
+                    </Button>
+                }
+            >
                     {error && (
-                        <div className="manager-products-error">{error}</div>
+                        <div className="manager-products-error mb-4">{error}</div>
                     )}
 
-                    <div className="manager-panel-card manager-product-form-card">
-                        <form onSubmit={handleSubmit} className="manager-product-form">
-                            <div className="manager-form-row manager-form-row--2">
-                                <div className="manager-form-group">
-                                    <label>Mã nhà cung cấp</label>
+                    <Card className="border-slate-200/80 shadow-sm">
+                        <CardContent className="p-5 sm:p-6">
+                        <form onSubmit={handleSubmit} className="space-y-4">
+                            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                                <div>
+                                    <label className="mb-1 block text-sm font-medium text-slate-700">Mã nhà cung cấp</label>
                                     <input
                                         type="text"
                                         value={form.code}
                                         onChange={(e) => update('code', e.target.value)}
                                         placeholder="VD: NCC001"
+                                        className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-teal-200/80 focus:ring-2"
                                     />
                                 </div>
-                                <div className="manager-form-group">
-                                    <label>Tên nhà cung cấp <span className="required">*</span></label>
+                                <div>
+                                    <label className="mb-1 block text-sm font-medium text-slate-700">Tên nhà cung cấp <span className="text-red-500">*</span></label>
                                     <input
                                         type="text"
                                         value={form.name}
                                         onChange={(e) => update('name', e.target.value)}
                                         placeholder="Nhập tên nhà cung cấp"
+                                        className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-teal-200/80 focus:ring-2"
                                     />
                                 </div>
                             </div>
-                            <div className="manager-form-row manager-form-row--2">
-                                <div className="manager-form-group">
-                                    <label>Điện thoại</label>
+                            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                                <div>
+                                    <label className="mb-1 block text-sm font-medium text-slate-700">Điện thoại</label>
                                     <input
                                         type="text"
                                         value={form.phone}
                                         onChange={(e) => update('phone', e.target.value)}
                                         placeholder="Số điện thoại"
+                                        className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-teal-200/80 focus:ring-2"
                                     />
                                 </div>
-                                <div className="manager-form-group">
-                                    <label>Email</label>
+                                <div>
+                                    <label className="mb-1 block text-sm font-medium text-slate-700">Email</label>
                                     <input
                                         type="email"
                                         value={form.email}
                                         onChange={(e) => update('email', e.target.value)}
                                         placeholder="email@example.com"
+                                        className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-teal-200/80 focus:ring-2"
                                     />
                                 </div>
                             </div>
-                            <div className="manager-form-row manager-form-row--2">
-                                <div className="manager-form-group">
-                                    <label>Mã số thuế</label>
+                            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                                <div>
+                                    <label className="mb-1 block text-sm font-medium text-slate-700">Mã số thuế</label>
                                     <input
                                         type="text"
                                         value={form.tax_code}
                                         onChange={(e) => update('tax_code', e.target.value)}
                                         placeholder="Mã số thuế"
+                                        className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-teal-200/80 focus:ring-2"
                                     />
                                 </div>
-                                <div className="manager-form-group">
-                                    <label>Trạng thái</label>
+                                <div>
+                                    <label className="mb-1 block text-sm font-medium text-slate-700">Trạng thái</label>
                                     <select
                                         value={form.status}
                                         onChange={(e) => update('status', e.target.value)}
+                                        className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-teal-200/80 focus:ring-2"
                                     >
                                         <option value="active">Hoạt động</option>
                                         <option value="inactive">Ngừng</option>
                                     </select>
                                 </div>
                             </div>
-                            <div className="manager-form-row manager-form-row--2">
-                                <div className="manager-form-group manager-form-group--full">
-                                    <label>Địa chỉ</label>
+                            <div>
+                                <label className="mb-1 block text-sm font-medium text-slate-700">Địa chỉ</label>
                                     <input
                                         type="text"
                                         value={form.address}
                                         onChange={(e) => update('address', e.target.value)}
                                         placeholder="Địa chỉ nhà cung cấp"
+                                        className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-teal-200/80 focus:ring-2"
                                     />
-                                </div>
                             </div>
-                            <div className="manager-form-row manager-form-row--2">
-                                <div className="manager-form-group">
-                                    <label>Công nợ (₫)</label>
+                            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                                <div>
+                                    <label className="mb-1 block text-sm font-medium text-slate-700">Công nợ (đ)</label>
                                     <input
                                         type="number"
                                         min="0"
@@ -175,38 +176,52 @@ export default function ManagerSupplierCreate() {
                                         value={form.payable_account}
                                         onChange={(e) => update('payable_account', e.target.value)}
                                         placeholder="0"
+                                        className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-teal-200/80 focus:ring-2"
                                     />
                                 </div>
-                                <div className="manager-form-group">
-                                    <label>Ghi chú</label>
+                                <div>
+                                    <label className="mb-1 block text-sm font-medium text-slate-700">Ảnh QR chuyển khoản</label>
+                                    <input className="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-slate-700 hover:file:bg-slate-200" type="file" accept="image/*" onChange={(e) => {
+                                        const f = e.target.files?.[0] || null;
+                                        setSelectedQrFile(f);
+                                        setQrPreviewUrl(f ? URL.createObjectURL(f) : '');
+                                    }} />
+                                    {qrPreviewUrl && (
+                                        <img src={qrPreviewUrl} alt="QR preview" className="mt-2 h-[140px] w-[140px] rounded-lg border border-slate-200 object-contain" />
+                                    )}
+                                    <p className="mt-1 text-xs text-slate-500">Chọn ảnh QR từ máy. Hệ thống sẽ tự upload.</p>
+                                </div>
+                            </div>
+                            <div>
+                                <label className="mb-1 block text-sm font-medium text-slate-700">Ghi chú</label>
                                     <input
                                         type="text"
                                         value={form.note}
                                         onChange={(e) => update('note', e.target.value)}
                                         placeholder="Ghi chú (tùy chọn)"
+                                        className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-teal-200/80 focus:ring-2"
                                     />
-                                </div>
                             </div>
-                            <div className="manager-form-actions">
-                                <button
+                            <div className="flex items-center justify-end gap-2 border-t border-slate-100 pt-4">
+                                <Button
                                     type="button"
-                                    className="manager-btn-secondary"
+                                    variant="outline"
                                     onClick={() => navigate('/manager/suppliers')}
                                 >
                                     Hủy
-                                </button>
-                                <button
+                                </Button>
+                                <Button
                                     type="submit"
-                                    className="manager-btn-primary"
                                     disabled={loading}
                                 >
+                                    {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                                     {loading ? 'Đang lưu...' : 'Tạo nhà cung cấp'}
-                                </button>
+                                </Button>
                             </div>
                         </form>
-                    </div>
-                </div>
-            </div>
-        </div>
+                    </CardContent>
+                    </Card>
+            </StaffPageShell>
+        </ManagerPageFrame>
     );
 }

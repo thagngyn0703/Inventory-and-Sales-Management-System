@@ -28,6 +28,10 @@ export function hasAnyRole(user, allowedRoles) {
   const role = normalizeRole(user?.role);
   const allowedNorm = (allowedRoles || []).map((x) => normalizeRole(x));
   if (allowedNorm.includes(role)) return true;
+  // Hierarchy: manager inherits staff permissions.
+  if (role === "manager" && allowedNorm.includes("staff")) return true;
+  // Admin keeps full access to manager/staff screens.
+  if (role === "admin" && (allowedNorm.includes("manager") || allowedNorm.includes("staff"))) return true;
   if (role === "staff") {
     return allowedNorm.some((a) => a === "warehouse" || a === "sales");
   }
@@ -35,6 +39,14 @@ export function hasAnyRole(user, allowedRoles) {
 }
 
 export function logout() {
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith("manager_ai_chat_")) localStorage.removeItem(k);
+    }
+  } catch {
+    /* ignore */
+  }
   localStorage.removeItem("token");
   localStorage.removeItem("user");
 }

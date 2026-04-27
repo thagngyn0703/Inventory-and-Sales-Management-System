@@ -1,43 +1,27 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { Platform } from 'react-bits/lib/modules/Platform';
-import ManagerSidebar from './ManagerSidebar';
-import ManagerNotificationBell from '../../components/ManagerNotificationBell';
+import Chart from 'react-apexcharts';
+import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
+import { StaffPageShell } from '../../components/staff/StaffPageShell';
+import { LayoutDashboard } from 'lucide-react';
 import {
   getIncomingFrequencyBySupplier,
   getAnalyticsSummary,
   getInventorySnapshot,
   getRevenueChart,
   getTopProducts,
+  getReturnReasonsAnalytics,
+  getLoyaltyAnalytics,
+  downloadLoyaltyAnalyticsCsv,
 } from '../../services/analyticsApi';
+import { getSupplierPayableSummary } from '../../services/supplierPayablesApi';
 import RevenueProfitChart from './RevenueProfitChart';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
 import { Button } from '../../components/ui/button';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
-
-function useCurrentUser() {
-  const [user, setUser] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('user') || 'null'); }
-    catch { return null; }
-  });
-  useEffect(() => {
-    const token = localStorage.getItem('token') || '';
-    if (!token) return;
-    fetch('http://localhost:8000/api/auth/me', {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then(res => res.json().catch(() => ({})))
-      .then(data => {
-        if (!data?.user) return;
-        setUser(data.user);
-        localStorage.setItem('user', JSON.stringify(data.user));
-      })
-      .catch(() => {});
-  }, []);
-  return user;
-}
 
 function fmt(n) {
   if (n == null) return '—';
@@ -127,6 +111,12 @@ function toDateStr(d) {
   return `${y}-${m}-${day}`;
 }
 
+function shiftDateStr(baseDate, deltaDays) {
+  const d = new Date(baseDate);
+  d.setDate(d.getDate() + deltaDays);
+  return toDateStr(d);
+}
+
 const PERIOD_OPTIONS = [
   { value: '7d', label: '7 ngày' },
   { value: '30d', label: '30 ngày' },
@@ -140,10 +130,6 @@ const MONTH_NAMES = ['Tháng 1','Tháng 2','Tháng 3','Tháng 4','Tháng 5','Th�
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 export default function ManagerDashboard() {
-  const currentUser = useCurrentUser();
-  const storeName = currentUser?.storeName || '';
-  const displayName = currentUser?.fullName || currentUser?.email || 'Quản lý';
-
   const now = new Date();
   const todayStr = toDateStr(now);
   const firstOfMonth = toDateStr(new Date(now.getFullYear(), now.getMonth(), 1));
@@ -173,6 +159,27 @@ export default function ManagerDashboard() {
   const [incomingFreq, setIncomingFreq] = useState({ data: [] });
   const [incomingLoading, setIncomingLoading] = useState(false);
   const [incomingError, setIncomingError] = useState('');
+  const [returnReasons, setReturnReasons] = useState(null);
+  const [returnReasonsLoading, setReturnReasonsLoading] = useState(true);
+  const [loyaltyAnalytics, setLoyaltyAnalytics] = useState(null);
+  const [loyaltyLoading, setLoyaltyLoading] = useState(true);
+  const [exportingLoyalty, setExportingLoyalty] = useState(false);
+
+  // Supplier payable summary
+  const [payableSummary, setPayableSummary] = useState(null);
+  const [payableLoading, setPayableLoading] = useState(true);
+
+  const fetchPayableSummary = useCallback(async () => {
+    setPayableLoading(true);
+    try {
+      const d = await getSupplierPayableSummary();
+      setPayableSummary(d);
+    } catch {
+      setPayableSummary(null);
+    } finally {
+      setPayableLoading(false);
+    }
+  }, []);
 
   // ── Fetchers ──
   const fetchSummary = useCallback(async () => {
@@ -250,12 +257,39 @@ export default function ManagerDashboard() {
     }
   }, [incomingYear, incomingMonth]);
 
+  const fetchReturnReasons = useCallback(async () => {
+    setReturnReasonsLoading(true);
+    try {
+      const data = await getReturnReasonsAnalytics({ from: summaryFrom, to: summaryTo });
+      setReturnReasons(data);
+    } catch {
+      setReturnReasons(null);
+    } finally {
+      setReturnReasonsLoading(false);
+    }
+  }, [summaryFrom, summaryTo]);
+
+  const fetchLoyaltyAnalytics = useCallback(async () => {
+    setLoyaltyLoading(true);
+    try {
+      const data = await getLoyaltyAnalytics({ from: summaryFrom, to: summaryTo });
+      setLoyaltyAnalytics(data);
+    } catch {
+      setLoyaltyAnalytics(null);
+    } finally {
+      setLoyaltyLoading(false);
+    }
+  }, [summaryFrom, summaryTo]);
+
   useEffect(() => { fetchSummary(); }, [fetchSummary]);
   useEffect(() => { fetchInventory(); }, [fetchInventory]);
+  useEffect(() => { fetchPayableSummary(); }, [fetchPayableSummary]);
   useEffect(() => { fetchChart(); }, [fetchChart]);
   useEffect(() => { fetchTopProducts(); }, [fetchTopProducts]);
   useEffect(() => { fetchTopProfitProducts(); }, [fetchTopProfitProducts]);
   useEffect(() => { fetchIncomingFrequency(); }, [fetchIncomingFrequency]);
+  useEffect(() => { fetchReturnReasons(); }, [fetchReturnReasons]);
+  useEffect(() => { fetchLoyaltyAnalytics(); }, [fetchLoyaltyAnalytics]);
 
   // ── Derived ──
   const today = summary?.today;
@@ -263,60 +297,123 @@ export default function ManagerDashboard() {
   const orderDelta = today?.order_change_delta;
   const profitChangePct = today?.profit_change_pct;
   const maxIncoming = Math.max(1, ...(incomingFreq.data || []).map(d => d.total_count));
+  const maxReturnReasonAmount = Math.max(1, ...((returnReasons?.data || []).map((d) => d.amount || 0)));
+  const returnReasonColors = {
+    defective: '#ef4444',
+    customer_changed_mind: '#f59e0b',
+    expired: '#8b5cf6',
+    wrong_item: '#3b82f6',
+    other: '#94a3b8',
+  };
+  const pieSeries = (returnReasons?.data || []).map((d) => Number(d.amount || 0));
+  const pieLabels = (returnReasons?.data || []).map((d) => d.reason_label);
+  const pieColors = (returnReasons?.data || []).map((d) => returnReasonColors[d.reason_code] || returnReasonColors.other);
+
+  const pieOptions = {
+    chart: { type: 'pie', toolbar: { show: false }, fontFamily: 'inherit' },
+    labels: pieLabels,
+    colors: pieColors,
+    legend: { position: 'bottom', fontSize: '12px' },
+    dataLabels: {
+      enabled: true,
+      formatter: (_val, opts) => {
+        const amount = pieSeries[opts.seriesIndex] || 0;
+        const total = pieSeries.reduce((s, v) => s + v, 0);
+        const pct = total > 0 ? (amount / total) * 100 : 0;
+        return `${pct.toFixed(1)}%`;
+      },
+    },
+    tooltip: {
+      y: {
+        formatter: (_val, opts) => {
+          const amount = pieSeries[opts.seriesIndex] || 0;
+          const total = pieSeries.reduce((s, v) => s + v, 0);
+          const pct = total > 0 ? (amount / total) * 100 : 0;
+          return `${Number(amount).toLocaleString('vi-VN')}₫ (${pct.toFixed(1)}%)`;
+        },
+      },
+    },
+    stroke: { colors: ['#ffffff'] },
+  };
+  const loyaltyMonthlySeries = loyaltyAnalytics?.monthly || [];
+
+  const handleExportLoyaltyCsv = useCallback(async () => {
+    try {
+      setExportingLoyalty(true);
+      const { blob, fileName } = await downloadLoyaltyAnalyticsCsv({ from: summaryFrom, to: summaryTo });
+      const blobUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(blobUrl);
+    } catch (err) {
+      alert(err?.message || 'Không thể xuất báo cáo loyalty');
+    } finally {
+      setExportingLoyalty(false);
+    }
+  }, [summaryFrom, summaryTo]);
+
+  const applyReturnQuickFilter = (preset) => {
+    const end = new Date();
+    const to = toDateStr(end);
+    if (preset === '7d') {
+      setSummaryFrom(shiftDateStr(end, -6));
+      setSummaryTo(to);
+      return;
+    }
+    if (preset === '30d') {
+      setSummaryFrom(shiftDateStr(end, -29));
+      setSummaryTo(to);
+      return;
+    }
+    // month
+    setSummaryFrom(toDateStr(new Date(end.getFullYear(), end.getMonth(), 1)));
+    setSummaryTo(to);
+  };
 
   return (
-    <div className="manager-page-with-sidebar">
-      <ManagerSidebar />
-      <div className="manager-main">
-        {/* ── Topbar ── */}
-        <header className="manager-topbar">
-          <div className="manager-topbar-actions" style={{ marginLeft: 'auto' }}>
-            <ManagerNotificationBell />
-            <div className="manager-user-badge">
-              <i className="fa-solid fa-circle-user" style={{ color: '#6366f1' }} />
-              {storeName && (
-                <span style={{
-                  fontSize: '11px', fontWeight: 700, color: '#6366f1',
-                  background: '#eef2ff', border: '1px solid #c7d2fe',
-                  borderRadius: 6, padding: '1px 7px', whiteSpace: 'nowrap',
-                }}>
-                  <i className="fa-solid fa-store" style={{ marginRight: 4, fontSize: 10 }} />
-                  {storeName}
-                </span>
-              )}
-              <span>{displayName}</span>
-              <span style={{ fontSize: '11px', opacity: 0.6 }}>(Quản lý)</span>
-            </div>
+    <ManagerPageFrame>
+      <StaffPageShell
+        eyebrow="Quản lý cửa hàng"
+        eyebrowIcon={LayoutDashboard}
+        title="Tổng quan kinh doanh"
+        subtitle="Nhìn nhanh hiệu quả bán hàng, tồn kho và nhập hàng."
+        headerActions={
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Link to="/manager/reports">
+              <Button type="button" variant="outline">
+                Báo cáo đổi giá
+              </Button>
+            </Link>
+            <label className="hidden text-xs font-medium text-slate-500 sm:inline">Từ</label>
+            <input
+              type="date"
+              value={summaryFrom}
+              onChange={(e) => setSummaryFrom(e.target.value)}
+              className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-teal-200/80 focus:ring-2"
+            />
+            <label className="hidden text-xs font-medium text-slate-500 sm:inline">đến</label>
+            <input
+              type="date"
+              value={summaryTo}
+              onChange={(e) => setSummaryTo(e.target.value)}
+              className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-teal-200/80 focus:ring-2"
+            />
+            <Button type="button" onClick={fetchSummary}>
+              Xem
+            </Button>
           </div>
-        </header>
-
-        <div className="manager-content">
-          {/* ── Header + bộ lọc kỳ ── */}
-          <div className="manager-page-header" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
-            <div>
-              <h1 className="manager-page-title">Tổng quan kinh doanh</h1>
-              <p className="manager-page-subtitle">Nhìn nhanh hiệu quả bán hàng, tồn kho và nhập hàng</p>
-              <p className="text-xs text-slate-500">{Platform.select({ web: 'Dashboard đã được đồng bộ UI theo Tailwind + shadcn + React Bits.', default: 'Dashboard manager.' })}</p>
-            </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <Link to="/manager/reports"><Button type="button" variant="outline">Báo cáo đổi giá</Button></Link>
-            </div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-              <label style={{ fontSize: 13, color: '#6b7280' }}>Từ</label>
-              <input
-                type="date" value={summaryFrom}
-                onChange={e => setSummaryFrom(e.target.value)}
-                style={{ padding: '6px 10px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13 }}
-              />
-              <label style={{ fontSize: 13, color: '#6b7280' }}>đến</label>
-              <input
-                type="date" value={summaryTo}
-                onChange={e => setSummaryTo(e.target.value)}
-                style={{ padding: '6px 10px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13 }}
-              />
-              <Button type="button" onClick={fetchSummary}>Xem</Button>
-            </div>
-          </div>
+        }
+      >
+          <p className="text-xs text-slate-500">
+            {Platform.select({
+              web: 'Dashboard đồng bộ giao diện với quầy staff (Tailwind + shadcn).',
+              default: 'Dashboard manager.',
+            })}
+          </p>
 
           {summaryError && (
             <p className="text-xs text-slate-500" style={{ marginBottom: 12, maxWidth: 720 }}>
@@ -410,6 +507,29 @@ export default function ManagerDashboard() {
               </div>
             </div>
 
+            {/* Nợ nhà cung cấp — NEW */}
+            <Link to="/manager/supplier-payables" style={{ textDecoration: 'none', color: 'inherit' }}>
+              <div className="manager-metric-card transition-transform duration-200 hover:-translate-y-0.5" style={{ borderTop: '3px solid #dc2626', cursor: 'pointer' }}>
+                <div className="manager-metric-icon" style={{ background: '#fef2f2', color: '#dc2626' }}>
+                  <i className="fa-solid fa-file-invoice-dollar" />
+                </div>
+                <div className="manager-metric-body">
+                  <p className="manager-metric-label" style={{ color: '#991b1b', fontWeight: 600 }}>Nợ nhà cung cấp</p>
+                  {payableLoading
+                    ? <p className="manager-metric-value" style={{ fontSize: 16, color: '#9ca3af' }}>Đang tải...</p>
+                    : <p className="manager-metric-value" style={{ color: '#dc2626' }}>{fmtVND(payableSummary?.total_remaining)}</p>
+                  }
+                  {!payableLoading && payableSummary && (
+                    <p className="manager-metric-meta" style={{ color: payableSummary.overdue_remaining > 0 ? '#dc2626' : '#6b7280', fontSize: 11 }}>
+                      {payableSummary.overdue_remaining > 0
+                        ? `⚠️ Quá hạn: ${fmtVND(payableSummary.overdue_remaining)}`
+                        : `${payableSummary.open_count} khoản · ${payableSummary.supplier_count} NCC`}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </Link>
+
             {/* Vốn đọng 30 ngày — NEW */}
             <div className="manager-metric-card transition-transform duration-200 hover:-translate-y-0.5" style={{ borderTop: '3px solid #f97316' }}>
               <div className="manager-metric-icon" style={{ background: '#ffedd5', color: '#ea580c' }}>
@@ -437,7 +557,7 @@ export default function ManagerDashboard() {
               <div className="manager-panel-header">
                 <div>
                   <h2 className="manager-panel-title">Biểu đồ doanh thu</h2>
-                  <p className="manager-panel-subtitle">Doanh thu vs lợi nhuận (lợi nhuận: vốn snapshot; nếu vốn dòng = 0 thì lấy vốn SP hiện tại)</p>
+                  <p className="manager-panel-subtitle">Doanh thu bán, hoàn trả và lợi nhuận gộp (lợi nhuận: vốn snapshot; nếu vốn dòng = 0 thì lấy vốn SP hiện tại)</p>
                 </div>
                 <select
                   className="manager-select"
@@ -465,6 +585,11 @@ export default function ManagerDashboard() {
                     <div className="manager-kpi-item">
                       <p className="manager-kpi-label">Tổng doanh thu</p>
                       <p className="manager-kpi-value">{fmtVND(summary?.revenue)}</p>
+                      {summary?.revenue_net != null && summary?.total_vat_collected != null && (
+                        <p style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                          Doanh thu thuần: {fmtVND(summary.revenue_net)} · VAT thu hộ: {fmtVND(summary.total_vat_collected)}
+                        </p>
+                      )}
                     </div>
                     <div className="manager-kpi-item">
                       <p className="manager-kpi-label">Tổng đơn hàng</p>
@@ -486,12 +611,18 @@ export default function ManagerDashboard() {
                     <div className="manager-kpi-item">
                       <p className="manager-kpi-label">Chi phí nhập hàng</p>
                       <p className="manager-kpi-value">{fmtVND(summary?.incoming_cost)}</p>
+                      <p style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                        Đã chi trả NCC: {fmtVND(summary?.supplier_payment_total)}
+                      </p>
+                      <p style={{ fontSize: 11, color: '#94a3b8' }}>
+                        Tiền mặt: {fmtVND(summary?.supplier_payment_cash)} · Chuyển khoản: {fmtVND(summary?.supplier_payment_bank_transfer)}
+                      </p>
                     </div>
                     <div className="manager-kpi-item">
                       <p className="manager-kpi-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                        Lợi nhuận thực tế (đã chốt)
+                        Lợi nhuận gộp
                         <span
-                          title="Ưu tiên giá vốn đã lưu trên từng dòng bán (snapshot). Nếu dòng đó không có vốn (0), báo cáo dùng giá vốn sản phẩm hiện tại để biên lãi có ý nghĩa — không phải lỗi đổi giá."
+                          title="Lợi nhuận được tính bằng: Doanh thu (đã trừ VAT) - Giá vốn hàng bán. Ưu tiên giá vốn snapshot trên dòng; nếu dòng vốn = 0 thì dùng giá vốn sản phẩm hiện tại."
                           style={{ cursor: 'help', color: '#6366f1', fontSize: 13, lineHeight: 1 }}
                         >
                           <i className="fa-solid fa-circle-question" />
@@ -504,13 +635,25 @@ export default function ManagerDashboard() {
                         {fmtVND(summary?.gross_profit)}
                       </p>
                       <p style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
-                        Snapshot dòng; dòng vốn 0 → dùng giá vốn SP hiện tại (tổng hợp)
+                        Tính trên doanh thu thuần (không VAT)
                       </p>
                       {summary?.gross_profit_estimate != null && (
                         <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 1 }}>
                           Ước tính (DT − nhập kỳ): {fmtVND(summary.gross_profit_estimate)}
                         </p>
                       )}
+                    </div>
+                    <div className="manager-kpi-item">
+                      <p className="manager-kpi-label">Lợi nhuận sau loyalty</p>
+                      <p className="manager-kpi-value" style={{
+                        color: (summary?.gross_profit_after_loyalty ?? 0) >= 0 ? '#166534' : '#b91c1c',
+                        fontWeight: 700,
+                      }}>
+                        {fmtVND(summary?.gross_profit_after_loyalty)}
+                      </p>
+                      <p style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                        Lãi gộp trừ chi phí điểm đã dùng: {fmtVND(summary?.loyalty_redeem_value)}
+                      </p>
                     </div>
                   </div>
                 )
@@ -613,7 +756,15 @@ export default function ManagerDashboard() {
                             <tr>
                               <th>#</th>
                               <th>Sản phẩm</th>
-                              <th style={{ textAlign: 'right' }}>Lợi nhuận</th>
+                              <th style={{ textAlign: 'right' }}>
+                                <span
+                                  title="Lợi nhuận gộp = Doanh thu thuần (đã trừ VAT) - Giá vốn hàng bán"
+                                  style={{ cursor: 'help' }}
+                                >
+                                  Lợi nhuận
+                                  <i className="fa-solid fa-circle-question" style={{ marginLeft: 6, fontSize: 11, color: '#64748b' }} />
+                                </span>
+                              </th>
                               <th style={{ textAlign: 'right' }}>Doanh thu</th>
                               <th style={{ textAlign: 'right' }}>Biên lãi</th>
                             </tr>
@@ -881,8 +1032,249 @@ export default function ManagerDashboard() {
             </div>
           </div>
 
-        </div>
-      </div>
-    </div>
+          {/* ── Row 5: Phân tích trả hàng ── */}
+          <div className="manager-cards-row manager-cards-row--1">
+            <div className="manager-panel-card">
+              <div className="manager-panel-header manager-panel-header--space">
+                <div>
+                  <h2 className="manager-panel-title">Phân tích trả hàng</h2>
+                  <p className="manager-panel-subtitle">Phân bổ lý do trả hàng và tỷ lệ trả hàng trên doanh thu</p>
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    className="manager-select"
+                    style={{ height: 32, minWidth: 68 }}
+                    onClick={() => applyReturnQuickFilter('7d')}
+                  >
+                    7 ngày
+                  </button>
+                  <button
+                    type="button"
+                    className="manager-select"
+                    style={{ height: 32, minWidth: 68 }}
+                    onClick={() => applyReturnQuickFilter('30d')}
+                  >
+                    30 ngày
+                  </button>
+                  <button
+                    type="button"
+                    className="manager-select"
+                    style={{ height: 32, minWidth: 84 }}
+                    onClick={() => applyReturnQuickFilter('month')}
+                  >
+                    Tháng này
+                  </button>
+                </div>
+              </div>
+              {returnReasonsLoading ? (
+                <p style={{ padding: 16, color: '#9ca3af', fontSize: 14 }}>Đang tải...</p>
+              ) : !returnReasons || !Array.isArray(returnReasons.data) || returnReasons.data.length === 0 ? (
+                <p style={{ padding: 16, color: '#9ca3af', fontSize: 14 }}>Chưa có dữ liệu trả hàng trong kỳ.</p>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 16 }}>
+                  <div className="warehouse-table-wrap">
+                    <table className="warehouse-table manager-table" style={{ fontSize: 13 }}>
+                      <thead>
+                        <tr>
+                          <th>Lý do</th>
+                          <th style={{ textAlign: 'right' }}>Số phiếu</th>
+                          <th style={{ textAlign: 'right' }}>Giá trị hoàn</th>
+                          <th>Tỷ trọng</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {returnReasons.data.map((row) => (
+                          <tr key={row.reason_code}>
+                            <td style={{ fontWeight: 600 }}>{row.reason_label}</td>
+                            <td style={{ textAlign: 'right' }}>{(row.count || 0).toLocaleString('vi-VN')}</td>
+                            <td style={{ textAlign: 'right', fontWeight: 700, color: '#dc2626' }}>{fmtVND(row.amount)}</td>
+                            <td>
+                              <div className="manager-freq-bar-wrap">
+                                <div
+                                  className="manager-freq-bar"
+                                  style={{ width: `${((row.amount || 0) / maxReturnReasonAmount) * 100}%`, background: '#ef4444' }}
+                                />
+                                <span className="manager-freq-bar-label">{(row.ratio_by_amount || 0).toFixed(1)}%</span>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: 14, background: '#f8fafc', display: 'grid', gap: 10 }}>
+                    <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #e2e8f0', padding: 8 }}>
+                      <Chart options={pieOptions} series={pieSeries} type="pie" height={220} />
+                    </div>
+                    <p style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>KPI trả hàng trong kỳ</p>
+                    <div style={{ fontSize: 14, color: '#334155', display: 'grid', gap: 6 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>Tổng phiếu trả</span>
+                        <strong>{(returnReasons.total_return_count || 0).toLocaleString('vi-VN')}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>Tổng tiền hoàn</span>
+                        <strong style={{ color: '#dc2626' }}>{fmtVND(returnReasons.total_return_amount)}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>Tỷ lệ trả/Doanh thu</span>
+                        <strong style={{ color: '#b91c1c' }}>{(returnReasons.return_rate_by_revenue || 0).toFixed(2)}%</strong>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* ── Row 6: Báo cáo chương trình tích điểm ── */}
+          <div className="manager-cards-row manager-cards-row--1">
+            <div className="manager-panel-card">
+              <div className="manager-panel-header manager-panel-header--space">
+                <div>
+                  <h2 className="manager-panel-title">📊 Báo cáo chương trình tích điểm</h2>
+                  <p className="manager-panel-subtitle">Tổng quan hiệu quả và chi phí chương trình khách hàng thân thiết</p>
+                </div>
+              </div>
+
+              {loyaltyLoading ? (
+                <p style={{ padding: 24, color: '#9ca3af', fontSize: 14, textAlign: 'center' }}>Đang tải dữ liệu...</p>
+              ) : !loyaltyAnalytics ? (
+                <p style={{ padding: 24, color: '#9ca3af', fontSize: 14, textAlign: 'center' }}>Chưa có dữ liệu. Hãy bật chương trình tích điểm trong Cài đặt.</p>
+              ) : (() => {
+                const liabilityPoints = Number(loyaltyAnalytics.liability_points || 0);
+                const liabilityValue = Number(loyaltyAnalytics.liability_value || 0);
+                const earnedPoints = Number(loyaltyAnalytics.earned_points || 0);
+                const redeemedPoints = Number(loyaltyAnalytics.redeemed_points || 0);
+                const expiredPoints = Number(loyaltyAnalytics.expired_points || 0);
+                const redeemedValue = Number(loyaltyAnalytics.redeemed_value || 0);
+                const redemptionRate = Number(loyaltyAnalytics.redemption_rate || 0);
+                const discountPct = Number(loyaltyAnalytics.effective_discount_pct || 0);
+                const loyaltyAov = Number(loyaltyAnalytics.retention_lift?.loyalty_aov || 0);
+                const nonLoyaltyAov = Number(loyaltyAnalytics.retention_lift?.non_loyalty_aov || 0);
+                const liftPct = loyaltyAnalytics.retention_lift?.lift_pct;
+
+                return (
+                  <>
+                    {/* ── 4 KPI chính ── */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 16 }}>
+
+                      {/* KPI 1 */}
+                      <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 12, padding: '16px 18px' }}>
+                        <div style={{ fontSize: 12, color: '#16a34a', fontWeight: 600, marginBottom: 4 }}>💰 Điểm chưa dùng (nợ tiềm ẩn)</div>
+                        <div style={{ fontSize: 22, fontWeight: 700, color: '#15803d' }}>{fmtVND(liabilityValue)}</div>
+                        <div style={{ fontSize: 12, color: '#4ade80', marginTop: 2 }}>{liabilityPoints.toLocaleString('vi-VN')} điểm đang lưu hành</div>
+                        <div style={{ fontSize: 11, color: '#6b7280', marginTop: 6, lineHeight: 1.4 }}>
+                          Tổng giá trị điểm khách chưa đổi — đây là khoản cửa hàng sẽ phải giảm giá khi khách dùng.
+                        </div>
+                      </div>
+
+                      {/* KPI 2 */}
+                      <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 12, padding: '16px 18px' }}>
+                        <div style={{ fontSize: 12, color: '#ea580c', fontWeight: 600, marginBottom: 4 }}>🔄 Tỷ lệ đổi điểm</div>
+                        <div style={{ fontSize: 22, fontWeight: 700, color: '#c2410c' }}>{redemptionRate.toFixed(1)}%</div>
+                        <div style={{ fontSize: 12, color: '#fb923c', marginTop: 2 }}>
+                          {redeemedPoints.toLocaleString('vi-VN')} / {earnedPoints.toLocaleString('vi-VN')} điểm đã đổi
+                        </div>
+                        <div style={{ fontSize: 11, color: '#6b7280', marginTop: 6, lineHeight: 1.4 }}>
+                          {redemptionRate < 20 ? '⚠ Thấp — khách ít chủ động đổi điểm, cân nhắc nhắc nhở qua SMS.' : redemptionRate < 60 ? '✅ Tốt — khách đang dùng điểm đều đặn.' : '🔥 Rất cao — khách rất tích cực đổi điểm.'}
+                        </div>
+                      </div>
+
+                      {/* KPI 3 */}
+                      <div style={{ background: '#fdf4ff', border: '1px solid #e9d5ff', borderRadius: 12, padding: '16px 18px' }}>
+                        <div style={{ fontSize: 12, color: '#9333ea', fontWeight: 600, marginBottom: 4 }}>💸 Chi phí giảm giá từ điểm</div>
+                        <div style={{ fontSize: 22, fontWeight: 700, color: '#7e22ce' }}>{discountPct.toFixed(2)}%</div>
+                        <div style={{ fontSize: 12, color: '#c084fc', marginTop: 2 }}>đã trừ {fmtVND(redeemedValue)} từ doanh thu</div>
+                        <div style={{ fontSize: 11, color: '#6b7280', marginTop: 6, lineHeight: 1.4 }}>
+                          Cứ 100đ doanh thu thì bị giảm {discountPct.toFixed(2)}đ do khách đổi điểm. Ngưỡng an toàn thường &lt; 3%.
+                        </div>
+                      </div>
+
+                      {/* KPI 4 */}
+                      <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 12, padding: '16px 18px' }}>
+                        <div style={{ fontSize: 12, color: '#2563eb', fontWeight: 600, marginBottom: 4 }}>📈 Khách tích điểm mua nhiều hơn?</div>
+                        <div style={{ fontSize: 22, fontWeight: 700, color: '#1d4ed8' }}>
+                          {liftPct == null ? '—' : `${liftPct > 0 ? '+' : ''}${Number(liftPct).toFixed(1)}%`}
+                        </div>
+                        <div style={{ fontSize: 12, color: '#60a5fa', marginTop: 2 }}>
+                          TB đơn: {fmtVND(loyaltyAov)} vs {fmtVND(nonLoyaltyAov)}
+                        </div>
+                        <div style={{ fontSize: 11, color: '#6b7280', marginTop: 6, lineHeight: 1.4 }}>
+                          {liftPct == null ? 'Chưa đủ dữ liệu để so sánh.' : liftPct > 0 ? `Khách có điểm mua cao hơn ${Number(liftPct).toFixed(1)}% — chương trình đang có hiệu quả!` : 'Khách tích điểm chưa mua nhiều hơn — cân nhắc cải thiện ưu đãi.'}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* ── Thống kê nhanh ── */}
+                    <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+                      {[
+                        { label: '🎁 Điểm đã tặng', value: earnedPoints.toLocaleString('vi-VN') + ' điểm', color: '#dcfce7', border: '#bbf7d0', text: '#15803d' },
+                        { label: '✅ Điểm đã dùng', value: redeemedPoints.toLocaleString('vi-VN') + ' điểm', color: '#fff7ed', border: '#fed7aa', text: '#c2410c' },
+                        { label: '⏰ Điểm hết hạn', value: expiredPoints.toLocaleString('vi-VN') + ' điểm', color: '#fafafa', border: '#e5e7eb', text: '#6b7280' },
+                      ].map((item) => (
+                        <div key={item.label} style={{ flex: '1 1 140px', background: item.color, border: `1px solid ${item.border}`, borderRadius: 8, padding: '10px 14px', textAlign: 'center' }}>
+                          <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 3 }}>{item.label}</div>
+                          <div style={{ fontSize: 16, fontWeight: 700, color: item.text }}>{item.value}</div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* ── Biểu đồ theo tháng ── */}
+                    <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: '16px 12px', background: '#fff' }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 8, paddingLeft: 4 }}>
+                        📅 Biến động điểm theo tháng
+                      </div>
+                      {loyaltyMonthlySeries.length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: 32, color: '#9ca3af', fontSize: 13 }}>Chưa có giao dịch điểm nào trong kỳ này.</div>
+                      ) : (
+                        <Chart
+                          type="bar"
+                          height={240}
+                          series={[
+                            { name: 'Điểm tặng ra', data: loyaltyMonthlySeries.map((x) => Number(x.earn_points || 0)) },
+                            { name: 'Điểm đã dùng', data: loyaltyMonthlySeries.map((x) => Math.abs(Number(x.redeem_points || 0))) },
+                            { name: 'Điểm hết hạn', data: loyaltyMonthlySeries.map((x) => Math.abs(Number(x.expire_points || 0))) },
+                          ]}
+                          options={{
+                            chart: { stacked: false, toolbar: { show: false }, fontFamily: 'inherit' },
+                            xaxis: {
+                              categories: loyaltyMonthlySeries.map((x) => {
+                                const [y, m] = (x.month || '').split('-');
+                                return `T${m}/${y}`;
+                              }),
+                              labels: { style: { fontSize: '12px' } },
+                            },
+                            colors: ['#22c55e', '#f97316', '#94a3b8'],
+                            plotOptions: { bar: { borderRadius: 4, columnWidth: '55%' } },
+                            yaxis: {
+                              labels: {
+                                formatter: (val) => `${Number(val).toLocaleString('vi-VN')} đ`,
+                                style: { fontSize: '11px' },
+                              },
+                            },
+                            tooltip: {
+                              y: { formatter: (val) => `${Number(val).toLocaleString('vi-VN')} điểm` },
+                            },
+                            legend: {
+                              position: 'top',
+                              fontSize: '12px',
+                              markers: { width: 10, height: 10, radius: 3 },
+                            },
+                            grid: { borderColor: '#f1f5f9', strokeDashArray: 3 },
+                            dataLabels: { enabled: false },
+                          }}
+                        />
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          </div>
+
+      </StaffPageShell>
+    </ManagerPageFrame>
   );
 }
