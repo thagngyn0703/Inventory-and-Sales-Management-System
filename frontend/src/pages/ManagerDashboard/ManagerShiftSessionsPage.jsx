@@ -31,6 +31,12 @@ const STATUS_OPTIONS = [
   { value: 'closed', label: 'Đã đóng' },
 ];
 
+const btnBaseClass =
+  'inline-flex items-center justify-center whitespace-nowrap rounded-xl border px-3 py-1.5 text-xs font-semibold transition';
+const btnTealClass = `${btnBaseClass} border-teal-200 bg-teal-50 text-teal-700 hover:bg-teal-100`;
+const btnAmberClass = `${btnBaseClass} border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100`;
+const btnSlateClass = `${btnBaseClass} border-slate-300 bg-white text-slate-700 hover:bg-slate-100`;
+
 function getTodayLocalDateString() {
   const now = new Date();
   const y = now.getFullYear();
@@ -268,7 +274,7 @@ export default function ManagerShiftSessionsPage() {
           <button
             type="button"
             onClick={fetchData}
-            className="rounded-lg border border-teal-200 bg-teal-50 px-4 py-2 text-sm font-semibold text-teal-700 hover:bg-teal-100"
+            className={`${btnTealClass} px-4 py-2 text-sm`}
           >
             Làm mới
           </button>
@@ -482,19 +488,19 @@ export default function ManagerShiftSessionsPage() {
                             {shift.status === 'open' ? 'Đang mở' : 'Đã đóng'}
                           </span>
                           {isOverrideClosed && (
-                            <span className="rounded-full bg-violet-100 px-2.5 py-1 text-[11px] font-bold text-violet-700">
+                            <span className="whitespace-nowrap rounded-full bg-violet-100 px-2.5 py-1 text-[11px] font-bold text-violet-700">
                               Đóng ca hộ
                             </span>
                           )}
                         </div>
                       </td>
                       <td className="px-3 py-3 text-right">
-                        <div className="inline-flex items-center gap-2">
+                        <div className="inline-flex items-center gap-2 whitespace-nowrap">
                           {shift.status === 'open' && (
                             <button
                               type="button"
                               onClick={() => handleOverrideClose(shift)}
-                              className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-bold text-amber-700 hover:bg-amber-100"
+                              className={`${btnAmberClass} gap-1`}
                               title="Đóng ca hộ (override)"
                             >
                               Đóng ca hộ
@@ -503,7 +509,7 @@ export default function ManagerShiftSessionsPage() {
                           <button
                             type="button"
                             onClick={() => openShiftDetail(shift)}
-                            className="inline-flex items-center gap-1 rounded-md border border-teal-200 bg-teal-50 px-2.5 py-1.5 text-xs font-bold text-teal-700 hover:bg-teal-100"
+                            className={`${btnTealClass} gap-1`}
                           >
                             <Eye className="h-3.5 w-3.5" />
                             Hóa đơn
@@ -528,7 +534,7 @@ export default function ManagerShiftSessionsPage() {
             type="button"
             disabled={page <= 1}
             onClick={() => setPage((p) => Math.max(1, p - 1))}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className={`${btnSlateClass} disabled:cursor-not-allowed disabled:opacity-50`}
           >
             Trước
           </button>
@@ -539,7 +545,7 @@ export default function ManagerShiftSessionsPage() {
             type="button"
             disabled={page >= Math.max(1, Number(data.totalPages || 1))}
             onClick={() => setPage((p) => p + 1)}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className={`${btnSlateClass} disabled:cursor-not-allowed disabled:opacity-50`}
           >
             Sau
           </button>
@@ -561,7 +567,7 @@ export default function ManagerShiftSessionsPage() {
               <button
                 type="button"
                 onClick={() => setDetailShift(null)}
-                className="rounded-lg border border-slate-300 p-1.5 text-slate-600 hover:bg-slate-100"
+                className={`${btnSlateClass} p-1.5`}
               >
                 <X className="h-4 w-4" />
               </button>
@@ -609,7 +615,7 @@ export default function ManagerShiftSessionsPage() {
                             <td className="px-3 py-3 text-right">
                               <a
                                 href={`/manager/invoices/${inv._id}/view`}
-                                className="inline-flex items-center rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 md:text-sm"
+                                className={`${btnSlateClass} md:text-sm`}
                               >
                                 Xem hóa đơn
                               </a>
