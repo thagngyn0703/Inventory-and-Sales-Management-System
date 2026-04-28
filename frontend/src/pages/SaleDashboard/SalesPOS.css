@@ -74,6 +74,7 @@
   display: flex;
   align-items: center;
   justify-content: flex-start;
+  flex-wrap: wrap;
   gap: 10px;
   min-width: 0;
   width: 100%;
@@ -102,7 +103,7 @@
   align-items: center;
   gap: 6px;
   min-width: 0;
-  flex: 0 0 auto;
+  flex: 1 1 320px;
 }
 
 .pos-scan-btn {
@@ -148,6 +149,7 @@
   position: relative;
   max-width: 360px;
   width: 360px;
+  min-width: 0;
 }
 
 .pos-search-dropdown-wrap .pos-search-input {
@@ -254,7 +256,9 @@
   font-size: 12px;
   font-weight: 600;
   color: #fff;
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .pos-toolbar-user-avatar {
@@ -414,13 +418,14 @@
   flex: 1;
   padding: 10px;
   overflow-y: auto;
-  overflow-x: hidden;
+  overflow-x: auto;
   overscroll-behavior: contain;
   min-height: 0;
 }
 
 .pos-cart-table {
   width: 100%;
+  min-width: 860px;
   border-collapse: collapse;
   background: white;
   border-radius: 12px;
@@ -1394,6 +1399,7 @@
   border-top: 1px solid var(--pos-border);
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   padding: 0 12px;
   gap: 20px;
 }
@@ -1402,6 +1408,7 @@
   flex: 1;
   display: flex;
   gap: 20px;
+  min-width: 0;
 }
 
 .pos-bottom-meta {
@@ -1431,10 +1438,204 @@
 
 @media (max-width: 1180px) {
   .pos-right-sidebar {
-    width: 320px;
+    width: 290px;
   }
   .pos-search-dropdown-wrap {
-    width: 300px;
+    width: 280px;
+  }
+}
+
+@media (max-width: 1360px) {
+  .pos-container {
+    zoom: 0.92;
+  }
+}
+
+@media (max-width: 1240px) {
+  .pos-container {
+    zoom: 0.86;
+  }
+
+  .pos-right-sidebar {
+    width: 270px;
+  }
+
+  .pos-search-toolbar {
+    gap: 8px;
+  }
+
+  .pos-toolbar-left {
+    flex: 1 1 280px;
+  }
+
+  .pos-toolbar-user-badge {
+    padding: 5px 10px 5px 7px;
+    font-size: 11px;
+  }
+
+  .pos-toolbar-store-chip,
+  .pos-toolbar-staff-name,
+  .pos-toolbar-staff-role {
+    font-size: 11px;
+  }
+
+  .pos-cart-table {
+    min-width: 720px;
+  }
+
+  .pos-payment-methods {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 1080px) {
+  .pos-container {
+    zoom: 0.8;
+  }
+
+  .pos-right-sidebar {
+    width: 252px;
+  }
+}
+
+@media (max-width: 980px) {
+  .pos-container {
+    zoom: 0.74;
+  }
+
+  .pos-right-sidebar {
+    width: 236px;
+  }
+}
+
+@media (max-width: 900px) {
+  .pos-container {
+    zoom: 1;
+    height: auto;
+    min-height: 100vh;
+  }
+
+  .pos-body {
+    flex-direction: column;
+    overflow: auto;
+  }
+
+  .pos-center-area {
+    min-height: 380px;
+  }
+
+  .pos-right-sidebar {
+    width: 100%;
+    height: auto;
+    max-height: none;
+    border-left: none;
+    border-top: 1px solid var(--pos-border);
+    overflow: visible;
+  }
+
+  .pos-customer-section,
+  .pos-summary-section {
+    padding: 10px;
+  }
+
+  .pos-summary-section {
+    overflow: visible;
+  }
+
+  .pos-search-toolbar {
+    align-items: stretch;
+    padding: 10px;
+    gap: 8px;
+  }
+
+  .pos-toolbar-left {
+    order: 1;
+    flex: 1 1 100%;
+  }
+
+  .pos-search-dropdown-wrap {
+    width: 100%;
+    max-width: none;
+  }
+
+  .pos-tabs-inline {
+    order: 2;
+    flex: 1 1 100%;
+    padding-right: 0;
+  }
+
+  .pos-toolbar-user-badge {
+    order: 3;
+    width: 100%;
+    justify-content: flex-start;
+    border-radius: 14px;
+  }
+
+  .pos-tab {
+    max-width: 132px;
+  }
+
+  .pos-cart-table {
+    min-width: 760px;
+  }
+
+  .pos-bottom-bar {
+    gap: 10px;
+    padding: 8px 12px;
+  }
+
+  .pos-bottom-left,
+  .pos-bottom-meta {
+    flex: 1 1 100%;
+  }
+
+  .pos-payment-methods {
+    grid-template-columns: 1fr;
+  }
+
+  .pos-customer-pay-row,
+  .pos-money-state-row {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .pos-customer-pay-input {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .pos-quick-paid-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .pos-sidebar-toggle-btn,
+  .pos-scan-btn {
+    width: 36px;
+    height: 36px;
+  }
+
+  .pos-search-dropdown-wrap .pos-search-input,
+  .pos-customer-search-field .pos-search-input {
+    font-size: 13px;
+  }
+
+  .pos-cart-container,
+  .pos-customer-section,
+  .pos-summary-section {
+    padding: 8px;
+  }
+
+  .pos-cart-table {
+    min-width: 700px;
+  }
+
+  .pos-pay-button {
+    min-height: 44px;
+    font-size: 15px;
+    letter-spacing: 0.04em;
   }
 }
 
