@@ -554,7 +554,7 @@ async function buildReturnDetails(invoiceId) {
     })
         .sort({ return_at: -1 })
         .populate('created_by', 'fullName email')
-        .populate('items.product_id', 'name sku')
+        .populate('items.product_id', 'name sku image_urls')
         .lean();
     return (returns || []).map((rt) => ({
         _id: rt._id,
@@ -959,7 +959,7 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
         const populated = await SalesInvoice.findById(invoice._id)
             .populate('customer_id', 'full_name phone email debt_account')
             .populate('created_by', 'fullName email')
-            .populate('items.product_id', 'name sku stock_qty')
+            .populate('items.product_id', 'name sku stock_qty image_urls')
             .lean();
 
         const productIds = (populated.items || [])
@@ -1183,7 +1183,7 @@ router.get('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), asyn
         const invoice = await SalesInvoice.findById(id)
             .populate('customer_id', 'full_name phone email debt_account')
             .populate('created_by', 'fullName email')
-            .populate('items.product_id', 'name sku stock_qty')
+            .populate('items.product_id', 'name sku stock_qty image_urls')
             .lean();
         if (!invoice) return res.status(404).json({ message: 'Invoice not found' });
         // Store ownership check
@@ -1374,7 +1374,7 @@ router.patch('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), as
         const populated = await SalesInvoice.findById(invoice._id)
             .populate('customer_id', 'full_name phone email debt_account')
             .populate('created_by', 'fullName email')
-            .populate('items.product_id', 'name sku stock_qty')
+            .populate('items.product_id', 'name sku stock_qty image_urls')
             .lean();
 
         const productIds = (populated.items || [])
