@@ -19,7 +19,7 @@ import {
   cancelUnpaidBankTransferInvoice,
 } from '../../services/invoicesApi';
 import { closeShift, getCurrentShift, openShift } from '../../services/shiftsApi';
-import { getProducts, getProductUnits, scanProductByCode } from '../../services/productsApi';
+import { getProduct, getProducts, getProductUnits, scanProductByCode } from '../../services/productsApi';
 import { getCustomers, createCustomer } from '../../services/customersApi';
 import { getStoreTaxSettings, getStoreBankSettings, getStoreLoyaltySettings } from '../../services/adminApi';
 import { sendLoyaltyUpdate } from '../../services/customerNotifyApi';
@@ -46,6 +46,36 @@ function calcTaxBreakdown(grandTotal, taxRate, priceIncludesTax) {
 function formatMoney(n) {
   if (n == null || isNaN(n)) return '0';
   return Number(n).toLocaleString('vi-VN') + '₫';
+}
+
+function resolveMediaUrl(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  if (/^https?:\/\//i.test(raw)) return raw;
+  if (raw.startsWith('//')) return `${window.location.protocol}${raw}`;
+
+  const apiBase = String(process.env.REACT_APP_API_URL || 'http://localhost:8000/api').replace(/\/+$/, '');
+  const apiOrigin = apiBase.replace(/\/api$/i, '');
+  const normalizedPath = raw.startsWith('/') ? raw : `/${raw}`;
+  return `${apiOrigin}${normalizedPath}`;
+}
+
+function getProductImageUrl(productLike) {
+  if (!productLike) return '';
+  const list = Array.isArray(productLike.image_urls) ? productLike.image_urls : [];
+  const candidates = [
+    ...list.map((entry) => {
+      if (typeof entry === 'string') return entry;
+      if (entry && typeof entry === 'object') return entry.url || entry.secure_url || entry.src || '';
+      return '';
+    }),
+    productLike.image_url || '',
+    productLike.image || '',
+    productLike.thumbnail || '',
+    productLike.photo || '',
+  ];
+  const first = candidates.find((u) => String(u || '').trim());
+  return first ? resolveMediaUrl(first) : '';
 }
 
 async function copyText(text) {
@@ -156,6 +186,7 @@ export default function POSContainer({
   const [customerModalError, setCustomerModalError] = useState('');
 
   const [pendingPayment, setPendingPayment] = useState(null);
+  const [productInfoModal, setProductInfoModal] = useState({ open: false, loading: false, product: null, error: '' });
   const pollingRef = useRef(null);
   const pollingSessionRef = useRef(0);
   const searchWrapRef = useRef(null);
@@ -206,6 +237,30 @@ export default function POSContainer({
   const updateActiveTab = (updates) => {
     setTabs((prev) => prev.map((t) => (t.tabId === activeTabId ? { ...t, ...updates } : t)));
   };
+
+  const openProductInfoModal = useCallback(async (item) => {
+    const productId = String(item?.product_id || '').trim();
+    if (!productId) {
+      notify('Không tìm thấy mã sản phẩm để xem chi tiết.', 'error');
+      return;
+    }
+    setProductInfoModal({ open: true, loading: true, product: null, error: '' });
+    try {
+      const product = await getProduct(productId);
+      setProductInfoModal({ open: true, loading: false, product, error: '' });
+    } catch (e) {
+      setProductInfoModal({
+        open: true,
+        loading: false,
+        product: null,
+        error: e?.message || 'Không thể tải thông tin sản phẩm.',
+      });
+    }
+  }, [notify]);
+
+  const closeProductInfoModal = useCallback(() => {
+    setProductInfoModal({ open: false, loading: false, product: null, error: '' });
+  }, []);
 
   const loadProducts = useCallback(async () => {
     try {
@@ -287,10 +342,7 @@ export default function POSContainer({
     (invoice, tab, options = {}) => {
       const { requireUserConfirm = false } = options;
       if (requireUserConfirm) {
-        const shouldPrint = window.confirm(
-          'Đã xác nhận tiền chuyển khoản thành công. In hóa đơn ngay bây giờ?'
-        );
-        if (!shouldPrint) return;
+        notify('Đã xác nhận tiền chuyển khoản thành công. Đang in hóa đơn...', 'success');
       }
       const displayCode = invoice?.display_code || invoice?._id || '';
       const isHKD = (storeTax.business_type || 'ho_kinh_doanh') === 'ho_kinh_doanh';
@@ -500,7 +552,7 @@ export default function POSContainer({
         }, 1000);
       }, 350);
     },
-    [storeName, storeTax.business_type]
+    [notify, storeName, storeTax.business_type]
   );
 
   const notifyCustomerLoyaltyMessage = useCallback(
@@ -669,6 +721,7 @@ export default function POSContainer({
           exchange_value: Number(item.exchange_value) || 1,
           name: item.product_id?.name ?? '',
           sku: item.product_id?.sku ?? '',
+          image_url: getProductImageUrl(item.product_id),
           quantity: item.quantity || 0,
           unit_price: item.unit_price || 0,
           discount: item.discount || 0,
@@ -827,6 +880,7 @@ export default function POSContainer({
           }
           const updatedItem = {
             ...it,
+            image_url: getProductImageUrl(product) || it.image_url || '',
             quantity: newQty,
             unit_barcode: chosenUnit?.barcode || it.unit_barcode || '',
             line_total: Math.max(0, newQty * Number(it.unit_price || 0) - Number(it.discount || 0)),
@@ -839,6 +893,7 @@ export default function POSContainer({
             product_id: product._id,
             unit_id: chosenUnit?._id || null,
             unit_name: chosenUnit?.unit_name || product.base_unit || 'Cái',
+              image_url: getProductImageUrl(product),
             unit_barcode: chosenUnit?.barcode || '',
             exchange_value: Number(chosenUnit?.exchange_value) || 1,
             name: product.name,
@@ -1460,6 +1515,7 @@ export default function POSContainer({
               <thead>
                 <tr>
                   <th style={{ width: 40 }}>#</th>
+                  <th style={{ width: 72 }}>Ảnh</th>
                   <th style={{ width: 220 }}>Mã hàng</th>
                   <th>Tên hàng</th>
                   <th style={{ width: 100 }}>Số lượng</th>
@@ -1472,14 +1528,42 @@ export default function POSContainer({
                 {activeTab.items.map((item, idx) => (
                   <tr key={idx}>
                     <td>{idx + 1}</td>
+                    <td>
+                      {item.image_url ? (
+                        <img
+                          src={item.image_url}
+                          alt={item.name || 'Ảnh sản phẩm'}
+                          className="pos-product-thumb"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <div className="pos-product-thumb-placeholder" aria-label="Không có ảnh">
+                          <i className="fa-regular fa-image" />
+                        </div>
+                      )}
+                    </td>
                     <td className="pos-sku-cell" title={item.sku}>
-                      {item.sku}
+                      <button
+                        type="button"
+                        className="pos-sku-link"
+                        title="Xem thông tin sản phẩm"
+                        onClick={() => openProductInfoModal(item)}
+                      >
+                        {item.sku}
+                      </button>
                     </td>
                     <td>
                       <div className="pos-item-name-cell">
                         <div className="pos-item-main-info">
                           <span className="pos-item-name-text">
-                            {item.name}
+                            <button
+                              type="button"
+                              className="pos-item-name-link"
+                              title="Xem thông tin sản phẩm"
+                              onClick={() => openProductInfoModal(item)}
+                            >
+                              {item.name}
+                            </button>
                           </span>
                           {item.unit_name ? (
                             <span className="pos-item-unit-text">({item.unit_name})</span>
@@ -1543,7 +1627,7 @@ export default function POSContainer({
                 ))}
                 {activeTab.items.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="pos-cart-empty-cell">
+                    <td colSpan={8} className="pos-cart-empty-cell">
                       Chưa có hàng hóa nào trong đơn
                     </td>
                   </tr>
@@ -2223,6 +2307,50 @@ export default function POSContainer({
           notify('Đã hủy giao dịch chuyển khoản.', 'error');
         }}
       />
+
+      {productInfoModal.open && (
+        <div className="pos-product-modal-backdrop" onClick={closeProductInfoModal}>
+          <div className="pos-product-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="pos-product-modal-head">
+              <h3>Thông tin sản phẩm</h3>
+              <button type="button" className="pos-product-modal-close" onClick={closeProductInfoModal}>
+                <i className="fa-solid fa-xmark" />
+              </button>
+            </div>
+            <div className="pos-product-modal-body">
+              {productInfoModal.loading && <p>Đang tải thông tin sản phẩm...</p>}
+              {!productInfoModal.loading && productInfoModal.error && (
+                <p className="pos-product-modal-error">{productInfoModal.error}</p>
+              )}
+              {!productInfoModal.loading && !productInfoModal.error && productInfoModal.product && (
+                <>
+                  {getProductImageUrl(productInfoModal.product) ? (
+                    <img
+                      src={getProductImageUrl(productInfoModal.product)}
+                      alt={productInfoModal.product.name || 'Ảnh sản phẩm'}
+                      className="pos-product-modal-image"
+                    />
+                  ) : (
+                    <div className="pos-product-modal-image-placeholder">
+                      <i className="fa-regular fa-image" />
+                    </div>
+                  )}
+                  <div className="pos-product-modal-grid">
+                    <div><b>Tên:</b> {productInfoModal.product.name || '—'}</div>
+                    <div><b>SKU:</b> {productInfoModal.product.sku || '—'}</div>
+                    <div><b>Barcode:</b> {productInfoModal.product.barcode || '—'}</div>
+                    <div><b>Giá bán:</b> {formatMoney(productInfoModal.product.sale_price || 0)}</div>
+                    <div><b>Giá vốn:</b> {formatMoney(productInfoModal.product.cost_price || 0)}</div>
+                    <div><b>Tồn kho:</b> {Number(productInfoModal.product.stock_qty || 0).toLocaleString('vi-VN')}</div>
+                    <div><b>Đơn vị gốc:</b> {productInfoModal.product.base_unit || 'Cái'}</div>
+                    <div><b>Trạng thái:</b> {String(productInfoModal.product.status || 'active') === 'inactive' ? 'Ngừng bán' : 'Đang bán'}</div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -161,7 +161,8 @@ async function reconcileInvoiceFromSepay(invoice) {
     const accountNumber = normalizeAccountNumber(
       tx?.account_number || tx?.accountNumber || tx?.account_no || tx?.account || ''
     );
-    const accountOk = !accountFilter || accountNumber === accountFilter;
+    // Một số response SePay API không luôn có account_number; khi thiếu thì bỏ qua filter này.
+    const accountOk = !accountFilter || !accountNumber || accountNumber === accountFilter;
     const amountMatched = Math.abs(amountIn - targetAmount) <= 1;
     return accountOk && amountMatched && normalizedContent.includes(normalizedRef);
   });
@@ -379,7 +380,7 @@ router.get('/status/:paymentRef', requireAuth, requireRole(['staff', 'manager', 
     if (!paymentRef) return res.status(400).json({ message: 'paymentRef is required' });
 
     const invoice = await SalesInvoice.findOne({ payment_ref: paymentRef.toUpperCase() })
-      .select('payment_status paid_at total_amount previous_debt_paid payment_ref store_id payment_method customer_id loyalty_earned_points');
+      .select('payment_status paid_at total_amount previous_debt_paid payment_ref store_id payment_method payment customer_id loyalty_earned_points');
 
     if (!invoice) {
       return res.status(404).json({ message: 'Không tìm thấy hóa đơn' });
@@ -393,8 +394,9 @@ router.get('/status/:paymentRef', requireAuth, requireRole(['staff', 'manager', 
       }
     }
 
-    // Fallback: nếu webhook chưa tới, thử đối soát trực tiếp qua SePay API
-    if (invoice.payment_status !== 'paid' && invoice.payment_method === 'bank_transfer') {
+    // Fallback: nếu webhook chưa tới, thử đối soát trực tiếp qua SePay API.
+    // Dựa vào phần tiền chuyển khoản > 0 để cover cả đơn "split".
+    if (invoice.payment_status !== 'paid' && Number(invoice.payment?.bank_transfer || 0) > 0) {
       await reconcileInvoiceFromSepay(invoice);
     }
     const customer = invoice.customer_id ? await Customer.findById(invoice.customer_id).select('loyalty_points').lean() : null;

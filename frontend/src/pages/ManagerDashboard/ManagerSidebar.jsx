@@ -26,7 +26,6 @@ import {
   Receipt,
   RotateCcw,
   Settings,
-  Sparkles,
   Store,
   UserPlus,
   Users,
@@ -90,7 +89,6 @@ const manageItems = [
   { type: 'item', label: 'Báo cáo thẻ kho', path: '/manager/stock-history', icon: ClipboardList },
   { type: 'item', label: 'Bán hàng trực tiếp', path: '/manager/pos', icon: Drill },
   { type: 'item', label: 'Nhật ký thu ngân', path: '/manager/shifts', icon: CalendarClock },
-  { type: 'item', label: 'Trợ lý AI (tham khảo)', path: '/manager/ai-assistant', icon: Sparkles },
   {
     type: 'group',
     key: 'manage-staff',
