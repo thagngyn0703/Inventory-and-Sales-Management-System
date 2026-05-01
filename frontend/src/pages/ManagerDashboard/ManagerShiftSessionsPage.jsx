@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { CalendarDays, CircleDollarSign, Clock3, Eye, ReceiptText, Search, UserRound, X } from 'lucide-react';
 import { closeShift, getShiftInvoices, getShiftSessions } from '../../services/shiftsApi';
 import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
+import { useToast } from '../../contexts/ToastContext';
 
 function formatMoney(n) {
   return `${Number(n || 0).toLocaleString('vi-VN')}₫`;
@@ -76,6 +77,7 @@ function parseFlexibleDateEnd(value) {
 }
 
 export default function ManagerShiftSessionsPage() {
+  const { toast: notify } = useToast();
   const [status, setStatus] = useState('');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
@@ -88,6 +90,14 @@ export default function ManagerShiftSessionsPage() {
   const [detailData, setDetailData] = useState({ invoices: [], total: 0, page: 1, totalPages: 1 });
   const [detailLoading, setDetailLoading] = useState(false);
   const [filterError, setFilterError] = useState('');
+  const [overrideModal, setOverrideModal] = useState({
+    open: false,
+    shift: null,
+    actualCashInput: '',
+    note: 'Nhân viên quên đóng ca',
+    submitting: false,
+    error: '',
+  });
   const todayStr = useMemo(() => getTodayLocalDateString(), []);
 
   const hydrateShiftKpisFallback = useCallback(async (shifts = [], dateRange = {}) => {
@@ -232,33 +242,57 @@ export default function ManagerShiftSessionsPage() {
     }
   }, []);
 
-  const handleOverrideClose = useCallback(async (shift) => {
+  const openOverrideModal = useCallback((shift) => {
     const opener = shift?.opened_by?.fullName || shift?.opened_by?.email || 'nhân viên';
-    const confirmed = window.confirm(`Bạn sắp đóng ca hộ cho ${opener}. Tiếp tục?`);
-    if (!confirmed) return;
+    notify(`Bạn đang đóng ca hộ cho ${opener}.`, 'warning');
+    const expectedCash = Number(shift?.expected_cash || 0) || 0;
+    setOverrideModal({
+      open: true,
+      shift,
+      actualCashInput: String(expectedCash.toLocaleString('vi-VN')),
+      note: 'Nhân viên quên đóng ca',
+      submitting: false,
+      error: '',
+    });
+  }, [notify]);
 
-    const cashInput = window.prompt('Nhập tổng tiền mặt kiểm đếm khi đóng ca:', String(Number(shift?.expected_cash || 0) || '0'));
-    if (cashInput == null) return;
-    const actualCash = Number(String(cashInput).replace(/[^\d]/g, ''));
+  const closeOverrideModal = useCallback(() => {
+    setOverrideModal({
+      open: false,
+      shift: null,
+      actualCashInput: '',
+      note: 'Nhân viên quên đóng ca',
+      submitting: false,
+      error: '',
+    });
+  }, []);
+
+  const submitOverrideClose = useCallback(async () => {
+    if (!overrideModal?.shift?._id || overrideModal.submitting) return;
+    const actualCash = Number(String(overrideModal.actualCashInput || '').replace(/[^\d]/g, ''));
     if (!Number.isFinite(actualCash) || actualCash < 0) {
-      setError('Số tiền kiểm đếm không hợp lệ.');
+      setOverrideModal((prev) => ({ ...prev, error: 'Số tiền kiểm đếm không hợp lệ.' }));
       return;
     }
-
-    const note = window.prompt('Ghi chú đóng ca hộ (khuyến nghị nhập lý do):', 'Nhân viên quên đóng ca');
+    setOverrideModal((prev) => ({ ...prev, submitting: true, error: '' }));
     try {
-      await closeShift(shift._id, {
+      await closeShift(overrideModal.shift._id, {
         actual_cash: actualCash,
         reconciliation_status: 'confirmed',
-        reconciliation_note: String(note || '').trim(),
+        reconciliation_note: String(overrideModal.note || '').trim(),
         override_close: true,
       });
       await fetchData();
       setError('');
+      notify('Đã đóng ca hộ thành công.', 'success');
+      closeOverrideModal();
     } catch (e) {
-      setError(e.message || 'Không thể đóng ca hộ');
+      const msg = e.message || 'Không thể đóng ca hộ';
+      setError(msg);
+      setOverrideModal((prev) => ({ ...prev, submitting: false, error: msg }));
+      notify(msg, 'error');
     }
-  }, [fetchData]);
+  }, [closeOverrideModal, fetchData, notify, overrideModal]);
 
   return (
     <ManagerPageFrame>
@@ -499,7 +533,7 @@ export default function ManagerShiftSessionsPage() {
                           {shift.status === 'open' && (
                             <button
                               type="button"
-                              onClick={() => handleOverrideClose(shift)}
+                              onClick={() => openOverrideModal(shift)}
                               className={`${btnAmberClass} gap-1`}
                               title="Đóng ca hộ (override)"
                             >
@@ -627,6 +661,97 @@ export default function ManagerShiftSessionsPage() {
                   </table>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {overrideModal.open && (
+        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-900/45 p-4">
+          <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+              <div>
+                <h3 className="text-base font-bold text-slate-800">Đóng ca hộ</h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  Nhân viên: {overrideModal.shift?.opened_by?.fullName || overrideModal.shift?.opened_by?.email || 'N/A'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeOverrideModal}
+                className={`${btnSlateClass} p-1.5`}
+                disabled={overrideModal.submitting}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-4 px-5 py-4">
+              <label className="block">
+                <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Tiền mặt kiểm đếm
+                </span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={overrideModal.actualCashInput}
+                  onChange={(e) =>
+                    setOverrideModal((prev) => ({
+                      ...prev,
+                      actualCashInput: String(e.target.value || '').replace(/[^\d]/g, '').replace(/\B(?=(\d{3})+(?!\d))/g, '.'),
+                      error: '',
+                    }))
+                  }
+                  placeholder="Nhập tổng tiền mặt"
+                  className="h-11 w-full rounded-xl border border-slate-300 px-3 text-sm font-medium text-slate-700 outline-none focus:border-teal-500"
+                  disabled={overrideModal.submitting}
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Ghi chú
+                </span>
+                <textarea
+                  value={overrideModal.note}
+                  onChange={(e) =>
+                    setOverrideModal((prev) => ({
+                      ...prev,
+                      note: e.target.value,
+                      error: '',
+                    }))
+                  }
+                  rows={3}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-700 outline-none focus:border-teal-500"
+                  placeholder="Nhập lý do đóng ca hộ"
+                  disabled={overrideModal.submitting}
+                />
+              </label>
+
+              {overrideModal.error && (
+                <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-700">
+                  {overrideModal.error}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-5 py-4">
+              <button
+                type="button"
+                onClick={closeOverrideModal}
+                className={btnSlateClass}
+                disabled={overrideModal.submitting}
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={submitOverrideClose}
+                className={btnAmberClass}
+                disabled={overrideModal.submitting}
+              >
+                {overrideModal.submitting ? 'Đang xử lý...' : 'Xác nhận đóng ca hộ'}
+              </button>
             </div>
           </div>
         </div>
