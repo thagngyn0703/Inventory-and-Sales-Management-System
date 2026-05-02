@@ -35,6 +35,8 @@ const backupRoutes = require('./routes/backup');
 const storeSettingsRoutes = require('./routes/storeSettings');
 const customerNotifyRoutes = require('./routes/customerNotify');
 const shiftRoutes = require('./routes/shifts');
+const posRegisterRoutes = require('./routes/posRegisters');
+const ShiftSession = require('./models/ShiftSession');
 const { startBackupScheduler } = require('./services/backupScheduler');
 const { hasSmtpConfig } = require('./services/emailService');
 
@@ -164,6 +166,7 @@ app.use('/api/backup', backupRoutes);
 app.use('/api/store-settings', storeSettingsRoutes);
 app.use('/api/customer-notify', customerNotifyRoutes);
 app.use('/api/shifts', shiftRoutes);
+app.use('/api/pos-registers', posRegisterRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -175,6 +178,17 @@ mongoose
     .connect(process.env.MONGO_URI)
     .then(async () => {
         console.log('Đã kết nối MongoDB');
+        try {
+            await ShiftSession.collection.dropIndex('store_id_1_status_1');
+            console.log('Đã gỡ index ca cũ (một ca mở / cửa hàng)');
+        } catch (e) {
+            // Index có thể không tồn tại hoặc tên khác tùy MongoDB
+        }
+        try {
+            await ShiftSession.syncIndexes();
+        } catch (e) {
+            console.warn('ShiftSession.syncIndexes:', e.message || e);
+        }
         await assertMongoSupportsTransactions();
         console.log('MongoDB hỗ trợ transaction: OK');
         initSocket(server, corsConfig.socket);

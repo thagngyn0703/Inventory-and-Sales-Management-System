@@ -4,6 +4,8 @@ const ShiftSession = require('../models/ShiftSession');
 const ShiftUser = require('../models/ShiftUser');
 const SalesInvoice = require('../models/SalesInvoice');
 const User = require('../models/User');
+const PosRegister = require('../models/PosRegister');
+const { ensureRegistersAndMigrateLegacyOpenShift } = require('../utils/posRegisterBootstrap');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { sumPayment, normalizeNonNegativeInt } = require('../utils/invoicePaymentUtils');
 const { decorateInvoiceListDisplayCode } = require('../utils/invoiceDisplayCode');
@@ -18,6 +20,26 @@ function assertStoreScope(req, res) {
         return false;
     }
     return true;
+}
+
+/** Trả về ObjectId string hợp lệ hoặc null nếu cần client chọn quầy (nhiều quầy). */
+async function resolveRegisterId(storeId, rawFromClient) {
+    await ensureRegistersAndMigrateLegacyOpenShift(storeId);
+    const trimmed = rawFromClient != null ? String(rawFromClient).trim() : '';
+    if (trimmed && mongoose.isValidObjectId(trimmed)) {
+        const ok = await PosRegister.findOne({
+            _id: trimmed,
+            store_id: storeId,
+            is_active: true,
+        })
+            .select('_id name')
+            .lean();
+        if (ok) return { id: String(ok._id), name: ok.name || '' };
+        return null;
+    }
+    const regs = await PosRegister.find({ store_id: storeId, is_active: true }).sort({ sort_order: 1, _id: 1 }).lean();
+    if (regs.length === 1) return { id: String(regs[0]._id), name: regs[0].name || '' };
+    return null;
 }
 
 function derivePaymentSplitForLegacyInvoice(inv) {
@@ -180,15 +202,27 @@ async function computeShiftKpis(shift, participantUserIds = []) {
     };
 }
 
-// GET /api/shifts/current
+// GET /api/shifts/current?register_id=
 router.get('/current', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
         if (!assertStoreScope(req, res)) return;
         const storeId = req.user.storeId;
-        const shift = await ShiftSession.findOne({ store_id: storeId, status: 'open' })
-            .sort({ opened_at: -1 })
+        const resolved = await resolveRegisterId(storeId, req.query?.register_id);
+        if (!resolved) {
+            return res.status(400).json({
+                code: 'REGISTER_REQUIRED',
+                message: 'Vui lòng chọn quầy thanh toán để kiểm tra ca.',
+            });
+        }
+        const shift = await ShiftSession.findOne({
+            store_id: storeId,
+            register_id: resolved.id,
+            status: 'open',
+        })
+            .populate('opened_by', 'fullName email')
+            .populate('register_id', 'name sort_order')
             .lean();
-        return res.json({ shift: shift || null });
+        return res.json({ shift: shift || null, register_id: resolved.id });
     } catch (err) {
         console.error(err);
         return res.status(500).json({ message: err.message || 'Server error' });
@@ -264,6 +298,7 @@ router.get('/', requireAuth, requireRole(['manager', 'admin']), async (req, res)
         const shifts = await ShiftSession.find(filter)
             .populate('opened_by', 'fullName email employeeCode role')
             .populate('closed_by', 'fullName email employeeCode role')
+            .populate('register_id', 'name sort_order')
             .sort({ opened_at: -1, _id: -1 })
             .skip((page - 1) * limit)
             .limit(limit)
@@ -316,25 +351,39 @@ router.get('/', requireAuth, requireRole(['manager', 'admin']), async (req, res)
     }
 });
 
-// POST /api/shifts/open
+// POST /api/shifts/open  body: { opening_cash, register_id? }
 router.post('/open', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
         if (!assertStoreScope(req, res)) return;
         const storeId = req.user.storeId;
         const opening_cash = normalizeNonNegativeInt(req.body?.opening_cash);
 
-        const existing = await ShiftSession.findOne({ store_id: storeId, status: 'open' })
-            .select('_id opened_by opened_at')
+        const resolved = await resolveRegisterId(storeId, req.body?.register_id);
+        if (!resolved) {
+            return res.status(400).json({
+                code: 'REGISTER_REQUIRED',
+                message: 'Vui lòng chọn quầy thanh toán trước khi mở ca.',
+            });
+        }
+
+        const existing = await ShiftSession.findOne({
+            store_id: storeId,
+            register_id: resolved.id,
+            status: 'open',
+        })
+            .select('_id opened_by opened_at register_id')
             .populate('opened_by', 'fullName email')
+            .populate('register_id', 'name')
             .lean();
         if (existing) {
             return res.status(409).json({
                 code: 'SHIFT_ALREADY_OPEN',
-                message: 'Đang có ca mở trong cửa hàng.',
+                message: `Quầy ${resolved.name || 'này'} đang có ca mở.`,
                 open_shift: {
                     _id: existing._id,
                     opened_at: existing.opened_at || null,
                     opened_by: existing.opened_by || null,
+                    register_id: existing.register_id || null,
                     store_id: storeId,
                 },
             });
@@ -342,6 +391,7 @@ router.post('/open', requireAuth, requireRole(['staff', 'manager', 'admin']), as
 
         const shift = await ShiftSession.create({
             store_id: storeId,
+            register_id: resolved.id,
             opened_by: req.user.id,
             opened_at: new Date(),
             status: 'open',
@@ -356,7 +406,11 @@ router.post('/open', requireAuth, requireRole(['staff', 'manager', 'admin']), as
             role_in_shift: 'primary',
         });
 
-        return res.status(201).json({ shift });
+        const populated = await ShiftSession.findById(shift._id)
+            .populate('opened_by', 'fullName email')
+            .populate('register_id', 'name sort_order')
+            .lean();
+        return res.status(201).json({ shift: populated || shift });
     } catch (err) {
         console.error(err);
         return res.status(500).json({ message: err.message || 'Server error' });

@@ -17,8 +17,10 @@ import {
   updateInvoice,
   getPaymentStatus,
   cancelUnpaidBankTransferInvoice,
+  previewInvoiceTax,
 } from '../../services/invoicesApi';
 import { closeShift, getCurrentShift, openShift } from '../../services/shiftsApi';
+import { getPosRegisters } from '../../services/posRegistersApi';
 import { getProduct, getProducts, getProductUnits, scanProductByCode } from '../../services/productsApi';
 import { getCustomers, createCustomer } from '../../services/customersApi';
 import { getStoreTaxSettings, getStoreBankSettings, getStoreLoyaltySettings } from '../../services/adminApi';
@@ -104,6 +106,8 @@ function buildLoyaltyCustomerMessage({ customerName, earnedPoints, currentPoints
     : 'Anh/Chị đã đạt mốc thưởng cao nhất hiện tại.';
   return `Xin chào ${name}, ${storeName} thông báo đơn hàng vừa hoàn tất đã được cộng ${earned} điểm loyalty. Tổng điểm hiện tại của Anh/Chị là ${current} điểm. ${nextLine} Cảm ơn Anh/Chị đã ủng hộ cửa hàng!`;
 }
+
+const POS_REGISTER_LS_KEY = 'pos_register_id';
 
 const generateTabId = () => Date.now() + Math.random().toString(36).substring(2, 9);
 
@@ -204,11 +208,20 @@ export default function POSContainer({
   const [currentShift, setCurrentShift] = useState(null);
   const [openShiftCash, setOpenShiftCash] = useState('');
   const [closeShiftCash, setCloseShiftCash] = useState('');
-  const [hideShiftCard, setHideShiftCard] = useState(() => {
+  const [closeShiftModalOpen, setCloseShiftModalOpen] = useState(false);
+  const [closeShiftSaving, setCloseShiftSaving] = useState(false);
+  const [openShiftBusy, setOpenShiftBusy] = useState(false);
+  /** Modal mở ca chỉ hiện khi người dùng bấm nút (không chặn màn ngay khi vào POS). */
+  const [shiftOpenModalOpen, setShiftOpenModalOpen] = useState(false);
+  const [posTaxPreview, setPosTaxPreview] = useState(null);
+  const [posTaxPreviewLoading, setPosTaxPreviewLoading] = useState(false);
+  const [posTaxPreviewErr, setPosTaxPreviewErr] = useState(false);
+  const [posRegisters, setPosRegisters] = useState([]);
+  const [selectedRegisterId, setSelectedRegisterId] = useState(() => {
     try {
-      return localStorage.getItem('pos_hide_shift_card') === '1';
+      return localStorage.getItem(POS_REGISTER_LS_KEY) || '';
     } catch {
-      return false;
+      return '';
     }
   });
 
@@ -790,27 +803,110 @@ export default function POSContainer({
     loadInvoice();
   }, [loadInvoice]);
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const list = await getPosRegisters();
+        if (cancelled) return;
+        setPosRegisters(Array.isArray(list) ? list : []);
+        const ids = (Array.isArray(list) ? list : []).map((r) => String(r._id || '')).filter(Boolean);
+        setSelectedRegisterId((prev) => {
+          const p = String(prev || '');
+          if (p && ids.includes(p)) return p;
+          const first = ids[0] || '';
+          try {
+            if (first) localStorage.setItem(POS_REGISTER_LS_KEY, first);
+          } catch {
+            /* ignore */
+          }
+          return first;
+        });
+      } catch {
+        if (!cancelled) setPosRegisters([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const loadShift = useCallback(async () => {
+    if (!selectedRegisterId) {
+      setCurrentShift(null);
+      return;
+    }
     try {
       setShiftLoading(true);
-      const shift = await getCurrentShift();
+      const shift = await getCurrentShift({ registerId: selectedRegisterId });
       setCurrentShift(shift);
     } catch (e) {
       setCurrentShift(null);
+      if (e?.code === 'REGISTER_REQUIRED') {
+        notify('Vui lòng chọn quầy thanh toán.', 'error');
+      }
     } finally {
       setShiftLoading(false);
     }
-  }, []);
+  }, [selectedRegisterId, notify]);
 
   useEffect(() => {
     loadShift();
   }, [loadShift]);
 
   useEffect(() => {
+    function syncRegisterPinFromLs() {
+      try {
+        const next = localStorage.getItem(POS_REGISTER_LS_KEY) || '';
+        setSelectedRegisterId((prev) => (next !== prev ? next : prev));
+      } catch {
+        /* ignore */
+      }
+    }
+    window.addEventListener('pos-register-changed', syncRegisterPinFromLs);
+    return () => window.removeEventListener('pos-register-changed', syncRegisterPinFromLs);
+  }, []);
+
+  useEffect(() => {
+    if (!currentShift) setCloseShiftModalOpen(false);
+  }, [currentShift]);
+
+  useEffect(() => {
+    if (currentShift) setShiftOpenModalOpen(false);
+  }, [currentShift]);
+
+  const submitOpenGateShift = useCallback(async () => {
+    if (!selectedRegisterId) {
+      notify('Chưa chọn quầy thanh toán.', 'error');
+      return;
+    }
     try {
-      localStorage.setItem('pos_hide_shift_card', hideShiftCard ? '1' : '0');
-    } catch {}
-  }, [hideShiftCard]);
+      setOpenShiftBusy(true);
+      const opening_cash = parseCurrencyInput(openShiftCash);
+      await openShift({ opening_cash, register_id: selectedRegisterId });
+      notify('Đã mở ca.', 'success');
+      setOpenShiftCash('');
+      await loadShift();
+    } catch (err) {
+      if (err?.code === 'SHIFT_ALREADY_OPEN') {
+        const openerName =
+          err?.payload?.open_shift?.opened_by?.fullName
+          || err?.payload?.open_shift?.opened_by?.email
+          || 'một tài khoản khác';
+        const openedAtRaw = err?.payload?.open_shift?.opened_at;
+        const openedAtText = openedAtRaw ? new Date(openedAtRaw).toLocaleString('vi-VN') : 'không xác định';
+        const deskName = err?.payload?.open_shift?.register_id?.name || '';
+        notify(
+          `${deskName ? `${deskName}: ` : ''}Ca đã được mở bởi ${openerName} lúc ${openedAtText}. Đóng ca trên quầy này trước khi mở lại, hoặc chọn quầy khác.`,
+          'error'
+        );
+      } else {
+        notify(err.message || 'Không thể mở ca', 'error');
+      }
+    } finally {
+      setOpenShiftBusy(false);
+    }
+  }, [selectedRegisterId, openShiftCash, notify, loadShift]);
 
   const filteredProducts = useMemo(() => {
     const term = searchTerm.toLowerCase().trim();
@@ -852,6 +948,10 @@ export default function POSContainer({
   };
 
   const handleAddProduct = (product, unitOverride = null) => {
+    if (isNew && !selectedRegisterId) {
+      notify('Đang tải quầy thanh toán hoặc chưa có quầy được chọn.', 'error');
+      return;
+    }
     if (isNew && !hasOpenShift) {
       notify('Bạn cần mở ca trước khi bán hàng.', 'error');
       return;
@@ -920,6 +1020,10 @@ export default function POSContainer({
   };
 
   const handleScanSubmit = async (rawCode) => {
+    if (isNew && !selectedRegisterId) {
+      notify('Đang tải quầy thanh toán hoặc chưa có quầy được chọn.', 'error');
+      return;
+    }
     if (isNew && !hasOpenShift) {
       notify('Bạn cần mở ca trước khi bán hàng.', 'error');
       return;
@@ -1137,6 +1241,85 @@ export default function POSContainer({
   );
   const loyaltyRedeemValue = loyaltyUsedPoints * loyaltyPointValue;
   const netItemsAmount = Math.max(0, totalAmount - loyaltyRedeemValue);
+
+  const taxPreviewKey = useMemo(
+    () =>
+      `${activeTabId}|${loyaltyRedeemValue}|${JSON.stringify(
+        (activeTab?.items || []).map((i) => [
+          i.product_id,
+          i.unit_id,
+          i.quantity,
+          i.line_total,
+          i.tax_category,
+          i.price_includes_tax,
+        ])
+      )}`,
+    [activeTabId, activeTab?.items, loyaltyRedeemValue]
+  );
+
+  useEffect(() => {
+    if (!isNew) {
+      setPosTaxPreview(null);
+      setPosTaxPreviewLoading(false);
+      setPosTaxPreviewErr(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+    const ac = new AbortController();
+    const timer = setTimeout(async () => {
+      if (!activeTab?.items?.length) {
+        setPosTaxPreview({
+          subtotal_amount: 0,
+          tax_amount: 0,
+          tax_rate_snapshot: 0,
+          tax_is_mixed: false,
+          tax_breakdown_by_category: [],
+        });
+        setPosTaxPreviewLoading(false);
+        setPosTaxPreviewErr(false);
+        return;
+      }
+
+      setPosTaxPreviewLoading(true);
+      setPosTaxPreviewErr(false);
+      try {
+        const data = await previewInvoiceTax(
+          {
+            items: activeTab.items.map((it) => ({
+              product_id: it.product_id,
+              line_total: it.line_total,
+              tax_category: it.tax_category,
+              price_includes_tax: it.price_includes_tax,
+              tax_override_reason: it.tax_override_reason,
+              quantity: it.quantity,
+            })),
+            invoice_level_discount: loyaltyRedeemValue,
+          },
+          { signal: ac.signal }
+        );
+        if (!cancelled) {
+          setPosTaxPreview(data);
+          setPosTaxPreviewErr(false);
+        }
+      } catch (e) {
+        if (e?.name === 'AbortError') return;
+        if (!cancelled) {
+          setPosTaxPreview(null);
+          setPosTaxPreviewErr(true);
+        }
+      } finally {
+        if (!cancelled) setPosTaxPreviewLoading(false);
+      }
+    }, 240);
+
+    return () => {
+      cancelled = true;
+      ac.abort();
+      clearTimeout(timer);
+    };
+  }, [isNew, taxPreviewKey, activeTab.items]);
+
   const loyaltyPredictedEarnPoints =
     loyaltySettings?.enabled &&
     earnSpendAmount > 0 &&
@@ -1190,10 +1373,48 @@ export default function POSContainer({
     [netItemsAmount, activeTab.payOldDebt, activeTab.customerData]
   );
 
-  const taxBreakdown = useMemo(
-    () => calcTaxBreakdown(totalWithDebt, storeTax.tax_rate, storeTax.price_includes_tax),
-    [totalWithDebt, storeTax]
+  const legacyTaxBreakdown = useMemo(
+    () => calcTaxBreakdown(netItemsAmount, storeTax.tax_rate, storeTax.price_includes_tax),
+    [netItemsAmount, storeTax]
   );
+
+  const taxPreviewOk = Boolean(isNew && hasItems && posTaxPreview && !posTaxPreviewErr);
+
+  const hasExciseInPreview =
+    (taxPreviewOk &&
+      Boolean(posTaxPreview.tax_breakdown_by_category?.some((e) => Number(e.excise_amount) > 0))) ||
+    activeTab.items.some((it) => Number(it.excise_rate || 0) > 0);
+
+  const previewShowSplit =
+    taxPreviewOk &&
+    ((Number(posTaxPreview.tax_amount) || 0) > 0 ||
+      Boolean(posTaxPreview.tax_is_mixed) ||
+      (posTaxPreview.tax_breakdown_by_category || []).length > 1 ||
+      hasExciseInPreview);
+
+  const legacyTaxSplit = !taxPreviewOk && storeTax.tax_rate > 0;
+  const summaryShowTaxSplit = previewShowSplit || legacyTaxSplit;
+
+  let posTaxPrimaryLabel = `VAT (${storeTax.tax_rate}%)`;
+  if (previewShowSplit) {
+    if (posTaxPreview.tax_is_mixed) posTaxPrimaryLabel = 'Thuế (ước tính)';
+    else if (hasExciseInPreview) posTaxPrimaryLabel = 'Thuế (VAT & TTĐB)';
+    else posTaxPrimaryLabel = `VAT (${Number(posTaxPreview.tax_rate_snapshot) || 0}%)`;
+  }
+
+  const summaryGoodsAmount = previewShowSplit
+    ? Number(posTaxPreview.subtotal_amount) || 0
+    : legacyTaxSplit
+      ? legacyTaxBreakdown.subtotal
+      : taxPreviewOk && !previewShowSplit
+        ? Number(posTaxPreview.subtotal_amount) || 0
+        : netItemsAmount;
+
+  const summaryTaxAmount = previewShowSplit
+    ? Number(posTaxPreview.tax_amount) || 0
+    : legacyTaxSplit
+      ? legacyTaxBreakdown.tax
+      : 0;
 
   const customerPaidNum = parseCurrencyInput(activeTab.customerPaid);
   const changeAmount = Math.max(0, customerPaidNum - totalWithDebt);
@@ -1201,20 +1422,61 @@ export default function POSContainer({
   const customerDebt = activeTab.customerData?.debt_account || 0;
   const isDebtBlocked = customerDebt >= 100000 && !activeTab.payOldDebt;
   const shiftOpenedBy = String(currentShift?.opened_by?._id || currentShift?.opened_by || '');
-  const canCloseShift = Boolean(
-    currentShift && (isManager || (currentUserId && shiftOpenedBy && currentUserId === shiftOpenedBy))
-  );
+  const isShiftOwner = Boolean(currentUserId && shiftOpenedBy && currentUserId === shiftOpenedBy);
+  const canCloseShift = Boolean(currentShift && (isShiftOwner || isManager));
   const hasOpenShift = Boolean(currentShift);
+  const shiftGateVisible = isNew && !currentShift && shiftOpenModalOpen;
   const canSubmit =
     !activeTab.saving &&
     activeTab.items.length > 0 &&
+    Boolean(selectedRegisterId) &&
     hasOpenShift &&
     !isDebtBlocked &&
     (activeTab.paymentMethod === 'debt' ||
       customerPaidNum >= totalWithDebt ||
       activeTab.paymentMethod === 'bank_transfer');
 
+  const activeRegisterLabel = useMemo(() => {
+    const fromShift = currentShift?.register_id?.name;
+    if (fromShift) return fromShift;
+    const r = (posRegisters || []).find((x) => String(x._id) === String(selectedRegisterId));
+    return r?.name?.trim() || 'Quầy';
+  }, [currentShift, posRegisters, selectedRegisterId]);
+
   const QUICK_PAID_VALUES = [10000, 20000, 50000, 100000, 200000, 500000];
+
+  const submitCloseShiftFromModal = useCallback(async () => {
+    if (!currentShift?._id) return;
+    const actual_cash = parseCurrencyInput(closeShiftCash);
+    if (actual_cash <= 0) {
+      notify('Vui lòng nhập tổng tiền mặt kiểm đếm trước khi đóng ca.', 'error');
+      return;
+    }
+    const openedBy = String(currentShift?.opened_by?._id || currentShift?.opened_by || '');
+    const shiftOwnerHere = Boolean(currentUserId && openedBy && currentUserId === openedBy);
+    const override_close = Boolean(isManager && !shiftOwnerHere);
+    try {
+      setCloseShiftSaving(true);
+      const closedShift = await closeShift(currentShift._id, { actual_cash, override_close });
+      const handover = Number(closedShift?.cash_to_handover || 0);
+      const keep = Number(closedShift?.cash_to_keep || 0);
+      const discrepancy = Number(closedShift?.discrepancy_cash || 0);
+      const targetFloat = Number(closedShift?.target_float_cash || 1000000);
+      notify(
+        `Đóng ca thành công. Bàn giao: ${formatMoney(handover)} | Để lại ca sau: ${formatMoney(keep)}${
+          keep < targetFloat ? ` | Thiếu quỹ để lại: ${formatMoney(targetFloat - keep)}` : ''
+        }${discrepancy !== 0 ? ` | Chênh lệch: ${formatMoney(discrepancy)}` : ''}`,
+        discrepancy !== 0 || keep < targetFloat ? 'warning' : 'success'
+      );
+      setCloseShiftCash('');
+      setCloseShiftModalOpen(false);
+      await loadShift();
+    } catch (err) {
+      notify(err.message || 'Không thể đóng ca', 'error');
+    } finally {
+      setCloseShiftSaving(false);
+    }
+  }, [closeShiftCash, currentShift, currentUserId, isManager, loadShift, notify]);
 
   const processCheckout = async () => {
     updateActiveTab({ saving: true, error: '', successMessage: '' });
@@ -1272,6 +1534,10 @@ export default function POSContainer({
         seller_role: staffRoleLabel,
       };
 
+      if (selectedRegisterId) {
+        payload.register_id = selectedRegisterId;
+      }
+
       if (!activeTab.invoiceId) {
         const { invoice: created, payment_ref, loyalty_summary } = await createInvoice({ ...payload, status: 'confirmed' });
 
@@ -1318,12 +1584,17 @@ export default function POSContainer({
         notify('Đã lưu thay đổi hóa đơn.', 'success');
       }
     } catch (e) {
-      if (e?.payload?.code === 'SHIFT_REQUIRED') {
-        notify('Bạn cần mở ca trước khi bán hàng.', 'error');
+      const code = e?.code || e?.payload?.code;
+      if (code === 'SHIFT_REQUIRED') {
+        notify('Bạn cần mở ca cho quầy đang chọn trước khi bán hàng.', 'error');
         await loadShift();
+      } else if (code === 'REGISTER_REQUIRED') {
+        notify(e.message || 'Vui lòng chọn quầy thanh toán và đồng bộ với ca đang mở.', 'error');
       }
       updateActiveTab({ error: e.message || 'Lỗi khi lưu hóa đơn', saving: false });
-      notify(e.message || 'Lỗi khi lưu hóa đơn', 'error');
+      if (!['SHIFT_REQUIRED', 'REGISTER_REQUIRED'].includes(code)) {
+        notify(e.message || 'Lỗi khi lưu hóa đơn', 'error');
+      }
     }
   };
 
@@ -1369,6 +1640,7 @@ export default function POSContainer({
           </div>
         )}
 
+        <div className="pos-toolbar-main-cluster">
         <div className="pos-toolbar-left">
           <div className="pos-search-dropdown-wrap" ref={searchWrapRef}>
             <input
@@ -1450,7 +1722,6 @@ export default function POSContainer({
           {scanMode && <span className="pos-scan-mode-tag">Đang quét mã</span>}
         </div>
 
-        {/* Tab bar */}
         <div className="pos-tabs pos-tabs-inline" ref={tabsListRef} role="tablist" aria-label="Danh sách hóa đơn đang mở">
           {tabs.map((tab) => (
             <div
@@ -1482,22 +1753,69 @@ export default function POSContainer({
             onClick={handleAddTab}
             aria-label="Thêm hóa đơn"
           >
-            <Plus className="h-4 w-4" strokeWidth={2.25} />
+            <Plus className="h-[18px] w-[18px]" strokeWidth={2.65} aria-hidden />
           </Button>
         </div>
+        </div>
+
+        {isNew && (
+          <div
+            className="pos-toolbar-shift-strip"
+            role="region"
+            aria-label={currentShift ? 'Ca đang mở' : 'Ca chưa mở'}
+          >
+            {!currentShift ? (
+              <>
+                <span className="pos-toolbar-shift-warn" title="Thanh toán cần mở ca; vẫn có thể tìm hàng và lên đơn">
+                  <i className="fa-solid fa-clock" aria-hidden />
+                  Ca chưa mở
+                </span>
+                <button type="button" className="pos-toolbar-shift-open-btn" onClick={() => setShiftOpenModalOpen(true)}>
+                  Mở ca
+                </button>
+              </>
+            ) : (
+              <>
+                <span className="pos-toolbar-shift-live" aria-hidden />
+                <span
+                  className="pos-toolbar-shift-ok"
+                  title={`${activeRegisterLabel} · Mở lúc ${new Date(currentShift.opened_at || currentShift.openedAt || Date.now()).toLocaleString('vi-VN')} · Đầu ca ${formatMoney(currentShift.opening_cash || 0)}`}
+                >
+                  <strong>Đang mở ca</strong>
+                  <span className="pos-toolbar-shift-sub">
+                    Đầu ca {formatMoney(currentShift.opening_cash || 0)}
+                  </span>
+                </span>
+                {canCloseShift && (
+                  <button
+                    type="button"
+                    className="pos-toolbar-shift-close-mini"
+                    onClick={() => setCloseShiftModalOpen(true)}
+                  >
+                    Đóng ca
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        )}
 
         {/* Seller badge */}
         {isNew && (
-          <div className="pos-toolbar-user-badge" aria-label="Thông tin cửa hàng và người bán">
+          <div
+            className="pos-toolbar-user-badge"
+            aria-label={selectedRegisterId ? `Quầy ${activeRegisterLabel}, ${staffDisplayName}` : `Người bán ${staffDisplayName}`}
+          >
             <span className="pos-toolbar-user-avatar" aria-hidden>
               <i className="fa-solid fa-user" />
             </span>
-            {storeName && (
-              <span className="pos-toolbar-store-chip">
-                <i className="fa-solid fa-store pos-toolbar-store-ico" aria-hidden />
-                {storeName}
-              </span>
-            )}
+            <span
+              className="pos-toolbar-register-chip pos-toolbar-store-chip"
+              title={storeName ? `Quầy gắn máy POS · cửa hàng: ${storeName}` : 'Quầy gắn máy POS'}
+            >
+              <i className="fa-solid fa-cash-register pos-toolbar-register-ico" aria-hidden />
+              {selectedRegisterId ? activeRegisterLabel : 'Chưa gán quầy'}
+            </span>
             <span className="pos-toolbar-staff-line">
               <span className="pos-toolbar-staff-name">{staffDisplayName}</span>
               <span className="pos-toolbar-staff-role"> ({staffRoleLabel})</span>
@@ -1653,146 +1971,6 @@ export default function POSContainer({
 
         {/* Right sidebar: summary + payment */}
         <div className="pos-right-sidebar">
-          {/* Shift */}
-          {isNew && (
-            <div className="pos-sidebar-panel" style={{ marginBottom: 12 }}>
-              <div className="pos-sidebar-panel-head pos-shift-head">
-                <span>Ca hiện tại</span>
-                <button
-                  type="button"
-                  className="pos-shift-toggle-btn"
-                  onClick={() => setHideShiftCard((v) => !v)}
-                >
-                  {hideShiftCard ? 'Hiện' : 'Ẩn'}
-                </button>
-              </div>
-              {!hideShiftCard && <div className="pos-sidebar-panel-body pos-sidebar-panel-body-pad">
-                {shiftLoading ? (
-                  <div style={{ fontSize: 12, color: '#64748b' }}>Đang tải ca...</div>
-                ) : currentShift ? (
-                  <div className="pos-shift-wrap">
-                    <div className="pos-shift-meta">
-                      <div className="pos-shift-status-line">
-                        Đang mở • {new Date(currentShift.opened_at || currentShift.openedAt || Date.now()).toLocaleString('vi-VN')}
-                      </div>
-                      <div className="pos-shift-opening-cash">
-                        Tiền đầu ca: <b>{formatMoney(currentShift.opening_cash || 0)}</b>
-                      </div>
-                    </div>
-                    {canCloseShift && (
-                      <>
-                        <div className="pos-shift-grid">
-                          <label className="pos-shift-field">
-                            <span>Tiền mặt kiểm đếm</span>
-                            <input
-                              type="text"
-                              inputMode="numeric"
-                              placeholder="Nhập tiền mặt thực tế"
-                              className="pos-shift-input"
-                              value={closeShiftCash}
-                              onChange={(e) => setCloseShiftCash(formatCurrencyInput(e.target.value))}
-                            />
-                          </label>
-                        </div>
-                        <div className="pos-shift-note">
-                          Hệ thống tự tính tiền bàn giao = Tiền kiểm đếm - Mức để lại chuẩn (mặc định 1.000.000đ).
-                        </div>
-                        <button
-                          type="button"
-                          className="pos-quick-paid-full"
-                          onClick={async () => {
-                            try {
-                              const actual_cash = parseCurrencyInput(closeShiftCash);
-                              if (actual_cash <= 0) {
-                                notify('Vui lòng nhập tổng tiền mặt kiểm đếm trước khi đóng ca.', 'error');
-                                return;
-                              }
-                              const closedShift = await closeShift(currentShift._id, { actual_cash });
-                              const handover = Number(closedShift?.cash_to_handover || 0);
-                              const keep = Number(closedShift?.cash_to_keep || 0);
-                              const discrepancy = Number(closedShift?.discrepancy_cash || 0);
-                              const targetFloat = Number(closedShift?.target_float_cash || 1000000);
-                              notify(
-                                `Đóng ca thành công. Bàn giao: ${formatMoney(handover)} | Để lại ca sau: ${formatMoney(keep)}${
-                                  keep < targetFloat ? ` | Thiếu quỹ để lại: ${formatMoney(targetFloat - keep)}` : ''
-                                }${
-                                  discrepancy !== 0 ? ` | Chênh lệch: ${formatMoney(discrepancy)}` : ''
-                                }`,
-                                discrepancy !== 0 || keep < targetFloat ? 'warning' : 'success'
-                              );
-                              setCloseShiftCash('');
-                              await loadShift();
-                            } catch (err) {
-                              notify(err.message || 'Không thể đóng ca', 'error');
-                            }
-                          }}
-                        >
-                          Đóng ca
-                        </button>
-                      </>
-                    )}
-                    {!canCloseShift && (
-                      <div className="pos-shift-warning">
-                        Bạn không thể đóng ca này vì không phải người mở ca.
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="pos-shift-wrap">
-                    <div className="pos-shift-empty-state">
-                      <div className="pos-shift-empty-icon" aria-hidden>
-                        <i className="fa-solid fa-lock" />
-                      </div>
-                      <div className="pos-shift-empty-content">
-                        <div className="pos-shift-empty-title">Chưa mở ca</div>
-                        <div className="pos-shift-empty-subtitle">
-                          Vui lòng mở ca để bắt đầu thêm sản phẩm và thanh toán.
-                        </div>
-                      </div>
-                    </div>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      placeholder="Tiền đầu ca (VD: 1.000.000)"
-                      className="pos-shift-input"
-                      value={openShiftCash}
-                      onChange={(e) => setOpenShiftCash(formatCurrencyInput(e.target.value))}
-                    />
-                    <button
-                      type="button"
-                      className="pos-quick-paid-full"
-                      onClick={async () => {
-                        try {
-                          const opening_cash = parseCurrencyInput(openShiftCash);
-                          await openShift({ opening_cash });
-                          notify('Đã mở ca.', 'success');
-                          setOpenShiftCash('');
-                          await loadShift();
-                        } catch (err) {
-                          if (err?.code === 'SHIFT_ALREADY_OPEN') {
-                            const openerName =
-                              err?.payload?.open_shift?.opened_by?.fullName
-                              || err?.payload?.open_shift?.opened_by?.email
-                              || 'một tài khoản khác';
-                            const openedAtRaw = err?.payload?.open_shift?.opened_at;
-                            const openedAtText = openedAtRaw
-                              ? new Date(openedAtRaw).toLocaleString('vi-VN')
-                              : 'không xác định';
-                            notify(`Ca đã được mở bởi ${openerName} lúc ${openedAtText}. Vui lòng đóng ca hiện tại trước khi mở ca mới.`, 'error');
-                          } else {
-                            notify(err.message || 'Không thể mở ca', 'error');
-                          }
-                        }
-                      }}
-                    >
-                      Mở ca
-                    </button>
-                  </div>
-                )}
-              </div>}
-            </div>
-          )}
-
           {/* Customer */}
           <div className="pos-customer-section">
             <div className="pos-sidebar-panel pos-sidebar-panel--customer">
@@ -1845,6 +2023,11 @@ export default function POSContainer({
                           activeTab.customerId
                             ? activeTab.customerData?.full_name
                             : 'Khách lẻ (mặc định) (Tên/SĐT)'
+                        }
+                        title={
+                          loyaltySettings?.enabled && !activeTab.customerId
+                            ? 'Tùy chọn: chọn khách có tài khoản để được tích điểm khi có chương trình loyalty.'
+                            : undefined
                         }
                         className="pos-search-input"
                         value={
@@ -1915,11 +2098,6 @@ export default function POSContainer({
                         ))}
                       </div>
                     )}
-                    {!activeTab.customerId && loyaltySettings.enabled && (
-                      <div style={{ marginTop: 8, fontSize: 12, color: '#64748b' }}>
-                        Chọn khách hàng để hóa đơn được tích điểm.
-                      </div>
-                    )}
                     {activeTab.customerId && loyaltySettings.enabled && (
                       <div style={{ marginTop: 8, border: '1px solid #e2e8f0', borderRadius: 8, padding: 8, background: '#f8fafc' }}>
                         <div style={{ fontSize: 12, color: '#334155', marginBottom: 6 }}>
@@ -1964,50 +2142,79 @@ export default function POSContainer({
           {/* Summary + Payment */}
           <div className="pos-summary-section" ref={summaryScrollRef}>
             <div className="pos-sidebar-panel pos-summary-panel">
-              <div className="pos-sidebar-panel-head pos-sidebar-panel-head-cols">
-                <span>Khoản mục</span>
-                <span>Giá trị</span>
-              </div>
-              <div className="pos-summary-panel-lines">
-                {storeTax.tax_rate > 0 ? (
-                  <>
+              <div className="pos-checkout-summary-bundle">
+                <div className="pos-checkout-summary-bundle-head">Tổng đơn</div>
+                <div className="pos-summary-panel-lines pos-checkout-summary-lines">
+                  {summaryShowTaxSplit ? (
+                    <>
+                      <div className="pos-summary-line">
+                        <span>Tiền hàng</span>
+                        <span className="pos-summary-amount">
+                          {formatMoney(summaryGoodsAmount)}
+                          {posTaxPreviewLoading ? (
+                            <span className="pos-tax-preview-spinner" aria-hidden>
+                              {' '}
+                              …
+                            </span>
+                          ) : null}
+                        </span>
+                      </div>
+                      <div className="pos-summary-line">
+                        <span className="pos-summary-inline-label">
+                          {posTaxPrimaryLabel}
+                          <button
+                            type="button"
+                            className="pos-tax-info-tip"
+                            title={
+                              previewShowSplit
+                                ? 'Tách thuế theo cùng engine với khi xuất hóa đơn (theo nhóm/chính sách cửa hàng).'
+                                : 'Đang dùng tạm tính theo mức VAT cấu hình cửa hàng. Kết nối xem trước không khả dụng thì chỉ có giá trị này.'
+                            }
+                            aria-label="Ghi chú về thuế tại POS"
+                          >
+                            <i className="fa-regular fa-circle-question" aria-hidden />
+                          </button>
+                        </span>
+                        <span className="pos-summary-amount pos-summary-amount-muted">
+                          {formatMoney(summaryTaxAmount)}
+                        </span>
+                      </div>
+                    </>
+                  ) : (
                     <div className="pos-summary-line">
-                      <span>Tạm tính</span>
-                      <span className="pos-summary-amount">{formatMoney(taxBreakdown.subtotal)}</span>
+                      <span>Tổng tiền hàng</span>
+                      <span className="pos-summary-amount">{formatMoney(summaryGoodsAmount)}</span>
                     </div>
+                  )}
+                  {posTaxPreviewErr && isNew && hasItems && (
+                    <div className="pos-summary-line pos-summary-line--wrap">
+                      <span style={{ fontSize: 12, color: '#b45309' }}>
+                        Không tải xem trước thuế; đang hiển thị tạm tính theo cấu hình cửa hàng.
+                      </span>
+                    </div>
+                  )}
+                  {loyaltyRedeemValue > 0 && !taxPreviewOk && (
                     <div className="pos-summary-line">
-                      <span>VAT ({storeTax.tax_rate}%)</span>
-                      <span className="pos-summary-amount" style={{ color: '#64748b' }}>{formatMoney(taxBreakdown.tax)}</span>
+                      <span>Giảm từ điểm</span>
+                      <span className="pos-summary-amount" style={{ color: '#0f766e' }}>- {formatMoney(loyaltyRedeemValue)}</span>
                     </div>
-                  </>
-                ) : (
-                  <div className="pos-summary-line">
-                    <span>Tổng tiền hàng</span>
-                    <span className="pos-summary-amount">{formatMoney(totalAmount)}</span>
-                  </div>
-                )}
-                {loyaltyRedeemValue > 0 && (
-                  <div className="pos-summary-line">
-                    <span>Giảm từ điểm</span>
-                    <span className="pos-summary-amount" style={{ color: '#0f766e' }}>- {formatMoney(loyaltyRedeemValue)}</span>
-                  </div>
-                )}
-                {activeTab.items.some((it) => Number(it.excise_rate || 0) > 0 || /BEER|ALCOHOL|TOBACCO|VAT_EXCISE/i.test(String(it.tax_category || ''))) && (
-                  <div className="pos-summary-line">
-                    <span style={{ fontSize: 12, color: '#92400e' }}>
-                      Có mặt hàng chịu TTĐB, hệ thống sẽ tính TTĐB trước rồi mới tính VAT.
-                    </span>
-                  </div>
-                )}
-                <div className="pos-summary-line">
-                  <span style={{ fontSize: 12, color: '#64748b' }}>
-                    Thuế hiển thị tại POS là tạm tính, hóa đơn sẽ chốt theo policy hiệu lực tại thời điểm xuất.
-                  </span>
+                  )}
+                  {activeTab.items.some(
+                    (it) =>
+                      Number(it.excise_rate || 0) > 0
+                      || /BEER|ALCOHOL|TOBACCO|VAT_EXCISE/i.test(String(it.tax_category || ''))
+                  ) && (
+                    <div className="pos-summary-line pos-summary-line--wrap">
+                      <span style={{ fontSize: 12, color: '#92400e' }}>
+                        Có mặt hàng chịu TTĐB, hệ thống sẽ tính TTĐB trước rồi mới tính VAT.
+                      </span>
+                    </div>
+                  )}
                 </div>
-              </div>
-              <div className="pos-total-banner">
-                <span>{activeTab.payOldDebt ? 'Tổng thanh toán (+Nợ)' : 'Khách cần trả'}</span>
-                <span className="pos-total-amount">{formatMoney(totalWithDebt)}</span>
+                <div className="pos-total-banner">
+                  <span>{activeTab.payOldDebt ? 'Tổng thanh toán (+Nợ)' : 'Tổng'}</span>
+                  <span className="pos-total-amount">{formatMoney(totalWithDebt)}</span>
+                </div>
               </div>
             </div>
 
@@ -2265,16 +2472,8 @@ export default function POSContainer({
                   Chọn "Trả luôn" để mở khóa thanh toán
                 </div>
               )}
-              {!hasOpenShift && (
-                <div
-                  style={{ marginBottom: 8, fontSize: 12, color: '#dc2626', textAlign: 'center', fontWeight: 600 }}
-                >
-                  <i className="fa-solid fa-lock" style={{ marginRight: 4 }} />
-                  Bắt buộc mở ca trước khi thanh toán hóa đơn.
-                </div>
-              )}
               <button
-                className="pos-pay-button"
+                className={`pos-pay-button${canSubmit ? ' pos-pay-button--ready' : ''}`}
                 onClick={handleSubmit}
                 disabled={!canSubmit}
                 title={
@@ -2291,6 +2490,149 @@ export default function POSContainer({
           </div>
         </div>
       </div>
+
+      {shiftGateVisible && (
+        <div
+          className="pos-shift-gate-overlay"
+          role="presentation"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget && !openShiftBusy) setShiftOpenModalOpen(false);
+          }}
+        >
+          <div
+            className="pos-shift-gate-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="pos-shift-gate-title"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="pos-shift-gate-dialog-head">
+              <div className="pos-shift-gate-icon" aria-hidden>
+                <i className="fa-solid fa-store" />
+              </div>
+              <div className="pos-shift-gate-head-text">
+                <h2 id="pos-shift-gate-title" className="pos-shift-gate-title">
+                  Mở ca để bán hàng
+                </h2>
+                <p className="pos-shift-gate-subtitle">
+                  Quầy bán được gắn với máy/trình duyệt này (xem Cài đặt cửa hàng khi có nhiều quầy). Mỗi quầy một ca và
+                  một quỹ riêng — chỉ nhập tiền mặt đầu ca.
+                </p>
+              </div>
+            </div>
+            {shiftLoading ? (
+              <p className="pos-shift-gate-loading">Đang kiểm tra ca trên quầy đã chọn…</p>
+            ) : (posRegisters || []).length === 0 ? (
+              <p className="pos-shift-gate-error">Chưa có quầy thanh toán. Liên hệ quản lý để được cấu hình.</p>
+            ) : !selectedRegisterId ? (
+              <p className="pos-shift-gate-error">
+                Chưa gắn quầy cho máy này. Liên quản lý vào{' '}
+                <strong>Cài đặt cửa hàng → Điểm bán POS trên máy này</strong>.
+              </p>
+            ) : (
+              <>
+                <div className="pos-shift-gate-register-chip" role="note">
+                  <span className="pos-shift-gate-register-chip-label">Quầy trên máy này</span>
+                  <strong className="pos-shift-gate-register-chip-value">{activeRegisterLabel}</strong>
+                  {(posRegisters || []).length > 1 ? (
+                    <span className="pos-shift-gate-register-chip-hint">
+                      Nếu sai quầy, quản lý chỉnh tại “Cài đặt cửa hàng”.
+                    </span>
+                  ) : null}
+                </div>
+                <label className="pos-shift-field pos-shift-field--gate">
+                  <span>Tiền đầu ca</span>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="Ví dụ: 1.000.000"
+                    className="pos-shift-input"
+                    value={openShiftCash}
+                    onChange={(e) => setOpenShiftCash(formatCurrencyInput(e.target.value))}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="pos-shift-gate-primary"
+                  disabled={!selectedRegisterId || openShiftBusy}
+                  onClick={() => submitOpenGateShift()}
+                >
+                  {openShiftBusy ? 'Đang mở ca…' : 'Mở ca và vào quầy'}
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {closeShiftModalOpen && currentShift && (
+        <div
+          className="pos-shift-gate-overlay pos-shift-close-dialog-backdrop"
+          role="presentation"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget && !closeShiftSaving) setCloseShiftModalOpen(false);
+          }}
+        >
+          <div className="pos-shift-gate-dialog" role="dialog" aria-modal="true" aria-labelledby="pos-shift-close-title">
+            <div className="pos-shift-gate-dialog-head">
+              <div className="pos-shift-gate-icon pos-shift-gate-icon--close" aria-hidden>
+                <i className="fa-solid fa-lock-open" />
+              </div>
+              <div className="pos-shift-gate-head-text">
+                <h2 id="pos-shift-close-title" className="pos-shift-gate-title">
+                  Đóng ca
+                </h2>
+                <p className="pos-shift-gate-subtitle">
+                  {(currentShift.register_id?.name || activeRegisterLabel) && (
+                    <>
+                      Quầy <strong>{currentShift.register_id?.name || activeRegisterLabel}</strong>
+                      {' · '}
+                    </>
+                  )}
+                  Đầu ca {formatMoney(currentShift.opening_cash || 0)}
+                </p>
+              </div>
+            </div>
+            {isManager && !isShiftOwner && (
+              <div className="pos-shift-note pos-shift-note--compact">
+                Bạn đang đóng ca thay nhân viên đã mở ca. Thao tác này được ghi nhận trong hệ thống.
+              </div>
+            )}
+            <label className="pos-shift-field pos-shift-field--gate">
+              <span>Tiền mặt kiểm đếm (thực tế trong ngăn kéo)</span>
+              <input
+                type="text"
+                inputMode="numeric"
+                placeholder="Nhập tổng tiền mặt kiểm đếm"
+                className="pos-shift-input"
+                value={closeShiftCash}
+                onChange={(e) => setCloseShiftCash(formatCurrencyInput(e.target.value))}
+              />
+            </label>
+            <p className="pos-shift-close-hint">
+              Tiền bàn giao = Kiểm đếm − mức để lại chuẩn (thường 1.000.000đ). Hệ thống báo chi tiết sau khi đóng.
+            </p>
+            <div className="pos-shift-close-actions">
+              <button
+                type="button"
+                className="pos-shift-close-cancel"
+                disabled={closeShiftSaving}
+                onClick={() => setCloseShiftModalOpen(false)}
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                className="pos-shift-gate-primary"
+                disabled={closeShiftSaving}
+                onClick={() => submitCloseShiftFromModal()}
+              >
+                {closeShiftSaving ? 'Đang xử lý…' : 'Xác nhận đóng ca'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <PaymentWaitModal
         pendingPayment={pendingPayment}

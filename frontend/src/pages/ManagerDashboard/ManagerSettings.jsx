@@ -2,7 +2,20 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
-import { FolderTree, Settings, UsersRound, Bell, UserPlus, Receipt, Percent, Store, Building2, Info, Gift } from 'lucide-react';
+import {
+  FolderTree,
+  Settings,
+  UsersRound,
+  Bell,
+  UserPlus,
+  Receipt,
+  Percent,
+  Store,
+  Building2,
+  Info,
+  Gift,
+  MonitorSmartphone,
+} from 'lucide-react';
 import {
   getStoreTaxSettings,
   updateStoreTaxSettings,
@@ -15,7 +28,11 @@ import {
   getStoreLegalSettings,
   updateStoreLegalSettings,
 } from '../../services/adminApi';
+import { getPosRegisters } from '../../services/posRegistersApi';
 import { useToast } from '../../contexts/ToastContext';
+
+/** Đồng bộ với POSContainer.jsx — quầy gắn với máy/trình duyệt này. */
+const POS_REGISTER_LS_KEY = 'pos_register_id';
 
 const linkClass =
   'flex items-center justify-between gap-3 rounded-xl border border-slate-200/80 bg-white px-4 py-3 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-teal-200 hover:bg-teal-50/40';
@@ -88,6 +105,10 @@ export default function ManagerSettings() {
   const [legalMsg, setLegalMsg] = useState({ type: '', text: '' });
   const [legalLoaded, setLegalLoaded] = useState(false);
   const legalStatusToastRef = useRef('');
+  const [posRegistersSettings, setPosRegistersSettings] = useState([]);
+  const [posRegistersSettingsLoading, setPosRegistersSettingsLoading] = useState(true);
+  const [posMachineRegisterId, setPosMachineRegisterId] = useState('');
+  const [posRegisterSettingsMsg, setPosRegisterSettingsMsg] = useState({ type: '', text: '' });
 
   useEffect(() => {
     getStoreTaxSettings()
@@ -328,6 +349,55 @@ export default function ManagerSettings() {
       toast('Hồ sơ đã đầy đủ. Vui lòng đợi admin phê duyệt.', 'info');
     }
   }, [legalConfig.approval_status, legalConfig.rejection_reason, legalRequiredMissing, legalLoaded, toast]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setPosRegistersSettingsLoading(true);
+      try {
+        const list = await getPosRegisters();
+        if (!cancelled) setPosRegistersSettings(Array.isArray(list) ? list : []);
+      } catch {
+        if (!cancelled) setPosRegistersSettings([]);
+      } finally {
+        if (!cancelled) setPosRegistersSettingsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (posRegistersSettingsLoading || posRegistersSettings.length === 0) return;
+    try {
+      const pinned = localStorage.getItem(POS_REGISTER_LS_KEY) || '';
+      const ids = posRegistersSettings.map((r) => String(r._id));
+      const next = pinned && ids.includes(pinned) ? pinned : String(posRegistersSettings[0]._id || '');
+      setPosMachineRegisterId(next);
+    } catch {
+      setPosMachineRegisterId(String(posRegistersSettings[0]._id || ''));
+    }
+  }, [posRegistersSettingsLoading, posRegistersSettings]);
+
+  const handleSavePosMachineRegister = () => {
+    setPosRegisterSettingsMsg({ type: '', text: '' });
+    if (!posMachineRegisterId) {
+      toast('Chọn quầy cho máy này.', 'error');
+      return;
+    }
+    try {
+      localStorage.setItem(POS_REGISTER_LS_KEY, posMachineRegisterId);
+      window.dispatchEvent(new CustomEvent('pos-register-changed'));
+      setPosRegisterSettingsMsg({
+        type: 'success',
+        text: 'Đã ghi nhận. Tab POS đang mở sẽ nhận quầy vừa chọn.',
+      });
+      toast('Đã áp dụng quầy POS cho máy/trình duyệt này.', 'success');
+    } catch {
+      toast('Không ghi được dữ liệu trình duyệt.', 'error');
+    }
+  };
 
   return (
     <ManagerPageFrame showNotificationBell>
@@ -831,6 +901,65 @@ export default function ManagerSettings() {
               </div>
             )}
           </div>
+        </div>
+
+        {/* ── POS: quầy gắn với máy / trình duyệt này ── */}
+        <div className="mb-6 rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm sm:p-6">
+          <div className="mb-3 flex items-center gap-2">
+            <MonitorSmartphone className="h-5 w-5 text-teal-600" aria-hidden />
+            <h3 className="text-base font-bold text-slate-800">Điểm bán POS trên máy này</h3>
+          </div>
+          <p className="mb-4 text-xs leading-relaxed text-slate-600">
+            Mỗi màn hình làm việc gắn với một quầy. Nhân viên chỉ nhập{' '}
+            <strong className="text-slate-800">tiền đầu ca</strong> — không phải chọn quầy mỗi lần. Nếu cửa hàng có nhiều quầy, chỉ
+            định quầy cho trình duyệt này một lần tại đây (lưu trên trình duyệt của máy, không đổi theo đăng nhập).
+          </p>
+          {posRegistersSettingsLoading ? (
+            <p className="text-sm text-slate-500">Đang tải danh sách quầy...</p>
+          ) : posRegistersSettings.length === 0 ? (
+            <p className="text-sm text-amber-800">Chưa có quầy thanh toán. Liên admin để khởi tạo quầy trong hệ thống.</p>
+          ) : posRegistersSettings.length === 1 ? (
+            <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
+              <p className="text-sm text-slate-700">
+                Cửa hàng đang có một quầy:{' '}
+                <strong>{posRegistersSettings[0].name?.trim() || `Quầy ${posRegistersSettings[0]._id}`}</strong>. POS sẽ tự gắn
+                quầy này.
+              </p>
+            </div>
+          ) : (
+            <>
+              <label className="mb-3 block">
+                <span className="mb-1 block text-xs font-semibold text-slate-600">Quầy dùng trên máy / trình duyệt này</span>
+                <select
+                  className="w-full max-w-md rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-800 shadow-sm outline-none ring-teal-500/0 transition focus:border-teal-400 focus:ring-2 focus:ring-teal-500/20"
+                  value={posMachineRegisterId}
+                  onChange={(e) => setPosMachineRegisterId(e.target.value)}
+                >
+                  {posRegistersSettings.map((r) => (
+                    <option key={String(r._id)} value={String(r._id)}>
+                      {r.name?.trim() || `Quầy ${r._id}`}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                onClick={handleSavePosMachineRegister}
+                className="rounded-xl bg-teal-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700"
+              >
+                Lưu quầy cho máy này
+              </button>
+              {posRegisterSettingsMsg.text && (
+                <p
+                  className={`mt-2 text-sm font-medium ${
+                    posRegisterSettingsMsg.type === 'success' ? 'text-emerald-700' : 'text-red-600'
+                  }`}
+                >
+                  {posRegisterSettingsMsg.text}
+                </p>
+              )}
+            </>
+          )}
         </div>
 
         {/* ── Truy cập nhanh ── */}
