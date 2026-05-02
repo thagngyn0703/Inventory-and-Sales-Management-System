@@ -34,6 +34,7 @@ const supportTicketRoutes = require('./routes/supportTickets');
 const backupRoutes = require('./routes/backup');
 const storeSettingsRoutes = require('./routes/storeSettings');
 const customerNotifyRoutes = require('./routes/customerNotify');
+const shiftRoutes = require('./routes/shifts');
 const { startBackupScheduler } = require('./services/backupScheduler');
 const { hasSmtpConfig } = require('./services/emailService');
 
@@ -162,6 +163,7 @@ app.use('/api/support-tickets', supportTicketRoutes);
 app.use('/api/backup', backupRoutes);
 app.use('/api/store-settings', storeSettingsRoutes);
 app.use('/api/customer-notify', customerNotifyRoutes);
+app.use('/api/shifts', shiftRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

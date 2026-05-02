@@ -19,6 +19,12 @@ export function validateNoSpecialText(value, label, { required = false } = {}) {
     return { ok: true, value: trimmed };
 }
 
+export function validateRequiredText(value, label) {
+    const trimmed = trimString(value);
+    if (!trimmed) return { ok: false, message: `${label} không được để trống.` };
+    return { ok: true, value: trimmed };
+}
+
 export function validateSku(value) {
     const trimmed = trimString(value);
     if (!trimmed) return { ok: false, message: 'SKU không được để trống.' };

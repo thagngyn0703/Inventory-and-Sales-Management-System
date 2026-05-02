@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
@@ -11,7 +11,10 @@ import {
   getStoreLoyaltySettings,
   updateStoreLoyaltySettings,
   getStoreLoyaltySettingsHistory,
+  getStoreLegalSettings,
+  updateStoreLegalSettings,
 } from '../../services/adminApi';
+import { useToast } from '../../contexts/ToastContext';
 
 const linkClass =
   'flex items-center justify-between gap-3 rounded-xl border border-slate-200/80 bg-white px-4 py-3 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-teal-200 hover:bg-teal-50/40';
@@ -35,6 +38,7 @@ function calcPreview(amount, taxRate, priceIncludes) {
 }
 
 export default function ManagerSettings() {
+  const { toast } = useToast();
   const [config, setConfig] = useState({
     business_type: 'ho_kinh_doanh',
     tax_rate: 0,
@@ -64,6 +68,21 @@ export default function ManagerSettings() {
   const [loyaltyHistory, setLoyaltyHistory] = useState([]);
   const [savingLoyalty, setSavingLoyalty] = useState(false);
   const [loyaltyMsg, setLoyaltyMsg] = useState({ type: '', text: '' });
+  const [legalConfig, setLegalConfig] = useState({
+    tax_code: '',
+    legal_representative: '',
+    business_license_number: '',
+    bank_name: '',
+    bank_account_number: '',
+    billing_email: '',
+    approval_status: 'draft_profile',
+    legal_profile_completed: false,
+    rejection_reason: '',
+  });
+  const [savingLegal, setSavingLegal] = useState(false);
+  const [legalMsg, setLegalMsg] = useState({ type: '', text: '' });
+  const [legalLoaded, setLegalLoaded] = useState(false);
+  const legalStatusToastRef = useRef('');
 
   useEffect(() => {
     getStoreTaxSettings()
@@ -107,6 +126,23 @@ export default function ManagerSettings() {
     getStoreLoyaltySettingsHistory(10)
       .then((data) => setLoyaltyHistory(data.history || []))
       .catch(() => {});
+
+    getStoreLegalSettings()
+      .then((data) =>
+        setLegalConfig({
+          tax_code: data.tax_code || '',
+          legal_representative: data.legal_representative || '',
+          business_license_number: data.business_license_number || '',
+          bank_name: data.bank_name || '',
+          bank_account_number: data.bank_account_number || '',
+          billing_email: data.billing_email || '',
+          approval_status: data.approval_status || 'draft_profile',
+          legal_profile_completed: Boolean(data.legal_profile_completed),
+          rejection_reason: data.rejection_reason || '',
+        })
+      )
+      .catch(() => {})
+      .finally(() => setLegalLoaded(true));
   }, []);
 
   const handleSave = async () => {
@@ -174,8 +210,79 @@ export default function ManagerSettings() {
     }
   };
 
+  const handleSaveLegal = async () => {
+    setSavingLegal(true);
+    setLegalMsg({ type: '', text: '' });
+    try {
+      const payload = {
+        tax_code: (legalConfig.tax_code || '').trim(),
+        legal_representative: (legalConfig.legal_representative || '').trim(),
+        business_license_number: (legalConfig.business_license_number || '').trim(),
+        bank_name: (legalConfig.bank_name || '').trim(),
+        bank_account_number: (legalConfig.bank_account_number || '').trim(),
+      };
+      const res = await updateStoreLegalSettings(payload);
+      setLegalConfig((prev) => ({
+        ...prev,
+        tax_code: res.tax_code || '',
+        legal_representative: res.legal_representative || '',
+        business_license_number: res.business_license_number || '',
+        bank_name: res.bank_name || '',
+        bank_account_number: res.bank_account_number || '',
+        billing_email: res.billing_email || prev.billing_email || '',
+        approval_status: res.approval_status || prev.approval_status,
+        legal_profile_completed: Boolean(res.legal_profile_completed),
+        rejection_reason: res.rejection_reason || '',
+      }));
+      setLegalMsg({ type: 'success', text: 'Đã cập nhật hồ sơ pháp lý.' });
+    } catch (err) {
+      setLegalMsg({ type: 'error', text: err.message || 'Lỗi khi cập nhật hồ sơ pháp lý.' });
+    } finally {
+      setSavingLegal(false);
+    }
+  };
+
   const isHKD = config.business_type === 'ho_kinh_doanh';
   const preview = calcPreview(100000, config.tax_rate, config.price_includes_tax);
+  const approvalLabelMap = {
+    draft_profile: 'Chưa hoàn thiện hồ sơ',
+    pending_approval: 'Chờ duyệt',
+    approved: 'Đã duyệt',
+    rejected: 'Từ chối',
+    suspended: 'Tạm ngưng',
+  };
+  const approvalLabel = approvalLabelMap[legalConfig.approval_status] || legalConfig.approval_status || 'Chờ duyệt';
+  const legalRequiredMissing = !legalConfig.legal_profile_completed;
+
+  useEffect(() => {
+    if (!legalLoaded) return;
+    const approvalStatus = String(legalConfig.approval_status || '');
+    const rejectionReason = String(legalConfig.rejection_reason || '').trim();
+    const toastKey = `${approvalStatus}|${legalRequiredMissing}|${rejectionReason}`;
+    if (legalStatusToastRef.current === toastKey) return;
+    legalStatusToastRef.current = toastKey;
+
+    if (approvalStatus === 'rejected') {
+      toast(
+        rejectionReason
+          ? `Hồ sơ bị từ chối: ${rejectionReason}`
+          : 'Vui lòng xem lại thông tin pháp lý để điền chính xác.',
+        'error'
+      );
+      return;
+    }
+    if (approvalStatus === 'suspended') {
+      toast('Hồ sơ đang tạm ngưng. Vui lòng liên hệ admin để được hỗ trợ.', 'error');
+      return;
+    }
+    if (approvalStatus === 'draft_profile' || (approvalStatus === 'pending_approval' && legalRequiredMissing)) {
+      toast('Vui lòng điền hồ sơ pháp lý cho cửa hàng để gửi duyệt.', 'info');
+      return;
+    }
+    if (approvalStatus === 'pending_approval') {
+      toast('Hồ sơ đã đầy đủ. Vui lòng đợi admin phê duyệt.', 'info');
+    }
+  }, [legalConfig.approval_status, legalConfig.rejection_reason, legalRequiredMissing, legalLoaded, toast]);
 
   return (
     <ManagerPageFrame showNotificationBell>
@@ -405,6 +512,77 @@ export default function ManagerSettings() {
               </button>
             </div>
           )}
+        </div>
+
+        <div className="mb-6 rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm sm:p-6">
+          <div className="mb-5 flex items-center gap-2">
+            <Building2 className="h-5 w-5 text-teal-600" aria-hidden />
+            <h3 className="text-base font-bold text-slate-800">Hồ sơ pháp lý cửa hàng</h3>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-500">Mã số thuế</label>
+              <input
+                type="text"
+                value={legalConfig.tax_code}
+                onChange={(e) => setLegalConfig((prev) => ({ ...prev, tax_code: e.target.value }))}
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-teal-400 focus:ring-2 focus:ring-teal-100"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-500">Số tài khoản ngân hàng</label>
+              <input
+                type="text"
+                value={legalConfig.bank_account_number}
+                onChange={(e) => setLegalConfig((prev) => ({ ...prev, bank_account_number: e.target.value }))}
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-teal-400 focus:ring-2 focus:ring-teal-100"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-500">Người đại diện pháp luật</label>
+              <input
+                type="text"
+                value={legalConfig.legal_representative}
+                onChange={(e) => setLegalConfig((prev) => ({ ...prev, legal_representative: e.target.value }))}
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-teal-400 focus:ring-2 focus:ring-teal-100"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-500">Số giấy phép kinh doanh</label>
+              <input
+                type="text"
+                value={legalConfig.business_license_number}
+                onChange={(e) => setLegalConfig((prev) => ({ ...prev, business_license_number: e.target.value }))}
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-teal-400 focus:ring-2 focus:ring-teal-100"
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="mb-1 block text-xs font-medium text-slate-500">Email xuất hóa đơn (tự động)</label>
+              <input
+                type="email"
+                value={legalConfig.billing_email}
+                disabled
+                className="w-full rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-600"
+              />
+            </div>
+          </div>
+          <p className="mt-3 text-xs text-slate-500">
+            Trạng thái duyệt hồ sơ: <strong>{approvalLabel}</strong>
+            {legalConfig.rejection_reason ? ` - Lý do từ chối: ${legalConfig.rejection_reason}` : ''}
+          </p>
+          {legalMsg.text && (
+            <p className={`mt-2 text-sm font-medium ${legalMsg.type === 'success' ? 'text-emerald-700' : 'text-red-600'}`}>
+              {legalMsg.text}
+            </p>
+          )}
+          <button
+            type="button"
+            onClick={handleSaveLegal}
+            disabled={savingLegal}
+            className="mt-3 rounded-xl bg-teal-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700 disabled:opacity-60"
+          >
+            {savingLegal ? 'Đang lưu...' : 'Lưu hồ sơ pháp lý'}
+          </button>
         </div>
 
         <div className="mb-6 rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm sm:p-6">

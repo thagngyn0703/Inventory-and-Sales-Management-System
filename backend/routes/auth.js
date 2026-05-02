@@ -19,6 +19,24 @@ function generateVerificationToken() {
     return crypto.randomInt(100000, 999999).toString();
 }
 
+function normalizeStoreApprovalStatus(raw) {
+    const s = String(raw || '').toLowerCase();
+    if (['draft_profile', 'pending_approval', 'approved', 'rejected', 'suspended'].includes(s)) return s;
+    return 'draft_profile';
+}
+
+function pickStoreLegalPayload(body = {}) {
+    return {
+        tax_code: String(body.tax_code || '').trim(),
+        legal_representative: String(body.legal_representative || '').trim(),
+        bank_name: String(body.bank_name || '').trim(),
+        bank_account_number: String(body.bank_account_number || '').trim(),
+        business_license_number: String(body.business_license_number || '').trim(),
+        business_license_file: String(body.business_license_file || '').trim(),
+        billing_email: String(body.billing_email || '').trim().toLowerCase(),
+    };
+}
+
 // GET /api/auth/check-create-staff — kiểm tra backend có route create-staff
 router.get('/check-create-staff', (req, res) => {
     res.json({ createStaffSupported: true });
@@ -251,13 +269,72 @@ router.post('/register-store', requireAuth, requireRole(['manager'], { allowMana
         if (!name || !name.trim()) {
             return res.status(400).json({ message: 'Vui lòng nhập tên cửa hàng' });
         }
+        if (!address || !String(address).trim() || !phone || !String(phone).trim()) {
+            return res.status(400).json({
+                message: 'Vui lòng nhập đủ 3 trường: tên cửa hàng, địa chỉ, số điện thoại.',
+            });
+        }
 
         const manager = await User.findById(req.user.id);
         if (!manager) {
             return res.status(401).json({ message: 'Unauthorized' });
         }
         if (manager.storeId) {
-            return res.status(400).json({ message: 'Tài khoản đã có cửa hàng.' });
+            const existingStore = await Store.findById(manager.storeId);
+            if (!existingStore) {
+                manager.storeId = null;
+                await manager.save();
+            } else {
+                const existingApproval = normalizeStoreApprovalStatus(existingStore.approval_status);
+                if (existingApproval === 'approved') {
+                    return res.status(400).json({ message: 'Tài khoản đã có cửa hàng đã duyệt.' });
+                }
+                if (existingApproval === 'suspended') {
+                    return res.status(403).json({
+                        message: 'Hồ sơ cửa hàng đang bị tạm ngưng. Vui lòng liên hệ admin để được hỗ trợ.',
+                    });
+                }
+
+                existingStore.name = name.trim();
+                existingStore.address = (address || '').trim();
+                existingStore.phone = (phone || '').trim();
+                // Hồ sơ pháp lý được bổ sung trong Manager Settings sau bước đăng ký nhanh.
+                existingStore.billing_email = String(manager.email || '').trim().toLowerCase();
+                existingStore.approval_status = 'pending_approval';
+                if (!existingStore.tax_code || !existingStore.bank_account_number || !existingStore.legal_representative || !existingStore.business_license_number) {
+                    existingStore.approval_status = 'draft_profile';
+                }
+                existingStore.rejection_reason = '';
+                existingStore.approved_by = null;
+                existingStore.approved_at = null;
+                await existingStore.save();
+
+                return res.status(200).json({
+                    message: 'Đã cập nhật hồ sơ cửa hàng và gửi lại yêu cầu phê duyệt.',
+                    store: {
+                        id: existingStore._id,
+                        name: existingStore.name,
+                        address: existingStore.address,
+                        phone: existingStore.phone,
+                        status: existingStore.status,
+                        approval_status: existingStore.approval_status,
+                        tax_code: existingStore.tax_code,
+                        bank_account_number: existingStore.bank_account_number,
+                        business_license_number: existingStore.business_license_number,
+                        rejection_reason: existingStore.rejection_reason || '',
+                    },
+                    user: {
+                        id: manager._id,
+                        fullName: manager.fullName,
+                        email: manager.email,
+                        role: manager.role,
+                        storeId: manager.storeId,
+                        storeName: existingStore.name,
+                        storeStatus: existingStore.status,
+                        storeApprovalStatus: existingStore.approval_status,
+                    },
+                });
+            }
         }
 
         const store = await Store.create({
@@ -265,19 +342,31 @@ router.post('/register-store', requireAuth, requireRole(['manager'], { allowMana
             address: (address || '').trim(),
             phone: (phone || '').trim(),
             managerId: manager._id,
+            approval_status: 'draft_profile',
+            tax_code: '',
+            legal_representative: '',
+            bank_name: '',
+            bank_account_number: '',
+            business_license_number: '',
+            business_license_file: '',
+            billing_email: String(manager.email || '').trim().toLowerCase(),
         });
 
         manager.storeId = store._id;
         await manager.save();
 
         return res.status(201).json({
-            message: 'Đăng ký cửa hàng thành công',
+            message: 'Đăng ký cửa hàng thành công, hồ sơ đang chờ admin phê duyệt.',
             store: {
                 id: store._id,
                 name: store.name,
                 address: store.address,
                 phone: store.phone,
                 status: store.status,
+                approval_status: store.approval_status,
+                tax_code: store.tax_code,
+                bank_account_number: store.bank_account_number,
+                business_license_number: store.business_license_number,
             },
             user: {
                 id: manager._id,
@@ -287,6 +376,7 @@ router.post('/register-store', requireAuth, requireRole(['manager'], { allowMana
                 storeId: manager.storeId,
                 storeName: store.name,
                 storeStatus: store.status,
+                storeApprovalStatus: store.approval_status,
             },
         });
     } catch (err) {
@@ -329,7 +419,7 @@ router.post('/verify-email', async (req, res) => {
         // Xóa khỏi collection UnauthenticatedUser ngay sau khi xác thực thành công
         await UnauthenticatedUser.deleteOne({ _id: unauth._id });
 
-        const store = user.storeId ? await Store.findById(user.storeId).select('name status').lean() : null;
+        const store = user.storeId ? await Store.findById(user.storeId).select('name status approval_status').lean() : null;
 
         const jwtToken = jwt.sign(
             { id: user._id, email: user.email, role: user.role, storeId: user.storeId || null },
@@ -347,6 +437,7 @@ router.post('/verify-email', async (req, res) => {
                 storeId: user.storeId,
                 storeName: store?.name || null,
                 storeStatus: store?.status || null,
+                storeApprovalStatus: store?.approval_status || 'approved',
             },
         });
     } catch (err) {
@@ -523,7 +614,7 @@ router.post('/login', async (req, res) => {
             return res.status(400).json({ message: 'Email hoặc mật khẩu không đúng' });
         }
 
-        const store = user.storeId ? await Store.findById(user.storeId).select('name status').lean() : null;
+        const store = user.storeId ? await Store.findById(user.storeId).select('name status approval_status').lean() : null;
 
         const token = jwt.sign(
             { id: user._id, email: user.email, role: user.role, storeId: user.storeId || null },
@@ -541,6 +632,7 @@ router.post('/login', async (req, res) => {
                 storeId: user.storeId,
                 storeName: store?.name || null,
                 storeStatus: store?.status || null,
+                storeApprovalStatus: store?.approval_status || 'approved',
             },
         });
     } catch (err) {
@@ -553,7 +645,7 @@ router.get('/me', requireAuth, async (req, res) => {
     try {
         const user = await User.findById(req.user.id).lean();
         if (!user) return res.status(401).json({ message: 'Unauthorized' });
-        const store = user.storeId ? await Store.findById(user.storeId).select('name status').lean() : null;
+        const store = user.storeId ? await Store.findById(user.storeId).select('name status approval_status').lean() : null;
         return res.json({
             user: {
                 id: user._id,
@@ -563,6 +655,7 @@ router.get('/me', requireAuth, async (req, res) => {
                 storeId: user.storeId || null,
                 storeName: store?.name || null,
                 storeStatus: store?.status || null,
+                storeApprovalStatus: store?.approval_status || 'approved',
             },
         });
     } catch (err) {

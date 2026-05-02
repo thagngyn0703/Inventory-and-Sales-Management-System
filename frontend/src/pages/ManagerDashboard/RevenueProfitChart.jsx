@@ -17,7 +17,27 @@ function fmtVND(n) {
  */
 export default function RevenueProfitChart({ data = [], loading = false }) {
   const categories = useMemo(() => data.map((d) => d.label), [data]);
-  const revenueData = useMemo(() => data.map((d) => d.revenue ?? 0), [data]);
+  const revenueData = useMemo(
+    () => data.map((d) => Math.max(0, Number(d.sales_revenue ?? d.revenue ?? 0))),
+    [data]
+  );
+  const returnData = useMemo(
+    () => data.map((d) => Math.max(0, Number(d.return_amount ?? 0))),
+    [data]
+  );
+  const netRevenueData = useMemo(
+    () =>
+      data.map((d) =>
+        Math.max(
+          0,
+          Number(
+            d.net_revenue ??
+              (Math.max(0, Number(d.sales_revenue ?? d.revenue ?? 0)) - Math.max(0, Number(d.return_amount ?? 0)))
+          )
+        )
+      ),
+    [data]
+  );
   const profitData = useMemo(() => data.map((d) => d.profit ?? 0), [data]);
 
   const options = useMemo(
@@ -28,7 +48,7 @@ export default function RevenueProfitChart({ data = [], loading = false }) {
         fontFamily: 'inherit',
         animations: { enabled: true, speed: 400 },
       },
-      colors: ['#6366f1', '#10b981'],
+      colors: ['#6366f1', '#10b981', '#f97316'],
       plotOptions: {
         bar: {
           borderRadius: 5,
@@ -82,14 +102,27 @@ export default function RevenueProfitChart({ data = [], loading = false }) {
         custom: ({ series, dataPointIndex }) => {
           const rev = series[0][dataPointIndex] ?? 0;
           const profit = series[1][dataPointIndex] ?? 0;
-          const margin = rev > 0 ? ((profit / rev) * 100).toFixed(1) : '0.0';
+          const returned = series[2][dataPointIndex] ?? 0;
+          const netRevenue = netRevenueData[dataPointIndex] ?? (rev - returned);
+          const margin = netRevenue > 0 ? ((profit / netRevenue) * 100).toFixed(1) : '--';
           const label = categories[dataPointIndex] ?? '';
           return `
             <div style="padding:10px 14px;font-size:13px;line-height:1.7;min-width:180px">
               <div style="font-weight:700;margin-bottom:4px;color:#1e293b">${label}</div>
               <div style="display:flex;justify-content:space-between;gap:16px">
-                <span style="color:#6366f1">● Doanh thu</span>
+                <span style="color:#6366f1">● Doanh thu bán</span>
                 <span style="font-weight:600">${Number(rev).toLocaleString('vi-VN')}₫</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;gap:16px">
+                <span style="color:#f97316">● Hoàn trả</span>
+                <span style="font-weight:600">${Number(returned).toLocaleString('vi-VN')}₫</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;gap:16px">
+                <span style="color:#64748b">Doanh thu thuần</span>
+                <span style="font-weight:600">${Number(netRevenue).toLocaleString('vi-VN')}₫</span>
+              </div>
+              <div style="margin-top:2px;font-size:11px;color:#94a3b8">
+                = Doanh thu bán - Hoàn trả
               </div>
               <div style="display:flex;justify-content:space-between;gap:16px">
                 <span style="color:#10b981">● Lợi nhuận gộp</span>
@@ -97,7 +130,7 @@ export default function RevenueProfitChart({ data = [], loading = false }) {
               </div>
               <div style="display:flex;justify-content:space-between;gap:16px;margin-top:4px;border-top:1px solid #e2e8f0;padding-top:4px">
                 <span style="color:#64748b">Biên lãi</span>
-                <span style="font-weight:700;color:${parseFloat(margin) >= 20 ? '#059669' : parseFloat(margin) >= 10 ? '#d97706' : '#dc2626'}">${margin}%</span>
+                <span style="font-weight:700;color:${margin === '--' ? '#64748b' : parseFloat(margin) >= 20 ? '#059669' : parseFloat(margin) >= 10 ? '#d97706' : '#dc2626'}">${margin === '--' ? '--' : `${margin}%`}</span>
               </div>
             </div>
           `;
@@ -111,8 +144,9 @@ export default function RevenueProfitChart({ data = [], loading = false }) {
     () => [
       { name: 'Doanh thu', data: revenueData },
       { name: 'Lợi nhuận gộp', data: profitData },
+      { name: 'Hoàn trả', data: returnData },
     ],
-    [revenueData, profitData]
+    [revenueData, returnData, profitData]
   );
 
   if (loading) {

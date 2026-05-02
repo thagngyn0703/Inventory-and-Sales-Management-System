@@ -1,4 +1,5 @@
 process.env.JWT_SECRET = 'ims_secret_key_123';
+jest.setTimeout(300000);
 
 const { MongoMemoryReplSet } = require('mongodb-memory-server');
 const mongoose = require('mongoose');

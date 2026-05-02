@@ -10,6 +10,7 @@ import {
     trimString,
     validateBarcode,
     validateNoSpecialText,
+    validateRequiredText,
     validateNonNegativeNumber,
     validateSku,
 } from '../../utils/productValidation';
@@ -26,6 +27,7 @@ const PRODUCT_BASE_UNITS = ['Cái', 'Chai', 'Lon', 'Thùng', 'Hộp', 'Kg', 'Gó
 const defaultSellingUnit = () => ({ name: 'Cái', ratio: 1, sale_price: '', barcode: '' });
 
 const defaultForm = {
+    category_id: '',
     name: '',
     sku: '',
     barcode: '',
@@ -33,6 +35,7 @@ const defaultForm = {
     cost_price: '',
     stock_qty: '',
     reorder_level: '',
+    vat_rate: '',
     expiry_date: '',
     base_unit: 'Cái',
     selling_units: [defaultSellingUnit()],
@@ -45,20 +48,68 @@ export default function ManagerProductEdit() {
     const { id } = useParams();
     const [form, setForm] = useState(defaultForm);
     const [suppliers, setSuppliers] = useState([]);
+    const [categories, setCategories] = useState([]);
     const [loading, setLoading] = useState(false);
     const [loadProduct, setLoadProduct] = useState(true);
     const [error, setError] = useState('');
+    const [isTouched, setIsTouched] = useState(false);
     const [selectedImages, setSelectedImages] = useState([]);
     const [imagePreviews, setImagePreviews] = useState([]);
     const [scanMode, setScanMode] = useState(false);
     const scanBufferRef = useRef('');
     const scanTimerRef = useRef(null);
+    const initialSnapshotRef = useRef({
+        name: '',
+        sku: '',
+        barcode: '',
+        supplier_id: '',
+        cost_price: 0,
+        reorder_level: 0,
+        vat_rate: '',
+        expiry_date: '',
+        base_unit: '',
+        status: 'active',
+        image_urls: [],
+    });
+    const initialUnitPayloadRef = useRef([]);
+
+    const normalizeUnitsForCompare = (units) =>
+        (Array.isArray(units) ? units : [])
+            .map((u) => ({
+                unit_name: trimString(u.unit_name || ''),
+                exchange_value: Number(u.exchange_value || 0),
+                price: Number(u.price || 0),
+                barcode: trimString(u.barcode || ''),
+                is_base: Boolean(u.is_base),
+            }))
+            .sort((a, b) =>
+                a.unit_name.localeCompare(b.unit_name)
+                || a.exchange_value - b.exchange_value
+                || a.price - b.price
+            );
 
     useEffect(() => {
         let cancelled = false;
         getSuppliers()
             .then((list) => { if (!cancelled) setSuppliers(list || []); })
             .catch(() => { if (!cancelled) setSuppliers([]); });
+        return () => { cancelled = true; };
+    }, []);
+
+    useEffect(() => {
+        const token = localStorage.getItem('token') || '';
+        let cancelled = false;
+        fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:8000/api'}/categories?all=true`, {
+            headers: { Authorization: `Bearer ${token}` },
+        })
+            .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
+            .then(({ ok, data }) => {
+                if (cancelled) return;
+                if (!ok) throw new Error(data?.message || 'Không thể tải danh mục');
+                const list = Array.isArray(data) ? data : [];
+                setCategories(list.filter((c) => c?.is_active !== false));
+            })
+            .catch(() => { if (!cancelled) setCategories([]); });
         return () => { cancelled = true; };
     }, []);
 
@@ -90,6 +141,9 @@ export default function ManagerProductEdit() {
                     : '';
                 const minD = minExpiryDateString();
                 setForm({
+                    category_id: p.category_id
+                        ? (typeof p.category_id === 'object' ? p.category_id._id : p.category_id)
+                        : '',
                     name: p.name || '',
                     sku: p.sku || '',
                     barcode: p.barcode || '',
@@ -97,12 +151,48 @@ export default function ManagerProductEdit() {
                     cost_price: p.cost_price != null ? toCurrencyInputFromNumber(p.cost_price) : '',
                     stock_qty: p.stock_qty != null ? String(p.stock_qty) : '',
                     reorder_level: p.reorder_level != null ? String(p.reorder_level) : '',
+                    vat_rate: p.vat_rate === null || p.vat_rate === undefined ? '' : String(p.vat_rate),
                     expiry_date: expStr && expStr >= minD ? expStr : '',
                     base_unit: p.base_unit || 'Cái',
                     selling_units: units,
                     image_urls: Array.isArray(p.image_urls) ? p.image_urls.slice(0, 3) : [],
                     status: p.status === 'inactive' ? 'inactive' : 'active',
                 });
+                initialSnapshotRef.current = {
+                    category_id: p.category_id
+                        ? (typeof p.category_id === 'object' ? p.category_id._id : p.category_id)
+                        : '',
+                    name: p.name || '',
+                    sku: p.sku || '',
+                    barcode: p.barcode || '',
+                    supplier_id: supplierId || '',
+                    cost_price: Number(p.cost_price || 0),
+                    reorder_level: Number(p.reorder_level || 0),
+                    vat_rate: p.vat_rate === null || p.vat_rate === undefined ? '' : String(p.vat_rate),
+                    expiry_date: expStr && expStr >= minD ? expStr : '',
+                    base_unit: p.base_unit || 'Cái',
+                    status: p.status === 'inactive' ? 'inactive' : 'active',
+                    image_urls: Array.isArray(p.image_urls) ? p.image_urls.slice(0, 3) : [],
+                };
+                const initialUnitsRaw = (p.units || []).map((u) => ({
+                    unit_name: u.unit_name,
+                    exchange_value: u.exchange_value,
+                    price: u.price,
+                    barcode: u.barcode,
+                    is_base: Boolean(u.is_base),
+                }));
+                // Match submit behavior: if base unit barcode is empty but product barcode exists,
+                // the submit payload auto-fills base unit barcode from product barcode.
+                const baseIdx = initialUnitsRaw.findIndex((u) => Boolean(u.is_base));
+                if (baseIdx >= 0) {
+                    const unitBarcode = trimString(initialUnitsRaw[baseIdx].barcode || '');
+                    const productBarcode = trimString(p.barcode || '');
+                    if (!unitBarcode && productBarcode) {
+                        initialUnitsRaw[baseIdx].barcode = productBarcode;
+                    }
+                }
+                initialUnitPayloadRef.current = normalizeUnitsForCompare(initialUnitsRaw);
+                setIsTouched(false);
             })
             .catch((e) => setError(e.message || 'Không tải được sản phẩm'))
             .finally(() => setLoadProduct(false));
@@ -160,6 +250,7 @@ export default function ManagerProductEdit() {
             }
             return next;
         });
+        setIsTouched(true);
         setError('');
     };
 
@@ -170,6 +261,7 @@ export default function ManagerProductEdit() {
                 i === index ? { ...u, [field]: value } : u
             ),
         }));
+        setIsTouched(true);
         setError('');
     };
 
@@ -178,6 +270,7 @@ export default function ManagerProductEdit() {
             ...prev,
             selling_units: [...prev.selling_units, { name: prev.base_unit || 'Cái', ratio: '', sale_price: '', barcode: '' }],
         }));
+        setIsTouched(true);
     };
 
     const removeSellingUnit = (index) => {
@@ -187,6 +280,7 @@ export default function ManagerProductEdit() {
             if (!hasBase && next.length > 0) next[0].ratio = 1;
             return { ...prev, selling_units: next.length ? next : [defaultSellingUnit()] };
         });
+        setIsTouched(true);
     };
 
     const handleSelectImages = (e) => {
@@ -200,6 +294,7 @@ export default function ManagerProductEdit() {
         }
         setSelectedImages(files);
         setImagePreviews(files.map((f) => URL.createObjectURL(f)));
+        setIsTouched(true);
         setError('');
     };
 
@@ -208,6 +303,7 @@ export default function ManagerProductEdit() {
             ...prev,
             image_urls: (prev.image_urls || []).filter((url) => url !== urlToRemove),
         }));
+        setIsTouched(true);
     };
 
     const removeNewImageAt = (index) => {
@@ -217,12 +313,17 @@ export default function ManagerProductEdit() {
             if (target) URL.revokeObjectURL(target);
             return prev.filter((_, i) => i !== index);
         });
+        setIsTouched(true);
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         if (!id) return;
-        const nameCheck = validateNoSpecialText(form.name, 'Tên sản phẩm', { required: true });
+        if (!isTouched) {
+            navigate('/manager/products', { state: { success: 'Không có thay đổi để lưu.' } });
+            return;
+        }
+        const nameCheck = validateRequiredText(form.name, 'Tên sản phẩm');
         if (!nameCheck.ok) return setError(nameCheck.message);
         const skuCheck = validateSku(form.sku);
         if (!skuCheck.ok) return setError(skuCheck.message);
@@ -234,6 +335,12 @@ export default function ManagerProductEdit() {
         if (!costCheck.ok) return setError(costCheck.message);
         const reorderCheck = validateNonNegativeNumber(form.reorder_level, 'Mức tồn tối thiểu');
         if (!reorderCheck.ok) return setError(reorderCheck.message);
+        if (form.vat_rate !== '') {
+            const vat = Number(form.vat_rate);
+            if (!Number.isFinite(vat) || vat < 0 || vat > 100) {
+                return setError('VAT sản phẩm phải nằm trong khoảng 0-100%.');
+            }
+        }
         const units = [];
         for (const u of form.selling_units) {
             const nameUnitCheck = validateNoSpecialText(u.name, 'Tên đơn vị bán', { required: true });
@@ -316,20 +423,55 @@ export default function ManagerProductEdit() {
                 const uploaded = await uploadProductImages(selectedImages);
                 finalImageUrls = [...existingImages, ...uploaded].slice(0, 3);
             }
-            await updateProduct(id, {
-                name: nameCheck.value,
-                sku: skuCheck.value,
-                barcode: barcodeCheck.value || undefined,
-                supplier_id: trimString(form.supplier_id) || undefined,
-                cost_price: costCheck.value,
-                reorder_level: reorderCheck.value,
-                expiry_date: form.expiry_date ? form.expiry_date : null,
-                base_unit: baseUnitCheck.value,
-                selling_units: units,
-                image_urls: finalImageUrls,
-                status: form.status === 'inactive' ? 'inactive' : 'active',
-            });
-            await updateProductUnits(id, unitPayload);
+            const initial = initialSnapshotRef.current || {};
+            const nextSku = trimString(skuCheck.value || '');
+            const nextBarcode = trimString(barcodeCheck.value || '');
+            const nextName = trimString(nameCheck.value || '');
+            const nextCategoryId = trimString(form.category_id || '');
+            const nextSupplierId = trimString(form.supplier_id || '');
+            const nextCostPrice = Number(costCheck.value || 0);
+            const nextReorderLevel = Number(reorderCheck.value || 0);
+            const nextVatRate = form.vat_rate === '' ? '' : String(form.vat_rate);
+            const nextExpiryDate = form.expiry_date ? String(form.expiry_date) : '';
+            const nextBaseUnit = trimString(baseUnitCheck.value || '');
+            const nextStatus = form.status === 'inactive' ? 'inactive' : 'active';
+            const initialSku = trimString(initial.sku || '');
+            const initialBarcode = trimString(initial.barcode || '');
+            const initialName = trimString(initial.name || '');
+            const initialCategoryId = trimString(initial.category_id || '');
+            const initialSupplierId = trimString(initial.supplier_id || '');
+            const initialCostPrice = Number(initial.cost_price || 0);
+            const initialReorderLevel = Number(initial.reorder_level || 0);
+            const initialVatRate = initial.vat_rate === '' ? '' : String(initial.vat_rate || '');
+            const initialExpiryDate = initial.expiry_date ? String(initial.expiry_date) : '';
+            const initialBaseUnit = trimString(initial.base_unit || '');
+            const initialStatus = initial.status === 'inactive' ? 'inactive' : 'active';
+            const initialImageUrls = Array.isArray(initial.image_urls) ? initial.image_urls : [];
+            const imageChanged = JSON.stringify(initialImageUrls) !== JSON.stringify(finalImageUrls);
+            const currentUnits = normalizeUnitsForCompare(unitPayload);
+            const initialUnits = normalizeUnitsForCompare(initialUnitPayloadRef.current);
+            const unitChanged = JSON.stringify(currentUnits) !== JSON.stringify(initialUnits);
+            const payload = {
+                ...(nextCategoryId !== initialCategoryId ? { category_id: nextCategoryId || undefined } : {}),
+                ...(nextName !== initialName ? { name: nameCheck.value } : {}),
+                ...(nextSku !== initialSku ? { sku: skuCheck.value } : {}),
+                ...(nextBarcode !== initialBarcode ? { barcode: barcodeCheck.value || undefined } : {}),
+                ...(nextSupplierId !== initialSupplierId ? { supplier_id: nextSupplierId || undefined } : {}),
+                ...(nextCostPrice !== initialCostPrice ? { cost_price: costCheck.value } : {}),
+                ...(nextReorderLevel !== initialReorderLevel ? { reorder_level: reorderCheck.value } : {}),
+                ...(nextVatRate !== initialVatRate ? { vat_rate: form.vat_rate === '' ? null : Number(form.vat_rate) } : {}),
+                ...(nextExpiryDate !== initialExpiryDate ? { expiry_date: form.expiry_date ? form.expiry_date : null } : {}),
+                ...(nextBaseUnit !== initialBaseUnit ? { base_unit: baseUnitCheck.value } : {}),
+                ...(imageChanged ? { image_urls: finalImageUrls } : {}),
+                ...(nextStatus !== initialStatus ? { status: nextStatus } : {}),
+            };
+            const hasProductChanges = Object.keys(payload).length > 0;
+            if (hasProductChanges) {
+                await updateProduct(id, payload);
+            }
+            if (unitChanged) {
+                await updateProductUnits(id, unitPayload);
+            }
             navigate('/manager/products', { state: { success: 'Cập nhật sản phẩm thành công.' } });
         } catch (err) {
             setError(err.message || 'Không thể cập nhật sản phẩm.');
@@ -373,6 +515,21 @@ export default function ManagerProductEdit() {
                                 <CardContent className="space-y-4">
                                     <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Thông tin chung</h3>
                                     <div className="grid gap-3 md:grid-cols-2">
+                                        <div>
+                                            <label className="mb-1 block text-sm font-medium text-slate-600">Danh mục</label>
+                                            <select
+                                                value={form.category_id}
+                                                onChange={(e) => update('category_id', e.target.value)}
+                                                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
+                                            >
+                                                <option value="">— Không chọn —</option>
+                                                {categories.map((c) => (
+                                                    <option key={c._id} value={c._id}>
+                                                        {c.name}{c.vat_rate === null || c.vat_rate === undefined ? '' : ` (VAT ${c.vat_rate}%)`}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
                                         <div>
                                             <label className="mb-1 block text-sm font-medium text-slate-600">Tên sản phẩm *</label>
                                             <input type="text" value={form.name} onChange={(e) => update('name', e.target.value)} placeholder="Nhập tên sản phẩm" className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2" />
@@ -454,6 +611,19 @@ export default function ManagerProductEdit() {
                                         <div>
                                             <label className="mb-1 block text-sm font-medium text-slate-600">Mức tồn tối thiểu</label>
                                             <input type="number" min="0" value={form.reorder_level} onChange={(e) => update('reorder_level', e.target.value)} placeholder="0" className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2" />
+                                        </div>
+                                        <div>
+                                            <label className="mb-1 block text-sm font-medium text-slate-600">VAT sản phẩm (%)</label>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                max="100"
+                                                step="0.01"
+                                                value={form.vat_rate}
+                                                onChange={(e) => update('vat_rate', e.target.value)}
+                                                placeholder="Để trống: dùng VAT theo danh mục"
+                                                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
+                                            />
                                         </div>
                                         <div className="md:col-span-2">
                                             <label className="mb-1 block text-sm font-medium text-slate-600">Hạn sử dụng</label>

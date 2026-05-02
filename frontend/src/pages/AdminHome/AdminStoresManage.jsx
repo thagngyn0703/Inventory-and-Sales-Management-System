@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import Sidebar from '../../components/Sidebar';
-import { getAdminStores, setAdminStoreStatus } from '../../services/adminApi';
+import { getAdminStores, setAdminStoreStatus, setAdminStoreApproval } from '../../services/adminApi';
 import { ConfirmDialog } from '../../components/ui/confirm-dialog';
 import { useToast } from '../../contexts/ToastContext';
 import '../ManagerDashboard/ManagerDashboard.css';
@@ -18,7 +18,11 @@ export default function AdminStoresManage() {
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [confirmStore, setConfirmStore] = useState(null);
+  const [confirmApproval, setConfirmApproval] = useState(null);
+  const [viewLegalStore, setViewLegalStore] = useState(null);
+  const [viewedLegalStoreIds, setViewedLegalStoreIds] = useState([]);
   const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [approvalFilter, setApprovalFilter] = useState('all');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -28,6 +32,7 @@ export default function AdminStoresManage() {
         page,
         limit: PAGE_SIZE,
         status: 'all',
+        approval_status: approvalFilter,
       });
       setStores(storeData.stores || []);
       setTotal(Number(storeData.total) || 0);
@@ -40,7 +45,7 @@ export default function AdminStoresManage() {
     } finally {
       setLoading(false);
     }
-  }, [page]);
+  }, [page, approvalFilter]);
 
   useEffect(() => {
     load();
@@ -77,6 +82,16 @@ export default function AdminStoresManage() {
     }
   };
 
+  const onApproveStore = async (store, nextApproval) => {
+    try {
+      await setAdminStoreApproval(store._id, nextApproval, '');
+      await load();
+      toast(nextApproval === 'approved' ? 'Đã phê duyệt cửa hàng' : 'Đã chuyển trạng thái xét duyệt', 'success');
+    } catch (err) {
+      toast(err.message || 'Không thể cập nhật trạng thái phê duyệt', 'error');
+    }
+  };
+
   const startItem = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
   const endItem = Math.min(page * PAGE_SIZE, total);
 
@@ -98,8 +113,25 @@ export default function AdminStoresManage() {
             <div>
               <h1 className="manager-page-title">Quản lý cửa hàng</h1>
               <p className="manager-page-subtitle">
-                Danh sách cửa hàng theo trang; ngừng hoạt động hoặc cho hoạt động lại khi cần.
+                Quản lý hồ sơ đăng ký cửa hàng, phê duyệt pháp lý và trạng thái hoạt động.
               </p>
+            </div>
+            <div>
+              <select
+                value={approvalFilter}
+                onChange={(e) => {
+                  setPage(1);
+                  setApprovalFilter(e.target.value);
+                }}
+                className="manager-topbar-select"
+              >
+                <option value="all">Tất cả hồ sơ</option>
+                <option value="draft_profile">Chưa hoàn thiện hồ sơ</option>
+                <option value="pending_approval">Chờ duyệt</option>
+                <option value="approved">Đã duyệt</option>
+                <option value="rejected">Từ chối</option>
+                <option value="suspended">Tạm ngưng</option>
+              </select>
             </div>
           </div>
           {error && <div className="manager-products-error">{error}</div>}
@@ -125,15 +157,17 @@ export default function AdminStoresManage() {
                         <th>Chủ cửa hàng</th>
                         <th>SĐT</th>
                         <th>Địa chỉ</th>
+                        <th>Hồ sơ pháp lý</th>
                         <th>Ngày tạo</th>
                         <th>Trạng thái</th>
+                        <th>Phê duyệt</th>
                         <th>Thao tác</th>
                       </tr>
                     </thead>
                     <tbody>
                       {stores.length === 0 ? (
                         <tr>
-                          <td colSpan={7} style={{ textAlign: 'center', padding: '1.5rem', color: '#64748b' }}>
+                          <td colSpan={9} style={{ textAlign: 'center', padding: '1.5rem', color: '#64748b' }}>
                             Chưa có cửa hàng nào trong hệ thống.
                           </td>
                         </tr>
@@ -144,9 +178,57 @@ export default function AdminStoresManage() {
                             <td>{s.managerId?.fullName || s.managerId?.email || '—'}</td>
                             <td>{s.phone || '—'}</td>
                             <td>{s.address || '—'}</td>
+                            <td style={{ minWidth: 220 }}>
+                              <div style={{ fontSize: 12, lineHeight: 1.45 }}>
+                                <div><b>MST:</b> {s.tax_code || '—'}</div>
+                                <div><b>STK:</b> {s.bank_account_number || '—'}</div>
+                                <div><b>ĐDPL:</b> {s.legal_representative || '—'}</div>
+                                <div><b>GPKD:</b> {s.business_license_number || '—'}</div>
+                              </div>
+                            </td>
                             <td>{s.createdAt ? new Date(s.createdAt).toLocaleDateString('vi-VN') : '—'}</td>
                             <td>{s.status === 'inactive' ? 'Ngừng hoạt động' : 'Hoạt động'}</td>
                             <td>
+                              {s.approval_status === 'draft_profile' ? 'Chưa hoàn thiện hồ sơ'
+                                : s.approval_status === 'pending_approval' ? 'Chờ duyệt'
+                                : s.approval_status === 'approved' ? 'Đã duyệt'
+                                  : s.approval_status === 'rejected' ? 'Từ chối'
+                                    : s.approval_status === 'suspended' ? 'Tạm ngưng' : '—'}
+                              {s.rejection_reason ? (
+                                <div style={{ fontSize: 11, color: '#b91c1c', marginTop: 4 }}>
+                                  Lý do: {s.rejection_reason}
+                                </div>
+                              ) : null}
+                            </td>
+                            <td>
+                              {s.approval_status !== 'approved' && (
+                                <button
+                                  type="button"
+                                  className="manager-btn-icon"
+                                  disabled={!viewedLegalStoreIds.includes(String(s._id))}
+                                  onClick={() => onApproveStore(s, 'approved')}
+                                  title={
+                                    viewedLegalStoreIds.includes(String(s._id))
+                                      ? 'Phê duyệt hồ sơ'
+                                      : 'Vui lòng xem hồ sơ pháp lý trước khi duyệt'
+                                  }
+                                >
+                                  <i className="fa-solid fa-check" />
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                className="manager-btn-icon"
+                                onClick={() => {
+                                  setViewLegalStore(s);
+                                  setViewedLegalStoreIds((prev) =>
+                                    prev.includes(String(s._id)) ? prev : [...prev, String(s._id)]
+                                  );
+                                }}
+                                title="Xem hồ sơ pháp lý"
+                              >
+                                <i className="fa-solid fa-eye" />
+                              </button>
                               <button
                                 type="button"
                                 className="manager-btn-icon"
@@ -154,6 +236,14 @@ export default function AdminStoresManage() {
                                 title={s.status === 'active' ? 'Ngừng hoạt động' : 'Cho hoạt động lại'}
                               >
                                 <i className={`fa-solid ${s.status === 'active' ? 'fa-pause' : 'fa-play'}`} />
+                              </button>
+                              <button
+                                type="button"
+                                className="manager-btn-icon"
+                                onClick={() => setConfirmApproval(s)}
+                                title="Từ chối hồ sơ"
+                              >
+                                <i className="fa-solid fa-xmark" />
                               </button>
                             </td>
                           </tr>
@@ -213,6 +303,95 @@ export default function AdminStoresManage() {
         loading={updatingStatus}
         confirmVariant={confirmStore?.status === 'active' ? 'destructive' : 'default'}
       />
+      <ConfirmDialog
+        open={Boolean(confirmApproval)}
+        onOpenChange={(open) => {
+          if (!open) setConfirmApproval(null);
+        }}
+        title="Từ chối hồ sơ cửa hàng"
+        description={
+          confirmApproval
+            ? `Bạn có chắc muốn từ chối hồ sơ cửa hàng "${confirmApproval.name}"?`
+            : ''
+        }
+        confirmLabel="Từ chối"
+        cancelLabel="Hủy"
+        onConfirm={async () => {
+          if (!confirmApproval) return;
+          await setAdminStoreApproval(
+            confirmApproval._id,
+            'rejected',
+            'Vui lòng xem lại thông tin pháp lý để điền chính xác.'
+          );
+          await load();
+          toast('Đã từ chối hồ sơ và gửi yêu cầu bổ sung pháp lý', 'success');
+          setConfirmApproval(null);
+        }}
+        confirmVariant="destructive"
+      />
+      {viewLegalStore ? (
+        <div
+          className="fixed inset-0 z-[7000] flex items-center justify-center bg-slate-900/40 px-4"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="w-full max-w-xl rounded-2xl border border-slate-200 bg-white p-5 shadow-xl">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-base font-semibold text-slate-900">
+                Hồ sơ pháp lý: {viewLegalStore.name}
+              </h3>
+              <button
+                type="button"
+                className="manager-btn-icon"
+                onClick={() => setViewLegalStore(null)}
+                title="Đóng"
+              >
+                <i className="fa-solid fa-xmark" />
+              </button>
+            </div>
+            <div className="grid grid-cols-1 gap-2 text-sm text-slate-700 sm:grid-cols-2">
+              <p><b>Mã số thuế:</b> {viewLegalStore.tax_code || '—'}</p>
+              <p><b>Số tài khoản:</b> {viewLegalStore.bank_account_number || '—'}</p>
+              <p><b>Ngân hàng:</b> {viewLegalStore.bank_name || '—'}</p>
+              <p><b>Email hóa đơn:</b> {viewLegalStore.billing_email || '—'}</p>
+              <p><b>Đại diện pháp luật:</b> {viewLegalStore.legal_representative || '—'}</p>
+              <p><b>Số GPKD:</b> {viewLegalStore.business_license_number || '—'}</p>
+            </div>
+            {viewLegalStore.rejection_reason ? (
+              <p className="mt-3 text-xs text-rose-700">
+                Lý do từ chối gần nhất: {viewLegalStore.rejection_reason}
+              </p>
+            ) : null}
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                className="manager-btn manager-btn-secondary"
+                onClick={() => setViewLegalStore(null)}
+              >
+                Đóng
+              </button>
+              {viewLegalStore.approval_status !== 'approved' ? (
+                <button
+                  type="button"
+                  className="manager-btn manager-btn-primary"
+                  disabled={!viewedLegalStoreIds.includes(String(viewLegalStore._id))}
+                  title={
+                    viewedLegalStoreIds.includes(String(viewLegalStore._id))
+                      ? 'Duyệt hồ sơ'
+                      : 'Vui lòng xem hồ sơ pháp lý trước khi duyệt'
+                  }
+                  onClick={async () => {
+                    await onApproveStore(viewLegalStore, 'approved');
+                    setViewLegalStore(null);
+                  }}
+                >
+                  Duyệt hồ sơ
+                </button>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

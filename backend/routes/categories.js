@@ -26,9 +26,15 @@ router.get('/', requireRole(['manager', 'staff', 'admin']), async (req, res) => 
 // POST /api/categories - create new category
 router.post('/', requireRole(['manager', 'staff', 'admin']), async (req, res) => {
     try {
-        const { name } = req.body;
+        const { name, vat_rate } = req.body;
         if (!name || !name.trim()) {
             return res.status(400).json({ message: 'Tên danh mục không được để trống' });
+        }
+        const vat = vat_rate === null || vat_rate === undefined || vat_rate === ''
+            ? 0
+            : Number(vat_rate);
+        if (vat !== null && (!Number.isFinite(vat) || vat < 0 || vat > 100)) {
+            return res.status(400).json({ message: 'VAT không hợp lệ (0-100)' });
         }
         const normalized = name.trim();
         // check duplicate
@@ -36,7 +42,7 @@ router.post('/', requireRole(['manager', 'staff', 'admin']), async (req, res) =>
         if (exists) {
             return res.status(400).json({ message: 'Danh mục đã tồn tại' });
         }
-        const cat = await Category.create({ name: normalized });
+        const cat = await Category.create({ name: normalized, vat_rate: vat });
         res.status(201).json(cat);
     } catch (err) {
         console.error('Failed to create category', err);
@@ -48,9 +54,15 @@ router.post('/', requireRole(['manager', 'staff', 'admin']), async (req, res) =>
 router.put('/:id', requireRole(['manager', 'staff', 'admin']), async (req, res) => {
     try {
         const { id } = req.params;
-        const { name } = req.body;
+        const { name, vat_rate } = req.body;
         if (!name || !name.trim()) {
             return res.status(400).json({ message: 'Tên danh mục không được để trống' });
+        }
+        const vat = vat_rate === null || vat_rate === undefined || vat_rate === ''
+            ? 0
+            : Number(vat_rate);
+        if (vat !== null && (!Number.isFinite(vat) || vat < 0 || vat > 100)) {
+            return res.status(400).json({ message: 'VAT không hợp lệ (0-100)' });
         }
         const normalized = name.trim();
         const cat = await Category.findById(id);
@@ -66,6 +78,7 @@ router.put('/:id', requireRole(['manager', 'staff', 'admin']), async (req, res) 
             return res.status(400).json({ message: 'Tên danh mục đã được sử dụng' });
         }
         cat.name = normalized;
+        if (vat_rate !== undefined) cat.vat_rate = vat;
         await cat.save();
         res.json(cat);
     } catch (err) {

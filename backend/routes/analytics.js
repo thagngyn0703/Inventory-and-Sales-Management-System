@@ -10,6 +10,7 @@ const Supplier = require('../models/Supplier');
 const SupplierPayment = require('../models/SupplierPayment');
 const Customer = require('../models/Customer');
 const CustomerLoyaltyTransaction = require('../models/CustomerLoyaltyTransaction');
+const AuditLog = require('../models/AuditLog');
 const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
@@ -393,6 +394,16 @@ function aggReturnEffectiveTax() {
 }
 
 /**
+ * Chuẩn hóa thời điểm phiếu trả hàng cho báo cáo:
+ * ưu tiên return_at, fallback created_at để không bỏ sót dữ liệu cũ/backfill.
+ */
+const RETURN_DATE_FALLBACK_STAGE = {
+  $addFields: {
+    __returnAt: { $ifNull: ['$return_at', '$created_at'] },
+  },
+};
+
+/**
  * Unwind dòng hàng → lookup Product → __unitCost: ưu tiên cost_price snapshot trên dòng;
  * nếu snapshot = 0 (đơn cũ / chưa nhập vốn) thì dùng cost_price SP hiện tại để báo cáo biên lãi có ý nghĩa.
  * (Đơn đã chốt vẫn giữ snapshot khi snapshot > 0.)
@@ -525,51 +536,114 @@ router.get(
     requireRole(['manager', 'admin']),
     async (req, res) => {
         try {
+            const role = String(req.user?.role || '').toLowerCase();
+            const storeIdObj = req.user?.storeId ? new mongoose.Types.ObjectId(req.user.storeId) : null;
+            if (role !== 'admin' && !storeIdObj) {
+                return res.status(403).json({ message: 'Chưa có cửa hàng', code: 'STORE_REQUIRED' });
+            }
+
             const year = parseInt(req.query.year, 10);
             const month = parseInt(req.query.month, 10);
             const now = new Date();
             const y = Number.isFinite(year) ? year : now.getFullYear();
             const m = Number.isFinite(month) && month >= 1 && month <= 12 ? month : now.getMonth() + 1;
-            const startOfMonth = new Date(y, m - 1, 1, 0, 0, 0, 0);
-            const endOfMonth = new Date(y, m, 0, 23, 59, 59, 999);
+            // Dùng mốc tháng theo giờ VN để tránh lệch giao dịch giữa tháng 3/4.
+            const startOfMonth = startOfVNMonth(y, m);
+            const nextMonth = m === 12 ? { y: y + 1, m: 1 } : { y, m: m + 1 };
+            const endOfMonth = new Date(startOfVNMonth(nextMonth.y, nextMonth.m).getTime() - 1);
+
+            const poMatch = {
+                created_at: { $gte: startOfMonth, $lte: endOfMonth },
+            };
+            const grMatch = {
+                __receivedAt: { $gte: startOfMonth, $lte: endOfMonth },
+                ...(storeIdObj
+                    ? { $or: [{ storeId: storeIdObj }, { store_id: storeIdObj }] }
+                    : {}),
+            };
 
             const [poAgg, grAgg] = await Promise.all([
                 PurchaseOrder.aggregate([
                     {
-                        $match: {
-                            created_at: { $gte: startOfMonth, $lte: endOfMonth },
-                        },
+                        $match: poMatch,
                     },
-                    { $group: { _id: '$supplier_id', count: { $sum: 1 } } },
+                    ...(storeIdObj
+                        ? [
+                              {
+                                  $lookup: {
+                                      from: 'users',
+                                      localField: 'created_by',
+                                      foreignField: '_id',
+                                      as: '__creator',
+                                  },
+                              },
+                              { $unwind: { path: '$__creator', preserveNullAndEmptyArrays: true } },
+                              {
+                                  $lookup: {
+                                      from: 'suppliers',
+                                      localField: 'supplier_id',
+                                      foreignField: '_id',
+                                      as: '__supplier',
+                                  },
+                              },
+                              { $unwind: { path: '$__supplier', preserveNullAndEmptyArrays: true } },
+                              {
+                                  $match: {
+                                      $or: [
+                                          { '__creator.storeId': storeIdObj },
+                                          { '__creator.store_id': storeIdObj },
+                                          { '__supplier.storeId': storeIdObj },
+                                          { '__supplier.store_id': storeIdObj },
+                                      ],
+                                  },
+                              },
+                          ]
+                        : []),
+                    { $group: { _id: { $ifNull: ['$supplier_id', '__unknown__'] }, count: { $sum: 1 } } },
                 ]),
                 GoodsReceipt.aggregate([
                     {
-                        $match: {
-                            received_at: { $gte: startOfMonth, $lte: endOfMonth },
+                        $addFields: {
+                            __receivedAt: { $ifNull: ['$received_at', '$created_at'] },
                         },
                     },
-                    { $group: { _id: '$supplier_id', count: { $sum: 1 } } },
+                    {
+                        $match: grMatch,
+                    },
+                    { $group: { _id: { $ifNull: ['$supplier_id', '__unknown__'] }, count: { $sum: 1 } } },
                 ]),
             ]);
 
             const supplierIds = new Set();
-            poAgg.forEach((r) => r._id && supplierIds.add(r._id.toString()));
-            grAgg.forEach((r) => r._id && supplierIds.add(r._id.toString()));
+            poAgg.forEach((r) => { if (r?._id) supplierIds.add(String(r._id)); });
+            grAgg.forEach((r) => { if (r?._id) supplierIds.add(String(r._id)); });
 
-            const poBySupplier = new Map(poAgg.map((r) => [r._id.toString(), r.count]));
-            const grBySupplier = new Map(grAgg.map((r) => [r._id.toString(), r.count]));
+            const poBySupplier = new Map(
+                poAgg.filter((r) => r?._id).map((r) => [String(r._id), r.count])
+            );
+            const grBySupplier = new Map(
+                grAgg.filter((r) => r?._id).map((r) => [String(r._id), r.count])
+            );
 
-            const suppliers = await Supplier.find({ _id: { $in: Array.from(supplierIds) } })
-                .select('name')
-                .lean();
+            const validSupplierIds = Array.from(supplierIds).filter((id) => id !== '__unknown__');
+            const supplierQuery = { _id: { $in: validSupplierIds } };
+            if (storeIdObj) supplierQuery.storeId = storeIdObj;
+            const suppliers = validSupplierIds.length > 0
+                ? await Supplier.find(supplierQuery).select('name').lean()
+                : [];
+            const supplierNameById = new Map(
+                (suppliers || []).map((s) => [String(s._id), s.name || 'Nhà cung cấp'])
+            );
 
-            const result = suppliers.map((s) => {
-                const id = s._id.toString();
+            const result = Array.from(supplierIds).map((id) => {
                 const poCount = poBySupplier.get(id) || 0;
                 const grCount = grBySupplier.get(id) || 0;
                 return {
-                    supplier_id: s._id,
-                    supplier_name: s.name,
+                    supplier_id: id,
+                    supplier_name:
+                        id === '__unknown__'
+                            ? 'NCC không xác định'
+                            : supplierNameById.get(id) || 'NCC đã xóa/không còn',
                     purchase_order_count: poCount,
                     goods_receipt_count: grCount,
                     total_count: poCount + grCount,
@@ -596,6 +670,67 @@ router.get(
  * GET /api/analytics/summary?from=YYYY-MM-DD&to=YYYY-MM-DD
  * Tổng quan kinh doanh: doanh thu, số đơn, trả hàng, lợi nhuận ước, chi phí nhập
  */
+router.get(
+  '/vat-report',
+  requireAuth,
+  requireRole(['manager', 'admin']),
+  async (req, res) => {
+    try {
+      const { from, to } = parseDateRange(req.query);
+      const storeIdObj = req.user?.storeId ? new mongoose.Types.ObjectId(req.user.storeId) : null;
+      const role = String(req.user?.role || '').toLowerCase();
+      if (role !== 'admin' && !storeIdObj) {
+        return res.status(403).json({ message: 'Chưa có cửa hàng', code: 'STORE_REQUIRED' });
+      }
+      const match = storeIdObj
+        ? { store_id: storeIdObj, status: 'confirmed', invoice_at: { $gte: from, $lte: to }, ...PAID_TRANSFER_FILTER }
+        : { status: 'confirmed', invoice_at: { $gte: from, $lte: to }, ...PAID_TRANSFER_FILTER };
+      const invoices = await SalesInvoice.aggregate([
+        { $match: match },
+        {
+          $group: {
+            _id: null,
+            output_revenue_gross: { $sum: { $ifNull: ['$total_amount', 0] } },
+            output_revenue_net: { $sum: { $ifNull: ['$subtotal_amount', 0] } },
+            output_vat: { $sum: { $ifNull: ['$tax_amount', 0] } },
+            invoice_count: { $sum: 1 },
+          },
+        },
+      ]);
+      return res.json({
+        period: { from: from.toISOString(), to: to.toISOString() },
+        output_revenue_gross: Number(invoices[0]?.output_revenue_gross || 0),
+        output_revenue_net: Number(invoices[0]?.output_revenue_net || 0),
+        output_vat: Number(invoices[0]?.output_vat || 0),
+        invoice_count: Number(invoices[0]?.invoice_count || 0),
+      });
+    } catch (err) {
+      return res.status(500).json({ message: err.message || 'Server error' });
+    }
+  }
+);
+
+router.get(
+  '/audit-logs',
+  requireAuth,
+  requireRole(['manager', 'admin']),
+  async (req, res) => {
+    try {
+      const storeIdObj = req.user?.storeId ? new mongoose.Types.ObjectId(req.user.storeId) : null;
+      const role = String(req.user?.role || '').toLowerCase();
+      if (role !== 'admin' && !storeIdObj) {
+        return res.status(403).json({ message: 'Chưa có cửa hàng', code: 'STORE_REQUIRED' });
+      }
+      const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 50));
+      const filter = storeIdObj ? { store_id: storeIdObj } : {};
+      const logs = await AuditLog.find(filter).sort({ created_at: -1 }).limit(limit).lean();
+      return res.json({ logs });
+    } catch (err) {
+      return res.status(500).json({ message: err.message || 'Server error' });
+    }
+  }
+);
+
 router.get(
   '/summary',
   requireAuth,
@@ -677,20 +812,22 @@ router.get(
 
         // Số đơn trả hàng trong kỳ
         SalesReturn.aggregate([
+          RETURN_DATE_FALLBACK_STAGE,
           {
             $match: storeIdObj
-              ? { store_id: storeIdObj, status: 'approved', return_at: { $gte: from, $lte: to } }
-              : { status: 'approved', return_at: { $gte: from, $lte: to } },
+              ? { store_id: storeIdObj, status: 'approved', __returnAt: { $gte: from, $lte: to } }
+              : { status: 'approved', __returnAt: { $gte: from, $lte: to } },
           },
           { $group: { _id: null, return_count: { $sum: 1 } } },
         ]),
 
         // Tổng tiền hoàn (gross/net/tax) trong kỳ
         SalesReturn.aggregate([
+          RETURN_DATE_FALLBACK_STAGE,
           {
             $match: storeIdObj
-              ? { store_id: storeIdObj, status: 'approved', return_at: { $gte: from, $lte: to } }
-              : { status: 'approved', return_at: { $gte: from, $lte: to } },
+              ? { store_id: storeIdObj, status: 'approved', __returnAt: { $gte: from, $lte: to } }
+              : { status: 'approved', __returnAt: { $gte: from, $lte: to } },
           },
           {
             $group: {
@@ -704,10 +841,11 @@ router.get(
 
         // Lợi nhuận bị hoàn trong kỳ (để trừ khỏi gross profit)
         SalesReturn.aggregate([
+          RETURN_DATE_FALLBACK_STAGE,
           {
             $match: storeIdObj
-              ? { store_id: storeIdObj, status: 'approved', return_at: { $gte: from, $lte: to } }
-              : { status: 'approved', return_at: { $gte: from, $lte: to } },
+              ? { store_id: storeIdObj, status: 'approved', __returnAt: { $gte: from, $lte: to } }
+              : { status: 'approved', __returnAt: { $gte: from, $lte: to } },
           },
           ...AGG_STAGES_RETURN_ITEMS_WITH_EFFECTIVE_VALUES,
           {
@@ -875,14 +1013,15 @@ router.get(
       }
 
       const returnMatch = storeIdObj
-        ? { store_id: storeIdObj, status: 'approved', return_at: { $gte: from, $lte: to } }
-        : { status: 'approved', return_at: { $gte: from, $lte: to } };
+        ? { store_id: storeIdObj, status: 'approved', __returnAt: { $gte: from, $lte: to } }
+        : { status: 'approved', __returnAt: { $gte: from, $lte: to } };
       const invoiceMatch = storeIdObj
         ? { store_id: storeIdObj, status: 'confirmed', invoice_at: { $gte: from, $lte: to }, ...PAID_TRANSFER_FILTER }
         : { status: 'confirmed', invoice_at: { $gte: from, $lte: to }, ...PAID_TRANSFER_FILTER };
 
       const [reasonAgg, returnSumAgg, salesAgg] = await Promise.all([
         SalesReturn.aggregate([
+          RETURN_DATE_FALLBACK_STAGE,
           { $match: returnMatch },
           {
             $group: {
@@ -894,6 +1033,7 @@ router.get(
           { $sort: { amount: -1 } },
         ]),
         SalesReturn.aggregate([
+          RETURN_DATE_FALLBACK_STAGE,
           { $match: returnMatch },
           { $group: { _id: null, total_return_amount: { $sum: aggReturnEffectiveGross() }, total_return_count: { $sum: 1 } } },
         ]),
@@ -1139,13 +1279,14 @@ router.get(
 
       // Aggregate hoàn trả theo bucket
       const returnRevenueMatch = storeIdObj
-        ? { store_id: storeIdObj, status: 'approved', return_at: { $gte: matchFrom, $lte: now } }
-        : { status: 'approved', return_at: { $gte: matchFrom, $lte: now } };
+        ? { store_id: storeIdObj, status: 'approved', __returnAt: { $gte: matchFrom, $lte: now } }
+        : { status: 'approved', __returnAt: { $gte: matchFrom, $lte: now } };
       const returnRevenueAgg = await SalesReturn.aggregate([
+        RETURN_DATE_FALLBACK_STAGE,
         { $match: returnRevenueMatch },
         {
           $group: {
-            _id: { $dateToString: { format: groupBy === 'day' ? '%Y-%m-%d' : '%Y-%m', date: '$return_at', timezone: REPORT_TZ } },
+            _id: { $dateToString: { format: groupBy === 'day' ? '%Y-%m-%d' : '%Y-%m', date: '$__returnAt', timezone: REPORT_TZ } },
             revenue: { $sum: aggReturnEffectiveGross() },
           },
         },
@@ -1169,11 +1310,12 @@ router.get(
 
       // Lợi nhuận bị hoàn theo bucket (để trừ khỏi profit bán)
       const returnProfitAgg = await SalesReturn.aggregate([
+        RETURN_DATE_FALLBACK_STAGE,
         { $match: returnRevenueMatch },
         ...AGG_STAGES_RETURN_ITEMS_WITH_EFFECTIVE_VALUES,
         {
           $group: {
-            _id: { $dateToString: { format: groupBy === 'day' ? '%Y-%m-%d' : '%Y-%m', date: '$return_at', timezone: REPORT_TZ } },
+            _id: { $dateToString: { format: groupBy === 'day' ? '%Y-%m-%d' : '%Y-%m', date: '$__returnAt', timezone: REPORT_TZ } },
             profit: {
               $sum: aggLineGrossRounded('$__returnLineNet', '$items.quantity', '$__returnUnitCost'),
             },
@@ -1208,7 +1350,10 @@ router.get(
           result.push({
             label: `${d.day}/${d.m}`,
             key,
-            revenue: (entry.revenue || 0) - (returnRevenueMap.get(key) || 0),
+            revenue: entry.revenue || 0,
+            sales_revenue: entry.revenue || 0,
+            return_amount: returnRevenueMap.get(key) || 0,
+            net_revenue: (entry.revenue || 0) - (returnRevenueMap.get(key) || 0),
             order_count: entry.order_count,
             profit: (profitMap.get(key) ?? 0) - (returnProfitMap.get(key) || 0),
           });
@@ -1222,7 +1367,10 @@ router.get(
           result.push({
             label: `T${cm}/${cy}`,
             key,
-            revenue: (entry.revenue || 0) - (returnRevenueMap.get(key) || 0),
+            revenue: entry.revenue || 0,
+            sales_revenue: entry.revenue || 0,
+            return_amount: returnRevenueMap.get(key) || 0,
+            net_revenue: (entry.revenue || 0) - (returnRevenueMap.get(key) || 0),
             order_count: entry.order_count,
             profit: (profitMap.get(key) ?? 0) - (returnProfitMap.get(key) || 0),
           });
@@ -1307,9 +1455,10 @@ router.get(
 
       // Hoàn trả theo sản phẩm trong kỳ (để trừ số liệu top products)
       const returnMatchStage = storeIdObj
-        ? { store_id: storeIdObj, status: 'approved', return_at: { $gte: from, $lte: to } }
-        : { status: 'approved', return_at: { $gte: from, $lte: to } };
+        ? { store_id: storeIdObj, status: 'approved', __returnAt: { $gte: from, $lte: to } }
+        : { status: 'approved', __returnAt: { $gte: from, $lte: to } };
       const returnAgg = await SalesReturn.aggregate([
+        RETURN_DATE_FALLBACK_STAGE,
         { $match: returnMatchStage },
         ...AGG_STAGES_RETURN_ITEMS_WITH_EFFECTIVE_VALUES,
         {

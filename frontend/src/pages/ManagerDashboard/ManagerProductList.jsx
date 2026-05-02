@@ -16,6 +16,7 @@ import './ManagerProducts.css';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
 import { Badge } from '../../components/ui/badge';
+import { getStoreTaxSettings } from '../../services/adminApi';
 
 const LIMIT = 10;
 
@@ -33,6 +34,8 @@ export default function ManagerProductList() {
     const [successMessage, setSuccessMessage] = useState('');
     const [toast, setToast] = useState(null);
     const [togglingId, setTogglingId] = useState(null);
+    const [categoryVatMap, setCategoryVatMap] = useState({});
+    const [defaultVatRate, setDefaultVatRate] = useState(0);
 
     const [importOpen, setImportOpen] = useState(false);
     const [importPreview, setImportPreview] = useState(null);
@@ -61,6 +64,42 @@ export default function ManagerProductList() {
     useEffect(() => {
         fetchList();
     }, [fetchList]);
+
+    useEffect(() => {
+        const token = localStorage.getItem('token') || '';
+        let cancelled = false;
+
+        const loadTaxContext = async () => {
+            try {
+                const [categoryRes, taxRes] = await Promise.all([
+                    fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:8000/api'}/categories?all=true`, {
+                        headers: { Authorization: `Bearer ${token}` },
+                    }).then(async (res) => ({ ok: res.ok, data: await res.json().catch(() => ([])) })),
+                    getStoreTaxSettings().catch(() => ({ tax_rate: 0 })),
+                ]);
+
+                if (cancelled) return;
+                const list = Array.isArray(categoryRes?.data) ? categoryRes.data : [];
+                const nextMap = {};
+                list.forEach((c) => {
+                    if (!c?._id) return;
+                    nextMap[String(c._id)] = c.vat_rate;
+                });
+                setCategoryVatMap(nextMap);
+                setDefaultVatRate(Number(taxRes?.tax_rate) || 0);
+            } catch {
+                if (!cancelled) {
+                    setCategoryVatMap({});
+                    setDefaultVatRate(0);
+                }
+            }
+        };
+
+        loadTaxContext();
+        return () => {
+            cancelled = true;
+        };
+    }, []);
 
     useEffect(() => {
         const stateMessage = location.state?.success;
@@ -110,6 +149,23 @@ export default function ManagerProductList() {
     const formatMoney = (n) => {
         if (n == null || isNaN(n)) return '0';
         return Number(n).toLocaleString('vi-VN') + '₫';
+    };
+
+    const getEffectiveVatRate = (product) => {
+        const productVat = product?.vat_rate;
+        if (productVat !== null && productVat !== undefined && productVat !== '') {
+            return Number(productVat) || 0;
+        }
+        const categoryId = product?.category_id
+            ? (typeof product.category_id === 'object' ? product.category_id._id : product.category_id)
+            : null;
+        if (categoryId) {
+            const categoryVat = categoryVatMap[String(categoryId)];
+            if (categoryVat !== null && categoryVat !== undefined && categoryVat !== '') {
+                return Number(categoryVat) || 0;
+            }
+        }
+        return Number(defaultVatRate) || 0;
     };
 
     const highlightMatch = (text, query) => {
@@ -351,6 +407,11 @@ export default function ManagerProductList() {
                                                             >
                                                                 {highlightMatch(p.name || '—', search)}
                                                             </button>
+                                                            <div style={{ marginTop: 6 }}>
+                                                                <Badge className="border border-amber-200/80 bg-amber-50 text-amber-800">
+                                                                    VAT ap dung: {getEffectiveVatRate(p)}%
+                                                                </Badge>
+                                                            </div>
                                                         </td>
                                                         <td>{p.barcode || '—'}</td>
                                                         <td>{formatMoney(p.cost_price)}</td>

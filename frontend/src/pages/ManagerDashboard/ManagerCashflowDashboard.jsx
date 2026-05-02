@@ -28,6 +28,8 @@ function resolveSource(row) {
   const refId = row?.reference_id;
   switch (model) {
     case 'sales_invoice':
+    case 'sales_invoice_cash':
+    case 'sales_invoice_bank':
       return { label: 'Hóa đơn bán hàng', path: refId ? `/manager/invoices/${refId}/view` : null };
     case 'supplier_payment':
       return { label: 'Thanh toán NCC', path: '/manager/supplier-payables/report' };

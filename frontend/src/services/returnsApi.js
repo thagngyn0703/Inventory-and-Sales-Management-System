@@ -49,3 +49,12 @@ export async function getReturnReasons() {
   });
   return parseResponse(res, 'Không thể tải danh mục lý do trả hàng');
 }
+
+export async function getReturnById(id) {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/returns/${id}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = await parseResponse(res, 'Không thể tải chi tiết phiếu trả hàng');
+  return data.salesReturn;
+}

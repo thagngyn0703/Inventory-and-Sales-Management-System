@@ -3,7 +3,6 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { logout } from '../../utils/auth';
 import { cn } from '../../lib/utils';
-import StoreLockedNotice from '../../components/StoreLockedNotice';
 import { getManagerBadgeCounts, getNotificationUnreadCount } from '../../services/notificationsApi';
 import { getRealtimeSocket } from '../../services/realtimeSocket';
 import {
@@ -37,7 +36,6 @@ const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
 
 const overviewItems = [
   { type: 'item', label: 'Tổng quan', path: '/manager', icon: LayoutDashboard },
-  { type: 'item', label: 'Trợ lý AI', path: '/manager/ai-assistant', icon: Sparkles },
   { type: 'item', label: 'Sản phẩm', path: '/manager/products', icon: Package },
   { type: 'item', label: 'Hóa đơn', path: '/manager/invoices', icon: Receipt },
   {
@@ -85,6 +83,7 @@ const manageItems = [
   { type: 'item', label: 'Lịch sử điều chỉnh', path: '/manager/adjustments', icon: History },
   { type: 'item', label: 'Báo cáo thẻ kho', path: '/manager/stock-history', icon: ClipboardList },
   { type: 'item', label: 'Bán hàng trực tiếp', path: '/manager/pos', icon: Drill },
+  { type: 'item', label: 'Trợ lý AI (tham khảo)', path: '/manager/ai-assistant', icon: Sparkles },
   {
     type: 'group',
     key: 'manage-staff',
@@ -350,7 +349,6 @@ export default function ManagerSidebar({ collapsed = false, ...restProps }) {
 
   return (
     <>
-      <StoreLockedNotice visible={currentUser?.storeStatus === 'inactive'} />
       <aside
         className={cn(
           'manager-sidebar fixed left-0 top-0 z-[100] flex h-screen w-[250px] flex-col border-r border-slate-200/70 bg-gradient-to-b from-white via-slate-50/90 to-sky-50/35 shadow-[4px_0_24px_-8px_rgba(15,23,42,0.12)] transition-transform duration-300 ease-out',

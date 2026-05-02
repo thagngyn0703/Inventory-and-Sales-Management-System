@@ -36,13 +36,27 @@ const salesInvoiceSchema = new Schema(
             enum: ['confirmed', 'cancelled', 'pending'],
             default: 'confirmed',
         },
+        cancel_reason: {
+            type: String,
+            trim: true,
+            default: '',
+        },
+        cancelled_by: {
+            type: Schema.Types.ObjectId,
+            ref: 'User',
+            default: null,
+        },
+        cancelled_at: {
+            type: Date,
+            default: null,
+        },
         invoice_at: {
             type: Date,
             default: Date.now,
         },
         payment_method: {
             type: String,
-            enum: ['cash', 'bank_transfer', 'credit', 'card', 'debt'],
+            enum: ['cash', 'bank_transfer', 'credit', 'card', 'debt', 'split'],
             default: 'cash',
         },
         payment_status: {
@@ -60,6 +74,23 @@ const salesInvoiceSchema = new Schema(
         paid_at: {
             type: Date,
             default: null,
+        },
+        /**
+         * Payment split (single source of truth).
+         * - cash: tiền mặt thu tại quầy
+         * - bank_transfer: tiền chuyển khoản (SePay đối soát theo payment_ref)
+         *
+         * Backward-compatible: nếu doc cũ chỉ có payment_method, hệ thống sẽ suy ra payment khi cần.
+         */
+        payment: {
+            cash: { type: Number, default: 0, min: 0 },
+            bank_transfer: { type: Number, default: 0, min: 0 },
+        },
+        shift_id: {
+            type: Schema.Types.ObjectId,
+            ref: 'ShiftSession',
+            required: false,
+            index: true,
         },
         items: [
             {
@@ -113,6 +144,24 @@ const salesInvoiceSchema = new Schema(
                     type: Number,
                     required: true,
                 },
+                vat_rate_snapshot: {
+                    type: Number,
+                    default: 0,
+                    min: 0,
+                    max: 100,
+                },
+                line_subtotal_amount: {
+                    type: Number,
+                    default: 0,
+                },
+                line_tax_amount: {
+                    type: Number,
+                    default: 0,
+                },
+                line_net_total: {
+                    type: Number,
+                    default: 0,
+                },
                 line_profit: {
                     type: Number,
                     default: 0,
@@ -139,6 +188,29 @@ const salesInvoiceSchema = new Schema(
             type: Number,
             default: 0,
         },
+        tax_is_mixed: {
+            type: Boolean,
+            default: false,
+        },
+        /**
+         * Compliance / e-invoice preparation fields (phase 2 integration ready).
+         * Phase 1 only stores snapshots + issuance lifecycle state.
+         */
+        compliance_issue_status: {
+            type: String,
+            enum: ['not_issued', 'issued', 'cancelled', 'replaced'],
+            default: 'not_issued',
+            index: true,
+        },
+        compliance_issued_at: { type: Date, default: null },
+        compliance_invoice_number: { type: String, trim: true, default: '' },
+        compliance_series: { type: String, trim: true, default: '' },
+        compliance_provider: { type: String, trim: true, default: '' },
+        compliance_provider_ref: { type: String, trim: true, default: '' },
+        compliance_payload_snapshot: { type: Schema.Types.Mixed, default: null },
+
+        seller_legal_snapshot: { type: Schema.Types.Mixed, default: null },
+        buyer_legal_snapshot: { type: Schema.Types.Mixed, default: null },
         returned_total_amount: {
             type: Number,
             default: 0,
@@ -231,10 +303,18 @@ const salesInvoiceSchema = new Schema(
             type: Date,
             default: Date.now,
         },
+        updated_at: {
+            type: Date,
+            default: null,
+        },
     },
     {
         timestamps: false,
     }
 );
+
+salesInvoiceSchema.index({ store_id: 1, created_at: -1, _id: -1 });
+salesInvoiceSchema.index({ store_id: 1, shift_id: 1, created_at: -1 });
+salesInvoiceSchema.index({ store_id: 1, created_by: 1, created_at: -1 });
 
 module.exports = model('SalesInvoice', salesInvoiceSchema);

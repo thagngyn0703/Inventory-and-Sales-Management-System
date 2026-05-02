@@ -13,7 +13,6 @@ const RETURN_REASON_OPTIONS = [
     { code: 'customer_changed_mind', label: 'Khách đổi ý' },
     { code: 'defective', label: 'Lỗi nhà sản xuất' },
     { code: 'expired', label: 'Hết hạn sử dụng' },
-    { code: 'wrong_item', label: 'Giao sai hàng' },
     { code: 'other', label: 'Lý do khác' },
 ];
 
@@ -124,6 +123,33 @@ router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (
 // GET /api/returns/reasons — danh mục lý do trả hàng chuẩn hóa
 router.get('/reasons', requireAuth, requireRole(['staff', 'manager', 'admin']), async (_req, res) => {
     return res.json({ reasons: RETURN_REASON_OPTIONS });
+});
+
+// GET /api/returns/:id — chi tiết một phiếu trả hàng
+router.get('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
+    try {
+        if (!assertStoreScope(req, res)) return;
+        const { id } = req.params;
+        if (!mongoose.isValidObjectId(id)) {
+            return res.status(400).json({ message: 'return id không hợp lệ' });
+        }
+        const salesReturn = await SalesReturn.findById(id)
+            .populate('invoice_id')
+            .populate('created_by', 'fullName email')
+            .populate('items.product_id', 'name sku')
+            .lean();
+        if (!salesReturn) {
+            return res.status(404).json({ message: 'Không tìm thấy phiếu trả hàng.' });
+        }
+        const role = String(req.user?.role || '').toLowerCase();
+        if (role !== 'admin' && req.user.storeId && String(salesReturn.store_id) !== String(req.user.storeId)) {
+            return res.status(403).json({ message: 'Không có quyền xem phiếu trả hàng này.' });
+        }
+        return res.json({ salesReturn });
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({ message: err.message || 'Server error' });
+    }
 });
 
 // POST /api/returns — trả hàng; luôn cộng số lượng trả lại vào tồn kho

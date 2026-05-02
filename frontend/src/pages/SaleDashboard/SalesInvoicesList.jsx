@@ -1,20 +1,23 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { getInvoices } from '../../services/invoicesApi';
+import { getReturns } from '../../services/returnsApi';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { Card, CardContent } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Badge } from '../../components/ui/badge';
 import { InlineNotice } from '../../components/ui/inline-notice';
-import { FileText, Loader2, Receipt, Search } from 'lucide-react';
+import { FileText, Loader2, Receipt, Search, X } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 const LIMIT = 10;
 
 const STATUS_LABEL = {
-  confirmed: 'Đã thanh toán',
+  confirmed: 'Đã bán',
   pending: 'Chờ thanh toán',
-  cancelled: 'Trả hàng',
+  cancelled: 'Đã hủy',
+  returned_partial: 'Trả một phần',
+  returned_full: 'Trả toàn bộ',
   debt_unpaid: 'Nợ',
 };
 
@@ -28,14 +31,18 @@ const PAYMENT_LABEL = {
 
 function statusBadgeClass(status) {
   if (status === 'confirmed') return 'bg-emerald-100 text-emerald-900 border-emerald-200/80';
+  if (status === 'returned_partial') return 'bg-amber-100 text-amber-900 border-amber-200/80';
+  if (status === 'returned_full') return 'bg-rose-100 text-rose-900 border-rose-200/80';
   if (status === 'debt_unpaid') return 'bg-red-100 text-red-900 border-red-200/80';
-  if (status === 'cancelled') return 'bg-amber-100 text-amber-900 border-amber-200/80';
+  if (status === 'cancelled') return 'bg-slate-100 text-slate-700 border-slate-200/80';
   return 'bg-slate-100 text-slate-700 border-slate-200/80';
 }
 
 function getInvoiceStatusView(inv) {
   const isDebtUnpaid = inv?.payment_method === 'debt' && inv?.payment_status !== 'paid';
-  return isDebtUnpaid ? 'debt_unpaid' : inv?.status;
+  if (isDebtUnpaid) return 'debt_unpaid';
+  if (inv?.status === 'confirmed') return 'confirmed';
+  return inv?.status || 'confirmed';
 }
 
 export default function SalesInvoicesList({ basePathOverride = null, detailPathBuilder = null }) {
@@ -53,21 +60,57 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [searchKey, setSearchKey] = useState('');
+  const hasFilters = Boolean(dateFrom || dateTo || searchKey);
 
   const fetchInvoices = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const resp = await getInvoices({
-        page: 1,
-        limit: 1000,
-        status: isReturnsPage ? 'cancelled' : undefined,
-      });
-      let allInvoices = resp.invoices || [];
+      const [invoiceResp, returnsResp] = await Promise.all([
+        getInvoices({ page: 1, limit: 1000 }),
+        getReturns({ page: 1, limit: 1000 }),
+      ]);
+      const allInvoicesRaw = invoiceResp.invoices || [];
+      const allReturnsRaw = returnsResp.returns || [];
+      const invoiceMap = new Map(allInvoicesRaw.map((inv) => [String(inv._id), inv]));
 
-      if (!isReturnsPage) {
-        allInvoices = allInvoices.filter((i) => i.status !== 'cancelled');
-      }
+      const invoiceRows = allInvoicesRaw.map((inv) => ({
+        type: 'sale',
+        _id: String(inv._id),
+        createdAt: inv.invoice_at,
+        code: String(inv._id),
+        customerName: inv.recipient_name || 'Khách lẻ',
+        sellerName: inv.seller_name || inv.created_by?.fullName || inv.created_by?.email || '—',
+        status: getInvoiceStatusView(inv),
+        paymentMethod: PAYMENT_LABEL[inv.payment_method] || inv.payment_method || '—',
+        amount: Number(inv.total_amount || 0),
+        invoiceId: inv._id,
+      }));
+
+      const returnRows = allReturnsRaw.map((rt) => {
+        const originInvoiceId = String(rt?.invoice_id?._id || '');
+        const originInvoice = invoiceMap.get(originInvoiceId);
+        const returnedTotal = Number(originInvoice?.returned_total_amount || 0);
+        const originTotal = Number(originInvoice?.total_amount || 0);
+        const returnStatus = originTotal > 0 && returnedTotal >= originTotal ? 'returned_full' : 'returned_partial';
+        return {
+          type: 'return',
+          _id: `return-${rt._id}`,
+          createdAt: rt.return_at || rt.created_at,
+          code: String(rt._id),
+          customerName: rt.invoice_id?.recipient_name || originInvoice?.recipient_name || '—',
+          sellerName: rt.created_by?.fullName || rt.created_by?.email || '—',
+          status: returnStatus,
+          paymentMethod: originInvoice?.payment_method ? (PAYMENT_LABEL[originInvoice.payment_method] || originInvoice.payment_method) : '—',
+          amount: Number(rt.total_amount || 0),
+          invoiceId: originInvoiceId || null,
+          returnId: rt._id,
+        };
+      });
+
+      let allInvoices = isReturnsPage
+        ? returnRows
+        : [...invoiceRows, ...returnRows].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
       if (dateFrom) {
         const df = new Date(dateFrom);
@@ -83,8 +126,9 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
         const lowerSearch = searchKey.toLowerCase().trim();
         allInvoices = allInvoices.filter(
           (i) =>
-            (i._id && i._id.toLowerCase().includes(lowerSearch)) ||
-            (i.recipient_name && i.recipient_name.toLowerCase().includes(lowerSearch))
+            (i.code && i.code.toLowerCase().includes(lowerSearch)) ||
+            (i.customerName && i.customerName.toLowerCase().includes(lowerSearch)) ||
+            (i.sellerName && i.sellerName.toLowerCase().includes(lowerSearch))
         );
       }
 
@@ -176,6 +220,23 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
               </div>
             </div>
           </div>
+          {hasFilters && (
+            <div className="mt-3 flex justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                className="h-9 gap-1.5"
+                onClick={() => {
+                  setDateFrom('');
+                  setDateTo('');
+                  setSearchKey('');
+                }}
+              >
+                <X className="h-4 w-4" />
+                Xóa lọc
+              </Button>
+            </div>
+          )}
 
           <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-4 text-sm text-slate-600">
             <span>
@@ -209,7 +270,7 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
           ) : (
             <>
               <div className="overflow-x-auto rounded-xl border border-slate-200/80">
-                <table className="w-full min-w-[760px] text-sm">
+                <table className="w-full min-w-[860px] text-sm text-slate-700">
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50/90 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                       <th className="px-4 py-3">Ngày tạo</th>
@@ -225,37 +286,47 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
                     {invoices.map((inv) => {
                       const statusView = getInvoiceStatusView(inv);
                       return (
-                      <tr key={inv._id} className="hover:bg-slate-50/80">
-                        <td className="whitespace-nowrap px-4 py-3 text-slate-600">{formatDate(inv.invoice_at)}</td>
-                        <td className="max-w-[120px] truncate px-4 py-3 font-mono text-xs text-slate-800">{inv._id}</td>
-                        <td className="max-w-[160px] truncate px-4 py-3 font-medium text-slate-900">
-                          {inv.recipient_name || 'Khách lẻ'}
+                      <tr key={inv._id} className="transition-colors odd:bg-white even:bg-slate-50/30 hover:bg-sky-50/40">
+                        <td className="whitespace-nowrap px-4 py-3.5 text-slate-600">{formatDate(inv.createdAt)}</td>
+                        <td className="max-w-[160px] truncate px-4 py-3.5 font-mono text-xs text-slate-700" title={inv.code}>{inv.code}</td>
+                        <td className="max-w-[180px] truncate px-4 py-3.5 font-medium text-slate-900">
+                          {inv.customerName || 'Khách lẻ'}
                         </td>
-                        <td className="px-4 py-3">
-                          <Badge className={cn('border font-medium', statusBadgeClass(statusView))}>
+                        <td className="px-4 py-3.5">
+                          <Badge className={cn('inline-flex rounded-full border px-2.5 py-0.5 font-semibold', statusBadgeClass(statusView))}>
                             {STATUS_LABEL[statusView] ?? statusView}
                           </Badge>
                         </td>
-                        <td className="px-4 py-3 text-slate-600">
-                          {PAYMENT_LABEL[inv.payment_method] || inv.payment_method || '—'}
+                        <td className="px-4 py-3.5 text-slate-600">
+                          {inv.paymentMethod || '—'}
                         </td>
-                        <td className="px-4 py-3 text-right font-medium tabular-nums text-slate-900">
-                          {Number(inv.total_amount || 0).toLocaleString('vi-VN')}₫
+                        <td className={cn(
+                          'px-4 py-3.5 text-right font-semibold tabular-nums',
+                          inv.type === 'return' ? 'text-red-600' : 'text-slate-900'
+                        )}>
+                          {inv.type === 'return' ? '-' : ''}{Number(inv.amount || 0).toLocaleString('vi-VN')}₫
                         </td>
-                        <td className="px-4 py-3 text-right">
+                        <td className="px-4 py-3.5 text-right">
                           <Button
                             type="button"
                             variant="outline"
-                            size="default"
-                            className="h-9"
+                            size="sm"
+                            className="h-8 min-w-[72px]"
                             onClick={() => {
+                              if (inv.type === 'return') {
+                                if (!inv.returnId) return;
+                                navigate(`${basePath}/returns/${inv.returnId}`);
+                                return;
+                              }
+                              if (!inv.invoiceId) return;
                               const nextPath = detailPathBuilder
                                 ? detailPathBuilder(inv)
-                                : `${basePath}/${inv._id}`;
+                                : `${basePath}/invoices/${inv.invoiceId}`;
                               navigate(nextPath);
                             }}
+                            disabled={inv.type === 'return' ? !inv.returnId : !inv.invoiceId}
                           >
-                            Xem
+                            {inv.type === 'return' ? 'Xem phiếu trả' : 'Xem'}
                           </Button>
                         </td>
                       </tr>

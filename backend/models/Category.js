@@ -12,6 +12,12 @@ const categorySchema = new Schema(
             type: Boolean,
             default: true,
         },
+        vat_rate: {
+            type: Number,
+            default: 0,
+            min: 0,
+            max: 100,
+        },
         created_at: {
             type: Date,
             default: Date.now,

@@ -14,14 +14,25 @@ const BANNER_BG =
 
 export default function ManagerStoreRegister() {
   const navigate = useNavigate();
-  const [form, setForm] = useState({ name: "", address: "", phone: "" });
+  const [form, setForm] = useState({
+    name: "",
+    address: "",
+    phone: "",
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   const [successInfo, setSuccessInfo] = useState(null);
   const redirectTimerRef = useRef(null);
 
-  const canSubmit = useMemo(() => form.name.trim().length > 0 && !loading, [form.name, loading]);
+  const canSubmit = useMemo(
+    () =>
+      form.name.trim().length > 0 &&
+      form.address.trim().length > 0 &&
+      form.phone.trim().length > 0 &&
+      !loading,
+    [form, loading]
+  );
 
   const finishAndGoManager = useCallback(() => {
     if (redirectTimerRef.current) {
@@ -77,6 +88,10 @@ export default function ManagerStoreRegister() {
           name: form.name.trim(),
           address: form.address.trim(),
           phone: form.phone.trim(),
+          // Backward compatibility: một số backend cũ vẫn còn validate 2 trường này.
+          // Giá trị tạm sẽ được manager cập nhật lại đúng trong Manager Settings.
+          tax_code: "__PENDING_PROFILE__",
+          bank_account_number: "__PENDING_PROFILE__",
         }),
       });
 
@@ -265,8 +280,8 @@ export default function ManagerStoreRegister() {
                 Đăng ký cửa hàng thành công
               </h3>
               <p id="store-register-success-desc" className="mt-3 text-sm leading-relaxed text-slate-600">
-                <span className="font-semibold text-slate-800">{successInfo.storeName}</span> đã được tạo.
-                Chào mừng bạn đến với <span className="font-semibold text-slate-800">ISMS</span>.
+                <span className="font-semibold text-slate-800">{successInfo.storeName}</span> đã được nộp hồ sơ.
+                Hệ thống sẽ kích hoạt đầy đủ sau khi admin phê duyệt thông tin pháp lý.
               </p>
 
               <div className="mt-6 h-1 w-full overflow-hidden rounded-full bg-slate-100">

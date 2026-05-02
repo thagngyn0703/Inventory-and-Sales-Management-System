@@ -14,6 +14,7 @@ import {
   getReturnReasonsAnalytics,
   getLoyaltyAnalytics,
   downloadLoyaltyAnalyticsCsv,
+  getVatReport,
 } from '../../services/analyticsApi';
 import { getSupplierPayableSummary } from '../../services/supplierPayablesApi';
 import RevenueProfitChart from './RevenueProfitChart';
@@ -172,6 +173,7 @@ export default function ManagerDashboard() {
   const [loyaltyAnalytics, setLoyaltyAnalytics] = useState(null);
   const [loyaltyLoading, setLoyaltyLoading] = useState(true);
   const [exportingLoyalty, setExportingLoyalty] = useState(false);
+  const [vatReport, setVatReport] = useState(null);
 
   // Supplier payable summary
   const [payableSummary, setPayableSummary] = useState(null);
@@ -289,6 +291,15 @@ export default function ManagerDashboard() {
     }
   }, [summaryFrom, summaryTo]);
 
+  const fetchVatReport = useCallback(async () => {
+    try {
+      const data = await getVatReport({ from: summaryFrom, to: summaryTo });
+      setVatReport(data);
+    } catch {
+      setVatReport(null);
+    }
+  }, [summaryFrom, summaryTo]);
+
   useEffect(() => { fetchSummary(); }, [fetchSummary]);
   useEffect(() => { fetchInventory(); }, [fetchInventory]);
   useEffect(() => { fetchPayableSummary(); }, [fetchPayableSummary]);
@@ -298,6 +309,7 @@ export default function ManagerDashboard() {
   useEffect(() => { fetchIncomingFrequency(); }, [fetchIncomingFrequency]);
   useEffect(() => { fetchReturnReasons(); }, [fetchReturnReasons]);
   useEffect(() => { fetchLoyaltyAnalytics(); }, [fetchLoyaltyAnalytics]);
+  useEffect(() => { fetchVatReport(); }, [fetchVatReport]);
 
   // ── Derived ──
   const today = summary?.today;
@@ -421,6 +433,9 @@ export default function ManagerDashboard() {
               web: 'Dashboard đồng bộ giao diện với quầy staff (Tailwind + shadcn).',
               default: 'Dashboard manager.',
             })}
+          </p>
+          <p className="text-xs text-slate-500" style={{ marginTop: 4 }}>
+            Trợ lý AI chỉ mang tính tham khảo; quyết định kế toán, thuế và đối soát dựa trên báo cáo hệ thống.
           </p>
 
           {summaryError && (
@@ -565,7 +580,7 @@ export default function ManagerDashboard() {
               <div className="manager-panel-header">
                 <div>
                   <h2 className="manager-panel-title">Biểu đồ doanh thu</h2>
-                  <p className="manager-panel-subtitle">Doanh thu vs lợi nhuận (lợi nhuận: vốn snapshot; nếu vốn dòng = 0 thì lấy vốn SP hiện tại)</p>
+                  <p className="manager-panel-subtitle">Doanh thu bán, hoàn trả và lợi nhuận gộp (lợi nhuận: vốn snapshot; nếu vốn dòng = 0 thì lấy vốn SP hiện tại)</p>
                 </div>
                 <select
                   className="manager-select"
@@ -596,6 +611,11 @@ export default function ManagerDashboard() {
                       {summary?.revenue_net != null && summary?.total_vat_collected != null && (
                         <p style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
                           Doanh thu thuần: {fmtVND(summary.revenue_net)} · VAT thu hộ: {fmtVND(summary.total_vat_collected)}
+                        </p>
+                      )}
+                      {vatReport?.output_vat != null && (
+                        <p style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                          VAT đầu ra (đối soát): {fmtVND(vatReport.output_vat)}
                         </p>
                       )}
                     </div>
@@ -1144,9 +1164,6 @@ export default function ManagerDashboard() {
                   <h2 className="manager-panel-title">📊 Báo cáo chương trình tích điểm</h2>
                   <p className="manager-panel-subtitle">Tổng quan hiệu quả và chi phí chương trình khách hàng thân thiết</p>
                 </div>
-                <Button type="button" variant="outline" onClick={handleExportLoyaltyCsv} disabled={exportingLoyalty}>
-                  {exportingLoyalty ? 'Đang xuất...' : '⬇ Tải báo cáo (.csv)'}
-                </Button>
               </div>
 
               {loyaltyLoading ? (

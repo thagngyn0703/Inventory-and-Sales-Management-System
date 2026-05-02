@@ -10,6 +10,7 @@ import {
     trimString,
     validateBarcode,
     validateNoSpecialText,
+    validateRequiredText,
     validateNonNegativeNumber,
     validateSku,
 } from '../../utils/productValidation';
@@ -26,6 +27,7 @@ const PRODUCT_BASE_UNITS = ['Cái', 'Chai', 'Lon', 'Thùng', 'Hộp', 'Kg', 'Gó
 const defaultSellingUnit = () => ({ name: 'Cái', ratio: 1, sale_price: '', barcode: '' });
 
 const createDefaultForm = () => ({
+    category_id: '',
     name: '',
     sku: '',
     barcode: '',
@@ -45,6 +47,7 @@ export default function ManagerProductCreate() {
     const navigate = useNavigate();
     const [form, setForm] = useState(createDefaultForm());
     const [suppliers, setSuppliers] = useState([]);
+    const [categories, setCategories] = useState([]);
     const [existingProducts, setExistingProducts] = useState([]);
     const [selectedExistingId, setSelectedExistingId] = useState('');
     const [loading, setLoading] = useState(false);
@@ -66,6 +69,23 @@ export default function ManagerProductCreate() {
         getSuppliers()
             .then((list) => { if (!cancelled) setSuppliers(list || []); })
             .catch(() => { if (!cancelled) setSuppliers([]); });
+        return () => { cancelled = true; };
+    }, []);
+
+    useEffect(() => {
+        const token = localStorage.getItem('token') || '';
+        let cancelled = false;
+        fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:8000/api'}/categories?all=true`, {
+            headers: { Authorization: `Bearer ${token}` },
+        })
+            .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
+            .then(({ ok, data }) => {
+                if (cancelled) return;
+                if (!ok) throw new Error(data?.message || 'Không thể tải danh mục');
+                const list = Array.isArray(data) ? data : [];
+                setCategories(list.filter((c) => c?.is_active !== false));
+            })
+            .catch(() => { if (!cancelled) setCategories([]); });
         return () => { cancelled = true; };
     }, []);
 
@@ -208,7 +228,7 @@ export default function ManagerProductCreate() {
     const handleSubmit = async (e) => {
         e.preventDefault();
         setExistingMatch(null);
-        const nameCheck = validateNoSpecialText(form.name, 'Tên sản phẩm', { required: true });
+        const nameCheck = validateRequiredText(form.name, 'Tên sản phẩm');
         if (!nameCheck.ok) return setError(nameCheck.message);
         const skuCheck = validateSku(form.sku);
         if (!skuCheck.ok) return setError(skuCheck.message);
@@ -325,6 +345,7 @@ export default function ManagerProductCreate() {
                 uploadedImageUrls = await uploadProductImages(selectedImages);
             }
             const payload = {
+                category_id: trimString(form.category_id) || undefined,
                 name: nameCheck.value,
                 sku: skuCheck.value,
                 barcode: barcodeCheck.value || undefined,
@@ -373,6 +394,9 @@ export default function ManagerProductCreate() {
         }
         setForm((prev) => ({
             ...prev,
+            category_id: p.category_id
+                ? (typeof p.category_id === 'object' ? (p.category_id?._id || '') : p.category_id)
+                : prev.category_id,
             name: p.name || prev.name,
             sku: p.sku || prev.sku,
             barcode: p.barcode || '',
@@ -533,6 +557,21 @@ export default function ManagerProductCreate() {
                                 <CardContent className="space-y-4">
                                     <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Thông tin chung</h3>
                                     <div className="space-y-3">
+                                        <div>
+                                            <label className="mb-1 block text-sm font-medium text-slate-600">Danh mục</label>
+                                            <select
+                                                value={form.category_id}
+                                                onChange={(e) => update('category_id', e.target.value)}
+                                                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
+                                            >
+                                                <option value="">— Không chọn —</option>
+                                                {categories.map((c) => (
+                                                    <option key={c._id} value={c._id}>
+                                                        {c.name}{c.vat_rate === null || c.vat_rate === undefined ? '' : ` (VAT ${c.vat_rate}%)`}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
                                         <div>
                                             <label className="mb-1 block text-sm font-medium text-slate-600">Tên sản phẩm *</label>
                                             <input

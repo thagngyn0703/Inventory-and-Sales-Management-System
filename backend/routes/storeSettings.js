@@ -9,6 +9,15 @@ const router = express.Router();
 
 const ALLOWED_BUSINESS_TYPES = ['ho_kinh_doanh', 'doanh_nghiep'];
 
+function hasCompletedLegalProfile(store) {
+    return Boolean(
+        String(store?.tax_code || '').trim() &&
+        String(store?.bank_account_number || '').trim() &&
+        String(store?.legal_representative || '').trim() &&
+        String(store?.business_license_number || '').trim()
+    );
+}
+
 /**
  * GET /api/store-settings/tax
  * Nhân viên / Manager / Admin lấy cấu hình thuế + loại hình kinh doanh của cửa hàng mình.
@@ -195,6 +204,142 @@ router.patch('/bank', requireAuth, requireRole(['manager', 'admin']), async (req
         return res.status(500).json({ message: err.message || 'Server error' });
     }
 });
+
+/**
+ * GET /api/store-settings/legal
+ * Lấy hồ sơ pháp lý cửa hàng để manager bổ sung/chỉnh sửa sau đăng ký.
+ */
+router.get('/legal', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
+    try {
+        const storeId = req.user?.storeId;
+        if (!storeId || !mongoose.isValidObjectId(storeId)) {
+            return res.status(403).json({ message: 'Tài khoản chưa được gán cửa hàng.', code: 'STORE_REQUIRED' });
+        }
+        const store = await Store.findById(storeId)
+            .select(
+                'name tax_code legal_representative business_license_number business_license_file bank_name bank_account_number billing_email approval_status rejection_reason'
+            )
+            .lean();
+        if (!store) return res.status(404).json({ message: 'Không tìm thấy cửa hàng.' });
+        return res.json({
+            store_name: store.name,
+            approval_status: store.approval_status || 'draft_profile',
+            legal_profile_completed: hasCompletedLegalProfile(store),
+            rejection_reason: store.rejection_reason || '',
+            tax_code: store.tax_code || '',
+            legal_representative: store.legal_representative || '',
+            business_license_number: store.business_license_number || '',
+            business_license_file: store.business_license_file || '',
+            bank_name: store.bank_name || '',
+            bank_account_number: store.bank_account_number || '',
+            // billing_email luôn bám theo email đăng ký manager, không sửa trong settings.
+            billing_email: store.billing_email || '',
+        });
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({ message: err.message || 'Server error' });
+    }
+});
+
+/**
+ * PATCH /api/store-settings/legal
+ * Bổ sung/chỉnh sửa hồ sơ pháp lý, không cho sửa billing_email từ UI này.
+ */
+router.patch(
+    '/legal',
+    requireAuth,
+    requireRole(['manager', 'admin'], {
+        allowLockedStoreForManager: true,
+        allowApprovalBlockedWriteForManager: true,
+    }),
+    async (req, res) => {
+    try {
+        const storeId = req.user?.storeId;
+        if (!storeId || !mongoose.isValidObjectId(storeId)) {
+            return res.status(403).json({ message: 'Tài khoản chưa được gán cửa hàng.', code: 'STORE_REQUIRED' });
+        }
+        const {
+            tax_code,
+            legal_representative,
+            business_license_number,
+            business_license_file,
+            bank_name,
+            bank_account_number,
+        } = req.body || {};
+        if (
+            tax_code === undefined &&
+            legal_representative === undefined &&
+            business_license_number === undefined &&
+            business_license_file === undefined &&
+            bank_name === undefined &&
+            bank_account_number === undefined
+        ) {
+            return res.status(400).json({ message: 'Vui lòng cung cấp ít nhất một trường cần cập nhật.' });
+        }
+        const updates = {};
+        if (tax_code !== undefined) updates.tax_code = String(tax_code || '').trim();
+        if (legal_representative !== undefined) updates.legal_representative = String(legal_representative || '').trim();
+        if (business_license_number !== undefined) updates.business_license_number = String(business_license_number || '').trim();
+        if (business_license_file !== undefined) updates.business_license_file = String(business_license_file || '').trim();
+        if (bank_name !== undefined) updates.bank_name = String(bank_name || '').trim();
+        if (bank_account_number !== undefined) updates.bank_account_number = String(bank_account_number || '').trim();
+
+        const store = await Store.findByIdAndUpdate(storeId, { $set: updates }, { new: true })
+            .select(
+                'name tax_code legal_representative business_license_number business_license_file bank_name bank_account_number billing_email approval_status rejection_reason'
+            )
+            .lean();
+        if (!store) return res.status(404).json({ message: 'Không tìm thấy cửa hàng.' });
+        const legalProfileCompleted = hasCompletedLegalProfile(store);
+        if (legalProfileCompleted && ['draft_profile', 'rejected', 'pending_approval'].includes(String(store.approval_status || ''))) {
+            await Store.updateOne(
+                { _id: storeId },
+                {
+                    $set: {
+                        approval_status: 'pending_approval',
+                        rejection_reason: '',
+                        approved_by: null,
+                        approved_at: null,
+                        status: 'inactive',
+                    },
+                }
+            );
+            store.approval_status = 'pending_approval';
+            store.rejection_reason = '';
+        } else if (!legalProfileCompleted && String(store.approval_status || '') !== 'approved' && String(store.approval_status || '') !== 'suspended') {
+            await Store.updateOne(
+                { _id: storeId },
+                {
+                    $set: {
+                        approval_status: 'draft_profile',
+                        approved_by: null,
+                        approved_at: null,
+                        status: 'inactive',
+                    },
+                }
+            );
+            store.approval_status = 'draft_profile';
+        }
+        return res.json({
+            message: 'Đã cập nhật hồ sơ pháp lý.',
+            store_name: store.name,
+            approval_status: store.approval_status || 'draft_profile',
+            legal_profile_completed: legalProfileCompleted,
+            rejection_reason: store.rejection_reason || '',
+            tax_code: store.tax_code || '',
+            legal_representative: store.legal_representative || '',
+            business_license_number: store.business_license_number || '',
+            business_license_file: store.business_license_file || '',
+            bank_name: store.bank_name || '',
+            bank_account_number: store.bank_account_number || '',
+            billing_email: store.billing_email || '',
+        });
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({ message: err.message || 'Server error' });
+    }
+    }
+);
 
 /**
  * GET /api/store-settings/loyalty

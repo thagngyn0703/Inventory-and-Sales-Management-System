@@ -4,6 +4,7 @@ const SalesInvoice = require('../models/SalesInvoice');
 const PaymentTransaction = require('../models/PaymentTransaction');
 const { settlePreviousDebtIfNeeded } = require('../utils/invoiceDebtSettlement');
 const { upsertSystemCashFlow } = require('../utils/cashflowUtils');
+const { sumPayment, normalizeNonNegativeInt } = require('../utils/invoicePaymentUtils');
 const { appendLoyaltyTxn, getNextNudge, normalizeLoyaltySettings } = require('../utils/loyalty');
 const Customer = require('../models/Customer');
 const Store = require('../models/Store');
@@ -109,8 +110,11 @@ async function reconcileInvoiceFromSepay(invoice) {
 
   const ref = String(invoice.payment_ref).trim().toUpperCase();
   const normalizedRef = normalizePaymentRef(ref);
-  // Số tiền thực thu = tiền hàng + nợ cũ trả cùng (nếu có)
-  const targetAmount = parseAmount(invoice.total_amount) + parseAmount(invoice.previous_debt_paid);
+  const paymentSplit = invoice.payment ? sumPayment(invoice.payment) : null;
+  // Số tiền cần đối soát SePay = phần bank_transfer (nếu có), fallback về logic cũ
+  const targetAmount = paymentSplit
+    ? parseAmount(paymentSplit.bank_transfer)
+    : parseAmount(invoice.total_amount) + parseAmount(invoice.previous_debt_paid);
   const accountFilter = String(process.env.SEPAY_ACCOUNT_NUMBER || '').trim();
 
   let transactions = [];
@@ -140,9 +144,9 @@ async function reconcileInvoiceFromSepay(invoice) {
     storeId: invoice.store_id,
     type: 'INCOME',
     category: 'SALES',
-    amount: invoice.total_amount,
-    paymentMethod: invoice.payment_method,
-    referenceModel: 'sales_invoice',
+    amount: paymentSplit ? parseAmount(paymentSplit.bank_transfer) : invoice.total_amount,
+    paymentMethod: 'bank_transfer',
+    referenceModel: 'sales_invoice_bank',
     referenceId: invoice._id,
     note: `Thu tien hoa don #${String(invoice._id).slice(-6).toUpperCase()} (SePay poll)`,
     transactedAt: invoice.paid_at || new Date(),
@@ -296,13 +300,14 @@ router.post('/sepay/webhook', express.raw({ type: 'application/json' }), async (
       matchedInvoice.payment_status = 'paid';
       matchedInvoice.paid_at = new Date();
       await matchedInvoice.save();
+      const paymentSplit2 = matchedInvoice.payment ? sumPayment(matchedInvoice.payment) : null;
       await upsertSystemCashFlow({
         storeId: matchedInvoice.store_id,
         type: 'INCOME',
         category: 'SALES',
-        amount: matchedInvoice.total_amount,
-        paymentMethod: matchedInvoice.payment_method,
-        referenceModel: 'sales_invoice',
+        amount: paymentSplit2 ? parseAmount(paymentSplit2.bank_transfer) : matchedInvoice.total_amount,
+        paymentMethod: 'bank_transfer',
+        referenceModel: 'sales_invoice_bank',
         referenceId: matchedInvoice._id,
         note: `Thu tien hoa don #${String(matchedInvoice._id).slice(-6).toUpperCase()} (SePay webhook)`,
         transactedAt: matchedInvoice.paid_at || new Date(),

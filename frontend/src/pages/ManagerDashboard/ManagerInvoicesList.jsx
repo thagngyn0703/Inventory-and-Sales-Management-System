@@ -4,16 +4,41 @@ import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { Receipt } from 'lucide-react';
 import { getInvoices } from '../../services/invoicesApi';
+import { getReturns } from '../../services/returnsApi';
 import { useToast } from '../../contexts/ToastContext';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
 
 const STATUS_LABEL = {
-  confirmed: 'Đã thanh toán',
+  sold: 'Đã bán',
   pending: 'Chờ thanh toán',
-  cancelled: 'Trả hàng',
+  cancelled: 'Đã hủy',
+  returned_partial: 'Trả một phần',
+  returned_full: 'Trả toàn bộ',
   debt_unpaid: 'Nợ',
 };
+
+function getStatusBadgeStyle(status) {
+  if (status === 'sold') {
+    return { color: '#065f46', background: '#d1fae5', border: '1px solid #86efac' };
+  }
+  if (status === 'returned_partial') {
+    return { color: '#92400e', background: '#fef3c7', border: '1px solid #fcd34d' };
+  }
+  if (status === 'returned_full') {
+    return { color: '#9f1239', background: '#ffe4e6', border: '1px solid #fda4af' };
+  }
+  if (status === 'pending') {
+    return { color: '#92400e', background: '#fef9c3', border: '1px solid #fde68a' };
+  }
+  if (status === 'debt_unpaid') {
+    return { color: '#991b1b', background: '#fee2e2', border: '1px solid #fca5a5' };
+  }
+  if (status === 'cancelled') {
+    return { color: '#374151', background: '#f3f4f6', border: '1px solid #d1d5db' };
+  }
+  return { color: '#334155', background: '#f8fafc', border: '1px solid #e2e8f0' };
+}
 
 const PAYMENT_LABEL = {
   cash: 'Tiền mặt',
@@ -25,7 +50,9 @@ const PAYMENT_LABEL = {
 
 function getInvoiceStatusView(inv) {
   const isDebtUnpaid = inv?.payment_method === 'debt' && inv?.payment_status !== 'paid';
-  return isDebtUnpaid ? 'debt_unpaid' : inv?.status;
+  if (isDebtUnpaid) return 'debt_unpaid';
+  if (inv?.status === 'confirmed') return 'sold';
+  return inv?.status;
 }
 
 export default function ManagerInvoicesList() {
@@ -49,24 +76,72 @@ export default function ManagerInvoicesList() {
     setLoading(true);
     setError('');
     try {
-      const resp = await getInvoices({ page: 1, limit: 1000, status: statusFilter || undefined });
-      let allInvoices = resp.invoices || [];
+      const [invoiceResp, returnsResp] = await Promise.all([
+        getInvoices({ page: 1, limit: 1000, status: statusFilter === 'returned_partial' || statusFilter === 'returned_full' ? undefined : statusFilter || undefined }),
+        getReturns({ page: 1, limit: 1000 }),
+      ]);
+      const allInvoicesRaw = invoiceResp.invoices || [];
+      const allReturnsRaw = returnsResp.returns || [];
+      const invoiceMap = new Map(allInvoicesRaw.map((inv) => [String(inv._id), inv]));
+
+      const invoiceRows = allInvoicesRaw.map((inv) => ({
+        type: 'sale',
+        createdAt: inv.invoice_at,
+        code: inv._id,
+        sellerName: inv.seller_name || inv.created_by?.fullName || inv.created_by?.email || '—',
+        sellerRole: inv.seller_role || '',
+        customerName: inv.recipient_name || '—',
+        status: getInvoiceStatusView(inv),
+        paymentMethod: PAYMENT_LABEL[inv.payment_method] || inv.payment_method || '—',
+        amount: Number(inv.total_amount || 0),
+        invoiceId: inv._id,
+      }));
+
+      const returnRows = allReturnsRaw.map((rt) => {
+        const originInvoiceId = String(rt?.invoice_id?._id || '');
+        const originInvoice = invoiceMap.get(originInvoiceId);
+        const returnedTotal = Number(originInvoice?.returned_total_amount || 0);
+        const originTotal = Number(originInvoice?.total_amount || 0);
+        const returnStatus = originTotal > 0 && returnedTotal >= originTotal ? 'returned_full' : 'returned_partial';
+        return {
+          type: 'return',
+          createdAt: rt.return_at || rt.created_at,
+          code: rt._id,
+          sellerName: rt.created_by?.fullName || rt.created_by?.email || '—',
+          sellerRole: '',
+          customerName: rt.invoice_id?.recipient_name || originInvoice?.recipient_name || '—',
+          status: returnStatus,
+          paymentMethod: originInvoice?.payment_method ? (PAYMENT_LABEL[originInvoice.payment_method] || originInvoice.payment_method) : '—',
+          amount: Number(rt.total_amount || 0),
+          returnId: rt._id,
+          invoiceId: originInvoiceId || null,
+        };
+      });
+
+      let allInvoices = [...invoiceRows, ...returnRows].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+      if (statusFilter === 'returned_partial' || statusFilter === 'returned_full') {
+        allInvoices = allInvoices.filter((r) => r.type === 'return' && r.status === statusFilter);
+      } else if (statusFilter === 'sold') {
+        allInvoices = allInvoices.filter((r) => r.type === 'sale' && r.status === 'sold');
+      } else if (statusFilter) {
+        allInvoices = allInvoices.filter((r) => r.status === statusFilter);
+      }
 
       if (dateFrom) {
         const df = new Date(dateFrom); df.setHours(0,0,0,0);
-        allInvoices = allInvoices.filter(i => new Date(i.invoice_at) >= df);
+        allInvoices = allInvoices.filter(i => new Date(i.createdAt) >= df);
       }
       if (dateTo) {
         const dt = new Date(dateTo); dt.setHours(23,59,59,999);
-        allInvoices = allInvoices.filter(i => new Date(i.invoice_at) <= dt);
+        allInvoices = allInvoices.filter(i => new Date(i.createdAt) <= dt);
       }
       if (searchKey) {
         const q = searchKey.toLowerCase().trim();
         allInvoices = allInvoices.filter(i =>
-          (i._id && i._id.toLowerCase().includes(q)) ||
-          (i.recipient_name && i.recipient_name.toLowerCase().includes(q)) ||
-          (i.created_by?.email && i.created_by.email.toLowerCase().includes(q)) ||
-          (i.created_by?.fullName && i.created_by.fullName.toLowerCase().includes(q))
+          (i.code && i.code.toLowerCase().includes(q)) ||
+          (i.customerName && i.customerName.toLowerCase().includes(q)) ||
+          (i.sellerName && i.sellerName.toLowerCase().includes(q))
         );
       }
 
@@ -188,9 +263,11 @@ export default function ManagerInvoicesList() {
                 onChange={e => setStatusFilter(e.target.value)}
               >
                 <option value="">Tất cả</option>
-                <option value="confirmed">Đã thanh toán</option>
+                <option value="sold">Đã bán</option>
                 <option value="pending">Chờ thanh toán</option>
-                <option value="cancelled">Trả hàng</option>
+                <option value="cancelled">Đã hủy</option>
+                <option value="returned_partial">Trả một phần</option>
+                <option value="returned_full">Trả toàn bộ</option>
               </select>
             </div>
             <div className="manager-filter-group manager-filter-group--flex">
@@ -240,37 +317,60 @@ export default function ManagerInvoicesList() {
                     </thead>
                     <tbody>
                       {invoices.map((inv) => {
-                        const statusView = getInvoiceStatusView(inv);
+                        const statusView = inv.status;
                         return (
-                        <tr key={inv._id}>
-                          <td>{formatDate(inv.invoice_at)}</td>
-                          <td style={{ fontFamily: 'monospace', fontSize: 12, color: '#64748b', maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{inv._id}</td>
+                        <tr key={`${inv.type}-${inv.code}`}>
+                          <td>{formatDate(inv.createdAt)}</td>
+                          <td style={{ fontFamily: 'monospace', fontSize: 12, color: '#64748b', maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{inv.code}</td>
                           <td>
                             <div style={{ fontWeight: 500, color: '#1e293b' }}>
-                              {inv.seller_name || inv.created_by?.fullName || inv.created_by?.email || '—'}
+                              {inv.sellerName}
                             </div>
-                            {inv.seller_role && (
-                              <div style={{ fontSize: 11, color: inv.seller_role === 'Quản lý' ? '#0d9488' : '#64748b', fontWeight: 600 }}>
-                                {inv.seller_role}
+                            {inv.sellerRole && (
+                              <div style={{ fontSize: 11, color: inv.sellerRole === 'Quản lý' ? '#0d9488' : '#64748b', fontWeight: 600 }}>
+                                {inv.sellerRole}
                               </div>
                             )}
                           </td>
-                          <td>{inv.recipient_name || '—'}</td>
+                          <td>{inv.customerName || '—'}</td>
                           <td>
-                            <span className={`warehouse-status-badge warehouse-status-${statusView === 'debt_unpaid' ? 'cancelled' : statusView}`}>
+                            <span
+                              className="warehouse-status-badge"
+                              style={{
+                                ...getStatusBadgeStyle(statusView),
+                                fontWeight: 700,
+                                borderRadius: 999,
+                                padding: '4px 10px',
+                                fontSize: 12,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                              }}
+                            >
                               {STATUS_LABEL[statusView] || statusView || '—'}
                             </span>
                           </td>
-                          <td>{PAYMENT_LABEL[inv.payment_method] || inv.payment_method || '—'}</td>
-                          <td style={{ textAlign: 'right', fontWeight: 600, color: '#059669' }}>{Number(inv.total_amount || 0).toLocaleString('vi-VN')}₫</td>
+                          <td>{inv.paymentMethod || '—'}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 700, color: inv.type === 'return' ? '#dc2626' : '#059669' }}>
+                            {inv.type === 'return' ? '-' : ''}{Number(inv.amount || 0).toLocaleString('vi-VN')}₫
+                          </td>
                           <td>
                             <button
                               type="button"
                               className="manager-btn-secondary"
                               style={{ padding: '6px 12px', fontSize: 13 }}
-                              onClick={() => navigate(`/manager/invoices/${inv._id}`)}
+                              onClick={() => {
+                                if (inv.type === 'return' && inv.returnId) {
+                                  navigate(`/manager/returns/${inv.returnId}`);
+                                  return;
+                                }
+                                if (inv.invoiceId) {
+                                  navigate(`/manager/invoices/${inv.invoiceId}/view`);
+                                }
+                              }}
+                              disabled={inv.type === 'return' ? !inv.returnId : !inv.invoiceId}
                             >
-                              Xem
+                              {inv.type === 'return' ? 'Xem phiếu trả' : 'Xem'}
                             </button>
                           </td>
                         </tr>
