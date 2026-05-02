@@ -103,6 +103,17 @@ const salesInvoiceSchema = new Schema(
             required: false,
             index: true,
         },
+        register_id: {
+            type: Schema.Types.ObjectId,
+            ref: 'PosRegister',
+            required: false,
+            index: true,
+        },
+        register_label_snapshot: {
+            type: String,
+            trim: true,
+            default: '',
+        },
         items: [
             {
                 line_id: {
@@ -467,6 +478,7 @@ const salesInvoiceSchema = new Schema(
 
 salesInvoiceSchema.index({ store_id: 1, created_at: -1, _id: -1 });
 salesInvoiceSchema.index({ store_id: 1, shift_id: 1, created_at: -1 });
+salesInvoiceSchema.index({ store_id: 1, register_id: 1, created_at: -1 });
 salesInvoiceSchema.index({ store_id: 1, created_by: 1, created_at: -1 });
 
 module.exports = model('SalesInvoice', salesInvoiceSchema);

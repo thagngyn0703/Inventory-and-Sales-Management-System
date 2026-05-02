@@ -8,6 +8,13 @@ const shiftSessionSchema = new Schema(
             required: true,
             index: true,
         },
+        /** Quầy thanh toán — nhiều ca mở song song trên cùng cửa hàng nhưng khác quầy */
+        register_id: {
+            type: Schema.Types.ObjectId,
+            ref: 'PosRegister',
+            required: false,
+            index: true,
+        },
         opened_by: {
             type: Schema.Types.ObjectId,
             ref: 'User',
@@ -88,9 +95,9 @@ const shiftSessionSchema = new Schema(
     { timestamps: false }
 );
 
-// Only one open shift per store at a time
+// Một ca đang mở cho mỗi cặp (cửa hàng, quầy)
 shiftSessionSchema.index(
-    { store_id: 1, status: 1 },
+    { store_id: 1, register_id: 1, status: 1 },
     { unique: true, partialFilterExpression: { status: 'open' } }
 );
 shiftSessionSchema.index({ store_id: 1, opened_at: -1, _id: -1 });

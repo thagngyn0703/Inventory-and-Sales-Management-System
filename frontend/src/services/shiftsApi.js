@@ -19,16 +19,18 @@ function parseResponse(res, defaultMessage) {
     });
 }
 
-export async function getCurrentShift() {
+export async function getCurrentShift({ registerId = '' } = {}) {
   const token = getToken();
-  const res = await fetch(`${API_BASE}/shifts/current`, {
+  const url = new URL(`${API_BASE}/shifts/current`);
+  if (registerId) url.searchParams.set('register_id', String(registerId));
+  const res = await fetch(url.toString(), {
     headers: { Authorization: `Bearer ${token}` },
   });
   const data = await parseResponse(res, 'Không thể tải ca hiện tại');
   return data.shift || null;
 }
 
-export async function openShift({ opening_cash = 0 } = {}) {
+export async function openShift({ opening_cash = 0, register_id = '' } = {}) {
   const token = getToken();
   const res = await fetch(`${API_BASE}/shifts/open`, {
     method: 'POST',
@@ -36,7 +38,7 @@ export async function openShift({ opening_cash = 0 } = {}) {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify({ opening_cash }),
+    body: JSON.stringify({ opening_cash, register_id }),
   });
   const data = await parseResponse(res, 'Không thể mở ca');
   return data.shift;

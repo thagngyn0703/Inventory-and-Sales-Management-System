@@ -9,6 +9,7 @@ import { Badge } from '../../components/ui/badge';
 import { InlineNotice } from '../../components/ui/inline-notice';
 import { FileText, Loader2, Receipt, Search, X } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { getCurrentUser, normalizeRole } from '../../utils/auth';
 
 const LIMIT = 10;
 
@@ -57,18 +58,28 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
 
   const basePath = basePathOverride || (location.pathname.startsWith('/manager') ? '/manager' : '/staff');
   const isReturnsPage = location.pathname.includes('/returns');
+  const viewerRole = normalizeRole(getCurrentUser()?.role);
+  const isStaffViewer = viewerRole === 'staff';
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [searchKey, setSearchKey] = useState('');
+  /** Chỉ dùng khi là nhân viên: đơn do mình bán vs toàn cửa hàng */
+  const [staffSalesScope, setStaffSalesScope] = useState('mine'); // mine | store
   const hasFilters = Boolean(dateFrom || dateTo || searchKey);
+
+  useEffect(() => {
+    if (viewerRole === 'staff') setStaffSalesScope('mine');
+  }, [basePath, viewerRole]);
 
   const fetchInvoices = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
+      const scopeParams =
+        isStaffViewer ? { sales_scope: staffSalesScope === 'store' ? 'store' : 'mine' } : {};
       const [invoiceResp, returnsResp] = await Promise.all([
-        getInvoices({ page: 1, limit: 1000 }),
-        getReturns({ page: 1, limit: 1000 }),
+        getInvoices({ page: 1, limit: 1000, ...scopeParams }),
+        getReturns({ page: 1, limit: 1000, ...scopeParams }),
       ]);
       const allInvoicesRaw = invoiceResp.invoices || [];
       const allReturnsRaw = returnsResp.returns || [];
@@ -115,12 +126,12 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
       if (dateFrom) {
         const df = new Date(dateFrom);
         df.setHours(0, 0, 0, 0);
-        allInvoices = allInvoices.filter((i) => new Date(i.invoice_at) >= df);
+        allInvoices = allInvoices.filter((i) => new Date(i.createdAt) >= df);
       }
       if (dateTo) {
         const dt = new Date(dateTo);
         dt.setHours(23, 59, 59, 999);
-        allInvoices = allInvoices.filter((i) => new Date(i.invoice_at) <= dt);
+        allInvoices = allInvoices.filter((i) => new Date(i.createdAt) <= dt);
       }
       if (searchKey) {
         const lowerSearch = searchKey.toLowerCase().trim();
@@ -143,11 +154,15 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
     } finally {
       setLoading(false);
     }
-  }, [page, dateFrom, dateTo, searchKey, isReturnsPage]);
+  }, [page, dateFrom, dateTo, searchKey, isReturnsPage, staffSalesScope, isStaffViewer]);
 
   useEffect(() => {
     setPage(1);
   }, [dateFrom, dateTo, searchKey]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [staffSalesScope]);
 
   useEffect(() => {
     setPage(1);
@@ -190,13 +205,50 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
       subtitle={
         isReturnsPage
           ? 'Theo dõi các đơn đã thực hiện trả hàng.'
-          : 'Theo dõi toàn bộ hóa đơn bán lẻ và trạng thái thanh toán.'
+          : 'Nhân viên có thể xem đơn do mình bán hoặc toàn bộ đơn cửa hàng (hỗ trợ đổi trả).'
       }
     >
       <InlineNotice message={error} type="error" />
 
       <Card className="border-slate-200/80 shadow-sm shadow-slate-900/5">
         <CardContent className="p-4 sm:p-6">
+          {!isReturnsPage && isStaffViewer ? (
+            <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Phạm vi xem</p>
+                <p className="mt-1 text-xs text-slate-600">
+                  Ca của tôi — mọi hóa đơn do bạn bán và phiếu trả của những đơn đó. Tất cả hóa đơn — để tra cứu đơn
+                  của đồng nghiệp (ví dụ đổi trả).
+                </p>
+              </div>
+              <div className="inline-flex shrink-0 rounded-xl border border-slate-200 bg-slate-50/90 p-0.5 shadow-inner shadow-slate-900/5">
+                <button
+                  type="button"
+                  className={cn(
+                    'min-h-10 rounded-lg px-3.5 py-2 text-xs font-semibold transition-colors sm:text-sm',
+                    staffSalesScope === 'mine'
+                      ? 'bg-white text-slate-900 shadow-sm shadow-slate-900/10'
+                      : 'text-slate-600 hover:text-slate-900'
+                  )}
+                  onClick={() => setStaffSalesScope('mine')}
+                >
+                  Ca của tôi
+                </button>
+                <button
+                  type="button"
+                  className={cn(
+                    'min-h-10 rounded-lg px-3.5 py-2 text-xs font-semibold transition-colors sm:text-sm',
+                    staffSalesScope === 'store'
+                      ? 'bg-white text-slate-900 shadow-sm shadow-slate-900/10'
+                      : 'text-slate-600 hover:text-slate-900'
+                  )}
+                  onClick={() => setStaffSalesScope('store')}
+                >
+                  Tất cả hóa đơn
+                </button>
+              </div>
+            </div>
+          ) : null}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div>
               <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">Từ ngày</label>
