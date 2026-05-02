@@ -832,23 +832,16 @@ export default function POSContainer({
   }, []);
 
   const loadShift = useCallback(async () => {
-    if (!selectedRegisterId) {
-      setCurrentShift(null);
-      return;
-    }
     try {
       setShiftLoading(true);
-      const shift = await getCurrentShift({ registerId: selectedRegisterId });
+      const shift = await getCurrentShift();
       setCurrentShift(shift);
     } catch (e) {
       setCurrentShift(null);
-      if (e?.code === 'REGISTER_REQUIRED') {
-        notify('Vui lòng chọn quầy thanh toán.', 'error');
-      }
     } finally {
       setShiftLoading(false);
     }
-  }, [selectedRegisterId, notify]);
+  }, []);
 
   useEffect(() => {
     loadShift();
@@ -876,14 +869,10 @@ export default function POSContainer({
   }, [currentShift]);
 
   const submitOpenGateShift = useCallback(async () => {
-    if (!selectedRegisterId) {
-      notify('Chưa chọn quầy thanh toán.', 'error');
-      return;
-    }
     try {
       setOpenShiftBusy(true);
       const opening_cash = parseCurrencyInput(openShiftCash);
-      await openShift({ opening_cash, register_id: selectedRegisterId });
+      await openShift({ opening_cash });
       notify('Đã mở ca.', 'success');
       setOpenShiftCash('');
       await loadShift();
@@ -895,9 +884,8 @@ export default function POSContainer({
           || 'một tài khoản khác';
         const openedAtRaw = err?.payload?.open_shift?.opened_at;
         const openedAtText = openedAtRaw ? new Date(openedAtRaw).toLocaleString('vi-VN') : 'không xác định';
-        const deskName = err?.payload?.open_shift?.register_id?.name || '';
         notify(
-          `${deskName ? `${deskName}: ` : ''}Ca đã được mở bởi ${openerName} lúc ${openedAtText}. Đóng ca trên quầy này trước khi mở lại, hoặc chọn quầy khác.`,
+          `Bạn đã mở ca bởi ${openerName} lúc ${openedAtText}. Vui lòng đóng ca hiện tại trước khi mở ca mới.`,
           'error'
         );
       } else {
@@ -906,7 +894,7 @@ export default function POSContainer({
     } finally {
       setOpenShiftBusy(false);
     }
-  }, [selectedRegisterId, openShiftCash, notify, loadShift]);
+  }, [openShiftCash, notify, loadShift]);
 
   const filteredProducts = useMemo(() => {
     const term = searchTerm.toLowerCase().trim();
@@ -948,10 +936,6 @@ export default function POSContainer({
   };
 
   const handleAddProduct = (product, unitOverride = null) => {
-    if (isNew && !selectedRegisterId) {
-      notify('Đang tải quầy thanh toán hoặc chưa có quầy được chọn.', 'error');
-      return;
-    }
     if (isNew && !hasOpenShift) {
       notify('Bạn cần mở ca trước khi bán hàng.', 'error');
       return;
@@ -1020,10 +1004,6 @@ export default function POSContainer({
   };
 
   const handleScanSubmit = async (rawCode) => {
-    if (isNew && !selectedRegisterId) {
-      notify('Đang tải quầy thanh toán hoặc chưa có quầy được chọn.', 'error');
-      return;
-    }
     if (isNew && !hasOpenShift) {
       notify('Bạn cần mở ca trước khi bán hàng.', 'error');
       return;
@@ -1429,7 +1409,6 @@ export default function POSContainer({
   const canSubmit =
     !activeTab.saving &&
     activeTab.items.length > 0 &&
-    Boolean(selectedRegisterId) &&
     hasOpenShift &&
     !isDebtBlocked &&
     (activeTab.paymentMethod === 'debt' ||
@@ -1534,10 +1513,6 @@ export default function POSContainer({
         seller_role: staffRoleLabel,
       };
 
-      if (selectedRegisterId) {
-        payload.register_id = selectedRegisterId;
-      }
-
       if (!activeTab.invoiceId) {
         const { invoice: created, payment_ref, loyalty_summary } = await createInvoice({ ...payload, status: 'confirmed' });
 
@@ -1586,13 +1561,11 @@ export default function POSContainer({
     } catch (e) {
       const code = e?.code || e?.payload?.code;
       if (code === 'SHIFT_REQUIRED') {
-        notify('Bạn cần mở ca cho quầy đang chọn trước khi bán hàng.', 'error');
+        notify('Bạn cần mở ca trước khi bán hàng.', 'error');
         await loadShift();
-      } else if (code === 'REGISTER_REQUIRED') {
-        notify(e.message || 'Vui lòng chọn quầy thanh toán và đồng bộ với ca đang mở.', 'error');
       }
       updateActiveTab({ error: e.message || 'Lỗi khi lưu hóa đơn', saving: false });
-      if (!['SHIFT_REQUIRED', 'REGISTER_REQUIRED'].includes(code)) {
+      if (!['SHIFT_REQUIRED'].includes(code)) {
         notify(e.message || 'Lỗi khi lưu hóa đơn', 'error');
       }
     }
@@ -1612,7 +1585,7 @@ export default function POSContainer({
     return (
       <div className="pos-loading">
         <Loader2 className="h-10 w-10 animate-spin text-teal-500" aria-hidden />
-        <span>Đang tải dữ liệu quầy...</span>
+        <span>Đang tải dữ liệu bán hàng...</span>
       </div>
     );
   }
@@ -1804,17 +1777,17 @@ export default function POSContainer({
         {isNew && (
           <div
             className="pos-toolbar-user-badge"
-            aria-label={selectedRegisterId ? `Quầy ${activeRegisterLabel}, ${staffDisplayName}` : `Người bán ${staffDisplayName}`}
+            aria-label={selectedRegisterId ? `Quầy ${activeRegisterLabel}, ${staffDisplayName}` : `Ca của ${staffDisplayName}`}
           >
             <span className="pos-toolbar-user-avatar" aria-hidden>
               <i className="fa-solid fa-user" />
             </span>
             <span
               className="pos-toolbar-register-chip pos-toolbar-store-chip"
-              title={storeName ? `Quầy gắn máy POS · cửa hàng: ${storeName}` : 'Quầy gắn máy POS'}
+              title={storeName ? `Thông tin ca · cửa hàng: ${storeName}` : 'Thông tin ca'}
             >
               <i className="fa-solid fa-cash-register pos-toolbar-register-ico" aria-hidden />
-              {selectedRegisterId ? activeRegisterLabel : 'Chưa gán quầy'}
+              {selectedRegisterId ? activeRegisterLabel : 'Ca cá nhân'}
             </span>
             <span className="pos-toolbar-staff-line">
               <span className="pos-toolbar-staff-name">{staffDisplayName}</span>
@@ -2515,30 +2488,17 @@ export default function POSContainer({
                   Mở ca để bán hàng
                 </h2>
                 <p className="pos-shift-gate-subtitle">
-                  Quầy bán được gắn với máy/trình duyệt này (xem Cài đặt cửa hàng khi có nhiều quầy). Mỗi quầy một ca và
-                  một quỹ riêng — chỉ nhập tiền mặt đầu ca.
+                  Mỗi nhân viên mở một ca riêng để quản lý tiền đầu ca/cuối ca và đối soát theo người bán.
                 </p>
               </div>
             </div>
             {shiftLoading ? (
-              <p className="pos-shift-gate-loading">Đang kiểm tra ca trên quầy đã chọn…</p>
-            ) : (posRegisters || []).length === 0 ? (
-              <p className="pos-shift-gate-error">Chưa có quầy thanh toán. Liên hệ quản lý để được cấu hình.</p>
-            ) : !selectedRegisterId ? (
-              <p className="pos-shift-gate-error">
-                Chưa gắn quầy cho máy này. Liên quản lý vào{' '}
-                <strong>Cài đặt cửa hàng → Điểm bán POS trên máy này</strong>.
-              </p>
+              <p className="pos-shift-gate-loading">Đang kiểm tra ca hiện tại…</p>
             ) : (
               <>
                 <div className="pos-shift-gate-register-chip" role="note">
-                  <span className="pos-shift-gate-register-chip-label">Quầy trên máy này</span>
-                  <strong className="pos-shift-gate-register-chip-value">{activeRegisterLabel}</strong>
-                  {(posRegisters || []).length > 1 ? (
-                    <span className="pos-shift-gate-register-chip-hint">
-                      Nếu sai quầy, quản lý chỉnh tại “Cài đặt cửa hàng”.
-                    </span>
-                  ) : null}
+                  <span className="pos-shift-gate-register-chip-label">Người mở ca</span>
+                  <strong className="pos-shift-gate-register-chip-value">{staffDisplayName}</strong>
                 </div>
                 <label className="pos-shift-field pos-shift-field--gate">
                   <span>Tiền đầu ca</span>
@@ -2554,10 +2514,10 @@ export default function POSContainer({
                 <button
                   type="button"
                   className="pos-shift-gate-primary"
-                  disabled={!selectedRegisterId || openShiftBusy}
+                  disabled={openShiftBusy}
                   onClick={() => submitOpenGateShift()}
                 >
-                  {openShiftBusy ? 'Đang mở ca…' : 'Mở ca và vào quầy'}
+                  {openShiftBusy ? 'Đang mở ca…' : 'Mở ca và vào bán hàng'}
                 </button>
               </>
             )}

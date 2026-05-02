@@ -37,6 +37,7 @@ const btnBaseClass =
 const btnTealClass = `${btnBaseClass} border-teal-200 bg-teal-50 text-teal-700 hover:bg-teal-100`;
 const btnAmberClass = `${btnBaseClass} border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100`;
 const btnSlateClass = `${btnBaseClass} border-slate-300 bg-white text-slate-700 hover:bg-slate-100`;
+const SHIFT_PAGE_SIZE = 4;
 
 function getTodayLocalDateString() {
   const now = new Date();
@@ -85,7 +86,7 @@ export default function ManagerShiftSessionsPage() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [data, setData] = useState({ shifts: [], total: 0, page: 1, limit: 20, totalPages: 0 });
+  const [data, setData] = useState({ shifts: [], total: 0, page: 1, limit: SHIFT_PAGE_SIZE, totalPages: 0 });
   const [detailShift, setDetailShift] = useState(null);
   const [detailData, setDetailData] = useState({ invoices: [], total: 0, page: 1, totalPages: 1 });
   const [detailLoading, setDetailLoading] = useState(false);
@@ -169,13 +170,13 @@ export default function ManagerShiftSessionsPage() {
       setFilterError('');
       const payload = await getShiftSessions({
         page,
-        limit: 12,
+        limit: SHIFT_PAGE_SIZE,
         status,
         from: fromDate,
         to: toDate,
         keyword: keyword.trim(),
       });
-      let base = payload || { shifts: [], total: 0, page: 1, limit: 20, totalPages: 0 };
+      let base = payload || { shifts: [], total: 0, page: 1, limit: SHIFT_PAGE_SIZE, totalPages: 0 };
       if ((base.shifts || []).length === 0 && (fromDate || toDate)) {
         const raw = await getShiftSessions({
           page: 1,
@@ -195,18 +196,18 @@ export default function ManagerShiftSessionsPage() {
           return lowerOk && upperOk;
         });
         base = {
-          shifts: filtered.slice(0, 12),
+          shifts: filtered.slice(0, SHIFT_PAGE_SIZE),
           total: filtered.length,
           page: 1,
-          limit: 12,
-          totalPages: Math.max(1, Math.ceil(filtered.length / 12)),
+          limit: SHIFT_PAGE_SIZE,
+          totalPages: Math.max(1, Math.ceil(filtered.length / SHIFT_PAGE_SIZE)),
         };
       }
       const hydratedShifts = await hydrateShiftKpisFallback(base.shifts || [], { from: fromDate, to: toDate });
       setData({ ...base, shifts: hydratedShifts });
     } catch (e) {
       setError(e.message || 'Không thể tải dữ liệu ca làm việc');
-      setData({ shifts: [], total: 0, page: 1, limit: 20, totalPages: 0 });
+      setData({ shifts: [], total: 0, page: 1, limit: SHIFT_PAGE_SIZE, totalPages: 0 });
     } finally {
       setLoading(false);
     }
@@ -402,21 +403,21 @@ export default function ManagerShiftSessionsPage() {
             <CircleDollarSign className="h-4 w-4 text-emerald-500" />
             Tổng doanh thu (trang hiện tại)
           </div>
-          <div className="text-xl font-extrabold text-slate-800">{formatMoney(totals.revenue)}</div>
+          <div className="text-xl font-bold tabular-nums text-slate-900">{formatMoney(totals.revenue)}</div>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="mb-1 flex items-center gap-2 text-sm font-semibold text-slate-500">
             <CalendarDays className="h-4 w-4 text-cyan-500" />
             Tổng lợi nhuận (trang hiện tại)
           </div>
-          <div className="text-xl font-extrabold text-slate-800">{formatMoney(totals.profit)}</div>
+          <div className="text-xl font-bold tabular-nums text-slate-900">{formatMoney(totals.profit)}</div>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="mb-1 flex items-center gap-2 text-sm font-semibold text-slate-500">
             <ReceiptText className="h-4 w-4 text-indigo-500" />
             Số hóa đơn
           </div>
-          <div className="text-xl font-extrabold text-slate-800">{totals.invoices.toLocaleString('vi-VN')}</div>
+          <div className="text-xl font-bold tabular-nums text-slate-900">{totals.invoices.toLocaleString('vi-VN')}</div>
         </div>
       </div>
 
@@ -493,22 +494,22 @@ export default function ManagerShiftSessionsPage() {
                           {formatDuration(shift.opened_at, shift.closed_at)}
                         </div>
                       </td>
-                      <td className="px-3 py-3 text-right font-extrabold text-slate-800">
+                      <td className="px-3 py-3 text-right font-semibold tabular-nums text-slate-900">
                         {formatMoney(shift?.kpis?.total_revenue || 0)}
                       </td>
-                      <td className="px-3 py-3 text-right font-extrabold text-slate-800">
+                      <td className="px-3 py-3 text-right font-semibold tabular-nums text-slate-900">
                         {formatMoney(shift?.kpis?.total_profit || 0)}
                       </td>
-                      <td className="px-3 py-3 text-right font-bold text-slate-700">
+                      <td className="px-3 py-3 text-right font-semibold tabular-nums text-slate-900">
                         {formatMoney(handover)}
                       </td>
-                      <td className="px-3 py-3 text-right font-bold text-slate-700">
+                      <td className="px-3 py-3 text-right font-semibold tabular-nums text-slate-900">
                         {Number(shift?.kpis?.invoice_count || 0).toLocaleString('vi-VN')}
                       </td>
                       <td className="px-3 py-3 text-right">
                         <span
-                          className={`text-xs font-bold ${
-                            discrepancy < 0 ? 'text-rose-600' : discrepancy > 0 ? 'text-amber-600' : 'text-emerald-600'
+                          className={`text-xs font-semibold tabular-nums ${
+                            discrepancy < 0 ? 'text-rose-700' : discrepancy > 0 ? 'text-amber-700' : 'text-slate-900'
                           }`}
                         >
                           {discrepancy === 0 ? 'Khớp' : `${discrepancy > 0 ? '+' : ''}${formatMoney(discrepancy)}`}
@@ -649,7 +650,7 @@ export default function ManagerShiftSessionsPage() {
                             </td>
                             <td className="px-3 py-3">{inv?.recipient_name || inv?.customer_id?.full_name || 'Khách lẻ'}</td>
                             <td className="px-3 py-3">{inv?.payment_method || '--'}</td>
-                            <td className="px-3 py-3 text-right font-bold text-emerald-700">{formatMoney(inv?.total_amount || 0)}</td>
+                            <td className="px-3 py-3 text-right font-semibold tabular-nums text-slate-900">{formatMoney(inv?.total_amount || 0)}</td>
                             <td className="px-3 py-3 text-right">
                               <a
                                 href={`/manager/invoices/${inv._id}/view`}

@@ -95,9 +95,9 @@ const shiftSessionSchema = new Schema(
     { timestamps: false }
 );
 
-// Một ca đang mở cho mỗi cặp (cửa hàng, quầy)
+// Một ca đang mở cho mỗi cặp (cửa hàng, nhân viên mở ca)
 shiftSessionSchema.index(
-    { store_id: 1, register_id: 1, status: 1 },
+    { store_id: 1, opened_by: 1, status: 1 },
     { unique: true, partialFilterExpression: { status: 'open' } }
 );
 shiftSessionSchema.index({ store_id: 1, opened_at: -1, _id: -1 });

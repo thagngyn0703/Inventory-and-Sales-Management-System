@@ -99,12 +99,20 @@ function parseLocalDateEnd(dateText) {
 function buildShiftInvoiceFilter(shift, participantUserIds = []) {
     const openedAt = shift?.opened_at ? new Date(shift.opened_at) : null;
     const closedAt = shift?.closed_at ? new Date(shift.closed_at) : new Date();
+    const scopedUserIds = [...new Set([shift?.opened_by, ...(participantUserIds || [])].filter(Boolean))];
     const fallbackConditions = [];
     if (openedAt && !Number.isNaN(openedAt.getTime())) {
         fallbackConditions.push({
             invoice_at: {
                 $gte: openedAt,
                 $lte: closedAt,
+            },
+        });
+    }
+    if (scopedUserIds.length > 0) {
+        fallbackConditions.push({
+            created_by: {
+                $in: scopedUserIds,
             },
         });
     }
@@ -207,22 +215,15 @@ router.get('/current', requireAuth, requireRole(['staff', 'manager', 'admin']), 
     try {
         if (!assertStoreScope(req, res)) return;
         const storeId = req.user.storeId;
-        const resolved = await resolveRegisterId(storeId, req.query?.register_id);
-        if (!resolved) {
-            return res.status(400).json({
-                code: 'REGISTER_REQUIRED',
-                message: 'Vui lòng chọn quầy thanh toán để kiểm tra ca.',
-            });
-        }
         const shift = await ShiftSession.findOne({
             store_id: storeId,
-            register_id: resolved.id,
+            opened_by: req.user.id,
             status: 'open',
         })
             .populate('opened_by', 'fullName email')
             .populate('register_id', 'name sort_order')
             .lean();
-        return res.json({ shift: shift || null, register_id: resolved.id });
+        return res.json({ shift: shift || null });
     } catch (err) {
         console.error(err);
         return res.status(500).json({ message: err.message || 'Server error' });
@@ -359,16 +360,10 @@ router.post('/open', requireAuth, requireRole(['staff', 'manager', 'admin']), as
         const opening_cash = normalizeNonNegativeInt(req.body?.opening_cash);
 
         const resolved = await resolveRegisterId(storeId, req.body?.register_id);
-        if (!resolved) {
-            return res.status(400).json({
-                code: 'REGISTER_REQUIRED',
-                message: 'Vui lòng chọn quầy thanh toán trước khi mở ca.',
-            });
-        }
 
         const existing = await ShiftSession.findOne({
             store_id: storeId,
-            register_id: resolved.id,
+            opened_by: req.user.id,
             status: 'open',
         })
             .select('_id opened_by opened_at register_id')
@@ -378,7 +373,7 @@ router.post('/open', requireAuth, requireRole(['staff', 'manager', 'admin']), as
         if (existing) {
             return res.status(409).json({
                 code: 'SHIFT_ALREADY_OPEN',
-                message: `Quầy ${resolved.name || 'này'} đang có ca mở.`,
+                message: 'Bạn đang có ca mở. Vui lòng đóng ca hiện tại trước khi mở ca mới.',
                 open_shift: {
                     _id: existing._id,
                     opened_at: existing.opened_at || null,
@@ -391,7 +386,7 @@ router.post('/open', requireAuth, requireRole(['staff', 'manager', 'admin']), as
 
         const shift = await ShiftSession.create({
             store_id: storeId,
-            register_id: resolved.id,
+            register_id: resolved?.id || null,
             opened_by: req.user.id,
             opened_at: new Date(),
             status: 'open',

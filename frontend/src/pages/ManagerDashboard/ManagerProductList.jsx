@@ -421,7 +421,7 @@ export default function ManagerProductList() {
                                                             {showTaxBadge && (
                                                                 <div style={{ marginTop: 6 }}>
                                                                     <Badge className="border border-amber-200/80 bg-amber-50 text-amber-800">
-                                                                        VAT ap dung: {getEffectiveVatRate(p)}%
+                                                                        VAT danh muc: {getEffectiveVatRate(p)}%
                                                                     </Badge>
                                                                 </div>
                                                             )}

@@ -50,6 +50,18 @@ async function resolveRegisterIdForInvoice(storeId, rawFromClient) {
     return null;
 }
 
+async function findOpenShiftForUser(storeId, userId) {
+    if (!storeId || !userId) return null;
+    return ShiftSession.findOne({
+        store_id: storeId,
+        opened_by: userId,
+        status: 'open',
+    })
+        .select('_id register_id')
+        .populate('register_id', 'name')
+        .lean();
+}
+
 /**
  * FIFO settlement: đóng các hóa đơn ghi nợ pending từ cũ nhất đến mới nhất,
  * chỉ khi số tiền thanh toán đủ để đóng từng hóa đơn hoàn toàn.
@@ -857,33 +869,28 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
 
         // Use syncInventory to handle deduction if created as confirmed
         try {
-            // Auto-attach current open shift (staff must have an open shift)
+            // Auto-attach current open shift (mỗi nhân viên có ca riêng)
             const isTestEnv = String(process.env.NODE_ENV || '').toLowerCase() === 'test';
             if (req.user.storeId && userRole !== 'admin') {
-                const regResolved = await resolveRegisterIdForInvoice(req.user.storeId, req.body?.register_id);
-                if (!regResolved) {
-                    return res.status(400).json({
-                        code: 'REGISTER_REQUIRED',
-                        message: 'Vui lòng chọn quầy thanh toán để đồng bộ với ca đang mở.',
-                    });
-                }
-                const openShift = await ShiftSession.findOne({
-                    store_id: req.user.storeId,
-                    register_id: regResolved.id,
-                    status: 'open',
-                })
-                    .select('_id')
-                    .lean();
+                const openShift = await findOpenShiftForUser(req.user.storeId, req.user.id);
                 if (!openShift && !isTestEnv) {
                     return res.status(400).json({
                         code: 'SHIFT_REQUIRED',
-                        message: 'Vui lòng mở ca cho quầy đã chọn trước khi bán hàng.',
+                        message: 'Vui lòng mở ca trước khi bán hàng.',
                     });
                 }
                 if (openShift) {
                     invoice.shift_id = openShift._id;
-                    invoice.register_id = regResolved.id;
-                    invoice.register_label_snapshot = regResolved.name || '';
+                    if (openShift.register_id?._id || openShift.register_id) {
+                        invoice.register_id = openShift.register_id?._id || openShift.register_id;
+                        invoice.register_label_snapshot = openShift.register_id?.name || '';
+                    } else {
+                        const regResolved = await resolveRegisterIdForInvoice(req.user.storeId, req.body?.register_id);
+                        if (regResolved) {
+                            invoice.register_id = regResolved.id;
+                            invoice.register_label_snapshot = regResolved.name || '';
+                        }
+                    }
                     await ShiftUser.findOneAndUpdate(
                         { shift_id: openShift._id, user_id: req.user.id, left_at: null },
                         {
