@@ -2,20 +2,7 @@
    Admin User List — follows CustomersPage pattern
    ═══════════════════════════════════════════════════ */
 
-.admin-users-main {
-    flex: 1;
-    margin-left: 250px;
-    display: flex;
-    flex-direction: column;
-    min-height: 100vh;
-    background: #f4f6f8;
-    font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-}
-
-.admin-page-with-sidebar {
-    min-height: 100vh;
-    background: #f4f6f8;
-}
+/* Khung trang admin đã dùng chung manager layout qua AdminPageFrame */
 
 /* ── Top bar ── */
 .admin-users-topbar {
@@ -78,10 +65,127 @@
 
 .admin-topbar-select {
     min-width: 220px;
-    height: 40px;
-    border-radius: 10px;
-    border: 1px solid #e5e7eb;
-    background: #fff;
+    max-width: 260px;
+}
+
+.admin-soft-select {
+    -webkit-appearance: none;
+    appearance: none;
+    border: 1px solid #dbe3ef;
+    border-radius: 12px;
+    background-color: #fff;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2364758b' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    background-size: 14px;
+    color: #0f172a;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.2;
+    min-height: 40px;
+    padding: 0 38px 0 12px;
+    outline: none;
+    transition: border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
+}
+
+.admin-soft-select:hover {
+    border-color: #cbd5e1;
+    background-color: #f8fafc;
+}
+
+.admin-soft-select:focus {
+    border-color: #14b8a6;
+    box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.15);
+    background-color: #ffffff;
+}
+
+.admin-soft-select:disabled {
+    background-color: #f8fafc;
+    color: #94a3b8;
+    border-color: #e2e8f0;
+    cursor: not-allowed;
+}
+
+.admin-soft-dropdown {
+    position: relative;
+    width: 100%;
+}
+
+.admin-soft-dropdown__trigger {
+    width: 100%;
+    min-height: 40px;
+    border-radius: 12px;
+    border: 1px solid #dbe3ef;
+    background: #ffffff;
+    color: #0f172a;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.2;
+    padding: 0 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    cursor: pointer;
+    transition: border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
+}
+
+.admin-soft-dropdown__trigger:hover {
+    border-color: #cbd5e1;
+    background: #f8fafc;
+}
+
+.admin-soft-dropdown__trigger.is-open {
+    border-color: #14b8a6;
+    box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.15);
+    background: #ffffff;
+}
+
+.admin-soft-dropdown__chev {
+    font-size: 11px;
+    color: #64748b;
+    transition: transform 0.16s ease;
+}
+
+.admin-soft-dropdown__chev.is-open {
+    transform: rotate(180deg);
+}
+
+.admin-soft-dropdown__menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    z-index: 50;
+    width: 100%;
+    border-radius: 12px;
+    border: 1px solid #dbe3ef;
+    background: #ffffff;
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
+    padding: 6px;
+}
+
+.admin-soft-dropdown__option {
+    width: 100%;
+    text-align: left;
+    border: 0;
+    background: transparent;
+    color: #0f172a;
+    font-size: 14px;
+    font-weight: 500;
+    padding: 9px 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.admin-soft-dropdown__option:hover {
+    background: #f1f5f9;
+}
+
+.admin-soft-dropdown__option.is-active {
+    background: #e6fffa;
+    color: #0f766e;
+    font-weight: 700;
 }
 
 /* ── Content ── */
@@ -128,16 +232,15 @@
 .au-summary-card {
     display: flex;
     padding: 18px;
-    border-radius: 16px;
+    border-radius: 14px;
     background: #ffffff;
     border: 1px solid #e5e7eb;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
-    transition: box-shadow 0.2s, transform 0.2s;
+    transition: box-shadow 0.2s;
 }
 
 .au-summary-card:hover {
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-    transform: translateY(-2px);
+    box-shadow: 0 3px 10px rgba(15, 23, 42, 0.08);
 }
 
 .au-summary-card__icon-wrap {
@@ -155,19 +258,19 @@
 }
 
 .au-summary-card--blue .au-summary-card__icon {
-    background: linear-gradient(135deg, #dbeafe, #bfdbfe);
+    background: #e0f2fe;
 }
 
 .au-summary-card--green .au-summary-card__icon {
-    background: linear-gradient(135deg, #d1fae5, #a7f3d0);
+    background: #dcfce7;
 }
 
 .au-summary-card--red .au-summary-card__icon {
-    background: linear-gradient(135deg, #fee2e2, #fecaca);
+    background: #fee2e2;
 }
 
 .au-summary-card--purple .au-summary-card__icon {
-    background: linear-gradient(135deg, #ede9fe, #ddd6fe);
+    background: #ede9fe;
 }
 
 .au-summary-card__body {
@@ -209,30 +312,31 @@
 .au-filter-tab {
     padding: 8px 18px;
     border-radius: 999px;
-    border: 2px solid transparent;
-    background-color: transparent;
+    border: 1px solid #e2e8f0;
+    background-color: #ffffff;
     font-size: 14px;
     cursor: pointer;
-    color: #4b5563;
+    color: #475569;
     font-weight: 500;
     transition: all 0.2s ease;
 }
 
 .au-filter-tab--active {
-    background: linear-gradient(135deg, #3b82f6, #2563eb);
+    background: #0f766e;
     color: #ffffff;
-    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
+    border-color: #0f766e;
+    box-shadow: none;
 }
 
 .au-filter-tab:not(.au-filter-tab--active):hover {
-    background-color: #f3f4f6;
+    background-color: #f8fafc;
     border-color: #cbd5e1;
 }
 
 /* ── Table card ── */
 .admin-users-table-card {
     background-color: #ffffff;
-    border-radius: 18px;
+    border-radius: 14px;
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
     overflow: hidden;
     border: 1px solid #e5e7eb;
@@ -253,7 +357,7 @@
 }
 
 .au-table thead tr {
-    background-color: #f9fafb;
+    background-color: #f8fafc;
 }
 
 .au-table th,
@@ -264,8 +368,8 @@
 
 .au-table th {
     font-size: 12px;
-    font-weight: 600;
-    color: #9ca3af;
+    font-weight: 700;
+    color: #64748b;
     text-transform: uppercase;
     letter-spacing: 0.03em;
 }
@@ -299,27 +403,27 @@
 }
 
 .au-role-badge--admin {
-    background: linear-gradient(135deg, #fee2e2, #fecaca);
+    background: #fee2e2;
     color: #991b1b;
 }
 
 .au-role-badge--manager {
-    background: linear-gradient(135deg, #dbeafe, #bfdbfe);
+    background: #dbeafe;
     color: #1e40af;
 }
 
 .au-role-badge--warehouse_staff {
-    background: linear-gradient(135deg, #fef3c7, #fde68a);
+    background: #fef3c7;
     color: #92400e;
 }
 
 .au-role-badge--sales_staff {
-    background: linear-gradient(135deg, #d1fae5, #a7f3d0);
+    background: #d1fae5;
     color: #065f46;
 }
 
 .au-role-badge--staff {
-    background: linear-gradient(135deg, #e0e7ff, #c7d2fe);
+    background: #e0e7ff;
     color: #3730a3;
 }
 
@@ -334,12 +438,12 @@
 }
 
 .au-status-pill--active {
-    background: linear-gradient(135deg, #d1fae5, #a7f3d0);
+    background: #dcfce7;
     color: #065f46;
 }
 
 .au-status-pill--inactive {
-    background: linear-gradient(135deg, #fee2e2, #fecaca);
+    background: #fee2e2;
     color: #991b1b;
 }
 
@@ -360,8 +464,9 @@
 }
 
 .au-toggle-btn--activate {
-    background: #d1fae5;
+    background: #ecfdf5;
     color: #065f46;
+    border: 1px solid #a7f3d0;
 }
 
 .au-toggle-btn--activate:hover:not(:disabled) {
@@ -369,8 +474,9 @@
 }
 
 .au-toggle-btn--deactivate {
-    background: #fee2e2;
+    background: #fef2f2;
     color: #991b1b;
+    border: 1px solid #fecaca;
 }
 
 .au-toggle-btn--deactivate:hover:not(:disabled) {
@@ -407,9 +513,9 @@
 }
 
 .au-page-btn--active {
-    background: linear-gradient(135deg, #3b82f6, #2563eb);
+    background: #0f766e;
     color: #ffffff;
-    border-color: #3b82f6;
+    border-color: #0f766e;
 }
 
 .au-page-btn:disabled {
@@ -430,10 +536,6 @@
 }
 
 @media (max-width: 768px) {
-    .admin-users-main {
-        margin-left: 0;
-    }
-
     .admin-users-summary-row {
         grid-template-columns: 1fr;
     }
@@ -582,4 +684,105 @@
     border: 1px solid #e5e7eb;
     font-size: 14px;
     background: #fff;
+    padding-right: 38px;
+}
+
+/* Admin stores table readability */
+.admin-stores-table th {
+    background: #f8fafc;
+    color: #475569;
+    font-weight: 700;
+}
+
+.admin-stores-table td {
+    color: #1e293b;
+    vertical-align: top;
+    padding-top: 12px;
+    padding-bottom: 12px;
+    line-height: 1.45;
+}
+
+.admin-stores-table tbody tr:hover {
+    background: #fafcff;
+}
+
+.admin-stores-table__name {
+    font-weight: 700;
+}
+
+.admin-stores-table__address {
+    max-width: 280px;
+    line-height: 1.45;
+}
+
+.admin-stores-legal {
+    font-size: 12px;
+    line-height: 1.45;
+    color: #475569;
+}
+
+.admin-stores-pill {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    padding: 3px 10px;
+    font-size: 11px;
+    font-weight: 700;
+    border: 1px solid transparent;
+    white-space: nowrap;
+}
+
+.admin-stores-pill--active {
+    color: #065f46;
+    background: #ecfdf5;
+    border-color: #99f6e4;
+}
+
+.admin-stores-pill--inactive {
+    color: #9a3412;
+    background: #fff7ed;
+    border-color: #fdba74;
+}
+
+.admin-stores-pill--approval.admin-stores-pill--approved {
+    color: #0f766e;
+    background: #ecfeff;
+    border-color: #a5f3fc;
+}
+
+.admin-stores-pill--approval.admin-stores-pill--rejected {
+    color: #991b1b;
+    background: #fef2f2;
+    border-color: #fecaca;
+}
+
+.admin-stores-pill--approval.admin-stores-pill--pending {
+    color: #475569;
+    background: #f8fafc;
+    border-color: #cbd5e1;
+}
+
+.admin-stores-reject-note {
+    margin-top: 6px;
+    font-size: 11px;
+    color: #b45309;
+    line-height: 1.4;
+    max-width: 240px;
+}
+
+.admin-stores-table__actions {
+    white-space: nowrap;
+}
+
+.admin-stores-table__actions .manager-btn-icon {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+    background: #ffffff;
+}
+
+.admin-stores-table__actions .manager-btn-icon:hover {
+    background: #f8fafc;
+    border-color: #cbd5e1;
 }

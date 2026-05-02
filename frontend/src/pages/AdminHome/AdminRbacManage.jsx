@@ -123,7 +123,7 @@ export default function AdminRbacManage() {
                         <td>{u.email}</td>
                         <td>{u.role}</td>
                         <td>
-                          <select value={u.role} onChange={(e) => onUserRoleChange(u._id, e.target.value)}>
+                          <select className="admin-soft-select" value={u.role} onChange={(e) => onUserRoleChange(u._id, e.target.value)}>
                             <option value="admin">admin</option>
                             <option value="manager">manager</option>
                             <option value="staff">staff</option>

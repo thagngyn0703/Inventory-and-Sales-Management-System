@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import Sidebar from '../../components/Sidebar';
+import AdminPageFrame from '../../components/admin/AdminPageFrame';
 import { useToast } from '../../contexts/ToastContext';
 import {
     getAdminUsers,
@@ -209,26 +209,17 @@ export default function AdminUserList() {
     ];
 
     return (
-        <div className="admin-page-with-sidebar">
-            <Sidebar />
-            <div className="admin-users-main">
-                <header className="admin-users-topbar">
-                    <input
-                        type="search"
-                        className="admin-users-search"
-                        placeholder="Tìm kiếm theo tên, email..."
-                        value={search}
-                        onChange={handleSearch}
-                    />
-                    <div className="admin-users-topbar-actions">
-                        <div className="admin-users-badge">
-                            <i className="fa-solid fa-circle-user" />
-                            <span>Quản trị viên</span>
-                        </div>
-                    </div>
-                </header>
-
-                <div className="admin-users-content">
+        <AdminPageFrame
+            topBarLeft={
+                <input
+                    type="search"
+                    className="manager-search"
+                    placeholder="Tìm kiếm theo tên, email..."
+                    value={search}
+                    onChange={handleSearch}
+                />
+            }
+        >
                     <div className="admin-users-page-header">
                         <h1 className="admin-users-page-title">Quản lý tài khoản</h1>
                         <p className="admin-users-page-subtitle">
@@ -398,8 +389,6 @@ export default function AdminUserList() {
                             </>
                         )}
                     </div>
-                </div>
-            </div>
 
             {confirmModal.show && (
                 <div className="au-modal-overlay">
@@ -444,7 +433,7 @@ export default function AdminUserList() {
                             <label htmlFor="au-assign-store">Cửa hàng</label>
                             <select
                                 id="au-assign-store"
-                                className="au-assign-select"
+                                className="au-assign-select admin-soft-select"
                                 value={assignModal.storeId}
                                 onChange={(e) => setAssignModal((p) => ({ ...p, storeId: e.target.value }))}
                             >
@@ -483,6 +472,6 @@ export default function AdminUserList() {
                     </div>
                 </div>
             )}
-        </div>
+        </AdminPageFrame>
     );
 }

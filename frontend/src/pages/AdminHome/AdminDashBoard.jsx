@@ -1,6 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import { useCallback, useEffect, useState } from "react";
-import Sidebar from "../../components/Sidebar";
+import AdminPageFrame from "../../components/admin/AdminPageFrame";
 import { getAdminDashboard } from "../../services/adminApi";
 import AdminMonthlyStatsChart from "./AdminMonthlyStatsChart";
 import "../ManagerDashboard/ManagerDashboard.css";
@@ -56,20 +56,7 @@ export default function AdminDashboard() {
     if (!user || user.role !== "admin") return null;
 
     return (
-        <div className="manager-page-with-sidebar">
-            <Sidebar />
-            <div className="manager-main">
-                <header className="manager-topbar">
-                    <div className="manager-topbar-search-wrap" />
-                    <div className="manager-topbar-actions">
-                        <div className="manager-user-badge">
-                            <i className="fa-solid fa-circle-user" />
-                            <span>Quản trị hệ thống</span>
-                        </div>
-                    </div>
-                </header>
-
-                <div className="manager-content">
+        <AdminPageFrame>
                     <div className="manager-page-header">
                         <h1 className="manager-page-title">Tổng quan hệ thống</h1>
                         <p className="manager-page-subtitle">
@@ -124,8 +111,6 @@ export default function AdminDashboard() {
                         {statsError && <div className="manager-products-error">{statsError}</div>}
                         <AdminMonthlyStatsChart rows={monthlyRows} loading={statsLoading} />
                     </div>
-                </div>
-            </div>
-        </div>
+        </AdminPageFrame>
     );
 }

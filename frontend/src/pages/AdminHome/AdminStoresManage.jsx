@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import Sidebar from '../../components/Sidebar';
+import AdminPageFrame from '../../components/admin/AdminPageFrame';
+import AdminSoftSelect from '../../components/admin/AdminSoftSelect';
 import { getAdminStores, setAdminStoreStatus, setAdminStoreApproval } from '../../services/adminApi';
 import { ConfirmDialog } from '../../components/ui/confirm-dialog';
 import { useToast } from '../../contexts/ToastContext';
@@ -97,19 +98,7 @@ export default function AdminStoresManage() {
   const endItem = Math.min(page * PAGE_SIZE, total);
 
   return (
-    <div className="admin-page-with-sidebar">
-      <Sidebar />
-      <div className="admin-users-main">
-        <header className="admin-users-topbar">
-          <div className="admin-users-topbar-spacer" />
-          <div className="admin-users-topbar-actions">
-            <div className="admin-users-badge">
-              <i className="fa-solid fa-circle-user" />
-              <span>Quản trị viên</span>
-            </div>
-          </div>
-        </header>
-        <div className="admin-users-content">
+    <AdminPageFrame>
           <div className="manager-products-header">
             <div>
               <h1 className="manager-page-title">Quản lý cửa hàng</h1>
@@ -118,21 +107,22 @@ export default function AdminStoresManage() {
               </p>
             </div>
             <div>
-              <select
+              <AdminSoftSelect
                 value={approvalFilter}
-                onChange={(e) => {
+                onChange={(next) => {
                   setPage(1);
-                  setApprovalFilter(e.target.value);
+                  setApprovalFilter(next);
                 }}
-                className="manager-topbar-select admin-topbar-select"
-              >
-                <option value="all">Tất cả hồ sơ</option>
-                <option value="draft_profile">Chưa hoàn thiện hồ sơ</option>
-                <option value="pending_approval">Chờ duyệt</option>
-                <option value="approved">Đã duyệt</option>
-                <option value="rejected">Từ chối</option>
-                <option value="suspended">Tạm ngưng</option>
-              </select>
+                className="admin-topbar-select"
+                options={[
+                  { value: 'all', label: 'Tất cả hồ sơ' },
+                  { value: 'draft_profile', label: 'Chưa hoàn thiện hồ sơ' },
+                  { value: 'pending_approval', label: 'Chờ duyệt' },
+                  { value: 'approved', label: 'Đã duyệt' },
+                  { value: 'rejected', label: 'Từ chối' },
+                  { value: 'suspended', label: 'Tạm ngưng' },
+                ]}
+              />
             </div>
           </div>
           {error && <div className="manager-products-error">{error}</div>}
@@ -151,7 +141,7 @@ export default function AdminStoresManage() {
             ) : (
               <>
                 <div className="manager-products-table-wrap">
-                  <table className="manager-products-table">
+                  <table className="manager-products-table admin-stores-table">
                     <thead>
                       <tr>
                         <th>Tên cửa hàng</th>
@@ -175,33 +165,45 @@ export default function AdminStoresManage() {
                       ) : (
                         stores.map((s) => (
                           <tr key={s._id}>
-                            <td>{s.name}</td>
+                            <td className="admin-stores-table__name">{s.name}</td>
                             <td>{s.managerId?.fullName || s.managerId?.email || '—'}</td>
-                            <td>{s.phone || '—'}</td>
-                            <td>{s.address || '—'}</td>
+                            <td className="tabular-nums">{s.phone || '—'}</td>
+                            <td className="admin-stores-table__address">{s.address || '—'}</td>
                             <td style={{ minWidth: 220 }}>
-                              <div style={{ fontSize: 12, lineHeight: 1.45 }}>
+                              <div className="admin-stores-legal">
                                 <div><b>MST:</b> {s.tax_code || '—'}</div>
                                 <div><b>STK:</b> {s.bank_account_number || '—'}</div>
                                 <div><b>ĐDPL:</b> {s.legal_representative || '—'}</div>
                                 <div><b>GPKD:</b> {s.business_license_number || '—'}</div>
                               </div>
                             </td>
-                            <td>{s.createdAt ? new Date(s.createdAt).toLocaleDateString('vi-VN') : '—'}</td>
-                            <td>{s.status === 'inactive' ? 'Ngừng hoạt động' : 'Hoạt động'}</td>
+                            <td className="tabular-nums">{s.createdAt ? new Date(s.createdAt).toLocaleDateString('vi-VN') : '—'}</td>
                             <td>
-                              {s.approval_status === 'draft_profile' ? 'Chưa hoàn thiện hồ sơ'
+                              <span className={`admin-stores-pill ${s.status === 'inactive' ? 'admin-stores-pill--inactive' : 'admin-stores-pill--active'}`}>
+                                {s.status === 'inactive' ? 'Ngừng hoạt động' : 'Hoạt động'}
+                              </span>
+                            </td>
+                            <td>
+                              <span className={`admin-stores-pill admin-stores-pill--approval ${
+                                s.approval_status === 'approved'
+                                  ? 'admin-stores-pill--approved'
+                                  : s.approval_status === 'rejected'
+                                    ? 'admin-stores-pill--rejected'
+                                    : 'admin-stores-pill--pending'
+                              }`}>
+                                {s.approval_status === 'draft_profile' ? 'Chưa hoàn thiện hồ sơ'
                                 : s.approval_status === 'pending_approval' ? 'Chờ duyệt'
                                 : s.approval_status === 'approved' ? 'Đã duyệt'
                                   : s.approval_status === 'rejected' ? 'Từ chối'
                                     : s.approval_status === 'suspended' ? 'Tạm ngưng' : '—'}
+                              </span>
                               {s.rejection_reason ? (
-                                <div style={{ fontSize: 11, color: '#b91c1c', marginTop: 4 }}>
+                                <div className="admin-stores-reject-note">
                                   Lý do: {s.rejection_reason}
                                 </div>
                               ) : null}
                             </td>
-                            <td>
+                            <td className="admin-stores-table__actions">
                               {s.approval_status !== 'approved' && (
                                 <button
                                   type="button"
@@ -283,8 +285,6 @@ export default function AdminStoresManage() {
               </>
             )}
           </div>
-        </div>
-      </div>
       <ConfirmDialog
         open={Boolean(confirmStore)}
         onOpenChange={(open) => {
@@ -336,7 +336,7 @@ export default function AdminStoresManage() {
           role="dialog"
           aria-modal="true"
         >
-          <div className="w-full max-w-xl rounded-2xl border border-slate-200 bg-white p-5 shadow-xl">
+          <div className="w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-base font-semibold text-slate-900">
                 Hồ sơ pháp lý: {viewLegalStore.name}
@@ -393,6 +393,6 @@ export default function AdminStoresManage() {
           </div>
         </div>
       ) : null}
-    </div>
+    </AdminPageFrame>
   );
 }
