@@ -714,8 +714,12 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
 
         const { loyalty_settings: loyaltySettings, loyalty_policy_version: loyaltyPolicyVersion } =
             await getStoreLoyaltyConfig(req.user.storeId);
+        const loyaltyEnabled = Boolean(loyaltySettings?.enabled);
         const requestedRedeemPoints = Math.max(0, Math.round(Number(redeem_points_requested) || 0));
         const promoDiscount = Math.max(0, Math.round(Number(promo_discount) || 0));
+        if (!loyaltyEnabled && requestedRedeemPoints > 0) {
+            return res.status(400).json({ message: 'Cửa hàng đang tắt tích điểm, không thể dùng điểm.' });
+        }
         if (requestedRedeemPoints > 0 && !customer_id) {
             return res.status(400).json({ message: 'Phải chọn khách hàng để dùng điểm.' });
         }
@@ -1019,6 +1023,7 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
             payment_ref: paymentRef,
             payment_status: paymentStatus,
             loyalty_summary: {
+                enabled: loyaltyEnabled,
                 used_points: redeemPlan.used_points,
                 redeem_value: redeemPlan.redeem_value,
                 earned_points: loyaltyEarnedPoints,

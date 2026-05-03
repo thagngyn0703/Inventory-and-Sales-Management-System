@@ -174,7 +174,7 @@ async function computeShiftSalesSnapshot(shift, participantUserIds = []) {
 
 async function computeShiftKpis(shift, participantUserIds = []) {
     const baseMatch = buildShiftInvoiceFilter(shift, participantUserIds);
-    const [invoiceAgg = { invoice_count: 0, total_revenue: 0 }, profitAgg = { total_profit: 0 }] = await Promise.all([
+    const [invoiceAgg = { invoice_count: 0, total_revenue: 0 }, profitAgg = { total_profit: 0 }, debtAgg = { total_debt_created: 0 }] = await Promise.all([
         SalesInvoice.aggregate([
             {
                 $match: baseMatch,
@@ -201,12 +201,28 @@ async function computeShiftKpis(shift, participantUserIds = []) {
             },
             { $project: { _id: 0, total_profit: 1 } },
         ]),
+        SalesInvoice.aggregate([
+            {
+                $match: {
+                    ...baseMatch,
+                    payment_method: 'debt',
+                },
+            },
+            {
+                $group: {
+                    _id: null,
+                    total_debt_created: { $sum: { $ifNull: ['$total_amount', 0] } },
+                },
+            },
+            { $project: { _id: 0, total_debt_created: 1 } },
+        ]),
     ]);
 
     return {
         invoice_count: Math.max(0, Math.round(Number(invoiceAgg.invoice_count) || 0)),
         total_revenue: Math.max(0, Math.round(Number(invoiceAgg.total_revenue) || 0)),
         total_profit: Math.round(Number(profitAgg.total_profit) || 0),
+        total_debt_created: Math.max(0, Math.round(Number(debtAgg.total_debt_created) || 0)),
     };
 }
 
@@ -523,7 +539,8 @@ router.post('/:id/close', requireAuth, requireRole(['staff', 'manager', 'admin']
         shift.target_float_cash = targetFloatCash;
         shift.cash_to_keep = cash_to_keep;
         shift.cash_to_handover = cash_to_handover;
-        shift.discrepancy_cash = Math.round(actual_cash - expected.expected_cash);
+        const openingCash = normalizeNonNegativeInt(shift.opening_cash || 0);
+        shift.discrepancy_cash = Math.round(actual_cash - openingCash - expected.expected_cash);
         shift.discrepancy_bank = Math.round(actual_bank - expected.expected_bank);
         const absCashDiscrepancy = Math.abs(Math.round(actual_cash - expected.expected_cash));
         const absBankDiscrepancy = Math.abs(Math.round(actual_bank - expected.expected_bank));

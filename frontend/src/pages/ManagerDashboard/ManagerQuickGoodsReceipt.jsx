@@ -87,6 +87,8 @@ export default function ManagerQuickGoodsReceipt() {
     const barcodeInputRef = useRef(null);
     const scanBufferRef = useRef('');
     const scanTimerRef = useRef(null);
+    const quickSubmitLockRef = useRef(false);
+    const createSubmitLockRef = useRef(false);
 
     useEffect(() => {
         getSuppliers().then((list) => setSupplierList(list || [])).catch(() => {});
@@ -201,6 +203,7 @@ export default function ManagerQuickGoodsReceipt() {
         const units = await getProductUnits(existingProduct._id);
         const baseUnit = (units || []).find((u) => u.is_base) || (units || [])[0] || null;
         if (!baseUnit?._id) throw new Error('Sản phẩm đã có nhưng chưa cấu hình đơn vị hợp lệ. Vui lòng mở Sửa sản phẩm để cấu hình đơn vị.');
+        const idempotencyKey = `gr-quick-existing-${Date.now()}-${Math.random().toString(36).slice(2)}`;
         await createQuickGoodsReceipt({
             supplier_id: supplierId,
             items: [{
@@ -215,7 +218,7 @@ export default function ManagerQuickGoodsReceipt() {
             payment_type: paymentType,
             payment_method: paymentMethod,
             reason: reason.trim() || 'Nhập hàng từ màn tạo mới (tự động ghép sản phẩm đã có)',
-        });
+        }, { idempotencyKey });
         navigate('/manager/receipts', {
             state: {
                 success: `Sản phẩm "${existingProduct.name}" đã tồn tại. Hệ thống đã tự nhập thêm tồn kho cho sản phẩm này thành công.`,
@@ -334,6 +337,7 @@ export default function ManagerQuickGoodsReceipt() {
 
     const handleSubmitQuickReceipt = async (e) => {
         e.preventDefault();
+        if (loading || quickSubmitLockRef.current) return;
 
         if (!selectedProduct?._id) {
             toast('Vui lòng tìm và chọn sản phẩm đã có.', 'error');
@@ -356,9 +360,11 @@ export default function ManagerQuickGoodsReceipt() {
             return;
         }
 
+        quickSubmitLockRef.current = true;
         setLoading(true);
         try {
             const selectedUnit = unitOptions.find((u) => String(u._id || '') === String(selectedUnitId || '')) || unitOptions[0] || null;
+            const idempotencyKey = `gr-quick-${Date.now()}-${Math.random().toString(36).slice(2)}`;
             await createQuickGoodsReceipt({
                 supplier_id: supplierId,
                 items: [{
@@ -373,19 +379,21 @@ export default function ManagerQuickGoodsReceipt() {
                 payment_type: paymentType,
                 payment_method: paymentMethod,
                 reason: reason.trim() || undefined,
-            });
+            }, { idempotencyKey });
             navigate('/manager/receipts', {
                 state: { success: 'Nhập hàng nhanh thành công. Phiếu nhập kho đã được tạo và duyệt tự động.' },
             });
         } catch (err) {
             toast(err.message || 'Không thể tạo phiếu nhập hàng', 'error');
         } finally {
+            quickSubmitLockRef.current = false;
             setLoading(false);
         }
     };
 
     const handleSubmitCreateNew = async (e) => {
         e.preventDefault();
+        if (loading || createSubmitLockRef.current) return;
         if (!supplierId) return toast('Vui lòng chọn nhà cung cấp.', 'error');
         if (!newProductForm.name.trim()) return toast('Tên sản phẩm là bắt buộc.', 'error');
         if (!newProductForm.sku.trim()) return toast('SKU là bắt buộc.', 'error');
@@ -398,12 +406,14 @@ export default function ManagerQuickGoodsReceipt() {
             barcode: newProductForm.barcode,
         });
         if (existingProduct) {
+            createSubmitLockRef.current = true;
             setLoading(true);
             try {
                 await createQuickReceiptForExistingProduct(existingProduct);
             } catch (err) {
                 toast(err.message || 'Không thể nhập thêm tồn cho sản phẩm đã có.', 'error');
             } finally {
+                createSubmitLockRef.current = false;
                 setLoading(false);
             }
             return;
@@ -447,6 +457,7 @@ export default function ManagerQuickGoodsReceipt() {
             });
         }
 
+        createSubmitLockRef.current = true;
         setLoading(true);
         try {
             let imageUrls = [];
@@ -540,6 +551,7 @@ export default function ManagerQuickGoodsReceipt() {
             }
             toast(err.message || 'Không thể tạo sản phẩm mới.', 'error');
         } finally {
+            createSubmitLockRef.current = false;
             setLoading(false);
         }
     };

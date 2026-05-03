@@ -4,6 +4,15 @@ function getToken() {
     return localStorage.getItem('token') || '';
 }
 
+function buildIdempotencyKey(prefix = 'gr') {
+    const rand = Math.random().toString(36).slice(2);
+    const now = Date.now().toString(36);
+    const uuid = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `${now}-${rand}`;
+    return `${prefix}-${uuid}`;
+}
+
 /**
  * @param {string|{
  *   status?: string,
@@ -64,13 +73,15 @@ export async function getGoodsReceipt(id) {
     return data.goodsReceipt;
 }
 
-export async function createGoodsReceipt(body) {
+export async function createGoodsReceipt(body, options = {}) {
     const token = getToken();
+    const idempotencyKey = String(options.idempotencyKey || buildIdempotencyKey('gr-create')).trim();
     const res = await fetch(`${API_BASE}/goods-receipts`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`,
+            'Idempotency-Key': idempotencyKey,
         },
         body: JSON.stringify(body),
     });

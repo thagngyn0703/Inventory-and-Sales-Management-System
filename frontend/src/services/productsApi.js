@@ -212,13 +212,15 @@ export async function commitProductImport(rows) {
  * Manager nhập hàng nhanh (auto-approved GoodsReceipt) cho sản phẩm đã có
  * @param {{ supplier_id?: string, items: Array, payment_type: string, reason?: string }} body
  */
-export async function createQuickGoodsReceipt(body) {
+export async function createQuickGoodsReceipt(body, options = {}) {
     const token = getToken();
+    const idempotencyKey = String(options.idempotencyKey || '').trim();
     const res = await fetch(`${API_BASE}/goods-receipts/quick`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`,
+            ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
         },
         body: JSON.stringify(body),
     });

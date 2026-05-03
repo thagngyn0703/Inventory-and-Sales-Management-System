@@ -724,13 +724,33 @@ export default function ManagerSettings() {
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="text-sm text-slate-700">
               <span className="mb-1 block text-xs text-slate-500">Bật tích điểm</span>
-              <input
-                type="checkbox"
-                checked={Boolean(loyaltyConfig.enabled)}
-                onChange={(e) => setLoyaltyConfig((prev) => ({ ...prev, enabled: e.target.checked }))}
-                className="h-4 w-4 accent-teal-600"
-              />
+              <button
+                type="button"
+                role="switch"
+                aria-checked={Boolean(loyaltyConfig.enabled)}
+                onClick={() =>
+                  setLoyaltyConfig((prev) => ({
+                    ...prev,
+                    enabled: !prev.enabled,
+                  }))
+                }
+                className={`relative inline-flex h-7 w-14 items-center rounded-full border transition ${
+                  loyaltyConfig.enabled
+                    ? 'border-teal-500 bg-teal-500'
+                    : 'border-slate-300 bg-slate-300'
+                }`}
+                title={loyaltyConfig.enabled ? 'Tắt tích điểm' : 'Bật tích điểm'}
+              >
+                <span
+                  className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition ${
+                    loyaltyConfig.enabled ? 'translate-x-8' : 'translate-x-1'
+                  }`}
+                />
+              </button>
             </label>
+            <div className={`text-xs ${loyaltyConfig.enabled ? 'text-emerald-700' : 'text-rose-700'}`}>
+              {loyaltyConfig.enabled ? 'Tích điểm đang bật cho giao dịch mới.' : 'Tích điểm đang tắt cho giao dịch mới.'}
+            </div>
             <div className="text-xs text-slate-500">
               Cấu hình đơn giản cho tạp hóa: <b>Mua 20.000đ tặng 1 điểm, 1 điểm = 500đ</b>.
             </div>
@@ -746,6 +766,7 @@ export default function ManagerSettings() {
                     earn: { ...prev.earn, spend_amount_vnd: Number(e.target.value) || 20000 },
                   }))
                 }
+                disabled={!loyaltyConfig.enabled}
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
               />
             </label>
@@ -761,6 +782,7 @@ export default function ManagerSettings() {
                     earn: { ...prev.earn, points: Number(e.target.value) || 1 },
                   }))
                 }
+                disabled={!loyaltyConfig.enabled}
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
               />
             </label>
@@ -776,6 +798,7 @@ export default function ManagerSettings() {
                     redeem: { ...prev.redeem, point_value_vnd: Number(e.target.value) || 500 },
                   }))
                 }
+                disabled={!loyaltyConfig.enabled}
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
               />
             </label>
@@ -791,6 +814,7 @@ export default function ManagerSettings() {
                     redeem: { ...prev.redeem, min_points: Number(e.target.value) || 10 },
                   }))
                 }
+                disabled={!loyaltyConfig.enabled}
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
               />
             </label>
@@ -807,6 +831,7 @@ export default function ManagerSettings() {
                     redeem: { ...prev.redeem, max_percent_per_invoice: Number(e.target.value) || 50 },
                   }))
                 }
+                disabled={!loyaltyConfig.enabled}
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
               />
             </label>

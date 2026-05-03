@@ -68,6 +68,12 @@ function shortReceiptCode(id) {
     return s.slice(-6).toUpperCase();
 }
 
+function extractIdempotencyKey(req) {
+    const raw = String(req.headers['idempotency-key'] || req.body?.idempotency_key || '').trim();
+    if (!raw) return '';
+    return raw.slice(0, 120);
+}
+
 async function resolveReceiptUnitSnapshot({ product, rawItem, storeId }) {
     const safeStoreId = storeId || product?.storeId || null;
     const requestedUnitId = rawItem?.unit_id && mongoose.isValidObjectId(rawItem.unit_id)
@@ -314,6 +320,7 @@ router.post('/', requireAuth, requireRole(['staff', 'manager']), async (req, res
             total_amount,
             reason,
         } = req.body || {};
+        const idempotencyKey = extractIdempotencyKey(req);
 
         if (!supplier_id || !mongoose.isValidObjectId(supplier_id)) {
             return res.status(400).json({ message: 'supplier_id is required' });
@@ -321,6 +328,29 @@ router.post('/', requireAuth, requireRole(['staff', 'manager']), async (req, res
 
         if (!Array.isArray(items) || items.length === 0) {
             return res.status(400).json({ message: 'items is required' });
+        }
+        const seenProducts = new Set();
+        for (const it of items) {
+            const key = String(it?.product_id || '');
+            if (seenProducts.has(key)) {
+                return res.status(400).json({ message: 'Một sản phẩm chỉ được xuất hiện một lần trong phiếu nhập.' });
+            }
+            seenProducts.add(key);
+        }
+        if (idempotencyKey) {
+            const existed = await GoodsReceipt.findOne({
+                storeId: req.user.storeId,
+                received_by: req.user.id,
+                idempotency_key: idempotencyKey,
+            })
+                .populate('supplier_id', 'name phone email')
+                .populate('received_by', 'fullName email')
+                .populate('approved_by', 'fullName email')
+                .populate('items.product_id', 'name sku cost_price sale_price base_unit selling_units')
+                .lean();
+            if (existed) {
+                return res.status(200).json({ goodsReceipt: existed });
+            }
         }
 
         // validate items cơ bản
@@ -399,6 +429,7 @@ router.post('/', requireAuth, requireRole(['staff', 'manager']), async (req, res
             total_amount: total_amount != null ? Number(total_amount) : computedTotal,
             created_at: new Date(),
             reason: reason || undefined,
+            idempotency_key: idempotencyKey || undefined,
         });
 
         const saved = await GoodsReceipt.findById(doc._id)
@@ -422,6 +453,24 @@ router.post('/', requireAuth, requireRole(['staff', 'manager']), async (req, res
 
         return res.status(201).json({ goodsReceipt: saved });
     } catch (err) {
+        if (String(err?.code) === '11000' && String(err?.message || '').includes('idempotency_key')) {
+            const idempotencyKey = extractIdempotencyKey(req);
+            if (idempotencyKey) {
+                const existed = await GoodsReceipt.findOne({
+                    storeId: req.user.storeId,
+                    received_by: req.user.id,
+                    idempotency_key: idempotencyKey,
+                })
+                    .populate('supplier_id', 'name phone email')
+                    .populate('received_by', 'fullName email')
+                    .populate('approved_by', 'fullName email')
+                    .populate('items.product_id', 'name sku cost_price sale_price base_unit selling_units')
+                    .lean();
+                if (existed) {
+                    return res.status(200).json({ goodsReceipt: existed });
+                }
+            }
+        }
         if (err.status) return res.status(err.status).json({ message: err.message });
         console.error('Create GR error:', err);
         return res.status(500).json({ message: err.message || 'Server error' });
@@ -907,9 +956,18 @@ router.post('/quick', requireAuth, requireRole(['manager', 'admin']), async (req
             due_date_payable,
             reason,
         } = req.body || {};
+        const idempotencyKey = extractIdempotencyKey(req);
 
         if (!Array.isArray(items) || items.length === 0) {
             return res.status(400).json({ message: 'Vui lòng chọn ít nhất 1 sản phẩm' });
+        }
+        const seenProducts = new Set();
+        for (const it of items) {
+            const key = String(it?.product_id || '');
+            if (seenProducts.has(key)) {
+                return res.status(400).json({ message: 'Mỗi sản phẩm chỉ được nhập một lần trong phiếu nhập nhanh.' });
+            }
+            seenProducts.add(key);
         }
         for (const it of items) {
             if (!it.product_id || !mongoose.isValidObjectId(it.product_id)) {
@@ -987,6 +1045,21 @@ router.post('/quick', requireAuth, requireRole(['manager', 'admin']), async (req
             }
         }
         const resolvedStoreId = storeScope || String(products[0].storeId);
+        if (idempotencyKey) {
+            const existed = await GoodsReceipt.findOne({
+                storeId: resolvedStoreId,
+                received_by: req.user.id,
+                idempotency_key: idempotencyKey,
+            })
+                .populate('supplier_id', 'name phone email')
+                .populate('received_by', 'fullName email')
+                .populate('approved_by', 'fullName email')
+                .populate('items.product_id', 'name sku cost_price sale_price base_unit')
+                .lean();
+            if (existed) {
+                return res.status(200).json({ goodsReceipt: existed });
+            }
+        }
         const supplierDoc = await Supplier.findOne({ _id: resolvedSupplierId, storeId: resolvedStoreId }).lean();
         if (!supplierDoc) {
             return res.status(400).json({ message: 'Nhà cung cấp không tồn tại hoặc không thuộc cùng cửa hàng với sản phẩm' });
@@ -1010,6 +1083,7 @@ router.post('/quick', requireAuth, requireRole(['manager', 'admin']), async (req
             debt_amount: debtAmount,
             due_date_payable: due_date_payable ? new Date(due_date_payable) : undefined,
             reason: reason ? String(reason).trim() : 'Nhập hàng nhanh',
+            idempotency_key: idempotencyKey || undefined,
         }], { session });
         const grDoc = gr[0];
 
@@ -1136,6 +1210,23 @@ router.post('/quick', requireAuth, requireRole(['manager', 'admin']), async (req
 
         return res.status(201).json({ goodsReceipt: saved });
     } catch (err) {
+        if (String(err?.code) === '11000' && String(err?.message || '').includes('idempotency_key')) {
+            const idempotencyKey = extractIdempotencyKey(req);
+            if (idempotencyKey) {
+                const existed = await GoodsReceipt.findOne({
+                    received_by: req.user.id,
+                    idempotency_key: idempotencyKey,
+                })
+                    .populate('supplier_id', 'name phone email')
+                    .populate('received_by', 'fullName email')
+                    .populate('approved_by', 'fullName email')
+                    .populate('items.product_id', 'name sku cost_price sale_price base_unit')
+                    .lean();
+                if (existed) {
+                    return res.status(200).json({ goodsReceipt: existed });
+                }
+            }
+        }
         if (err.status) return res.status(err.status).json({ message: err.message });
         if (session.inTransaction()) await session.abortTransaction();
         console.error('Quick GR error:', err);

@@ -90,6 +90,13 @@ export default function ManagerShiftSessionsPage() {
   const [detailShift, setDetailShift] = useState(null);
   const [detailData, setDetailData] = useState({ invoices: [], total: 0, page: 1, totalPages: 1 });
   const [detailLoading, setDetailLoading] = useState(false);
+  const [debtModal, setDebtModal] = useState({
+    open: false,
+    shift: null,
+    loading: false,
+    invoices: [],
+    totalDebtCreated: 0,
+  });
   const [filterError, setFilterError] = useState('');
   const [overrideModal, setOverrideModal] = useState({
     open: false,
@@ -137,6 +144,7 @@ export default function ManagerShiftSessionsPage() {
               invoice_count: scoped.length,
               total_revenue: Math.round(totalRevenue),
               total_profit: Math.round(totalProfit),
+              total_debt_created: 0,
             },
           };
         } catch {
@@ -257,6 +265,48 @@ export default function ManagerShiftSessionsPage() {
     });
   }, [notify]);
 
+  const openDebtModal = useCallback(async (shift) => {
+    setDebtModal({
+      open: true,
+      shift,
+      loading: true,
+      invoices: [],
+      totalDebtCreated: Number(shift?.kpis?.total_debt_created || 0),
+    });
+    try {
+      const payload = await getShiftInvoices(shift._id, { page: 1, limit: 200 });
+      const allInvoices = Array.isArray(payload?.invoices) ? payload.invoices : [];
+      const debtInvoices = allInvoices.filter((inv) => String(inv?.payment_method || '').toLowerCase() === 'debt');
+      const totalDebtCreated = debtInvoices.reduce((sum, inv) => sum + Number(inv?.total_amount || 0), 0);
+      setDebtModal({
+        open: true,
+        shift,
+        loading: false,
+        invoices: debtInvoices,
+        totalDebtCreated: Math.round(totalDebtCreated),
+      });
+    } catch (e) {
+      setDebtModal({
+        open: true,
+        shift,
+        loading: false,
+        invoices: [],
+        totalDebtCreated: Number(shift?.kpis?.total_debt_created || 0),
+      });
+      notify(e.message || 'Không thể tải chi tiết nợ trong ca', 'error');
+    }
+  }, [notify]);
+
+  const closeDebtModal = useCallback(() => {
+    setDebtModal({
+      open: false,
+      shift: null,
+      loading: false,
+      invoices: [],
+      totalDebtCreated: 0,
+    });
+  }, []);
+
   const closeOverrideModal = useCallback(() => {
     setOverrideModal({
       open: false,
@@ -304,6 +354,9 @@ export default function ManagerShiftSessionsPage() {
             <h1 className="text-xl font-bold text-slate-800 md:text-2xl">Nhật ký thu ngân</h1>
             <p className="mt-1 text-sm text-slate-500">
               Theo dõi giờ làm, doanh thu, lợi nhuận và số hóa đơn theo từng ca.
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              Chênh lệch = tiền đóng ca - tiền mở ca - tổng tiền mặt ghi nhận từ hóa đơn trong ca.
             </p>
           </div>
           <button
@@ -442,19 +495,19 @@ export default function ManagerShiftSessionsPage() {
 
         {!loading && (data.shifts || []).length > 0 && (
           <div className="max-h-[58vh] overflow-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <table className="min-w-full text-sm">
+            <table className="w-full min-w-[1120px] table-fixed text-sm xl:table-auto">
               <thead className="sticky top-0 z-10 bg-slate-100 text-[11px] uppercase tracking-wide text-slate-600 shadow-sm">
                 <tr>
-                  <th className="px-3 py-2 text-left">Nhân viên</th>
-                  <th className="px-3 py-2 text-left">Quầy</th>
-                  <th className="px-3 py-2 text-left">Thời gian ca</th>
-                  <th className="px-3 py-2 text-right">Doanh thu</th>
-                  <th className="px-3 py-2 text-right">Lợi nhuận gộp</th>
-                  <th className="px-3 py-2 text-right">Bàn giao</th>
-                  <th className="px-3 py-2 text-right">Hóa đơn</th>
-                  <th className="px-3 py-2 text-right">Chênh lệch</th>
-                  <th className="px-3 py-2 text-center">Trạng thái</th>
-                  <th className="px-3 py-2 text-right">Thao tác</th>
+                  <th className="px-3 py-2 text-left whitespace-nowrap">Nhân viên</th>
+                  <th className="px-3 py-2 text-left whitespace-nowrap">Quầy</th>
+                  <th className="px-3 py-2 text-left whitespace-nowrap">Thời gian ca</th>
+                  <th className="px-3 py-2 text-right whitespace-nowrap">Doanh thu</th>
+                  <th className="px-3 py-2 text-right whitespace-nowrap">Lợi nhuận gộp</th>
+                  <th className="px-3 py-2 text-right whitespace-nowrap">Bàn giao</th>
+                  <th className="px-3 py-2 text-right whitespace-nowrap">Hóa đơn</th>
+                  <th className="px-3 py-2 text-right whitespace-nowrap">Chênh lệch</th>
+                  <th className="px-3 py-2 text-center whitespace-nowrap">Trạng thái</th>
+                  <th className="px-3 py-2 text-right whitespace-nowrap">Thao tác</th>
                 </tr>
               </thead>
               <tbody>
@@ -462,6 +515,7 @@ export default function ManagerShiftSessionsPage() {
                   const openUser = shift?.opened_by;
                   const closeUser = shift?.closed_by;
                   const discrepancy = Number(shift?.discrepancy_cash || 0);
+                  const debtCreated = Number(shift?.kpis?.total_debt_created || 0);
                   const handover = Number(shift?.cash_to_handover || 0);
                   const isCritical = discrepancy < 0;
                   const isOverrideClosed = Boolean(
@@ -495,7 +549,15 @@ export default function ManagerShiftSessionsPage() {
                         </div>
                       </td>
                       <td className="px-3 py-3 text-right font-semibold tabular-nums text-slate-900">
-                        {formatMoney(shift?.kpis?.total_revenue || 0)}
+                        <div>{formatMoney(shift?.kpis?.total_revenue || 0)}</div>
+                        <button
+                          type="button"
+                          onClick={() => openDebtModal(shift)}
+                          className="mt-1 inline-block max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-xs font-semibold text-rose-700 underline-offset-2 hover:underline"
+                          title={`Nợ trong ca: ${formatMoney(debtCreated)}`}
+                        >
+                          Nợ trong ca: {formatMoney(debtCreated)}
+                        </button>
                       </td>
                       <td className="px-3 py-3 text-right font-semibold tabular-nums text-slate-900">
                         {formatMoney(shift?.kpis?.total_profit || 0)}
@@ -508,6 +570,7 @@ export default function ManagerShiftSessionsPage() {
                       </td>
                       <td className="px-3 py-3 text-right">
                         <span
+                          title="Công thức: tiền đóng ca - tiền mở ca - tổng tiền mặt trên hóa đơn"
                           className={`text-xs font-semibold tabular-nums ${
                             discrepancy < 0 ? 'text-rose-700' : discrepancy > 0 ? 'text-amber-700' : 'text-slate-900'
                           }`}
@@ -757,6 +820,78 @@ export default function ManagerShiftSessionsPage() {
               >
                 {overrideModal.submitting ? 'Đang xử lý...' : 'Xác nhận đóng ca hộ'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {debtModal.open && (
+        <div className="fixed inset-0 z-[125] flex items-center justify-center bg-slate-900/45 p-4">
+          <div className="flex max-h-[84vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
+              <div>
+                <div className="text-base font-bold text-slate-800">
+                  Nợ trong ca • {debtModal?.shift?.opened_by?.fullName || debtModal?.shift?.opened_by?.email || 'Nhân viên'}
+                </div>
+                <div className="mt-0.5 text-sm text-slate-500">
+                  {formatDateTime(debtModal?.shift?.opened_at)} - {formatDateTime(debtModal?.shift?.closed_at)}
+                </div>
+                <div className="mt-1 text-sm font-semibold text-rose-700">
+                  Tổng nợ phát sinh: {formatMoney(debtModal.totalDebtCreated)}
+                </div>
+              </div>
+              <button type="button" onClick={closeDebtModal} className={`${btnSlateClass} p-1.5`}>
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="max-h-[72vh] overflow-auto p-4">
+              {debtModal.loading && (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm font-semibold text-slate-500">
+                  Đang tải chi tiết nợ...
+                </div>
+              )}
+
+              {!debtModal.loading && debtModal.invoices.length === 0 && (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm font-semibold text-slate-500">
+                  Không có hóa đơn bán chịu trong ca này.
+                </div>
+              )}
+
+              {!debtModal.loading && debtModal.invoices.length > 0 && (
+                <div className="overflow-hidden rounded-xl border border-slate-200">
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-slate-100 text-[11px] uppercase tracking-wide text-slate-600">
+                      <tr>
+                        <th className="px-3 py-2 text-left">Giờ tạo</th>
+                        <th className="px-3 py-2 text-left">Mã đơn</th>
+                        <th className="px-3 py-2 text-left">Khách hàng</th>
+                        <th className="px-3 py-2 text-left">Người bán</th>
+                        <th className="px-3 py-2 text-right">Giá trị nợ</th>
+                        <th className="px-3 py-2 text-right">Chi tiết</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {debtModal.invoices.map((inv) => (
+                        <tr key={inv._id} className="border-t border-slate-200 align-top">
+                          <td className="px-3 py-3">{formatDateTime(inv.invoice_at)}</td>
+                          <td className="px-3 py-3 font-semibold text-slate-700">
+                            {inv?.display_code || `#${String(inv._id || '').slice(-8)}`}
+                          </td>
+                          <td className="px-3 py-3">{inv?.recipient_name || inv?.customer_id?.full_name || 'Khách lẻ'}</td>
+                          <td className="px-3 py-3">{inv?.seller_name || inv?.created_by?.fullName || inv?.created_by?.email || '--'}</td>
+                          <td className="px-3 py-3 text-right font-semibold tabular-nums text-rose-700">{formatMoney(inv?.total_amount || 0)}</td>
+                          <td className="px-3 py-3 text-right">
+                            <a href={`/manager/invoices/${inv._id}/view`} className={`${btnSlateClass} md:text-sm`}>
+                              Xem hóa đơn
+                            </a>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </div>
         </div>

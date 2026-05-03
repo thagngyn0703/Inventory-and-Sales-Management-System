@@ -44,6 +44,7 @@ export default function WarehouseGoodsReceiptCreate() {
   const [submitting, setSubmitting] = useState(false);
   const [showProductModal, setShowProductModal] = useState(false);
   const searchReqSeqRef = useRef(0);
+  const submitLockRef = useRef(false);
   const scanBufferRef = useRef('');
   const scanTimerRef = useRef(null);
 
@@ -138,20 +139,25 @@ export default function WarehouseGoodsReceiptCreate() {
     const defaultUnitName = String(baseUnit?.unit_name || product.base_unit || 'Cái').trim();
     const lineUnitCost = unitCostFromBaseCost(product, defaultRatio);
 
-    setItems((prev) => [
-      ...prev,
-      {
-        product,
-        unit_id: baseUnit?._id || null,
-        quantity: 1,
-        unit_cost: lineUnitCost,
-        system_unit_cost: lineUnitCost,
-        unit_name: defaultUnitName,
-        ratio: defaultRatio,
-        available_units: units,
-        price_gap_note: '',
-      },
-    ]);
+    setItems((prev) => {
+      if (prev.some((row) => String(row?.product?._id) === String(product._id))) {
+        return prev;
+      }
+      return [
+        ...prev,
+        {
+          product,
+          unit_id: baseUnit?._id || null,
+          quantity: 1,
+          unit_cost: lineUnitCost,
+          system_unit_cost: lineUnitCost,
+          unit_name: defaultUnitName,
+          ratio: defaultRatio,
+          available_units: units,
+          price_gap_note: '',
+        },
+      ];
+    });
   };
 
   const handleScanSubmit = useCallback(async (rawCode) => {
@@ -269,6 +275,7 @@ export default function WarehouseGoodsReceiptCreate() {
   }, [newSupplier.name, newSupplier.phone, toast]);
 
   const handleSubmit = async (status) => {
+    if (submitLockRef.current || submitting) return;
     if (!selectedSupplierId) {
       toast('Vui lòng chọn nhà cung cấp', 'error');
       return;
@@ -288,6 +295,7 @@ export default function WarehouseGoodsReceiptCreate() {
       return;
     }
 
+    submitLockRef.current = true;
     setSubmitting(true);
     try {
       const payloadItems = items.map((item) => ({
@@ -301,13 +309,14 @@ export default function WarehouseGoodsReceiptCreate() {
         price_gap_note: item.price_gap_note,
       }));
 
+      const idempotencyKey = `gr-create-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       await createGoodsReceipt({
         supplier_id: selectedSupplierId,
         reason,
         status,
         items: payloadItems,
         total_amount: totalAmount,
-      });
+      }, { idempotencyKey });
 
       navigate(`${warehouseBase}/receipts`, {
         state: { success: 'Đã tạo phiếu nhập kho thành công' },
@@ -315,6 +324,7 @@ export default function WarehouseGoodsReceiptCreate() {
     } catch (err) {
       toast(err.message || 'Không thể tạo phiếu nhập kho', 'error');
       setSubmitting(false);
+      submitLockRef.current = false;
     }
   };
 

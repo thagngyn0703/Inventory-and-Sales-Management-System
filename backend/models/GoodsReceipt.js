@@ -100,6 +100,11 @@ const goodsReceiptSchema = new Schema(
             type: String,
             trim: true,
         },
+        idempotency_key: {
+            type: String,
+            trim: true,
+            default: '',
+        },
         rejection_reason: {
             type: String,
             trim: true,
@@ -133,6 +138,11 @@ const goodsReceiptSchema = new Schema(
     {
         timestamps: false,
     }
+);
+
+goodsReceiptSchema.index(
+    { storeId: 1, received_by: 1, idempotency_key: 1 },
+    { unique: true, partialFilterExpression: { idempotency_key: { $exists: true, $type: 'string', $ne: '' } } }
 );
 
 module.exports = model('GoodsReceipt', goodsReceiptSchema);
