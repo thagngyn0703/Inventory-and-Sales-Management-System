@@ -11,6 +11,7 @@ import {
   UserCog,
   Users2,
 } from "lucide-react";
+import logo from "../../assets/images/logo.png";
 
 const benefits = [
   {
@@ -128,27 +129,26 @@ export default function PreLoginLandingPage() {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
       <header className="sticky top-0 z-20 border-b border-slate-200/80 bg-white/95 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
+        <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-sky-500 to-blue-600 shadow-sm">
-              <ShieldCheck className="h-5 w-5 text-white" />
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg shadow-sm">
+             <img src={logo} alt="ISMS" className="h-full w-full" />
             </div>
             <div>
               <p className="text-lg font-extrabold tracking-tight leading-none">ISMS</p>
-              <p className="text-[11px] font-semibold text-slate-500">Store Operations Platform</p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 sm:justify-end">
             <Link
               to="/login"
-              className="rounded-full border border-blue-200 px-4 py-2 text-sm font-bold text-blue-700 transition hover:bg-blue-50"
+              className="rounded-full border border-blue-200 px-4 py-2 text-center text-sm font-bold text-blue-700 transition hover:bg-blue-50"
             >
               Đăng nhập
             </Link>
             <Link
               to="/register"
-              className="rounded-full bg-blue-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-blue-700"
+              className="rounded-full bg-blue-600 px-4 py-2 text-center text-sm font-bold text-white transition hover:bg-blue-700"
             >
               Đăng ký
             </Link>
@@ -160,7 +160,7 @@ export default function PreLoginLandingPage() {
         <div className="mx-auto grid max-w-6xl gap-8 px-4 py-14 sm:px-6 lg:grid-cols-2 lg:px-8 lg:py-20">
           <div className="flex flex-col justify-center">
             <GradientBadge>Nền tảng quản lý cửa hàng ISMS</GradientBadge>
-            <h1 className="mt-6 text-4xl font-extrabold leading-tight text-slate-900 sm:text-5xl">
+            <h1 className="mt-6 text-3xl font-extrabold leading-tight text-slate-900 sm:text-5xl">
               Hệ thống quản lý vận hành cửa hàng tập trung
             </h1>
             <p className="mt-4 max-w-xl text-base text-slate-600">
@@ -192,7 +192,7 @@ export default function PreLoginLandingPage() {
             </div>
           </div>
           <div className="relative flex items-center justify-center">
-            <div className="h-[430px] w-full rounded-[2rem] bg-gradient-to-br from-sky-200/70 via-slate-100 to-white p-6 shadow-xl">
+            <div className="min-h-[280px] w-full rounded-[2rem] bg-gradient-to-br from-sky-200/70 via-slate-100 to-white p-4 shadow-xl sm:min-h-[360px] sm:p-6 lg:h-[430px] lg:min-h-0">
               <div className="flex h-full w-full flex-col justify-between rounded-[1.5rem] border border-white/70 bg-white/80 p-5">
                 <div className="grid grid-cols-2 gap-3">
                   <div className="rounded-2xl border border-sky-100 bg-sky-50 p-3">

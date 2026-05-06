@@ -192,7 +192,7 @@ mongoose
         await assertMongoSupportsTransactions();
         console.log('MongoDB hỗ trợ transaction: OK');
         initSocket(server, corsConfig.socket);
-        server.listen(PORT, () => {
+        server.listen(PORT,"0.0.0.0", () => {
             console.log(`Server chạy tại http://localhost:${PORT}`);
             // Khởi động backup scheduler sau khi server đã kết nối DB thành công
             startBackupScheduler();

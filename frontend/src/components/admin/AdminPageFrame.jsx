@@ -1,5 +1,6 @@
 import React from 'react';
 import Sidebar from '../Sidebar';
+import { useNavDrawer } from '../../hooks/useNavDrawer';
 
 function readAdminDisplay() {
   try {
@@ -12,11 +13,33 @@ function readAdminDisplay() {
 
 export default function AdminPageFrame({ children, topBarLeft = null }) {
   const adminDisplay = readAdminDisplay();
+  const { isDesktop, collapsed, toggle, close } = useNavDrawer(1024);
+
   return (
     <div className="manager-page-with-sidebar">
-      <Sidebar />
+      {!isDesktop && !collapsed ? (
+        <button
+          type="button"
+          className="app-shell-nav-overlay"
+          aria-label="Đóng menu điều hướng"
+          onClick={close}
+        />
+      ) : null}
+      <Sidebar collapsed={collapsed} onRequestClose={close} />
       <div className="manager-main">
         <header className="manager-shell-topbar flex h-12 shrink-0 items-center gap-3 border-b border-teal-900/25 bg-[linear-gradient(120deg,#0d9488_0%,#0ea5e9_48%,#0284c7_100%)] px-3 shadow-md shadow-teal-900/15 sm:px-4">
+          {!isDesktop ? (
+            <button
+              type="button"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/35 bg-white/15 text-white shadow-sm transition hover:bg-white/25"
+              onClick={toggle}
+              title={collapsed ? 'Mở menu' : 'Đóng menu'}
+              aria-expanded={!collapsed}
+              aria-controls="admin-sidebar-nav"
+            >
+              <i className="fa-solid fa-bars text-sm" aria-hidden />
+            </button>
+          ) : null}
           <div className="min-w-0 flex-1">
             {topBarLeft || (
               <span className="inline-flex items-center rounded-md border border-white/30 bg-white/10 px-2 py-1 text-xs font-semibold text-white">

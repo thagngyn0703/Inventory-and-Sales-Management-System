@@ -1,6 +1,7 @@
 .manager-page-with-sidebar {
     display: flex;
     min-height: 100vh;
+    min-width: 0;
     background: #f1f5f9;
     font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
 }
@@ -405,15 +406,19 @@
     }
 }
 
-@media (max-width: 768px) {
+@media (max-width: 1023px) {
     .manager-main {
         margin-left: 0;
+    }
+
+    .manager-content {
+        padding: 16px;
     }
 
     .manager-cards-row--4,
     .manager-cards-row--5,
     .manager-cards-row--2 {
-        grid-template-columns: 1fr;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
     .manager-topbar {
@@ -422,6 +427,31 @@
 
     .manager-search {
         max-width: 100%;
+    }
+}
+
+@media (max-width: 768px) {
+    .manager-cards-row--4,
+    .manager-cards-row--5,
+    .manager-cards-row--2 {
+        grid-template-columns: 1fr;
+    }
+
+    .manager-content {
+        padding: 14px;
+    }
+}
+
+@media (max-width: 480px) {
+    .manager-content {
+        padding: 12px;
+    }
+}
+
+@media (min-width: 1024px) {
+    .manager-page-with-sidebar .manager-sidebar,
+    aside.manager-sidebar {
+        transform: none !important;
     }
 }
 

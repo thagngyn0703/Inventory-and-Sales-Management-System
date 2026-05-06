@@ -364,123 +364,232 @@ export default function ManagerProductList() {
                             <p className="manager-products-loading">Đang tải...</p>
                         ) : (
                             <>
-                                <div className="manager-products-table-wrap">
-                                    <table className="manager-products-table">
-                                        <thead>
-                                            <tr>
-                                                <th>STT</th>
-                                                <th>Ảnh</th>
-                                                <th>SKU</th>
-                                                <th>Tên sản phẩm</th>
-                                                <th>Barcode</th>
-                                                <th>Giá vốn</th>
-                                                <th>Giá bán</th>
-                                                <th>Tồn kho</th>
-                                                <th>Đơn vị</th>
-                                                <th>Trạng thái</th>
-                                                <th>Thao tác</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {products.length === 0 ? (
+                                <div className="hidden lg:block">
+                                    <div className="manager-products-table-wrap">
+                                        <table className="manager-products-table">
+                                            <thead>
                                                 <tr>
-                                                    <td colSpan={11} className="manager-products-empty">
-                                                        {search ? 'Không có sản phẩm nào phù hợp.' : 'Chưa có sản phẩm.'}
-                                                    </td>
+                                                    <th>STT</th>
+                                                    <th>Ảnh</th>
+                                                    <th>SKU</th>
+                                                    <th>Tên sản phẩm</th>
+                                                    <th>Barcode</th>
+                                                    <th>Giá vốn</th>
+                                                    <th>Giá bán</th>
+                                                    <th>Tồn kho</th>
+                                                    <th>Đơn vị</th>
+                                                    <th>Trạng thái</th>
+                                                    <th>Thao tác</th>
                                                 </tr>
-                                            ) : (
-                                                products.map((p, idx) => (
-                                                    <tr key={p._id}>
-                                                        <td>{(page - 1) * LIMIT + idx + 1}</td>
-                                                        <td>
-                                                            {Array.isArray(p.image_urls) && p.image_urls[0] ? (
-                                                                <img
-                                                                    src={p.image_urls[0]}
-                                                                    alt={p.name || 'product-image'}
-                                                                    style={{
-                                                                        width: 44,
-                                                                        height: 44,
-                                                                        objectFit: 'cover',
-                                                                        borderRadius: 6,
-                                                                        border: '1px solid #e5e7eb',
-                                                                    }}
-                                                                />
-                                                            ) : (
-                                                                <span style={{ color: '#9ca3af' }}>—</span>
-                                                            )}
+                                            </thead>
+                                            <tbody>
+                                                {products.length === 0 ? (
+                                                    <tr>
+                                                        <td colSpan={11} className="manager-products-empty">
+                                                            {search ? 'Không có sản phẩm nào phù hợp.' : 'Chưa có sản phẩm.'}
                                                         </td>
-                                                        <td>{p.sku || '—'}</td>
-                                                        <td>
+                                                    </tr>
+                                                ) : (
+                                                    products.map((p, idx) => (
+                                                        <tr key={p._id}>
+                                                            <td>{(page - 1) * LIMIT + idx + 1}</td>
+                                                            <td>
+                                                                {Array.isArray(p.image_urls) && p.image_urls[0] ? (
+                                                                    <img
+                                                                        src={p.image_urls[0]}
+                                                                        alt={p.name || 'product-image'}
+                                                                        style={{
+                                                                            width: 44,
+                                                                            height: 44,
+                                                                            objectFit: 'cover',
+                                                                            borderRadius: 6,
+                                                                            border: '1px solid #e5e7eb',
+                                                                        }}
+                                                                    />
+                                                                ) : (
+                                                                    <span style={{ color: '#9ca3af' }}>—</span>
+                                                                )}
+                                                            </td>
+                                                            <td>{p.sku || '—'}</td>
+                                                            <td>
+                                                                <button
+                                                                    type="button"
+                                                                    className="manager-product-name-link"
+                                                                    onClick={() => navigate(`/manager/products/${p._id}`)}
+                                                                >
+                                                                    {highlightMatch(p.name || '—', search)}
+                                                                </button>
+                                                                {showTaxBadge && (
+                                                                    <div style={{ marginTop: 6 }}>
+                                                                        <Badge className="border border-amber-200/80 bg-amber-50 text-amber-800">
+                                                                            VAT danh muc: {getEffectiveVatRate(p)}%
+                                                                        </Badge>
+                                                                    </div>
+                                                                )}
+                                                            </td>
+                                                            <td>{p.barcode || '—'}</td>
+                                                            <td>{formatMoney(p.cost_price)}</td>
+                                                            <td>{formatMoney(p.sale_price)}</td>
+                                                            <td>{Number(p.stock_qty ?? 0).toLocaleString('vi-VN')}</td>
+                                                            <td>{p.base_unit || 'Cái'}</td>
+                                                            <td>
+                                                                <Badge
+                                                                    className={
+                                                                        p.status === 'inactive'
+                                                                            ? 'border border-rose-200/80 bg-rose-100 text-rose-800'
+                                                                            : 'border border-teal-200/80 bg-teal-50 text-teal-800'
+                                                                    }
+                                                                >
+                                                                    {p.status === 'inactive' ? 'Ngừng' : 'Đang bán'}
+                                                                </Badge>
+                                                            </td>
+                                                            <td>
+                                                                <div className="manager-products-actions">
+                                                                    <button
+                                                                        type="button"
+                                                                        className="manager-btn-icon"
+                                                                        title="Xem chi tiết"
+                                                                        onClick={() => navigate(`/manager/products/${p._id}`)}
+                                                                    >
+                                                                        <i className="fa-solid fa-eye" />
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        className="manager-btn-icon"
+                                                                        title="Sửa"
+                                                                        onClick={() => navigate(`/manager/products/${p._id}/edit`)}
+                                                                    >
+                                                                        <i className="fa-solid fa-pen" />
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        className="manager-btn-icon"
+                                                                        title={p.status === 'active' ? 'Ngừng bán' : 'Kích hoạt'}
+                                                                        onClick={() => handleToggleStatus(p)}
+                                                                        disabled={togglingId === p._id}
+                                                                    >
+                                                                        {p.status === 'active' ? (
+                                                                            <i className="fa-solid fa-pause" />
+                                                                        ) : (
+                                                                            <i className="fa-solid fa-play" />
+                                                                        )}
+                                                                    </button>
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    ))
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                <div className="lg:hidden">
+                                    {products.length === 0 ? (
+                                        <p className="manager-products-mobile-empty">
+                                            {search ? 'Không có sản phẩm nào phù hợp.' : 'Chưa có sản phẩm.'}
+                                        </p>
+                                    ) : (
+                                        <ul className="manager-product-card-list">
+                                            {products.map((p, idx) => (
+                                                <li key={p._id} className="manager-product-card">
+                                                    <div className="manager-product-card__row">
+                                                        <div className="manager-product-card__thumb">
+                                                            {Array.isArray(p.image_urls) && p.image_urls[0] ? (
+                                                                <img src={p.image_urls[0]} alt={p.name || 'Ảnh sản phẩm'} />
+                                                            ) : (
+                                                                <span className="manager-product-card__thumb--empty">—</span>
+                                                            )}
+                                                        </div>
+                                                        <div className="manager-product-card__meta">
+                                                            <div className="manager-product-card__idx">
+                                                                #{String((page - 1) * LIMIT + idx + 1)}
+                                                            </div>
                                                             <button
                                                                 type="button"
-                                                                className="manager-product-name-link"
+                                                                className="manager-product-name-link manager-product-card__title w-full text-left"
                                                                 onClick={() => navigate(`/manager/products/${p._id}`)}
                                                             >
                                                                 {highlightMatch(p.name || '—', search)}
                                                             </button>
-                                                            {showTaxBadge && (
-                                                                <div style={{ marginTop: 6 }}>
+                                                            {showTaxBadge ? (
+                                                                <div className="mt-2">
                                                                     <Badge className="border border-amber-200/80 bg-amber-50 text-amber-800">
                                                                         VAT danh muc: {getEffectiveVatRate(p)}%
                                                                     </Badge>
                                                                 </div>
-                                                            )}
-                                                        </td>
-                                                        <td>{p.barcode || '—'}</td>
-                                                        <td>{formatMoney(p.cost_price)}</td>
-                                                        <td>{formatMoney(p.sale_price)}</td>
-                                                        <td>{Number(p.stock_qty ?? 0).toLocaleString('vi-VN')}</td>
-                                                        <td>{p.base_unit || 'Cái'}</td>
-                                                        <td>
-                                                            <Badge
-                                                                className={
-                                                                    p.status === 'inactive'
-                                                                        ? 'border border-rose-200/80 bg-rose-100 text-rose-800'
-                                                                        : 'border border-teal-200/80 bg-teal-50 text-teal-800'
-                                                                }
-                                                            >
-                                                                {p.status === 'inactive' ? 'Ngừng' : 'Đang bán'}
-                                                            </Badge>
-                                                        </td>
-                                                        <td>
-                                                            <div className="manager-products-actions">
-                                                                <button
-                                                                    type="button"
-                                                                    className="manager-btn-icon"
-                                                                    title="Xem chi tiết"
-                                                                    onClick={() => navigate(`/manager/products/${p._id}`)}
-                                                                >
-                                                                    <i className="fa-solid fa-eye" />
-                                                                </button>
-                                                                <button
-                                                                    type="button"
-                                                                    className="manager-btn-icon"
-                                                                    title="Sửa"
-                                                                    onClick={() => navigate(`/manager/products/${p._id}/edit`)}
-                                                                >
-                                                                    <i className="fa-solid fa-pen" />
-                                                                </button>
-                                                                <button
-                                                                    type="button"
-                                                                    className="manager-btn-icon"
-                                                                    title={p.status === 'active' ? 'Ngừng bán' : 'Kích hoạt'}
-                                                                    onClick={() => handleToggleStatus(p)}
-                                                                    disabled={togglingId === p._id}
-                                                                >
-                                                                    {p.status === 'active' ? (
-                                                                        <i className="fa-solid fa-pause" />
-                                                                    ) : (
-                                                                        <i className="fa-solid fa-play" />
-                                                                    )}
-                                                                </button>
+                                                            ) : null}
+                                                            <div className="manager-product-card__grid mt-3">
+                                                                <span>
+                                                                    <strong>SKU</strong> {p.sku || '—'}
+                                                                </span>
+                                                                <span>
+                                                                    <strong>Barcode</strong> {p.barcode || '—'}
+                                                                </span>
+                                                                <span>
+                                                                    <strong>Giá vốn</strong> {formatMoney(p.cost_price)}
+                                                                </span>
+                                                                <span>
+                                                                    <strong>Giá bán</strong> {formatMoney(p.sale_price)}
+                                                                </span>
+                                                                <span>
+                                                                    <strong>Tồn kho</strong>{' '}
+                                                                    {Number(p.stock_qty ?? 0).toLocaleString('vi-VN')}
+                                                                </span>
+                                                                <span>
+                                                                    <strong>Đơn vị</strong> {p.base_unit || 'Cái'}
+                                                                </span>
                                                             </div>
-                                                        </td>
-                                                    </tr>
-                                                ))
-                                            )}
-                                        </tbody>
-                                    </table>
+                                                            <div className="manager-product-card__footer">
+                                                                <Badge
+                                                                    className={
+                                                                        p.status === 'inactive'
+                                                                            ? 'border border-rose-200/80 bg-rose-100 text-rose-800'
+                                                                            : 'border border-teal-200/80 bg-teal-50 text-teal-800'
+                                                                    }
+                                                                >
+                                                                    {p.status === 'inactive' ? 'Ngừng' : 'Đang bán'}
+                                                                </Badge>
+                                                                <div className="manager-products-actions">
+                                                                    <button
+                                                                        type="button"
+                                                                        className="manager-btn-icon"
+                                                                        title="Xem chi tiết"
+                                                                        onClick={() => navigate(`/manager/products/${p._id}`)}
+                                                                    >
+                                                                        <i className="fa-solid fa-eye" />
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        className="manager-btn-icon"
+                                                                        title="Sửa"
+                                                                        onClick={() => navigate(`/manager/products/${p._id}/edit`)}
+                                                                    >
+                                                                        <i className="fa-solid fa-pen" />
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        className="manager-btn-icon"
+                                                                        title={p.status === 'active' ? 'Ngừng bán' : 'Kích hoạt'}
+                                                                        onClick={() => handleToggleStatus(p)}
+                                                                        disabled={togglingId === p._id}
+                                                                    >
+                                                                        {p.status === 'active' ? (
+                                                                            <i className="fa-solid fa-pause" />
+                                                                        ) : (
+                                                                            <i className="fa-solid fa-play" />
+                                                                        )}
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    )}
                                 </div>
+
                                 {totalPages > 1 && (
                                     <div className="manager-pagination">
                                         <span className="manager-pagination-info">

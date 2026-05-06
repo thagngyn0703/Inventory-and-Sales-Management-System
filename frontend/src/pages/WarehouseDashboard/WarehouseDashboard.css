@@ -140,9 +140,30 @@
   border: 1px solid #bbf7d0;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 1023px) {
   .warehouse-main {
     margin-left: 0;
+  }
+
+  .warehouse-content {
+    padding: 16px;
+  }
+
+  .warehouse-topbar {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+}
+
+@media (max-width: 480px) {
+  .warehouse-content {
+    padding: 12px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .warehouse-page-with-sidebar .warehouse-sidebar {
+    transform: none !important;
   }
 }
 
@@ -276,6 +297,18 @@
     grid-template-columns: 1fr 1fr;
     grid-template-rows: auto auto auto;
     gap: 8px;
+  }
+}
+
+@media (max-width: 640px) {
+  .product-item-row {
+    grid-template-columns: 1fr;
+  }
+
+  .product-totals-card {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
   }
 }
 

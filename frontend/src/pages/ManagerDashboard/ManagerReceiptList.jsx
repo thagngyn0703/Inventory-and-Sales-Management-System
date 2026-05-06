@@ -163,11 +163,11 @@ export default function ManagerReceiptList() {
                       onChange={(e) => setSearchTerm(e.target.value)}
                     />
                   </div>
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap sm:items-center">
                     <select
                       value={filterSupplierId}
                       onChange={(e) => setFilterSupplierId(e.target.value)}
-                      className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-teal-200/80 focus:ring-2"
+                      className="h-11 w-full min-w-0 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-teal-200/80 focus:ring-2 sm:w-auto"
                     >
                       <option value="">Tất cả nhà cung cấp</option>
                       {suppliers.map((s) => (
@@ -177,16 +177,22 @@ export default function ManagerReceiptList() {
                     <select
                       value={filterStatus}
                       onChange={(e) => setFilterStatus(e.target.value)}
-                      className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-teal-200/80 focus:ring-2"
+                      className="h-11 w-full min-w-0 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-teal-200/80 focus:ring-2 sm:w-auto"
                     >
                       <option value="">Tất cả trạng thái</option>
                       <option value="pending">Chờ duyệt</option>
                       <option value="approved">Đã duyệt</option>
                       <option value="rejected">Từ chối</option>
                     </select>
-                    <Button type="button" variant="outline" className="h-11 gap-2" onClick={handleSortPrice}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-11 w-full justify-center gap-2 sm:w-auto"
+                      onClick={handleSortPrice}
+                    >
                       <SlidersHorizontal className="h-4 w-4" />
-                      {sortLabel}
+                      <span className="sm:hidden">Sắp xếp</span>
+                      <span className="hidden sm:inline">{sortLabel}</span>
                     </Button>
                   </div>
                 </div>
@@ -198,7 +204,90 @@ export default function ManagerReceiptList() {
                 ) : filteredAndSortedReceipts.length === 0 ? (
                   <p className="py-12 text-center text-slate-500">Không có phiếu nhập kho nào phù hợp.</p>
                 ) : (
-                  <div className="overflow-x-auto rounded-xl border border-slate-200/80">
+                  <>
+                    <div className="space-y-3 lg:hidden">
+                      {filteredAndSortedReceipts.map((receipt) => (
+                        <article
+                          key={receipt._id}
+                          className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <button
+                              type="button"
+                              className="font-mono text-base font-semibold text-sky-700 hover:underline"
+                              onClick={() => navigate(`/manager/receipts/${receipt._id}`)}
+                            >
+                              {receipt._id.substring(receipt._id.length - 6).toUpperCase()}
+                            </button>
+                            <Badge className={cn('border font-medium', statusBadgeClass(receipt.status))}>
+                              {receipt.status === 'pending'
+                                ? 'Chờ duyệt'
+                                : receipt.status === 'approved'
+                                  ? 'Đã duyệt'
+                                  : 'Từ chối'}
+                            </Badge>
+                          </div>
+
+                          <dl className="mt-3 grid grid-cols-1 gap-2 text-sm text-slate-600">
+                            <div className="flex items-start justify-between gap-3">
+                              <dt className="shrink-0 font-medium text-slate-500">Ngày tạo</dt>
+                              <dd className="text-right">{formatDate(receipt.created_at)}</dd>
+                            </div>
+                            <div className="flex items-start justify-between gap-3">
+                              <dt className="shrink-0 font-medium text-slate-500">Nhà cung cấp</dt>
+                              <dd className="max-w-[65%] text-right font-medium text-slate-700">
+                                {receipt.supplier_id?.name || '—'}
+                              </dd>
+                            </div>
+                            <div className="flex items-start justify-between gap-3">
+                              <dt className="shrink-0 font-medium text-slate-500">Người tạo</dt>
+                              <dd className="max-w-[65%] text-right">{receipt.received_by?.fullName || '—'}</dd>
+                            </div>
+                            <div className="flex items-start justify-between gap-3">
+                              <dt className="shrink-0 font-medium text-slate-500">Tổng tiền</dt>
+                              <dd className="text-right font-semibold text-slate-800">
+                                {Number(receipt.total_amount).toLocaleString('vi-VN')} đ
+                              </dd>
+                            </div>
+                          </dl>
+
+                          <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-9"
+                              onClick={() => navigate(`/manager/receipts/${receipt._id}`)}
+                            >
+                              Chi tiết
+                            </Button>
+                            {receipt.status === 'pending' && (
+                              <>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  className="h-9 bg-emerald-600 hover:bg-emerald-700"
+                                  onClick={() => openConfirm('approve', receipt._id)}
+                                >
+                                  Duyệt
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="warning"
+                                  size="sm"
+                                  className="h-9"
+                                  onClick={() => openConfirm('reject', receipt._id)}
+                                >
+                                  Từ chối
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+
+                    <div className="hidden overflow-x-auto rounded-xl border border-slate-200/80 lg:block">
                     <table className="w-full min-w-[800px] text-sm">
                       <thead>
                         <tr className="border-b border-slate-200 bg-slate-50/90 text-left text-xs font-semibold uppercase text-slate-500">
@@ -275,7 +364,8 @@ export default function ManagerReceiptList() {
                         ))}
                       </tbody>
                     </table>
-                  </div>
+                    </div>
+                  </>
                 )}
               </CardContent>
             </Card>

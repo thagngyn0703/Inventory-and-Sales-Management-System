@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { Outlet, useLocation, Link } from 'react-router-dom';
 import SalesSidebar from './SalesSidebar';
+import { useNavDrawer } from '../../hooks/useNavDrawer';
 import './SalesDashboard.css';
 
 const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
 
 export default function SalesDashboard() {
   const location = useLocation();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const { isDesktop, collapsed: sidebarCollapsed, toggle: toggleSidebar, close: closeSidebar } = useNavDrawer(1024);
   const [currentUser, setCurrentUser] = useState(() => {
     try { return JSON.parse(localStorage.getItem('user') || 'null'); }
     catch { return null; }
@@ -33,25 +34,37 @@ export default function SalesDashboard() {
   const roleLabel = isManagerInStaffMode ? 'Quản lý' : 'Nhân viên';
   const storeName = currentUser?.storeName || '';
   const displayName = currentUser?.fullName || currentUser?.email || roleLabel;
-  const toggleSidebar = () => setSidebarCollapsed((c) => !c);
   // Chỉ màn quầy tạo HĐ fullscreen; /staff/invoices (lịch sử) vẫn cần navbar
   const normalizedPath = location.pathname.replace(/\/$/, '') || '/';
   const isPosRoute = normalizedPath === '/staff/invoices/new';
 
   return (
     <div className={`sales-layout${sidebarCollapsed ? ' sidebar-collapsed' : ''}${isPosRoute ? ' pos-mode' : ''}`}>
-      <SalesSidebar collapsed={sidebarCollapsed} />
+      {!isDesktop && !sidebarCollapsed ? (
+        <button
+          type="button"
+          className="app-shell-nav-overlay"
+          aria-label="Đóng menu điều hướng"
+          onClick={closeSidebar}
+        />
+      ) : null}
+
+      <SalesSidebar collapsed={sidebarCollapsed} onRequestClose={closeSidebar} />
       <main className={`sales-main${isPosRoute ? ' pos-mode' : ''}`}>
         {!isPosRoute && (
         <header className="sales-header flex min-h-12 flex-wrap items-center gap-2 border-b border-teal-900/20 bg-[linear-gradient(120deg,#0d9488_0%,#0ea5e9_48%,#0284c7_100%)] px-3 py-2 shadow-md shadow-teal-900/15">
-          <button
-            type="button"
-            className="sales-toggle-btn flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/35 bg-white/15 text-white shadow-sm transition hover:bg-white/25"
-            onClick={toggleSidebar}
-            title={sidebarCollapsed ? 'Mở menu' : 'Thu nhỏ menu'}
-          >
-            <i className="fa-solid fa-bars text-sm" />
-          </button>
+          {!isDesktop ? (
+            <button
+              type="button"
+              className="sales-toggle-btn flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/35 bg-white/15 text-white shadow-sm transition hover:bg-white/25"
+              onClick={toggleSidebar}
+              title={sidebarCollapsed ? 'Mở menu' : 'Đóng menu'}
+              aria-expanded={!sidebarCollapsed}
+              aria-controls="sales-sidebar-nav"
+            >
+              <i className="fa-solid fa-bars text-sm" />
+            </button>
+          ) : null}
 
           <div className="min-w-0 flex-1" />
 
