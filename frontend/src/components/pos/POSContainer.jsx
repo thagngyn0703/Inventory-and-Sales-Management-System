@@ -11,6 +11,7 @@
  */
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { BrowserMultiFormatReader } from '@zxing/browser';
 import {
   getInvoice,
   createInvoice,
@@ -29,7 +30,7 @@ import PaymentWaitModal from '../payment/PaymentWaitModal';
 import { Button } from '../ui/button';
 import { useToast } from '../../contexts/ToastContext';
 import { formatCurrencyInput, parseCurrencyInput, toCurrencyInputFromNumber } from '../../utils/currencyInput';
-import { Barcode, Loader2, Menu, Plus, Receipt, X } from 'lucide-react';
+import { Barcode, Camera, Loader2, Menu, Plus, Receipt, X } from 'lucide-react';
 import '../../pages/SaleDashboard/SalesPOS.css';
 
 /** Tính subtotal và tax từ grand_total — mirror công thức backend. */
@@ -176,6 +177,9 @@ export default function POSContainer({
   const [searchTerm, setSearchTerm] = useState('');
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
   const [scanMode, setScanMode] = useState(false);
+  const [isCameraScanOpen, setIsCameraScanOpen] = useState(false);
+  const [isCameraStarting, setIsCameraStarting] = useState(false);
+  const [cameraError, setCameraError] = useState('');
 
   const [tabs, setTabs] = useState([createDefaultTab(1)]);
   const [activeTabId, setActiveTabId] = useState(tabs[0].tabId);
@@ -198,6 +202,12 @@ export default function POSContainer({
   const summaryScrollRef = useRef(null);
   const scanBufferRef = useRef('');
   const scanTimerRef = useRef(null);
+  const cameraVideoRef = useRef(null);
+  const cameraReaderRef = useRef(null);
+  const cameraControlsRef = useRef(null);
+  const cameraScanLockRef = useRef(false);
+  const lastScannedRef = useRef({ code: '', at: 0 });
+  const handleScanSubmitRef = useRef(null);
   const prevItemCountRef = useRef(0);
 
   const isNew = id === 'new' || !id || id === 'undefined' || id === 'null';
@@ -1009,17 +1019,101 @@ export default function POSContainer({
       return;
     }
     const code = String(rawCode || '').trim();
-    if (!code) return;
+    if (!code) return false;
+    if (code.length < 3 || !/^[A-Za-z0-9_.-]+$/.test(code)) {
+      notify('Mã barcode không hợp lệ.', 'warning');
+      return false;
+    }
     try {
       const found = await scanProductByCode(code);
       await loadUnitsForProduct(found?.product?._id);
       handleAddProduct(found.product, found.unit);
       const unitText = found?.unit?.unit_name ? ` (${found.unit.unit_name})` : '';
       notify(`Đã thêm: ${found.product.name}${unitText}`, 'success');
+      return true;
     } catch (e) {
       notify(e.message || `Không tìm thấy sản phẩm với mã: ${code}`, 'error');
+      return false;
     }
   };
+  handleScanSubmitRef.current = handleScanSubmit;
+
+  const stopCameraScan = useCallback(() => {
+    try {
+      if (cameraControlsRef.current?.stop) {
+        cameraControlsRef.current.stop();
+      }
+    } catch (_) {}
+    cameraControlsRef.current = null;
+    if (cameraReaderRef.current?.reset) {
+      cameraReaderRef.current.reset();
+    }
+    cameraReaderRef.current = null;
+    cameraScanLockRef.current = false;
+  }, []);
+
+  const handleCameraDecoded = useCallback(async (rawText) => {
+    const code = String(rawText || '').trim();
+    if (!code) return;
+    if (code.length < 3 || !/^[A-Za-z0-9_.-]+$/.test(code)) {
+      notify('Mã barcode không hợp lệ.', 'warning');
+      return;
+    }
+    const now = Date.now();
+    if (lastScannedRef.current.code === code && now - lastScannedRef.current.at < 1200) return;
+    if (cameraScanLockRef.current) return;
+    cameraScanLockRef.current = true;
+    lastScannedRef.current = { code, at: now };
+    const ok = await handleScanSubmitRef.current?.(code);
+    cameraScanLockRef.current = false;
+    if (ok) {
+      setIsCameraScanOpen(false);
+    }
+  }, [notify]);
+
+  useEffect(() => {
+    if (!isCameraScanOpen) {
+      stopCameraScan();
+      setCameraError('');
+      return undefined;
+    }
+    if (!window.isSecureContext && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+      setCameraError('Trình duyệt yêu cầu HTTPS để truy cập camera.');
+      return undefined;
+    }
+    if (!navigator?.mediaDevices?.getUserMedia) {
+      setCameraError('Thiết bị hoặc trình duyệt không hỗ trợ camera.');
+      return undefined;
+    }
+    let cancelled = false;
+    const start = async () => {
+      setIsCameraStarting(true);
+      setCameraError('');
+      stopCameraScan();
+      try {
+        const reader = new BrowserMultiFormatReader();
+        cameraReaderRef.current = reader;
+        const constraints = { video: { facingMode: { ideal: 'environment' } }, audio: false };
+        await reader.decodeFromConstraints(constraints, cameraVideoRef.current, (result, _error, controls) => {
+          if (controls && !cameraControlsRef.current) cameraControlsRef.current = controls;
+          if (result) {
+            handleCameraDecoded(result.getText());
+          }
+        });
+      } catch (error) {
+        if (!cancelled) {
+          setCameraError(error?.message || 'Không mở được camera. Vui lòng kiểm tra quyền truy cập.');
+        }
+      } finally {
+        if (!cancelled) setIsCameraStarting(false);
+      }
+    };
+    start();
+    return () => {
+      cancelled = true;
+      stopCameraScan();
+    };
+  }, [handleCameraDecoded, isCameraScanOpen, stopCameraScan]);
 
   useEffect(() => {
     if (!scanMode) return;
@@ -1691,6 +1785,14 @@ export default function POSContainer({
             }}
           >
             <Barcode className="mx-auto h-[18px] w-[18px]" strokeWidth={2.25} aria-hidden />
+          </button>
+          <button
+            type="button"
+            className={`pos-scan-btn${isCameraScanOpen ? ' active' : ''}`}
+            title="Quét bằng camera"
+            onClick={() => setIsCameraScanOpen(true)}
+          >
+            <Camera className="mx-auto h-[18px] w-[18px]" strokeWidth={2.25} aria-hidden />
           </button>
           {scanMode && <span className="pos-scan-mode-tag">Đang quét mã</span>}
         </div>
@@ -2589,6 +2691,32 @@ export default function POSContainer({
               >
                 {closeShiftSaving ? 'Đang xử lý…' : 'Xác nhận đóng ca'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isCameraScanOpen && (
+        <div className="pos-camera-modal-backdrop" onClick={() => setIsCameraScanOpen(false)}>
+          <div className="pos-camera-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+            <div className="pos-camera-modal-head">
+              <h3>Quét barcode bằng camera</h3>
+              <button type="button" className="pos-product-modal-close" onClick={() => setIsCameraScanOpen(false)}>
+                <i className="fa-solid fa-xmark" />
+              </button>
+            </div>
+            <div className="pos-camera-modal-body">
+              <video ref={cameraVideoRef} className="pos-camera-preview" muted playsInline />
+              {isCameraStarting && <p className="pos-camera-hint">Đang khởi động camera...</p>}
+              {!isCameraStarting && !cameraError && (
+                <p className="pos-camera-hint">Đưa mã vào giữa khung. Hệ thống sẽ tự thêm sản phẩm khi nhận diện thành công.</p>
+              )}
+              {cameraError && <p className="pos-product-modal-error">{cameraError}</p>}
+              <div className="pos-camera-actions">
+                <button type="button" className="pos-shift-close-cancel" onClick={() => setIsCameraScanOpen(false)}>
+                  Đóng
+                </button>
+              </div>
             </div>
           </div>
         </div>

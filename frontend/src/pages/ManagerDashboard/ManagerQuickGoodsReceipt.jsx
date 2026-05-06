@@ -1,12 +1,13 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ScanLine, Search, Zap } from 'lucide-react';
+import { ScanLine, Search, Zap, Camera, X } from 'lucide-react';
+import { BrowserMultiFormatReader } from '@zxing/browser';
 import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
 import { useToast } from '../../contexts/ToastContext';
-import { createProduct, createQuickGoodsReceipt, getProductUnits, getProducts, scanProductByCode, updateProductUnits, uploadProductImages } from '../../services/productsApi';
+import { createProduct, createQuickGoodsReceipt, getProductUnits, getProducts, scanProductByCode, lookupBarcodeOnline, updateProductUnits, uploadProductImages } from '../../services/productsApi';
 import { createSupplier, getSuppliers } from '../../services/suppliersApi';
 import { minExpiryDateString } from '../../utils/dateInput';
 import { formatCurrencyInput, parseCurrencyInput, toCurrencyInputFromNumber } from '../../utils/currencyInput';
@@ -21,6 +22,51 @@ const makeSellingUnitRow = (base = 'Cái', overrides = {}) => ({
     ...overrides,
 });
 const normalizeSku = (value = '') => String(value || '').replace(/\s+/g, '').toUpperCase();
+const isValidBarcodeFormat = (value = '') => {
+    const code = String(value || '').trim();
+    if (!code || code.length < 3) return false;
+    return /^[A-Za-z0-9_.-]+$/.test(code);
+};
+const hasBarcodeMatch = (product, query) => {
+    const q = String(query || '').trim().toLowerCase();
+    if (!q) return false;
+    if (String(product?.barcode || '').trim().toLowerCase().includes(q)) return true;
+    const variantGroups = []
+        .concat(Array.isArray(product?.variants) ? product.variants : [])
+        .concat(Array.isArray(product?.selling_units) ? product.selling_units : [])
+        .concat(Array.isArray(product?.units) ? product.units : []);
+    return variantGroups.some((item) => String(item?.barcode || '').trim().toLowerCase().includes(q));
+};
+
+function OpenFoodFactsLogo({ size = 16 }) {
+    return (
+        <svg
+            width={size}
+            height={size}
+            viewBox="0 0 24 24"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+        >
+            <rect x="3" y="3" width="18" height="18" rx="4" fill="#06B6D4" opacity="0.18" />
+            <path
+                d="M6.5 18V6.5H17.5V18H6.5Z"
+                stroke="#0EA5E9"
+                strokeWidth="1.5"
+                strokeLinejoin="round"
+            />
+            <path
+                d="M8.2 14.4V9.6H10.3C11.1 9.6 11.7 10 11.7 10.7C11.7 11.4 11.1 11.8 10.3 11.8H9.6V14.4H8.2Z"
+                fill="#0284C7"
+            />
+            <path d="M12.3 14.4V9.6H13.7V14.4H12.3Z" fill="#0284C7" />
+            <path
+                d="M14.7 14.4V13.2L16.4 10.3H14.7V9.6H18V10.7L16.2 13.6H18V14.4H14.7Z"
+                fill="#0284C7"
+            />
+        </svg>
+    );
+}
 
 export default function ManagerQuickGoodsReceipt() {
     const navigate = useNavigate();
@@ -57,6 +103,14 @@ export default function ManagerQuickGoodsReceipt() {
     const [unitOptions, setUnitOptions] = useState([]);
     const [selectedUnitId, setSelectedUnitId] = useState('');
     const [scanMode, setScanMode] = useState(false);
+    const [barcodeNotFoundModal, setBarcodeNotFoundModal] = useState({ open: false, code: '' });
+    const [isCameraScanOpen, setIsCameraScanOpen] = useState(false);
+    const [isCameraStarting, setIsCameraStarting] = useState(false);
+    const [cameraError, setCameraError] = useState('');
+    const [onlineLookupLoading, setOnlineLookupLoading] = useState(false);
+    const [lastOnlineLookup, setLastOnlineLookup] = useState(null);
+    const [onlineLookupError, setOnlineLookupError] = useState('');
+    const [showOffHoverCard, setShowOffHoverCard] = useState(false);
     const applyBarcodeToBaseUnit = (formState, rawBarcode) => {
         const nextBarcode = String(rawBarcode || '').trim();
         const units = Array.isArray(formState.selling_units) && formState.selling_units.length > 0
@@ -87,6 +141,12 @@ export default function ManagerQuickGoodsReceipt() {
     const barcodeInputRef = useRef(null);
     const scanBufferRef = useRef('');
     const scanTimerRef = useRef(null);
+    const lastScannedRef = useRef({ code: '', at: 0 });
+    const cameraVideoRef = useRef(null);
+    const cameraReaderRef = useRef(null);
+    const cameraControlsRef = useRef(null);
+    const cameraScanLockRef = useRef(false);
+    const handleScanSubmitRef = useRef(null);
     const quickSubmitLockRef = useRef(false);
     const createSubmitLockRef = useRef(false);
 
@@ -108,7 +168,7 @@ export default function ManagerQuickGoodsReceipt() {
             return (
                 String(p.name || '').toLowerCase().includes(lowerQuery) ||
                 String(p.sku || '').toLowerCase().includes(lowerQuery) ||
-                String(p.barcode || '').toLowerCase().includes(lowerQuery)
+                hasBarcodeMatch(p, lowerQuery)
             );
         });
         if (!matched) return;
@@ -127,6 +187,40 @@ export default function ManagerQuickGoodsReceipt() {
         document.addEventListener('mousedown', handleClick);
         return () => document.removeEventListener('mousedown', handleClick);
     }, []);
+
+    useEffect(() => {
+        if (!barcodeNotFoundModal.open || !barcodeNotFoundModal.code) return undefined;
+        let cancelled = false;
+        const code = String(barcodeNotFoundModal.code || '').trim();
+        if (!code) return undefined;
+
+        const runLookup = async () => {
+            setOnlineLookupLoading(true);
+            setOnlineLookupError('');
+            try {
+                const data = await lookupBarcodeOnline(code);
+                if (cancelled) return;
+                setOnlineLookupLoading(false);
+                setLastOnlineLookup({ code, source: data?.source || 'none', product: data?.product || null });
+                if (data?.source === 'off_rate_limited') {
+                    const msg = data?.message || 'Open Food Facts đang giới hạn lượt truy cập. Hãy thử lại trong vài phút.';
+                    setOnlineLookupError(msg);
+                    toast(msg, 'warning');
+                }
+            } catch (_) {
+                if (cancelled) return;
+                setOnlineLookupLoading(false);
+                setOnlineLookupError('Không thể lấy thông tin online. Hãy thử lại trong vài phút.');
+            }
+        };
+
+        runLookup();
+
+        return () => {
+            cancelled = true;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [barcodeNotFoundModal.open, barcodeNotFoundModal.code]);
 
     useEffect(() => {
         if (createMode && !selectedProduct) {
@@ -149,7 +243,7 @@ export default function ManagerQuickGoodsReceipt() {
             (p) =>
                 String(p.name || '').toLowerCase().includes(t) ||
                 String(p.sku || '').toLowerCase().includes(t) ||
-                String(p.barcode || '').toLowerCase().includes(t)
+                hasBarcodeMatch(p, t)
         ).slice(0, 12);
     }, [productList, searchInput]);
 
@@ -281,23 +375,214 @@ export default function ManagerQuickGoodsReceipt() {
         setSelectedUnitId('');
     };
 
+    const startCreateModeFromCode = (seedCode) => {
+        const seed = String(seedCode || '').trim();
+        const isLikelyBarcode = /^[0-9A-Za-z_.-]+$/.test(seed) && seed.length >= 3;
+        setCreateMode(true);
+        setBarcodeNotFoundModal({ open: false, code: '' });
+        setNewProductForm((prev) => ({
+            ...prev,
+            name: isLikelyBarcode ? '' : seed,
+            sku: isLikelyBarcode ? '' : normalizeSku(seed),
+            barcode: isLikelyBarcode ? seed : '',
+            selling_units: applyBarcodeToBaseUnit(
+                {
+                    ...prev,
+                    base_unit: prev.base_unit || 'Cái',
+                    sale_price: prev.sale_price || '',
+                },
+                isLikelyBarcode ? seed : ''
+            ),
+        }));
+    };
+
     const handleScanSubmit = async (rawCode) => {
         const code = String(rawCode || '').trim();
-        if (!code) return;
+        if (!code) return false;
+        if (!isValidBarcodeFormat(code)) {
+            toast('Mã barcode không hợp lệ.', 'warning');
+            return false;
+        }
+        const now = Date.now();
+        if (lastScannedRef.current.code === code && now - lastScannedRef.current.at < 1500) {
+            return false;
+        }
+        lastScannedRef.current = { code, at: now };
         try {
             const found = await scanProductByCode(code);
             const product = found?.product || null;
             if (!product?._id) {
-                toast('Không tìm thấy sản phẩm theo mã vừa quét.', 'error');
-                return;
+                setBarcodeNotFoundModal({ open: true, code });
+                return false;
             }
-            selectProduct(product);
+            const prevProductId = String(selectedProduct?._id || '');
+            const prevUnitId = String(selectedUnitId || '');
+            const scannedUnitId = String(found?.unit?._id || '');
+
+            setSelectedProduct(product);
+            setSearchInput(product.name || '');
+            setCreateMode(false);
+            setShowDropdown(false);
+            const loadedUnits = await loadUnitsForSelectedProduct(product);
+            if (scannedUnitId && loadedUnits.some((u) => String(u?._id || '') === scannedUnitId)) {
+                setSelectedUnitId(scannedUnitId);
+            }
+
+            const sameProduct = prevProductId && prevProductId === String(product._id);
+            const sameUnit = sameProduct && prevUnitId && scannedUnitId && prevUnitId === scannedUnitId;
+            if (sameProduct && (sameUnit || (!prevUnitId && !scannedUnitId))) {
+                setQuantity((prevQty) => String((Number(prevQty) || 0) + 1));
+            } else if (!quantity) {
+                setQuantity('1');
+            }
             const unitText = found?.unit?.unit_name ? ` (${found.unit.unit_name})` : '';
             toast(`Đã quét: ${product.name}${unitText}`, 'success');
+            return true;
         } catch (err) {
-            toast(err?.message || `Không tìm thấy sản phẩm với mã: ${code}`, 'error');
+            setBarcodeNotFoundModal({ open: true, code });
+            return false;
         }
     };
+    handleScanSubmitRef.current = handleScanSubmit;
+
+    const stopCameraScan = useCallback(() => {
+        try {
+            if (cameraControlsRef.current?.stop) cameraControlsRef.current.stop();
+        } catch (_) {}
+        cameraControlsRef.current = null;
+        if (cameraReaderRef.current?.reset) cameraReaderRef.current.reset();
+        cameraReaderRef.current = null;
+        cameraScanLockRef.current = false;
+    }, []);
+
+    const handleCameraDecoded = useCallback(async (rawText) => {
+        const code = String(rawText || '').trim();
+        if (!code || cameraScanLockRef.current) return;
+        cameraScanLockRef.current = true;
+        const ok = await handleScanSubmitRef.current?.(code);
+        cameraScanLockRef.current = false;
+        // Đã decode xong 1 mã: luôn đóng camera để tránh quét trùng / tăng số lượng ngoài ý muốn.
+        // Nếu người dùng muốn quét tiếp, popup "Tiếp tục quét" sẽ mở camera lại.
+        if (ok !== undefined) setIsCameraScanOpen(false);
+    }, []);
+
+    const importOpenFoodFactsToForm = useCallback(async () => {
+        const off = lastOnlineLookup?.source === 'open_food_facts' ? lastOnlineLookup.product : null;
+        if (!off) {
+            toast('Chưa có thông tin từ Open Food Facts.', 'warning');
+            return;
+        }
+        const code = String(lastOnlineLookup.code || barcodeNotFoundModal.code || '').trim();
+        const offName = String(off.name || '').trim();
+        const offBrand = String(off.brand || '').trim();
+        const combinedName =
+            offName && offBrand && !offName.toLowerCase().includes(offBrand.toLowerCase())
+                ? `${offName} - ${offBrand}`
+                : offName || offBrand;
+
+        setBarcodeNotFoundModal({ open: false, code: '' });
+        setCreateMode(true);
+        setSelectedProduct(null);
+        setShowDropdown(false);
+
+        // Nếu OFF có ảnh thì tải ảnh về và đưa vào selectedImages để khi lưu sản phẩm sẽ upload luôn.
+        const offImageUrl = off.image_url ? String(off.image_url).trim() : '';
+        if (offImageUrl) {
+            try {
+                const res = await fetch(offImageUrl, { mode: 'cors' });
+                if (res.ok) {
+                    const blob = await res.blob();
+                    const mime = blob?.type || 'image/jpeg';
+                    const ext = String(mime).includes('/') ? String(mime).split('/').pop() : 'jpg';
+                    const codeForName = String(off.barcode || code || '').trim() || 'off-image';
+                    const file = new File([blob], `${codeForName}.${ext}`, { type: mime });
+                    setSelectedImages((prev) => {
+                        const list = Array.isArray(prev) ? prev : [];
+                        const alreadyHasAny = list.length > 0;
+                        // Nếu đã có ảnh người dùng chọn thì không đè; chỉ thêm nếu còn chỗ.
+                        if (alreadyHasAny && list.length >= 3) return list;
+                        const next = alreadyHasAny ? [...list] : [];
+                        next.push(file);
+                        return next.slice(0, 3);
+                    });
+                }
+            } catch (e) {
+                // CORS/Network error: vẫn cho phép nhập text và tạo thủ công.
+                toast('Không tải được ảnh từ Open Food Facts, bạn vẫn có thể lưu sản phẩm.', 'warning');
+            }
+        }
+
+        setNewProductForm((prev) => {
+            const nextName = prev.name?.trim() ? prev.name : combinedName || prev.name || '';
+            const nextSku = prev.sku?.trim() ? prev.sku : nextName ? normalizeSku(nextName).slice(0, 32) : '';
+            const nextBarcode = off.barcode ? String(off.barcode).trim() : code;
+            return {
+                ...prev,
+                name: nextName,
+                sku: nextSku,
+                barcode: nextBarcode,
+                selling_units: applyBarcodeToBaseUnit(
+                    {
+                        ...prev,
+                        base_unit: prev.base_unit || 'Cái',
+                        sale_price: prev.sale_price || '',
+                    },
+                    nextBarcode
+                ),
+            };
+        });
+        toast('Đã nạp thông tin từ Open Food Facts vào form.', 'success');
+    }, [barcodeNotFoundModal.code, lastOnlineLookup, toast]);
+
+    const offPreviewProduct = useMemo(() => {
+        if (!lastOnlineLookup || lastOnlineLookup.source !== 'open_food_facts') return null;
+        return lastOnlineLookup.product || null;
+    }, [lastOnlineLookup]);
+
+    useEffect(() => {
+        if (!isCameraScanOpen) {
+            stopCameraScan();
+            setCameraError('');
+            return undefined;
+        }
+        if (!window.isSecureContext && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+            setCameraError('Trình duyệt yêu cầu HTTPS để truy cập camera.');
+            return undefined;
+        }
+        if (!navigator?.mediaDevices?.getUserMedia) {
+            setCameraError('Thiết bị hoặc trình duyệt không hỗ trợ camera.');
+            return undefined;
+        }
+
+        let cancelled = false;
+        const start = async () => {
+            setIsCameraStarting(true);
+            setCameraError('');
+            stopCameraScan();
+            try {
+                const reader = new BrowserMultiFormatReader();
+                cameraReaderRef.current = reader;
+                await reader.decodeFromConstraints(
+                    { video: { facingMode: { ideal: 'environment' } }, audio: false },
+                    cameraVideoRef.current,
+                    (result, _err, controls) => {
+                        if (controls && !cameraControlsRef.current) cameraControlsRef.current = controls;
+                        if (result) handleCameraDecoded(result.getText());
+                    }
+                );
+            } catch (err) {
+                if (!cancelled) setCameraError(err?.message || 'Không mở được camera. Vui lòng kiểm tra quyền truy cập.');
+            } finally {
+                if (!cancelled) setIsCameraStarting(false);
+            }
+        };
+        start();
+
+        return () => {
+            cancelled = true;
+            stopCameraScan();
+        };
+    }, [handleCameraDecoded, isCameraScanOpen, stopCameraScan]);
 
     useEffect(() => {
         if (!scanMode) return undefined;
@@ -615,7 +900,7 @@ export default function ManagerQuickGoodsReceipt() {
                                         setCreateMode(false);
                                     }}
                                     placeholder="Quét barcode hoặc nhập tên/SKU..."
-                                    className="h-11 w-full rounded-lg border border-slate-200 bg-white pl-10 pr-12 text-sm outline-none ring-sky-200 transition focus:ring-2"
+                                    className="h-11 w-full rounded-lg border border-slate-200 bg-white pl-10 pr-20 text-sm outline-none ring-sky-200 transition focus:ring-2"
                                 />
                                 <button
                                     type="button"
@@ -641,6 +926,15 @@ export default function ManagerQuickGoodsReceipt() {
                                     aria-label={scanMode ? 'Tắt chế độ quét mã' : 'Bật chế độ quét mã'}
                                 >
                                     <ScanLine className="h-4 w-4" />
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setIsCameraScanOpen(true)}
+                                    className="absolute right-11 top-1/2 -translate-y-1/2 rounded-md border border-slate-200 bg-white p-1.5 text-slate-500 transition hover:bg-slate-50"
+                                    title="Quét bằng camera"
+                                    aria-label="Quét bằng camera"
+                                >
+                                    <Camera className="h-4 w-4" />
                                 </button>
                                 {showDropdown && filteredProducts.length > 0 && (
                                     <div className="absolute left-0 top-full z-50 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg">
@@ -670,24 +964,7 @@ export default function ManagerQuickGoodsReceipt() {
                                     Sản phẩm mới chưa có trong hệ thống.
                                     <button
                                         type="button"
-                                        onClick={() => {
-                                            const seed = searchInput.trim();
-                                            setCreateMode(true);
-                                            setNewProductForm((prev) => ({
-                                                ...prev,
-                                                name: /^\d+$/.test(seed) ? '' : seed,
-                                                sku: /^\d+$/.test(seed) ? '' : normalizeSku(seed),
-                                                barcode: /^\d+$/.test(seed) ? seed : '',
-                                                selling_units: applyBarcodeToBaseUnit(
-                                                    {
-                                                        ...prev,
-                                                        base_unit: prev.base_unit || 'Cái',
-                                                        sale_price: prev.sale_price || '',
-                                                    },
-                                                    /^\d+$/.test(seed) ? seed : ''
-                                                ),
-                                            }));
-                                        }}
+                                        onClick={() => startCreateModeFromCode(searchInput.trim())}
                                         className="ml-2 rounded-md bg-amber-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-amber-700"
                                     >
                                         Tạo mới ngay
@@ -1180,6 +1457,150 @@ export default function ManagerQuickGoodsReceipt() {
                         {paymentType === 'credit' && supplierId ? <span> Khoản nợ NCC sẽ ghi vào mục <strong>Công nợ nhà cung cấp</strong>.</span> : null}
                     </div>
                 </div>
+                {barcodeNotFoundModal.open && (
+                    <div className="fixed inset-0 z-[2100] flex items-center justify-center bg-slate-900/55 p-4">
+                        <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-4 shadow-2xl">
+                            <h4 className="text-base font-semibold text-slate-900">Không tìm thấy sản phẩm</h4>
+                            <p className="mt-2 text-sm text-slate-600">
+                                Barcode <strong>{barcodeNotFoundModal.code}</strong> chưa có trong hệ thống.
+                            </p>
+                            {onlineLookupLoading && (
+                                <p className="mt-1 text-xs font-medium text-sky-600">
+                                    Đang lấy thông tin từ Open Food Facts...
+                                </p>
+                            )}
+                            {!onlineLookupLoading && onlineLookupError && (
+                                <p className="mt-1 text-xs font-semibold text-amber-700">
+                                    {onlineLookupError}
+                                </p>
+                            )}
+                            <div className="mt-4 flex flex-wrap justify-end gap-2">
+                                <div
+                                    className="relative"
+                                    onMouseEnter={() => setShowOffHoverCard(true)}
+                                    onMouseLeave={() => setShowOffHoverCard(false)}
+                                >
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        disabled={!lastOnlineLookup || lastOnlineLookup?.source !== 'open_food_facts' || !lastOnlineLookup?.product || onlineLookupLoading}
+                                        onClick={importOpenFoodFactsToForm}
+                                        onFocus={() => setShowOffHoverCard(true)}
+                                        onBlur={() => setShowOffHoverCard(false)}
+                                        title="Chỉ nhấn nút này để nạp thông tin từ Open Food Facts vào form"
+                                    >
+                                        <span className="inline-flex items-center gap-2">
+                                            <OpenFoodFactsLogo size={14} />
+                                            Nhập thông tin từ OFF
+                                        </span>
+                                    </Button>
+                                    {showOffHoverCard && (
+                                        <div className="absolute right-0 top-full z-[2400] mt-2 w-72 rounded-xl border border-slate-200 bg-white p-3 shadow-2xl">
+                                            {onlineLookupLoading ? (
+                                                <p className="text-xs font-medium text-slate-600">Đang tải thông tin OFF...</p>
+                                            ) : offPreviewProduct ? (
+                                                <div className="space-y-2">
+                                                    {offPreviewProduct.image_url && (
+                                                        <div className="aspect-[16/9] w-full overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+                                                            <img
+                                                                src={offPreviewProduct.image_url}
+                                                                alt={offPreviewProduct.name || 'OFF product image'}
+                                                                className="h-full w-full object-contain"
+                                                            />
+                                                        </div>
+                                                    )}
+                                                    <div className="text-sm font-semibold text-slate-900 line-clamp-2">
+                                                        {offPreviewProduct.name || 'Không có tên'}
+                                                    </div>
+                                                    {offPreviewProduct.brand ? (
+                                                        <div className="text-xs font-medium text-slate-600">
+                                                            Brand: {offPreviewProduct.brand}
+                                                        </div>
+                                                    ) : null}
+                                                    {Array.isArray(offPreviewProduct.categories) && offPreviewProduct.categories.length ? (
+                                                        <div className="text-xs font-medium text-slate-600">
+                                                            Category: {offPreviewProduct.categories.slice(0, 3).join(', ')}
+                                                        </div>
+                                                    ) : null}
+                                                </div>
+                                            ) : (
+                                                <p className="text-xs font-medium text-slate-600">Chưa có thông tin OFF để hiển thị.</p>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={() => {
+                                        setBarcodeNotFoundModal({ open: false, code: '' });
+                                        setIsCameraScanOpen(true);
+                                    }}
+                                >
+                                    Tiếp tục quét
+                                </Button>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={() => {
+                                        startCreateModeFromCode(barcodeNotFoundModal.code);
+                                        setSearchInput(barcodeNotFoundModal.code);
+                                    }}
+                                >
+                                    Nhập barcode vào form tạo
+                                </Button>
+                                <Button
+                                    type="button"
+                                    onClick={() => {
+                                        startCreateModeFromCode(barcodeNotFoundModal.code);
+                                        clearFoundProduct();
+                                        setSearchInput(barcodeNotFoundModal.code);
+                                    }}
+                                >
+                                    Tạo sản phẩm mới
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+                {isCameraScanOpen && (
+                    <div className="fixed inset-0 z-[2200] flex items-center justify-center bg-slate-900/70 p-4">
+                        <div className="w-full max-w-lg overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl">
+                            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+                                <h4 className="text-base font-semibold text-slate-900">Quét barcode bằng camera</h4>
+                                <button
+                                    type="button"
+                                    onClick={() => setIsCameraScanOpen(false)}
+                                    className="rounded-md p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                                    aria-label="Đóng quét camera"
+                                >
+                                    <X className="h-4 w-4" />
+                                </button>
+                            </div>
+                            <div className="space-y-3 p-4">
+                                <video
+                                    ref={cameraVideoRef}
+                                    autoPlay
+                                    playsInline
+                                    muted
+                                    className="h-72 w-full rounded-lg border border-slate-200 bg-slate-900 object-cover"
+                                />
+                                {isCameraStarting && <p className="text-xs font-medium text-slate-600">Đang khởi động camera...</p>}
+                                {!isCameraStarting && !cameraError && (
+                                    <p className="text-xs font-medium text-slate-600">
+                                        Đưa mã vào giữa khung. Hệ thống sẽ tự nhận diện và xử lý.
+                                    </p>
+                                )}
+                                {cameraError && <p className="text-xs font-semibold text-rose-600">{cameraError}</p>}
+                                <div className="flex justify-end">
+                                    <Button type="button" variant="outline" onClick={() => setIsCameraScanOpen(false)}>
+                                        Đóng
+                                    </Button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </StaffPageShell>
         </ManagerPageFrame>
     );
