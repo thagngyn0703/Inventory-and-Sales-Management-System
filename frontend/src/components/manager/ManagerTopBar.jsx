@@ -7,7 +7,7 @@ const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
 /**
  * Thanh trên manager — cùng gradient teal/sky với staff dashboard & POS.
  */
-export function ManagerTopBar({ left = null, showNotificationBell = true, className }) {
+export function ManagerTopBar({ menuButton = null, left = null, showNotificationBell = true, className }) {
   const [currentUser, setCurrentUser] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem('user') || 'null');
@@ -42,6 +42,7 @@ export function ManagerTopBar({ left = null, showNotificationBell = true, classN
         className
       )}
     >
+      {menuButton}
       <div className="min-w-0 flex-1">{left}</div>
       <div className="flex shrink-0 items-center gap-2">
         {showNotificationBell ? <ManagerNotificationBell variant="onDark" /> : null}

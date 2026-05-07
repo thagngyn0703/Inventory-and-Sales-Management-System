@@ -402,9 +402,9 @@ export default function ManagerDashboard() {
         title="Tổng quan kinh doanh"
         subtitle="Nhìn nhanh hiệu quả bán hàng, tồn kho và nhập hàng."
         headerActions={
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <Link to="/manager/reports">
-              <Button type="button" variant="outline">
+          <div className="grid w-full grid-cols-1 gap-2 sm:flex sm:flex-wrap sm:items-center sm:justify-end">
+            <Link to="/manager/reports" className="block">
+              <Button type="button" variant="outline" className="w-full sm:w-auto">
                 Báo cáo đổi giá
               </Button>
             </Link>
@@ -413,16 +413,16 @@ export default function ManagerDashboard() {
               type="date"
               value={summaryFrom}
               onChange={(e) => setSummaryFrom(e.target.value)}
-              className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-teal-200/80 focus:ring-2"
+              className="h-10 w-full min-w-0 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-teal-200/80 focus:ring-2 sm:w-auto"
             />
             <label className="hidden text-xs font-medium text-slate-500 sm:inline">đến</label>
             <input
               type="date"
               value={summaryTo}
               onChange={(e) => setSummaryTo(e.target.value)}
-              className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-teal-200/80 focus:ring-2"
+              className="h-10 w-full min-w-0 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-teal-200/80 focus:ring-2 sm:w-auto"
             />
-            <Button type="button" onClick={fetchSummary}>
+            <Button type="button" className="w-full sm:w-auto" onClick={fetchSummary}>
               Xem
             </Button>
           </div>

@@ -1,4 +1,5 @@
 import './App.css';
+import { useEffect } from 'react';
 import { Routes, Route, Navigate } from "react-router-dom";
 import AuthPage from './pages/AuthPage/AuthPage';
 import PreLoginLandingPage from "./pages/LandingPage/PreLoginLandingPage";
@@ -77,8 +78,15 @@ import AdminSupportTickets from "./pages/AdminHome/AdminSupportTickets";
 import AdminSupportTicketDetail from "./pages/AdminHome/AdminSupportTicketDetail";
 import RequireManagerStore from "./components/RequireManagerStore";
 import RequireStaffStore from "./components/RequireStaffStore";
+import useMobileTableCards from './hooks/useMobileTableCards';
 
 function App() {
+  useMobileTableCards();
+  useEffect(() => {
+    document.body.classList.add('mobile-table-card-root');
+    return () => document.body.classList.remove('mobile-table-card-root');
+  }, []);
+
   return (
     <Routes>
       <Route path="/" element={<PreLoginLandingPage />} />

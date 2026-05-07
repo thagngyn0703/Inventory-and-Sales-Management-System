@@ -40,3 +40,98 @@ body {
 code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New', monospace;
 }
+
+.app-shell-nav-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 99;
+  margin: 0;
+  padding: 0;
+  border: none;
+  cursor: pointer;
+  background: rgba(15, 23, 42, 0.45);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+
+/* Sticky header cho mọi layout chính (manager/admin/staff/module cũ). */
+.manager-shell-topbar,
+.sales-header,
+.topbar,
+.manager-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 90;
+}
+
+@media (max-width: 767px) {
+  .mobile-table-card-root table.mobile-card-table-enabled {
+    width: 100% !important;
+    min-width: 0 !important;
+    border-collapse: separate !important;
+    border-spacing: 0 !important;
+    background: transparent !important;
+  }
+
+  .mobile-table-card-root table.mobile-card-table-enabled thead {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    margin: -1px !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    clip: rect(0 0 0 0) !important;
+    border: 0 !important;
+  }
+
+  .mobile-table-card-root table.mobile-card-table-enabled tbody {
+    display: block !important;
+  }
+
+  .mobile-table-card-root table.mobile-card-table-enabled tbody tr {
+    display: block !important;
+    margin: 0 0 12px 0 !important;
+    border: 1px solid #e2e8f0 !important;
+    border-radius: 12px !important;
+    background: #ffffff !important;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06) !important;
+    overflow: hidden !important;
+  }
+
+  .mobile-table-card-root table.mobile-card-table-enabled tbody td {
+    display: flex !important;
+    align-items: flex-start !important;
+    justify-content: space-between !important;
+    gap: 10px !important;
+    width: 100% !important;
+    padding: 10px 12px !important;
+    border: 0 !important;
+    border-bottom: 1px solid #f1f5f9 !important;
+    white-space: normal !important;
+    text-align: right !important;
+  }
+
+  .mobile-table-card-root table.mobile-card-table-enabled tbody td:last-child {
+    border-bottom: 0 !important;
+  }
+
+  .mobile-table-card-root table.mobile-card-table-enabled tbody td::before {
+    content: attr(data-label);
+    min-width: 40%;
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    text-transform: uppercase;
+    text-align: left;
+  }
+
+  .mobile-table-card-root table.mobile-card-table-enabled tbody td[data-label=''] {
+    display: block !important;
+    text-align: left !important;
+  }
+
+  .mobile-table-card-root table.mobile-card-table-enabled tbody td[data-label='']::before {
+    content: none !important;
+  }
+}

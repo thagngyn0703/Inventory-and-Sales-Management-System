@@ -17,6 +17,7 @@
 .sales-layout {
   display: flex;
   min-height: 100vh;
+  min-width: 0;
   background-color: var(--sales-bg);
   font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
 }
@@ -29,15 +30,45 @@
 /* Main Content Area */
 .sales-main {
   flex: 1;
-  margin-left: var(--sales-sidebar-width);
+  margin-left: 0;
   display: flex;
   flex-direction: column;
   min-width: 0;
   transition: margin-left var(--sidebar-transition);
 }
 
-.sales-layout.sidebar-collapsed .sales-main {
-  margin-left: 0;
+@media (min-width: 1024px) {
+  /* Desktop: chừa chỗ cố định cho sidebar 250px */
+  .sales-main {
+    margin-left: var(--sales-sidebar-width);
+  }
+
+  /* Drawer mobile không áp vào desktop */
+  .sales-layout .sales-sidebar {
+    transform: none !important;
+  }
+
+  /* Nếu còn class legacy từ state, không thu mép desktop */
+  .sales-layout.sidebar-collapsed .sales-main {
+    margin-left: var(--sales-sidebar-width);
+  }
+}
+
+@media (max-width: 1023px) {
+  /* Mobile/tablet: sidebar overlay — main luôn full width */
+  .sales-main {
+    margin-left: 0 !important;
+  }
+
+  .sales-content {
+    padding: 12px 14px 14px;
+  }
+}
+
+@media (max-width: 480px) {
+  .sales-content {
+    padding: 10px 12px 12px;
+  }
 }
 
 .sales-header {

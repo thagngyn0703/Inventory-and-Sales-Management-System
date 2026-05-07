@@ -16,9 +16,13 @@ const MANAGE_MENU = [
   { key: 'settings', label: 'Cài đặt', icon: 'fa-gear', to: '/settings' },
 ];
 
-const Sidebar = () => {
+const Sidebar = ({ collapsed = false, onRequestClose }) => {
   return (
-    <aside className="sidebar">
+    <aside
+      className={`sidebar ${collapsed ? 'sidebar--drawer-collapsed' : ''}`}
+      id="module-sidebar-nav"
+      aria-label="Menu Mini Store"
+    >
       <div className="sidebar__brand">
         <div className="sidebar__brand-icon">🛍</div>
         <div>
@@ -33,6 +37,7 @@ const Sidebar = () => {
             key={item.key}
             to={item.to}
             end={item.to === '/'}
+            onClick={() => onRequestClose?.()}
             className={({ isActive }) =>
               `sidebar__item ${isActive ? 'sidebar__item--active' : ''}`
             }
@@ -51,6 +56,7 @@ const Sidebar = () => {
           <NavLink
             key={item.key}
             to={item.to}
+            onClick={() => onRequestClose?.()}
             className={({ isActive }) =>
               `sidebar__item ${isActive ? 'sidebar__item--active' : ''}`
             }
@@ -78,4 +84,3 @@ const Sidebar = () => {
 };
 
 export default Sidebar;
-

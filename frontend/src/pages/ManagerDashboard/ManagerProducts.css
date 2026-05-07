@@ -219,6 +219,8 @@
 
 .manager-products-table-wrap {
     overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    max-width: 100%;
 }
 
 .manager-products-table {
@@ -410,6 +412,124 @@
 .manager-pagination-page {
     font-size: 13px;
     color: #374151;
+}
+
+/* Danh sách sản phẩm — card (mobile / tablet), bảng trên desktop lg+ */
+.manager-product-card-list {
+    list-style: none;
+    margin: 0;
+    padding: 12px;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+@media (min-width: 640px) {
+    .manager-product-card-list {
+        padding: 16px;
+    }
+}
+
+.manager-product-card {
+    border-radius: 14px;
+    border: 1px solid #e5e7eb;
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+    padding: 14px;
+    max-width: 100%;
+}
+
+.manager-product-card__row {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    min-width: 0;
+}
+
+.manager-product-card__thumb {
+    flex-shrink: 0;
+    width: 56px;
+    height: 56px;
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid #e5e7eb;
+    background: #f9fafb;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.manager-product-card__thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.manager-product-card__thumb--empty {
+    color: #9ca3af;
+    font-size: 12px;
+}
+
+.manager-product-card__meta {
+    flex: 1;
+    min-width: 0;
+}
+
+.manager-product-card__idx {
+    font-size: 11px;
+    font-weight: 700;
+    color: #94a3b8;
+    letter-spacing: 0.03em;
+    margin-bottom: 4px;
+}
+
+.manager-product-card__title {
+    font-size: 15px;
+    font-weight: 600;
+    color: #0f172a;
+    line-height: 1.35;
+    margin-bottom: 6px;
+}
+
+.manager-product-card__grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px 12px;
+    font-size: 12px;
+    color: #64748b;
+}
+
+@media (min-width: 400px) {
+    .manager-product-card__grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+.manager-product-card__grid strong {
+    color: #475569;
+    font-weight: 600;
+}
+
+.manager-product-card__footer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid #f1f5f9;
+}
+
+.manager-product-card__footer .manager-products-actions {
+    margin-left: auto;
+}
+
+.manager-products-mobile-empty {
+    margin: 0;
+    padding: 32px 16px;
+    text-align: center;
+    color: #9ca3af;
 }
 
 .manager-profit-hint {
@@ -1166,6 +1286,11 @@
 @media (max-width: 768px) {
     .manager-invoice-header {
         flex-direction: column;
+    }
+    .manager-filter-group--flex {
+        flex: 1 1 100%;
+        min-width: 0;
+        width: 100%;
     }
     .manager-filter-input--date,
     .manager-filter-select {

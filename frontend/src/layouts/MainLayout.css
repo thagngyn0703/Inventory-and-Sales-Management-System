@@ -1,6 +1,7 @@
 .app-shell {
   display: flex;
   min-height: 100vh;
+  min-width: 0;
   background: linear-gradient(180deg, #e0f2fe, #eff6ff);
   font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
@@ -9,10 +10,50 @@
   flex: 1;
   display: flex;
   flex-direction: column;
+  min-width: 0;
   background-color: #f4f6f8;
+  margin-left: 0;
+}
+
+@media (min-width: 1024px) {
+  .app-shell__main {
+    margin-left: 270px;
+  }
 }
 
 .app-shell__content {
   padding: 24px 32px 32px;
 }
 
+@media (max-width: 1023px) {
+  .app-shell__content {
+    padding: 16px;
+  }
+}
+
+@media (max-width: 480px) {
+  .app-shell__content {
+    padding: 12px;
+  }
+}
+
+.app-shell-menu-btn {
+  display: inline-flex;
+  height: 36px;
+  width: 36px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  margin-right: 10px;
+  border-radius: 10px;
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+  color: #374151;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.15s ease;
+}
+
+.app-shell-menu-btn:hover {
+  background: #f3f4f6;
+}

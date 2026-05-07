@@ -5,11 +5,36 @@
     z-index: 100;
     display: flex;
     height: 100vh;
-    width: 250px;
+    width: min(100vw - 3rem, 280px);
+    max-width: 280px;
     flex-direction: column;
     border-right: 1px solid rgba(226, 232, 240, 0.85);
     background: linear-gradient(180deg, #ffffff 0%, #f8fafc 55%, #eef6ff 100%);
     box-shadow: 4px 0 24px -8px rgba(15, 23, 42, 0.12);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@media (min-width: 1024px) {
+    .admin-sidebar {
+        width: 250px;
+        max-width: none;
+    }
+}
+
+@media (max-width: 1023px) {
+    .admin-sidebar.admin-sidebar--drawer-closed {
+        transform: translateX(-100%);
+    }
+
+    .admin-sidebar {
+        background: #ffffff;
+    }
+}
+
+@media (min-width: 1024px) {
+    .admin-sidebar {
+        transform: none !important;
+    }
 }
 
 .admin-sidebar-header {
