@@ -403,9 +403,9 @@ export default function ManagerDashboard() {
         subtitle="Nhìn nhanh hiệu quả bán hàng, tồn kho và nhập hàng."
         headerActions={
           <div className="grid w-full grid-cols-1 gap-2 sm:flex sm:flex-wrap sm:items-center sm:justify-end">
-            <Link to="/manager/reports" className="block">
+            <Link to="/manager/tax-report" className="block">
               <Button type="button" variant="outline" className="w-full sm:w-auto">
-                Báo cáo đổi giá
+                Báo cáo thuế
               </Button>
             </Link>
             <label className="hidden text-xs font-medium text-slate-500 sm:inline">Từ</label>

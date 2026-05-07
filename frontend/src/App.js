@@ -74,6 +74,7 @@ import ManagerReturnDetail from "./pages/ManagerDashboard/ManagerReturnDetail";
 import ManagerStockHistoryReport from "./pages/ManagerDashboard/ManagerStockHistoryReport";
 import ManagerCashflowDashboard from "./pages/ManagerDashboard/ManagerCashflowDashboard";
 import ManagerShiftSessionsPage from "./pages/ManagerDashboard/ManagerShiftSessionsPage";
+import ManagerTaxReport from "./pages/ManagerDashboard/ManagerTaxReport";
 import AdminSupportTickets from "./pages/AdminHome/AdminSupportTickets";
 import AdminSupportTicketDetail from "./pages/AdminHome/AdminSupportTicketDetail";
 import RequireManagerStore from "./components/RequireManagerStore";
@@ -206,6 +207,7 @@ function App() {
       <Route path="/manager/support" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerSupportTickets /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/support/:id" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerSupportTicketDetail /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/reports" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerPriceChangeReport /></RequireManagerStore></RequireRole></RequireAuth>} />
+      <Route path="/manager/tax-report" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerTaxReport /></RequireManagerStore></RequireRole></RequireAuth>} />
       {/* Manager POS — bán hàng trực tiếp trong layout Manager */}
       <Route
         path="/manager/pos"
