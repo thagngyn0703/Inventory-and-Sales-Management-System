@@ -16,6 +16,7 @@ const router = express.Router();
 const Product = require('../models/Product');
 const ProductUnit = require('../models/ProductUnit');
 const ProductPriceHistory = require('../models/ProductPriceHistory');
+const Category = require('../models/Category');
 const Supplier = require('../models/Supplier');
 const User = require('../models/User');
 
@@ -50,6 +51,44 @@ function roundTo4(value) {
 
 function roundTo2(value) {
     return Math.round((Number(value) || 0) * 100) / 100;
+}
+
+function normalizeCategoryTaxConfig(categoryDoc) {
+    if (!categoryDoc) return null;
+    const vat = Number(categoryDoc.vat_rate);
+    return {
+        vat_rate: Number.isFinite(vat) && vat >= 0 ? vat : 0,
+        tax_profile: String(categoryDoc.tax_profile || 'default').trim() || 'default',
+        tax_tags: Array.isArray(categoryDoc.tax_tags)
+            ? categoryDoc.tax_tags.map((t) => String(t).trim()).filter(Boolean)
+            : [],
+    };
+}
+
+function normalizeTaxCategoryCode(value = '') {
+    return String(value || '')
+        .trim()
+        .toUpperCase()
+        .replace(/\s+/g, '_');
+}
+
+async function resolveCategorySnapshot(rawCategoryId) {
+    if (!rawCategoryId || !mongoose.isValidObjectId(rawCategoryId)) return null;
+    const cat = await Category.findById(rawCategoryId).select('_id name vat_rate tax_profile tax_tags').lean();
+    return cat || null;
+}
+
+function applyCategoryTaxToProduct(productDoc, categoryDoc) {
+    if (!productDoc || !categoryDoc?._id) return;
+    productDoc.category_id = categoryDoc._id;
+    // Nếu sản phẩm đang bật override thuế thì chỉ cập nhật category_id để phân nhóm, không đè thuế.
+    if (productDoc.tax_override_enabled) return;
+    const tax = normalizeCategoryTaxConfig(categoryDoc);
+    if (!tax) return;
+    productDoc.vat_rate = tax.vat_rate;
+    productDoc.tax_profile = tax.tax_profile;
+    productDoc.tax_tags = tax.tax_tags;
+    productDoc.tax_category = normalizeTaxCategoryCode(tax.tax_profile || 'DEFAULT') || 'DEFAULT';
 }
 
 function computeSafeAverageCost({ currentQty, currentCost, addQty, baseUnitCost }) {
@@ -244,6 +283,7 @@ router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (
             .populate('po_id', 'status expected_date')
             .populate('received_by', 'fullName email')
             .populate('approved_by', 'fullName email')
+            .populate('items.category_id', 'name vat_rate tax_profile')
             .populate('items.product_id', 'name sku cost_price sale_price base_unit selling_units')
             .lean();
 
@@ -281,6 +321,7 @@ router.get('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), asyn
             .populate('po_id')
             .populate('received_by', 'fullName email')
             .populate('approved_by', 'fullName email')
+            .populate('items.category_id', 'name vat_rate tax_profile')
             .populate('items.product_id', 'name sku cost_price sale_price base_unit selling_units')
             .lean();
         if (!gr) return res.status(404).json({ message: 'Goods receipt not found' });
@@ -346,6 +387,7 @@ router.post('/', requireAuth, requireRole(['staff', 'manager']), async (req, res
                 .populate('supplier_id', 'name phone email')
                 .populate('received_by', 'fullName email')
                 .populate('approved_by', 'fullName email')
+                .populate('items.category_id', 'name vat_rate tax_profile')
                 .populate('items.product_id', 'name sku cost_price sale_price base_unit selling_units')
                 .lean();
             if (existed) {
@@ -370,7 +412,7 @@ router.post('/', requireAuth, requireRole(['staff', 'manager']), async (req, res
         // unit_cost được server override để tránh client tự sửa payload.
         const productIds = [...new Set(items.map((it) => String(it.product_id)))];
         const products = await Product.find({ _id: { $in: productIds }, storeId: req.user.storeId })
-            .select('name cost_price base_unit selling_units')
+            .select('name sku cost_price base_unit selling_units category_id')
             .lean();
         const productMap = new Map(products.map((p) => [String(p._id), p]));
         const normalizedItems = [];
@@ -390,8 +432,25 @@ router.post('/', requireAuth, requireRole(['staff', 'manager']), async (req, res
             const systemUnitCost = resolveUnitCostFromProductCost(product, itemRatio);
             const note = it.price_gap_note != null ? String(it.price_gap_note).trim() : '';
 
+            const requestedCategoryId = it.category_id && mongoose.isValidObjectId(it.category_id)
+                ? String(it.category_id)
+                : '';
+            const fallbackCategoryId = product?.category_id && mongoose.isValidObjectId(product.category_id)
+                ? String(product.category_id)
+                : '';
+            const effectiveCategoryId = requestedCategoryId || fallbackCategoryId;
+            if (!effectiveCategoryId) {
+                return res.status(400).json({ message: `Thiếu danh mục cho sản phẩm "${String(product.name || '').trim() || String(it.product_id)}" (để áp thuế).` });
+            }
+            const categoryDoc = await resolveCategorySnapshot(effectiveCategoryId);
+            if (!categoryDoc) {
+                return res.status(400).json({ message: `Danh mục không tồn tại: ${effectiveCategoryId}` });
+            }
+
             normalizedItems.push({
                 product_id: it.product_id,
+                category_id: categoryDoc._id,
+                category_name_snapshot: String(categoryDoc.name || '').trim() || undefined,
                 product_name_snapshot: String(product.name || '').trim() || undefined,
                 product_sku_snapshot: String(product.sku || '').trim() || undefined,
                 unit_id: unitSnapshot.unit_id,
@@ -436,6 +495,7 @@ router.post('/', requireAuth, requireRole(['staff', 'manager']), async (req, res
             .populate('supplier_id', 'name phone email')
             .populate('received_by', 'fullName email')
             .populate('approved_by', 'fullName email')
+            .populate('items.category_id', 'name vat_rate tax_profile')
             .populate('items.product_id', 'name sku cost_price sale_price base_unit selling_units')
             .lean();
 
@@ -464,6 +524,7 @@ router.post('/', requireAuth, requireRole(['staff', 'manager']), async (req, res
                     .populate('supplier_id', 'name phone email')
                     .populate('received_by', 'fullName email')
                     .populate('approved_by', 'fullName email')
+                    .populate('items.category_id', 'name vat_rate tax_profile')
                     .populate('items.product_id', 'name sku cost_price sale_price base_unit selling_units')
                     .lean();
                 if (existed) {
@@ -535,6 +596,24 @@ router.patch('/:id/items', requireAuth, requireRole(['manager', 'admin']), async
             const next = curr.toObject ? curr.toObject() : { ...curr };
             next.quantity = Number(patchItem.quantity);
             next.unit_cost = Math.round(Number(patchItem.unit_cost) || 0);
+            if (patchItem.category_id !== undefined) {
+                const incoming = patchItem.category_id && mongoose.isValidObjectId(patchItem.category_id)
+                    ? String(patchItem.category_id)
+                    : '';
+                const fallback = curr.category_id && mongoose.isValidObjectId(curr.category_id)
+                    ? String(curr.category_id)
+                    : '';
+                const effective = incoming || fallback;
+                if (!effective) {
+                    return res.status(400).json({ message: 'Thiếu danh mục cho một hoặc nhiều dòng sản phẩm.' });
+                }
+                const cat = await resolveCategorySnapshot(effective);
+                if (!cat) {
+                    return res.status(400).json({ message: `Danh mục không tồn tại: ${effective}` });
+                }
+                next.category_id = cat._id;
+                next.category_name_snapshot = String(cat.name || '').trim() || undefined;
+            }
             if (patchItem.price_gap_note !== undefined) {
                 const n = String(patchItem.price_gap_note || '').trim();
                 next.price_gap_note = n || undefined;
@@ -592,6 +671,7 @@ router.patch('/:id/items', requireAuth, requireRole(['manager', 'admin']), async
             .populate('supplier_id', 'name phone email')
             .populate('received_by', 'fullName email')
             .populate('approved_by', 'fullName email')
+            .populate('items.category_id', 'name vat_rate tax_profile')
             .populate('items.product_id', 'name sku cost_price sale_price base_unit selling_units')
             .lean();
         await emitManagerBadgeRefresh({ storeId: gr.storeId ? String(gr.storeId) : null });
@@ -681,6 +761,7 @@ router.patch('/:id/status', requireAuth, requireRole(['manager', 'admin']), asyn
                 .populate('supplier_id', 'name phone email')
                 .populate('received_by', 'fullName email')
                 .populate('approved_by', 'fullName email')
+                .populate('items.category_id', 'name vat_rate tax_profile')
                 .populate('items.product_id', 'name sku cost_price sale_price base_unit selling_units')
                 .lean();
             await emitManagerBadgeRefresh({ storeId: gr.storeId ? String(gr.storeId) : null });
@@ -731,6 +812,23 @@ router.patch('/:id/status', requireAuth, requireRole(['manager', 'admin']), asyn
                     await session.abortTransaction();
                     return res.status(404).json({ message: `Product not found: ${String(it.product_id)}` });
                 }
+                // Đồng bộ danh mục → thuế sản phẩm (để áp VAT đúng ở hóa đơn)
+                const categoryId = it.category_id && mongoose.isValidObjectId(it.category_id)
+                    ? String(it.category_id)
+                    : '';
+                if (!categoryId) {
+                    await session.abortTransaction();
+                    return res.status(400).json({ message: `Thiếu danh mục cho sản phẩm "${String(product.name || '').trim() || String(it.product_id)}".` });
+                }
+                const categoryDoc = await Category.findById(categoryId).select('_id name vat_rate tax_profile tax_tags').session(session);
+                if (!categoryDoc) {
+                    await session.abortTransaction();
+                    return res.status(400).json({ message: `Danh mục không tồn tại: ${categoryId}` });
+                }
+                applyCategoryTaxToProduct(product, categoryDoc);
+                product.updated_at = new Date();
+                await product.save({ session });
+
                 const addQty = Number(it.quantity) * (Number(it.ratio) || 1);
                 const lineUnitCost = Number(it.unit_cost) || 0;
                 const baseUnitCost = roundTo4(resolveBaseUnitCostFromLineUnitCost(lineUnitCost, it.ratio));
@@ -891,6 +989,7 @@ router.patch('/:id/status', requireAuth, requireRole(['manager', 'admin']), asyn
                 .populate('supplier_id', 'name phone email')
                 .populate('received_by', 'fullName email')
                 .populate('approved_by', 'fullName email')
+                .populate('items.category_id', 'name vat_rate tax_profile')
                 .populate('items.product_id', 'name sku cost_price sale_price base_unit selling_units')
                 .lean();
             await emitManagerBadgeRefresh({ storeId: gr.storeId ? String(gr.storeId) : null });
@@ -919,6 +1018,7 @@ router.patch('/:id/status', requireAuth, requireRole(['manager', 'admin']), asyn
                 .populate('supplier_id', 'name phone email')
                 .populate('received_by', 'fullName email')
                 .populate('approved_by', 'fullName email')
+                .populate('items.category_id', 'name vat_rate tax_profile')
                 .populate('items.product_id', 'name sku cost_price sale_price base_unit selling_units')
                 .lean();
             await emitManagerBadgeRefresh({ storeId: gr.storeId ? String(gr.storeId) : null });
@@ -993,7 +1093,7 @@ router.post('/quick', requireAuth, requireRole(['manager', 'admin']), async (req
         // Kiểm tra và chuẩn hóa items
         const productIds = [...new Set(items.map((it) => String(it.product_id)))];
         const products = await Product.find({ _id: { $in: productIds } })
-            .select('name cost_price stock_qty base_unit selling_units storeId')
+            .select('name sku cost_price stock_qty base_unit selling_units storeId category_id')
             .lean();
         const productMap = new Map(products.map((p) => [String(p._id), p]));
 
@@ -1015,8 +1115,26 @@ router.post('/quick', requireAuth, requireRole(['manager', 'admin']), async (req
             const itemRatio = Number(unitSnapshot.ratio) > 0 ? Number(unitSnapshot.ratio) : 1;
             const unitName = unitSnapshot.unit_name;
             computedTotal += qty * unitCost;
+
+            const requestedCategoryId = it.category_id && mongoose.isValidObjectId(it.category_id)
+                ? String(it.category_id)
+                : '';
+            const fallbackCategoryId = product?.category_id && mongoose.isValidObjectId(product.category_id)
+                ? String(product.category_id)
+                : '';
+            const effectiveCategoryId = requestedCategoryId || fallbackCategoryId;
+            if (!effectiveCategoryId) {
+                return res.status(400).json({ message: `Thiếu danh mục cho sản phẩm "${String(product.name || '').trim() || String(it.product_id)}" (để áp thuế).` });
+            }
+            const categoryDoc = await resolveCategorySnapshot(effectiveCategoryId);
+            if (!categoryDoc) {
+                return res.status(400).json({ message: `Danh mục không tồn tại: ${effectiveCategoryId}` });
+            }
+
             normalizedItems.push({
                 product_id: it.product_id,
+                category_id: categoryDoc._id,
+                category_name_snapshot: String(categoryDoc.name || '').trim() || undefined,
                 product_name_snapshot: String(product.name || '').trim() || undefined,
                 product_sku_snapshot: String(product.sku || '').trim() || undefined,
                 unit_id: unitSnapshot.unit_id,
@@ -1054,6 +1172,7 @@ router.post('/quick', requireAuth, requireRole(['manager', 'admin']), async (req
                 .populate('supplier_id', 'name phone email')
                 .populate('received_by', 'fullName email')
                 .populate('approved_by', 'fullName email')
+                .populate('items.category_id', 'name vat_rate tax_profile')
                 .populate('items.product_id', 'name sku cost_price sale_price base_unit')
                 .lean();
             if (existed) {
@@ -1089,9 +1208,27 @@ router.post('/quick', requireAuth, requireRole(['manager', 'admin']), async (req
 
         // Cập nhật tồn kho + giá vốn bình quân
         for (const it of normalizedItems) {
-            const product = productMap.get(String(it.product_id));
-            const addQty = it.quantity * it.ratio;
-            const lineUnitCost = it.unit_cost;
+            const product = await Product.findOne({ _id: it.product_id, storeId: resolvedStoreId }).session(session);
+            if (!product) {
+                await session.abortTransaction();
+                return res.status(404).json({ message: `Product not found: ${String(it.product_id)}` });
+            }
+            const categoryId = it.category_id && mongoose.isValidObjectId(it.category_id)
+                ? String(it.category_id)
+                : '';
+            const categoryDoc = categoryId
+                ? await Category.findById(categoryId).select('_id name vat_rate tax_profile tax_tags').session(session)
+                : null;
+            if (!categoryDoc) {
+                await session.abortTransaction();
+                return res.status(400).json({ message: `Danh mục không tồn tại: ${categoryId || '—'}` });
+            }
+            applyCategoryTaxToProduct(product, categoryDoc);
+            product.updated_at = new Date();
+            await product.save({ session });
+
+            const addQty = Number(it.quantity) * (Number(it.ratio) || 1);
+            const lineUnitCost = Number(it.unit_cost) || 0;
             const baseUnitCost = roundTo4(resolveBaseUnitCostFromLineUnitCost(lineUnitCost, it.ratio));
             const currentQty = Number(product.stock_qty ?? 0);
             const currentCost = Number(product.cost_price || 0);
@@ -1205,6 +1342,7 @@ router.post('/quick', requireAuth, requireRole(['manager', 'admin']), async (req
             .populate('supplier_id', 'name phone email')
             .populate('received_by', 'fullName email')
             .populate('approved_by', 'fullName email')
+            .populate('items.category_id', 'name vat_rate tax_profile')
             .populate('items.product_id', 'name sku cost_price sale_price base_unit')
             .lean();
 
@@ -1220,6 +1358,7 @@ router.post('/quick', requireAuth, requireRole(['manager', 'admin']), async (req
                     .populate('supplier_id', 'name phone email')
                     .populate('received_by', 'fullName email')
                     .populate('approved_by', 'fullName email')
+                    .populate('items.category_id', 'name vat_rate tax_profile')
                     .populate('items.product_id', 'name sku cost_price sale_price base_unit')
                     .lean();
                 if (existed) {
