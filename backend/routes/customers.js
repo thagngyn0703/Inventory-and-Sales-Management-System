@@ -2,6 +2,7 @@ const express = require('express');
 const crypto = require('crypto');
 const mongoose = require('mongoose');
 const Customer = require('../models/Customer');
+const Store = require('../models/Store');
 const SalesInvoice = require('../models/SalesInvoice');
 const CustomerDebtPayment = require('../models/CustomerDebtPayment');
 const PaymentTransaction = require('../models/PaymentTransaction');
@@ -313,6 +314,21 @@ router.post('/:id/pay-debt/prepare-transfer', requireAuth, requireRole(['staff',
         }
         if (payAmount > Number(customer.debt_account || 0)) {
             return res.status(400).json({ message: 'Số tiền thu nợ không được vượt dư nợ hiện tại' });
+        }
+
+        const storeBankConfig = await Store.findById(storeId)
+            .select('bank_id bank_account bank_account_name')
+            .lean();
+        const hasStoreBankConfig = Boolean(
+            String(storeBankConfig?.bank_id || '').trim() &&
+            String(storeBankConfig?.bank_account || '').trim() &&
+            String(storeBankConfig?.bank_account_name || '').trim()
+        );
+        if (!hasStoreBankConfig) {
+            return res.status(400).json({
+                message: 'Cửa hàng chưa cấu hình tài khoản ngân hàng nhận QR. Vui lòng vào Cài đặt -> Cấu hình ngân hàng.',
+                error_code: 'STORE_BANK_CONFIG_REQUIRED',
+            });
         }
 
         await expireStalePendingTransfers(customer._id, storeId);

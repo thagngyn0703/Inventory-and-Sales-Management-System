@@ -152,17 +152,13 @@ export default function POSContainer({
   }, []);
   const backToListPath = isManager ? '/manager/pos/list' : '/staff/invoices';
 
-  const rawBankAccountConfig = String(process.env.REACT_APP_BANK_ACCOUNT || 'MB-0000000000').trim();
-  const [envBankCode, envBankAccountNumber] = rawBankAccountConfig.includes('-')
-    ? rawBankAccountConfig.split('-', 2)
-    : ['MB', rawBankAccountConfig];
   const [storeBank, setStoreBank] = useState({
     bank_id: '',
     bank_account: '',
   });
-  // Ưu tiên cấu hình theo store-settings/bank; fallback env để không gãy luồng cũ.
-  const bankCode = String(storeBank.bank_id || envBankCode || 'MB').toUpperCase();
-  const bankAccountNumber = String(storeBank.bank_account || envBankAccountNumber || '0000000000');
+  const bankCode = String(storeBank.bank_id || '').toUpperCase();
+  const bankAccountNumber = String(storeBank.bank_account || '');
+  const hasStoreBankQrConfig = Boolean(bankCode && bankAccountNumber);
 
   const [storeTax, setStoreTax] = useState({ business_type: 'ho_kinh_doanh', tax_rate: 0, price_includes_tax: true });
   const [loyaltySettings, setLoyaltySettings] = useState({
@@ -1505,6 +1501,7 @@ export default function POSContainer({
     activeTab.items.length > 0 &&
     hasOpenShift &&
     !isDebtBlocked &&
+    (activeTab.paymentMethod !== 'bank_transfer' || hasStoreBankQrConfig) &&
     (activeTab.paymentMethod === 'debt' ||
       customerPaidNum >= totalWithDebt ||
       activeTab.paymentMethod === 'bank_transfer');
@@ -2378,10 +2375,16 @@ export default function POSContainer({
 
                 {activeTab.paymentMethod === 'bank_transfer' && totalAmount > 0 && (
                   <div className="pos-bank-note">
-                    <p className="pos-bank-note-title">Nhấn THANH TOÁN để tạo mã QR chính xác</p>
+                    <p className="pos-bank-note-title">
+                      {hasStoreBankQrConfig
+                        ? 'Nhấn THANH TOÁN để tạo mã QR chính xác'
+                        : 'Cửa hàng chưa cấu hình tài khoản ngân hàng nhận QR'}
+                    </p>
                     <div className="pos-bank-note-body">
                       <i className="fa-solid fa-qrcode" />
-                      Mã QR sẽ hiển thị sau khi xác nhận đơn
+                      {hasStoreBankQrConfig
+                        ? 'Mã QR sẽ hiển thị sau khi xác nhận đơn'
+                        : 'Vào Cài đặt cửa hàng và cập nhật bank_id, số tài khoản, tên chủ tài khoản.'}
                     </div>
                   </div>
                 )}
