@@ -4,7 +4,7 @@ import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { Button } from '../../components/ui/button';
 import { useToast } from '../../contexts/ToastContext';
-import { getSupplierPayable } from '../../services/supplierPayablesApi';
+import { createSupplierPayment, getSupplierPayable } from '../../services/supplierPayablesApi';
 import { ArrowLeft, CreditCard, Loader2 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
@@ -30,6 +30,14 @@ export default function ManagerSupplierPayableDetail() {
     const { toast } = useToast();
     const [loading, setLoading] = useState(true);
     const [data, setData] = useState(null);
+    const [showPayForm, setShowPayForm] = useState(false);
+    const [paying, setPaying] = useState(false);
+    const [payForm, setPayForm] = useState({
+        total_amount: '',
+        payment_method: 'cash',
+        reference_code: '',
+        note: '',
+    });
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -57,6 +65,44 @@ export default function ManagerSupplierPayableDetail() {
     const { payable, allocations } = data;
     const receiptItems = Array.isArray(payable.source_id?.items) ? payable.source_id.items : [];
     const progressPct = payable.total_amount > 0 ? Math.min(100, (payable.paid_amount / payable.total_amount) * 100) : 0;
+    const canPay = ['open', 'partial'].includes(String(payable.status || '').toLowerCase()) && Number(payable.remaining_amount || 0) > 0;
+
+    const handlePayDebt = async () => {
+        const amount = Number(payForm.total_amount);
+        const remaining = Number(payable.remaining_amount || 0);
+        if (!Number.isFinite(amount) || amount <= 0) {
+            toast('Vui lòng nhập số tiền thanh toán hợp lệ.', 'error');
+            return;
+        }
+        if (amount > remaining) {
+            toast(`Số tiền không được vượt quá còn nợ (${fmt(remaining)}).`, 'error');
+            return;
+        }
+        try {
+            setPaying(true);
+            await createSupplierPayment({
+                supplier_id: payable.supplier_id?._id,
+                total_amount: amount,
+                payment_method: payForm.payment_method,
+                reference_code: String(payForm.reference_code || '').trim() || undefined,
+                note: String(payForm.note || '').trim() || undefined,
+                payable_ids: [payable._id],
+            });
+            toast('Thanh toán nợ thành công.', 'success');
+            setShowPayForm(false);
+            setPayForm({
+                total_amount: '',
+                payment_method: 'cash',
+                reference_code: '',
+                note: '',
+            });
+            await load();
+        } catch (e) {
+            toast(e.message || 'Không thể thanh toán nợ.', 'error');
+        } finally {
+            setPaying(false);
+        }
+    };
 
     return (
         <ManagerPageFrame showNotificationBell={false}>
@@ -118,6 +164,83 @@ export default function ManagerSupplierPayableDetail() {
                             <span className="font-semibold text-red-600">Còn nợ: {fmt(payable.remaining_amount)}</span>
                         </div>
                     </div>
+                    {canPay && (
+                        <div className="mt-5 border-t border-slate-100 pt-4">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                <p className="text-sm text-slate-600">Bạn có thể ghi nhận thanh toán ngay cho khoản nợ này.</p>
+                                <Button
+                                    type="button"
+                                    onClick={() => {
+                                        setShowPayForm((prev) => !prev);
+                                        if (!showPayForm) {
+                                            setPayForm((prev) => ({
+                                                ...prev,
+                                                total_amount: String(Math.round(Number(payable.remaining_amount || 0))),
+                                            }));
+                                        }
+                                    }}
+                                >
+                                    Thanh toán nợ
+                                </Button>
+                            </div>
+                            {showPayForm && (
+                                <div className="mt-4 grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2">
+                                    <div>
+                                        <label className="mb-1 block text-xs font-semibold uppercase text-slate-500">Số tiền thanh toán</label>
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            max={Math.max(1, Math.round(Number(payable.remaining_amount || 0)))}
+                                            value={payForm.total_amount}
+                                            onChange={(e) => setPayForm((prev) => ({ ...prev, total_amount: e.target.value }))}
+                                            className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="mb-1 block text-xs font-semibold uppercase text-slate-500">Hình thức thanh toán</label>
+                                        <select
+                                            value={payForm.payment_method}
+                                            onChange={(e) => setPayForm((prev) => ({ ...prev, payment_method: e.target.value }))}
+                                            className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm"
+                                        >
+                                            <option value="cash">Tiền mặt</option>
+                                            <option value="bank_transfer">Chuyển khoản</option>
+                                            <option value="e_wallet">Ví điện tử</option>
+                                            <option value="other">Khác</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="mb-1 block text-xs font-semibold uppercase text-slate-500">Mã tham chiếu</label>
+                                        <input
+                                            type="text"
+                                            value={payForm.reference_code}
+                                            onChange={(e) => setPayForm((prev) => ({ ...prev, reference_code: e.target.value }))}
+                                            className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm"
+                                            placeholder="VD: UNC12345"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="mb-1 block text-xs font-semibold uppercase text-slate-500">Ghi chú</label>
+                                        <input
+                                            type="text"
+                                            value={payForm.note}
+                                            onChange={(e) => setPayForm((prev) => ({ ...prev, note: e.target.value }))}
+                                            className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm"
+                                            placeholder="Nội dung thanh toán"
+                                        />
+                                    </div>
+                                    <div className="sm:col-span-2 flex justify-end gap-2">
+                                        <Button type="button" variant="outline" onClick={() => setShowPayForm(false)} disabled={paying}>
+                                            Hủy
+                                        </Button>
+                                        <Button type="button" onClick={handlePayDebt} disabled={paying}>
+                                            {paying ? 'Đang thanh toán...' : 'Xác nhận thanh toán'}
+                                        </Button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </div>
 
                 {/* ── Sản phẩm của phiếu nhập gốc ── */}
