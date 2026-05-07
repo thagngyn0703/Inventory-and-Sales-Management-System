@@ -43,6 +43,15 @@ const goodsReceiptSchema = new Schema(
                     ref: 'Product',
                     required: true,
                 },
+                category_id: {
+                    type: Schema.Types.ObjectId,
+                    ref: 'Category',
+                    required: false,
+                },
+                category_name_snapshot: {
+                    type: String,
+                    trim: true,
+                },
                 product_name_snapshot: {
                     type: String,
                     trim: true,

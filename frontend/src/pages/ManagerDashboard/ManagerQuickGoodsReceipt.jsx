@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ScanLine, Search, Zap, Camera, X } from 'lucide-react';
 import { BrowserMultiFormatReader } from '@zxing/browser';
+import { BarcodeFormat, DecodeHintType } from '@zxing/library';
 import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { Button } from '../../components/ui/button';
@@ -9,6 +10,7 @@ import { Card, CardContent } from '../../components/ui/card';
 import { useToast } from '../../contexts/ToastContext';
 import { createProduct, createQuickGoodsReceipt, getProductUnits, getProducts, scanProductByCode, lookupBarcodeOnline, updateProductUnits, uploadProductImages } from '../../services/productsApi';
 import { createSupplier, getSuppliers } from '../../services/suppliersApi';
+import { getCategories } from '../../services/categoriesApi';
 import { minExpiryDateString } from '../../utils/dateInput';
 import { formatCurrencyInput, parseCurrencyInput, toCurrencyInputFromNumber } from '../../utils/currencyInput';
 
@@ -74,11 +76,13 @@ export default function ManagerQuickGoodsReceipt() {
     const { toast } = useToast();
     const [supplierList, setSupplierList] = useState([]);
     const [productList, setProductList] = useState([]);
+    const [categoryList, setCategoryList] = useState([]);
     const [searchInput, setSearchInput] = useState('');
     const [selectedProduct, setSelectedProduct] = useState(null);
     const [showDropdown, setShowDropdown] = useState(false);
     const [createMode, setCreateMode] = useState(false);
     const [supplierId, setSupplierId] = useState('');
+    const [selectedCategoryId, setSelectedCategoryId] = useState('');
     const [paymentType, setPaymentType] = useState('cash');
     const [paymentMethod, setPaymentMethod] = useState('cash');
     const [reason, setReason] = useState('');
@@ -93,6 +97,7 @@ export default function ManagerQuickGoodsReceipt() {
         name: '',
         sku: '',
         barcode: '',
+        category_id: '',
         base_unit: 'Cái',
         sale_price: '',
         cost_price: '',
@@ -153,6 +158,7 @@ export default function ManagerQuickGoodsReceipt() {
     useEffect(() => {
         getSuppliers().then((list) => setSupplierList(list || [])).catch(() => {});
         getProducts(1, 1000).then((d) => setProductList(d.products || [])).catch(() => {});
+        getCategories().then((list) => setCategoryList(list || [])).catch(() => {});
     }, []);
 
     useEffect(() => {
@@ -302,6 +308,7 @@ export default function ManagerQuickGoodsReceipt() {
             supplier_id: supplierId,
             items: [{
                 product_id: existingProduct._id,
+                category_id: String(newProductForm.category_id || '').trim() || undefined,
                 unit_id: baseUnit._id,
                 quantity: qty,
                 unit_cost: Math.round(cost),
@@ -359,10 +366,15 @@ export default function ManagerQuickGoodsReceipt() {
     };
 
     const selectProduct = (product) => {
+        const catId =
+            typeof product?.category_id === 'object' && product?.category_id?._id
+                ? String(product.category_id._id)
+                : (product?.category_id ? String(product.category_id) : '');
         setSelectedProduct(product);
         setSearchInput(product.name || '');
         setQuantity('');
         loadUnitsForSelectedProduct(product);
+        setSelectedCategoryId(catId);
         setCreateMode(false);
         setShowDropdown(false);
     };
@@ -373,6 +385,7 @@ export default function ManagerQuickGoodsReceipt() {
         setUnitCost('');
         setUnitOptions([]);
         setSelectedUnitId('');
+        setSelectedCategoryId('');
     };
 
     const startCreateModeFromCode = (seedCode) => {
@@ -404,7 +417,7 @@ export default function ManagerQuickGoodsReceipt() {
             return false;
         }
         const now = Date.now();
-        if (lastScannedRef.current.code === code && now - lastScannedRef.current.at < 1500) {
+        if (lastScannedRef.current.code === code && now - lastScannedRef.current.at < 900) {
             return false;
         }
         lastScannedRef.current = { code, at: now };
@@ -560,10 +573,32 @@ export default function ManagerQuickGoodsReceipt() {
             setCameraError('');
             stopCameraScan();
             try {
-                const reader = new BrowserMultiFormatReader();
+                const hints = new Map();
+                // Chỉ ưu tiên các mã vạch 1D phổ biến để tăng tốc độ decode.
+                hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+                    BarcodeFormat.EAN_13,
+                    BarcodeFormat.EAN_8,
+                    BarcodeFormat.UPC_A,
+                    BarcodeFormat.UPC_E,
+                    BarcodeFormat.CODE_128,
+                    BarcodeFormat.CODE_39,
+                    BarcodeFormat.ITF,
+                ]);
+
+                const reader = new BrowserMultiFormatReader(hints, {
+                    delayBetweenScanAttempts: 180,
+                    delayBetweenScanSuccess: 0,
+                });
                 cameraReaderRef.current = reader;
                 await reader.decodeFromConstraints(
-                    { video: { facingMode: { ideal: 'environment' } }, audio: false },
+                    {
+                        video: {
+                            facingMode: { ideal: 'environment' },
+                            width: { ideal: 640 },
+                            height: { ideal: 480 },
+                        },
+                        audio: false,
+                    },
                     cameraVideoRef.current,
                     (result, _err, controls) => {
                         if (controls && !cameraControlsRef.current) cameraControlsRef.current = controls;
@@ -644,6 +679,10 @@ export default function ManagerQuickGoodsReceipt() {
             toast('Vui lòng chọn đơn vị nhập hợp lệ.', 'error');
             return;
         }
+        if (!selectedCategoryId) {
+            toast('Vui lòng chọn danh mục để áp dụng thuế.', 'error');
+            return;
+        }
 
         quickSubmitLockRef.current = true;
         setLoading(true);
@@ -654,6 +693,7 @@ export default function ManagerQuickGoodsReceipt() {
                 supplier_id: supplierId,
                 items: [{
                     product_id: selectedProduct._id,
+                    category_id: String(selectedCategoryId || '').trim() || undefined,
                     unit_id: selectedUnit?._id || null,
                     quantity: Number(quantity),
                     unit_cost: parseCurrencyInput(unitCost),
@@ -682,6 +722,7 @@ export default function ManagerQuickGoodsReceipt() {
         if (!supplierId) return toast('Vui lòng chọn nhà cung cấp.', 'error');
         if (!newProductForm.name.trim()) return toast('Tên sản phẩm là bắt buộc.', 'error');
         if (!newProductForm.sku.trim()) return toast('SKU là bắt buộc.', 'error');
+        if (!String(newProductForm.category_id || '').trim()) return toast('Danh mục là bắt buộc để áp dụng thuế.', 'error');
         if (newProductForm.sale_price === '' || parseCurrencyInput(newProductForm.sale_price) < 0) return toast('Giá bán không hợp lệ.', 'error');
         if (newProductForm.cost_price === '' || parseCurrencyInput(newProductForm.cost_price) < 0) return toast('Giá nhập không hợp lệ.', 'error');
         if (newProductForm.stock_qty === '' || Number(newProductForm.stock_qty) < 0) return toast('Số lượng nhập ban đầu không hợp lệ.', 'error');
@@ -753,6 +794,7 @@ export default function ManagerQuickGoodsReceipt() {
                 name: newProductForm.name.trim(),
                 sku: newProductForm.sku.trim(),
                 barcode: String(newProductForm.barcode || '').trim() || undefined,
+                category_id: String(newProductForm.category_id || '').trim() || undefined,
                 supplier_id: supplierId,
                 cost_price: parseCurrencyInput(newProductForm.cost_price),
                 stock_qty: Number(newProductForm.stock_qty),
@@ -1059,6 +1101,21 @@ export default function ManagerQuickGoodsReceipt() {
                                             </select>
                                         </div>
                                         <div>
+                                            <label className="mb-1 block text-sm font-medium text-slate-600">Danh mục (áp thuế)</label>
+                                            <select
+                                                value={selectedCategoryId}
+                                                onChange={(e) => setSelectedCategoryId(e.target.value)}
+                                                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
+                                            >
+                                                <option value="">— Chọn danh mục —</option>
+                                                {categoryList.map((c) => (
+                                                    <option key={c._id} value={c._id}>
+                                                        {c.name} ({Number(c.vat_rate ?? 0)}%)
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div>
                                             <label className="mb-1 block text-sm font-medium text-slate-600">Hạn sử dụng</label>
                                             <input
                                                 type="date"
@@ -1165,6 +1222,21 @@ export default function ManagerQuickGoodsReceipt() {
                                                 onChange={(e) => setNewProductForm((p) => ({ ...p, sku: normalizeSku(e.target.value) }))}
                                                 className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
                                             />
+                                        </div>
+                                        <div>
+                                            <label className="mb-1 block text-sm font-medium text-slate-600">Danh mục (áp thuế) *</label>
+                                            <select
+                                                value={newProductForm.category_id}
+                                                onChange={(e) => setNewProductForm((p) => ({ ...p, category_id: e.target.value }))}
+                                                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
+                                            >
+                                                <option value="">— Chọn danh mục —</option>
+                                                {categoryList.map((c) => (
+                                                    <option key={c._id} value={c._id}>
+                                                        {c.name} ({Number(c.vat_rate ?? 0)}%)
+                                                    </option>
+                                                ))}
+                                            </select>
                                         </div>
                                         <div>
                                             <label className="mb-1 block text-sm font-medium text-slate-600">Barcode</label>

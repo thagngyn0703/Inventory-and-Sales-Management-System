@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
 import { getGoodsReceipt, setGoodsReceiptStatus, updateGoodsReceiptItems } from '../../services/goodsReceiptsApi';
+import { getCategories } from '../../services/categoriesApi';
 import { useToast } from '../../contexts/ToastContext';
 import { ConfirmDialog } from '../../components/ui/confirm-dialog';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
@@ -27,6 +28,7 @@ export default function ManagerReceiptDetail() {
     const [confirmOpen, setConfirmOpen] = useState(false);
     const [confirmType, setConfirmType] = useState(null);
     const [rejectionReason, setRejectionReason] = useState('');
+    const [categories, setCategories] = useState([]);
     // Thanh toán NCC khi duyệt
     const [paymentType, setPaymentType] = useState('credit');
     const [dueDatePayable, setDueDatePayable] = useState('');
@@ -40,6 +42,7 @@ export default function ManagerReceiptDetail() {
             setReceipt(data);
             const initialEdit = (data?.items || []).map((it) => ({
                 product_id: it.product_id?._id || it.product_id,
+                category_id: it.category_id?._id || it.category_id || '',
                 quantity: Number(it.quantity) || 0,
                 unit_cost: Number(it.unit_cost) || 0,
                 sale_price:
@@ -61,6 +64,7 @@ export default function ManagerReceiptDetail() {
         setEditItems((prev) =>
             prev.map((it) => {
                 if (String(it.product_id) !== String(productId)) return it;
+                if (field === 'category_id') return { ...it, category_id: String(value || '') };
                 if (field === 'price_gap_note') return { ...it, price_gap_note: value };
                 const n = parseCurrencyInput(value);
                 return { ...it, [field]: Number.isFinite(n) && n >= 0 ? n : 0 };
@@ -71,6 +75,12 @@ export default function ManagerReceiptDetail() {
     useEffect(() => {
         fetchReceipt();
     }, [fetchReceipt]);
+
+    useEffect(() => {
+        getCategories()
+            .then((list) => setCategories(list || []))
+            .catch(() => {});
+    }, []);
 
     const runStatusChange = async () => {
         if (!confirmType) return;
@@ -84,6 +94,7 @@ export default function ManagerReceiptDetail() {
             if (confirmType === 'approve' && receipt?.status === 'pending') {
                 const payload = editItems.map((it) => ({
                     product_id: it.product_id,
+                    category_id: String(it.category_id || '').trim() || undefined,
                     quantity: it.quantity,
                     unit_cost: it.unit_cost,
                     sale_price: it.sale_price,
@@ -303,6 +314,7 @@ export default function ManagerReceiptDetail() {
                             <tr>
                                 <th style={{ padding: '12px', textAlign: 'left', fontSize: 13, color: '#6b7280', borderBottom: '1px solid #e5e7eb' }}>Sản phẩm</th>
                                 <th style={{ padding: '12px', textAlign: 'left', fontSize: 13, color: '#6b7280', borderBottom: '1px solid #e5e7eb' }}>SKU</th>
+                                <th style={{ padding: '12px', textAlign: 'left', fontSize: 13, color: '#6b7280', borderBottom: '1px solid #e5e7eb' }}>Danh mục (thuế)</th>
                                 <th style={{ padding: '12px', textAlign: 'left', fontSize: 13, color: '#6b7280', borderBottom: '1px solid #e5e7eb' }}>Đơn vị / HSQĐ</th>
                                 <th style={{ padding: '12px', textAlign: 'right', fontSize: 13, color: '#6b7280', borderBottom: '1px solid #e5e7eb' }}>Số lượng</th>
                                 <th style={{ padding: '12px', textAlign: 'right', fontSize: 13, color: '#6b7280', borderBottom: '1px solid #e5e7eb' }} title="Giá gốc × HSQĐ mà staff thấy lúc tạo phiếu">
@@ -339,6 +351,26 @@ export default function ManagerReceiptDetail() {
                                 <tr key={idx} style={{ borderBottom: '1px solid #f3f4f6' }}>
                                     <td style={{ padding: '12px', fontSize: 14, fontWeight: 500 }}>{item.product_id?.name || 'Sản phẩm không xác định'}</td>
                                     <td style={{ padding: '12px', fontSize: 14, color: '#4b5563' }}>{item.product_id?.sku || '—'}</td>
+                                    <td style={{ padding: '12px', fontSize: 13, minWidth: 220 }}>
+                                        {receipt.status === 'pending' ? (
+                                            <select
+                                                value={String(editItem?.category_id || item.category_id?._id || item.category_id || '')}
+                                                onChange={(e) => handleEditItemChange(pid, 'category_id', e.target.value)}
+                                                style={{ width: '100%', padding: '6px 8px', borderRadius: 8, border: '1px solid #d1d5db', background: 'white' }}
+                                            >
+                                                <option value="">— Chọn danh mục —</option>
+                                                {categories.map((c) => (
+                                                    <option key={c._id} value={c._id}>
+                                                        {c.name} ({Number(c.vat_rate ?? 0)}%)
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        ) : (
+                                            <span style={{ color: '#4b5563' }}>
+                                                {item.category_id?.name || item.category_name_snapshot || '—'}
+                                            </span>
+                                        )}
+                                    </td>
                                     <td style={{ padding: '12px', fontSize: 14 }}>
                                         {item.unit_name || item.product_id?.base_unit || 'Cái'} 
                                         {item.ratio > 1 && <span style={{ color: '#6b7280', fontSize: 13, marginLeft: 6 }}>(x{item.ratio})</span>}
