@@ -36,6 +36,7 @@ const storeSettingsRoutes = require('./routes/storeSettings');
 const customerNotifyRoutes = require('./routes/customerNotify');
 const shiftRoutes = require('./routes/shifts');
 const posRegisterRoutes = require('./routes/posRegisters');
+const barcodeLookupRoutes = require('./routes/barcodeLookup');
 const ShiftSession = require('./models/ShiftSession');
 const { startBackupScheduler } = require('./services/backupScheduler');
 const { hasSmtpConfig } = require('./services/emailService');
@@ -167,6 +168,7 @@ app.use('/api/store-settings', storeSettingsRoutes);
 app.use('/api/customer-notify', customerNotifyRoutes);
 app.use('/api/shifts', shiftRoutes);
 app.use('/api/pos-registers', posRegisterRoutes);
+app.use('/api/barcode', barcodeLookupRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

@@ -61,6 +61,17 @@ export async function scanProductByCode(code) {
     return data;
 }
 
+export async function lookupBarcodeOnline(code) {
+    const token = getToken();
+    const safeCode = encodeURIComponent(String(code || '').trim());
+    const res = await fetch(`${API_BASE}/barcode/lookup?code=${safeCode}`, {
+        headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.message || 'Không thể tra cứu barcode online');
+    return data;
+}
+
 export async function createProduct(body) {
     const token = getToken();
     const res = await fetch(`${API_BASE}/products`, {
