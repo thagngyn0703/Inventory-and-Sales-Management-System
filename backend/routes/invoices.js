@@ -787,6 +787,22 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
 
         const normalizedMethod = normalizedPayment.payment_method;
         const paymentSplit = normalizedPayment.payment;
+        if (paymentSplit.bank_transfer > 0) {
+            const storeBankConfig = await Store.findById(req.user.storeId)
+                .select('bank_id bank_account bank_account_name')
+                .lean();
+            const hasStoreBankConfig = Boolean(
+                String(storeBankConfig?.bank_id || '').trim() &&
+                String(storeBankConfig?.bank_account || '').trim() &&
+                String(storeBankConfig?.bank_account_name || '').trim()
+            );
+            if (!hasStoreBankConfig) {
+                return res.status(400).json({
+                    message: 'Cửa hàng chưa cấu hình tài khoản ngân hàng nhận QR. Vui lòng vào Cài đặt -> Cấu hình ngân hàng.',
+                    code: 'STORE_BANK_CONFIG_REQUIRED',
+                });
+            }
+        }
 
         // Với chuyển khoản hoặc split có bank_transfer: sinh payment_ref để nhúng vào nội dung QR
         const paymentRef = paymentSplit.bank_transfer > 0 ? generatePaymentRef() : null;
