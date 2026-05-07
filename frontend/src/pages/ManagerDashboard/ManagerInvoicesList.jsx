@@ -87,7 +87,7 @@ export default function ManagerInvoicesList() {
       const invoiceRows = allInvoicesRaw.map((inv) => ({
         type: 'sale',
         createdAt: inv.invoice_at,
-        code: inv._id,
+        code: inv.display_code || inv._id,
         sellerName: inv.seller_name || inv.created_by?.fullName || inv.created_by?.email || '—',
         sellerRole: inv.seller_role || '',
         customerName: inv.recipient_name || '—',
@@ -193,7 +193,7 @@ export default function ManagerInvoicesList() {
       const headers = ["ID", "Ngày Tạo", "Người Bán", "Vai Trò", "Khách Hàng", "Phương Thức", "Tổng Tiền (VNĐ)"];
       
       const rows = todayInvoices.map(inv => [
-        `"${inv._id}"`,
+        `"${inv.display_code || inv._id}"`,
         `"${new Date(inv.invoice_at).toLocaleString('vi-VN')}"`,
         `"${inv.seller_name || inv.created_by?.fullName || inv.created_by?.email || ''}"`,
         `"${inv.seller_role || ''}"`,
@@ -226,6 +226,18 @@ export default function ManagerInvoicesList() {
   const formatDate = (d) => {
     if (!d) return '—';
     try { return new Date(d).toLocaleString('vi-VN'); } catch { return '—'; }
+  };
+  const formatDateParts = (d) => {
+    if (!d) return { date: '—', time: '' };
+    try {
+      const dt = new Date(d);
+      return {
+        date: dt.toLocaleDateString('vi-VN'),
+        time: dt.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+      };
+    } catch {
+      return { date: formatDate(d), time: '' };
+    }
   };
 
   return (
@@ -318,9 +330,13 @@ export default function ManagerInvoicesList() {
                     <tbody>
                       {invoices.map((inv) => {
                         const statusView = inv.status;
+                        const dt = formatDateParts(inv.createdAt);
                         return (
                         <tr key={`${inv.type}-${inv.code}`}>
-                          <td>{formatDate(inv.createdAt)}</td>
+                          <td>
+                            <div style={{ fontWeight: 600, color: '#0f172a' }}>{dt.date}</div>
+                            {dt.time ? <div style={{ fontSize: 12, color: '#64748b' }}>{dt.time}</div> : null}
+                          </td>
                           <td style={{ fontFamily: 'monospace', fontSize: 12, color: '#64748b', maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{inv.code}</td>
                           <td>
                             <div style={{ fontWeight: 500, color: '#1e293b' }}>

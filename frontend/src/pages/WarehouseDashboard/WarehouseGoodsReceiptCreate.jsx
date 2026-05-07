@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useWarehouseBase } from '../../utils/useWarehouseBase';
-import { getProducts, getProductUnits } from '../../services/productsApi';
+import { getProducts, getProductUnits, scanProductByCode } from '../../services/productsApi';
 import { createSupplier, getSuppliers } from '../../services/suppliersApi';
 import { createGoodsReceipt } from '../../services/goodsReceiptsApi';
 import WarehouseProductCreateModal from './WarehouseProductCreateModal';
@@ -16,6 +16,7 @@ import {
   PackageSearch,
   Plus,
   Search,
+  ScanLine,
   Sparkles,
   Trash2,
 } from 'lucide-react';
@@ -35,6 +36,7 @@ export default function WarehouseGoodsReceiptCreate() {
   const [search, setSearch] = useState('');
   const [products, setProducts] = useState([]);
   const [searching, setSearching] = useState(false);
+  const [scanMode, setScanMode] = useState(false);
 
   const [items, setItems] = useState([]);
   const [unitMapByProduct, setUnitMapByProduct] = useState({});
@@ -42,6 +44,8 @@ export default function WarehouseGoodsReceiptCreate() {
   const [submitting, setSubmitting] = useState(false);
   const [showProductModal, setShowProductModal] = useState(false);
   const searchReqSeqRef = useRef(0);
+  const scanBufferRef = useRef('');
+  const scanTimerRef = useRef(null);
 
   const addedIds = useMemo(() => new Set(items.map((i) => i.product._id)), [items]);
 
@@ -149,6 +153,65 @@ export default function WarehouseGoodsReceiptCreate() {
       },
     ]);
   };
+
+  const handleScanSubmit = useCallback(async (rawCode) => {
+    const code = String(rawCode || '').trim();
+    if (!code) return;
+    try {
+      const found = await scanProductByCode(code);
+      const product = found?.product || null;
+      if (!product?._id) {
+        toast('Không tìm thấy sản phẩm theo mã vừa quét', 'error');
+        return;
+      }
+      await handleAddProduct(product);
+      setSearch(code);
+      setProducts((prev) => {
+        const already = prev.some((p) => String(p._id) === String(product._id));
+        return already ? prev : [product, ...prev];
+      });
+      const unitText = found?.unit?.unit_name ? ` (${found.unit.unit_name})` : '';
+      toast(`Đã quét: ${product.name}${unitText}`, 'success');
+    } catch (e) {
+      toast(e.message || `Không tìm thấy sản phẩm với mã: ${code}`, 'error');
+    }
+  }, [handleAddProduct, toast]);
+
+  useEffect(() => {
+    if (!scanMode) return undefined;
+    const onKeyDown = (e) => {
+      if (['Shift', 'Alt', 'Control', 'Meta', 'CapsLock', 'Tab', 'Escape'].includes(e.key)) return;
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        e.stopPropagation();
+        const code = scanBufferRef.current;
+        scanBufferRef.current = '';
+        if (scanTimerRef.current) {
+          clearTimeout(scanTimerRef.current);
+          scanTimerRef.current = null;
+        }
+        handleScanSubmit(code);
+        return;
+      }
+      if (e.key.length === 1) {
+        scanBufferRef.current += e.key;
+        if (scanTimerRef.current) clearTimeout(scanTimerRef.current);
+        scanTimerRef.current = setTimeout(() => {
+          scanBufferRef.current = '';
+          scanTimerRef.current = null;
+        }, 600);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown, true);
+      if (scanTimerRef.current) {
+        clearTimeout(scanTimerRef.current);
+        scanTimerRef.current = null;
+      }
+      scanBufferRef.current = '';
+    };
+  }, [handleScanSubmit, scanMode]);
 
   const handleRemoveItem = (productId) => {
     setItems((prev) => prev.filter((item) => item.product._id !== productId));
@@ -347,10 +410,35 @@ export default function WarehouseGoodsReceiptCreate() {
               <input
                 type="search"
                 placeholder="Tìm theo tên, SKU..."
-                className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-3 text-sm outline-none ring-sky-200 focus:ring-2"
+                className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-12 text-sm outline-none ring-sky-200 focus:ring-2"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
+              <button
+                type="button"
+                onClick={() => {
+                  setScanMode((prev) => {
+                    const next = !prev;
+                    if (!next) {
+                      scanBufferRef.current = '';
+                      if (scanTimerRef.current) {
+                        clearTimeout(scanTimerRef.current);
+                        scanTimerRef.current = null;
+                      }
+                    }
+                    return next;
+                  });
+                }}
+                className={`absolute right-2 top-1/2 -translate-y-1/2 rounded-md border p-1.5 transition ${
+                  scanMode
+                    ? 'border-sky-300 bg-sky-50 text-sky-700'
+                    : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50'
+                }`}
+                title={scanMode ? 'Tắt chế độ quét mã' : 'Bật chế độ quét mã'}
+                aria-label={scanMode ? 'Tắt chế độ quét mã' : 'Bật chế độ quét mã'}
+              >
+                <ScanLine className="h-4 w-4" />
+              </button>
             </div>
             <Button
               type="button"
@@ -369,6 +457,11 @@ export default function WarehouseGoodsReceiptCreate() {
               )}
             </Button>
           </div>
+          {scanMode && (
+            <p className="text-xs font-medium text-sky-700">
+              Chế độ quét đang bật. Dùng máy quét barcode và nhấn Enter để tự thêm sản phẩm vào phiếu nhập.
+            </p>
+          )}
 
           {products.length > 0 && (
             <div className="max-h-56 overflow-y-auto rounded-xl border border-slate-200/80 bg-slate-50/40">

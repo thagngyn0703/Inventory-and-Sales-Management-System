@@ -77,40 +77,38 @@ export default function AdminDashboard() {
                         </p>
                     </div>
 
-                    <div className="admin-dash-single">
-                        <div className="manager-panel-card">
-                            <div className="manager-panel-header manager-panel-header--space">
-                                <h2 className="manager-panel-title">Quản trị nhanh</h2>
-                            </div>
-                            <div className="admin-dash-quick">
-                                <button
-                                    type="button"
-                                    className="admin-dash-quick__btn"
-                                    onClick={() => navigate("/admin/stores")}
-                                >
-                                    <i className="fa-solid fa-store" />
-                                    <span>Quản lý cửa hàng</span>
-                                    <small>Bật / tắt hoạt động cửa hàng</small>
-                                </button>
-                                <button
-                                    type="button"
-                                    className="admin-dash-quick__btn"
-                                    onClick={() => navigate("/admin/users")}
-                                >
-                                    <i className="fa-solid fa-user-gear" />
-                                    <span>Quản lý tài khoản</span>
-                                    <small>Trạng thái, gán nhân viên vào cửa hàng</small>
-                                </button>
-                                <button
-                                    type="button"
-                                    className="admin-dash-quick__btn"
-                                    onClick={() => navigate("/admin/support")}
-                                >
-                                    <i className="fa-solid fa-headset" />
-                                    <span>Phiếu hỗ trợ</span>
-                                    <small>Yêu cầu từ quản lý cửa hàng</small>
-                                </button>
-                            </div>
+                    <div className="manager-panel-card">
+                        <div className="manager-panel-header manager-panel-header--space">
+                            <h2 className="manager-panel-title">Quản trị nhanh</h2>
+                        </div>
+                        <div className="admin-dash-quick admin-dash-quick--grid">
+                            <button
+                                type="button"
+                                className="admin-dash-quick__btn"
+                                onClick={() => navigate("/admin/stores")}
+                            >
+                                <i className="fa-solid fa-store" />
+                                <span>Quản lý cửa hàng</span>
+                                <small>Bật / tắt hoạt động cửa hàng, duyệt hồ sơ pháp lý</small>
+                            </button>
+                            <button
+                                type="button"
+                                className="admin-dash-quick__btn"
+                                onClick={() => navigate("/admin/users")}
+                            >
+                                <i className="fa-solid fa-user-gear" />
+                                <span>Quản lý tài khoản</span>
+                                <small>Trạng thái tài khoản và gán nhân viên vào cửa hàng</small>
+                            </button>
+                            <button
+                                type="button"
+                                className="admin-dash-quick__btn"
+                                onClick={() => navigate("/admin/support")}
+                            >
+                                <i className="fa-solid fa-headset" />
+                                <span>Phiếu hỗ trợ</span>
+                                <small>Theo dõi yêu cầu từ quản lý cửa hàng theo trạng thái</small>
+                            </button>
                         </div>
                     </div>
 

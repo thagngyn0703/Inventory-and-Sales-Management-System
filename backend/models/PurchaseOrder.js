@@ -58,6 +58,17 @@ const purchaseOrderSchema = new Schema(
             type: Date,
             default: Date.now,
         },
+        cancel_reason: {
+            type: String,
+            trim: true,
+        },
+        cancelled_by: {
+            type: Schema.Types.ObjectId,
+            ref: 'User',
+        },
+        cancelled_at: {
+            type: Date,
+        },
     },
     {
         timestamps: false,

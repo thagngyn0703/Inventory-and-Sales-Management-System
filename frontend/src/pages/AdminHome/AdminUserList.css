@@ -12,6 +12,11 @@
     font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
 }
 
+.admin-page-with-sidebar {
+    min-height: 100vh;
+    background: #f4f6f8;
+}
+
 /* ── Top bar ── */
 .admin-users-topbar {
     background: #ffffff;
@@ -50,6 +55,10 @@
     gap: 12px;
 }
 
+.admin-users-topbar-spacer {
+    flex: 1;
+}
+
 .admin-users-badge {
     display: flex;
     align-items: center;
@@ -65,6 +74,14 @@
 .admin-users-badge i {
     font-size: 20px;
     color: #6b7280;
+}
+
+.admin-topbar-select {
+    min-width: 220px;
+    height: 40px;
+    border-radius: 10px;
+    border: 1px solid #e5e7eb;
+    background: #fff;
 }
 
 /* ── Content ── */

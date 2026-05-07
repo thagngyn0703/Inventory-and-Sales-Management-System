@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Search, Zap } from 'lucide-react';
+import { ScanLine, Search, Zap } from 'lucide-react';
 import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { Button } from '../../components/ui/button';
@@ -56,6 +56,7 @@ export default function ManagerQuickGoodsReceipt() {
     const [loading, setLoading] = useState(false);
     const [unitOptions, setUnitOptions] = useState([]);
     const [selectedUnitId, setSelectedUnitId] = useState('');
+    const [scanMode, setScanMode] = useState(false);
     const applyBarcodeToBaseUnit = (formState, rawBarcode) => {
         const nextBarcode = String(rawBarcode || '').trim();
         const units = Array.isArray(formState.selling_units) && formState.selling_units.length > 0
@@ -84,6 +85,8 @@ export default function ManagerQuickGoodsReceipt() {
 
     const dropdownRef = useRef(null);
     const barcodeInputRef = useRef(null);
+    const scanBufferRef = useRef('');
+    const scanTimerRef = useRef(null);
 
     useEffect(() => {
         getSuppliers().then((list) => setSupplierList(list || [])).catch(() => {});
@@ -274,6 +277,60 @@ export default function ManagerQuickGoodsReceipt() {
         setUnitOptions([]);
         setSelectedUnitId('');
     };
+
+    const handleScanSubmit = async (rawCode) => {
+        const code = String(rawCode || '').trim();
+        if (!code) return;
+        try {
+            const found = await scanProductByCode(code);
+            const product = found?.product || null;
+            if (!product?._id) {
+                toast('Không tìm thấy sản phẩm theo mã vừa quét.', 'error');
+                return;
+            }
+            selectProduct(product);
+            const unitText = found?.unit?.unit_name ? ` (${found.unit.unit_name})` : '';
+            toast(`Đã quét: ${product.name}${unitText}`, 'success');
+        } catch (err) {
+            toast(err?.message || `Không tìm thấy sản phẩm với mã: ${code}`, 'error');
+        }
+    };
+
+    useEffect(() => {
+        if (!scanMode) return undefined;
+        const onKeyDown = (e) => {
+            if (['Shift', 'Alt', 'Control', 'Meta', 'CapsLock', 'Tab', 'Escape'].includes(e.key)) return;
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                e.stopPropagation();
+                const code = scanBufferRef.current;
+                scanBufferRef.current = '';
+                if (scanTimerRef.current) {
+                    clearTimeout(scanTimerRef.current);
+                    scanTimerRef.current = null;
+                }
+                handleScanSubmit(code);
+                return;
+            }
+            if (e.key.length === 1) {
+                scanBufferRef.current += e.key;
+                if (scanTimerRef.current) clearTimeout(scanTimerRef.current);
+                scanTimerRef.current = setTimeout(() => {
+                    scanBufferRef.current = '';
+                    scanTimerRef.current = null;
+                }, 600);
+            }
+        };
+        window.addEventListener('keydown', onKeyDown, true);
+        return () => {
+            window.removeEventListener('keydown', onKeyDown, true);
+            if (scanTimerRef.current) {
+                clearTimeout(scanTimerRef.current);
+                scanTimerRef.current = null;
+            }
+            scanBufferRef.current = '';
+        };
+    }, [scanMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const handleSubmitQuickReceipt = async (e) => {
         e.preventDefault();
@@ -546,8 +603,33 @@ export default function ManagerQuickGoodsReceipt() {
                                         setCreateMode(false);
                                     }}
                                     placeholder="Quét barcode hoặc nhập tên/SKU..."
-                                    className="h-11 w-full rounded-lg border border-slate-200 bg-white pl-10 pr-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
+                                    className="h-11 w-full rounded-lg border border-slate-200 bg-white pl-10 pr-12 text-sm outline-none ring-sky-200 transition focus:ring-2"
                                 />
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setScanMode((prev) => {
+                                            const next = !prev;
+                                            if (!next) {
+                                                scanBufferRef.current = '';
+                                                if (scanTimerRef.current) {
+                                                    clearTimeout(scanTimerRef.current);
+                                                    scanTimerRef.current = null;
+                                                }
+                                            }
+                                            return next;
+                                        });
+                                    }}
+                                    className={`absolute right-2 top-1/2 -translate-y-1/2 rounded-md border p-1.5 transition ${
+                                        scanMode
+                                            ? 'border-sky-300 bg-sky-50 text-sky-700'
+                                            : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50'
+                                    }`}
+                                    title={scanMode ? 'Tắt chế độ quét mã' : 'Bật chế độ quét mã'}
+                                    aria-label={scanMode ? 'Tắt chế độ quét mã' : 'Bật chế độ quét mã'}
+                                >
+                                    <ScanLine className="h-4 w-4" />
+                                </button>
                                 {showDropdown && filteredProducts.length > 0 && (
                                     <div className="absolute left-0 top-full z-50 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg">
                                         {filteredProducts.map((p) => (
@@ -566,6 +648,11 @@ export default function ManagerQuickGoodsReceipt() {
                                     </div>
                                 )}
                             </div>
+                            {scanMode && (
+                                <p className="text-xs font-medium text-sky-700">
+                                    Chế độ quét đang bật. Dùng máy quét barcode và nhấn Enter để tự chọn sản phẩm.
+                                </p>
+                            )}
                             {!selectedProduct && searchInput.trim() && filteredProducts.length === 0 && !createMode && (
                                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
                                     Sản phẩm mới chưa có trong hệ thống.

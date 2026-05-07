@@ -145,6 +145,7 @@ router.get('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
             .populate('supplier_id', 'name phone email')
             .populate('created_by', 'fullName email')
             .populate('approved_by', 'fullName email')
+            .populate('items.product_id', 'name sku base_unit')
             .lean();
 
         if (!doc) return res.status(404).json({ message: 'Supplier return not found' });

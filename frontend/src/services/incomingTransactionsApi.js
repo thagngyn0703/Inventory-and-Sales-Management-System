@@ -39,6 +39,23 @@ export async function getPurchaseOrder(id) {
   return data.purchaseOrder;
 }
 
+/** Hủy đơn mua hàng */
+export async function cancelPurchaseOrder(id, cancelReason = '') {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/purchase-orders/${id}/cancel`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      cancel_reason: String(cancelReason || '').trim() || undefined,
+    }),
+  });
+  const data = await parseResponse(res, 'Không thể hủy đơn mua hàng');
+  return data.purchaseOrder;
+}
+
 /** Danh sách phiếu nhập kho (có thể lọc theo nhà cung cấp) */
 export async function getGoodsReceipts({ page = 1, limit = 20, status, supplierId } = {}) {
   const token = getToken();

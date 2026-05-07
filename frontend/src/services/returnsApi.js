@@ -42,6 +42,16 @@ export async function createReturn(body) {
   return { salesReturn: data.salesReturn, message: data.message };
 }
 
+export async function approveReturn(id) {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/returns/${id}/approve`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = await parseResponse(res, 'Không thể duyệt phiếu trả hàng');
+  return { salesReturn: data.salesReturn, message: data.message };
+}
+
 export async function getReturnReasons() {
   const token = getToken();
   const res = await fetch(`${API_BASE}/returns/reasons`, {

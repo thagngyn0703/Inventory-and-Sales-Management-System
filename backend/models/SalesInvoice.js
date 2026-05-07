@@ -54,6 +54,11 @@ const salesInvoiceSchema = new Schema(
             type: Date,
             default: Date.now,
         },
+        invoice_tax_point_at: {
+            type: Date,
+            default: Date.now,
+            index: true,
+        },
         payment_method: {
             type: String,
             enum: ['cash', 'bank_transfer', 'credit', 'card', 'debt', 'split'],
@@ -63,6 +68,12 @@ const salesInvoiceSchema = new Schema(
             type: String,
             enum: ['unpaid', 'partial', 'paid'],
             default: 'unpaid',
+            index: true,
+        },
+        display_code: {
+            type: String,
+            trim: true,
+            default: '',
             index: true,
         },
         payment_ref: {
@@ -150,11 +161,100 @@ const salesInvoiceSchema = new Schema(
                     min: 0,
                     max: 100,
                 },
+                excise_rate_snapshot: {
+                    type: Number,
+                    default: 0,
+                    min: 0,
+                    max: 100,
+                },
+                tax_category_snapshot: {
+                    type: String,
+                    default: 'DEFAULT',
+                    trim: true,
+                },
+                price_includes_tax_snapshot: {
+                    type: Boolean,
+                    default: true,
+                },
+                tax_override_reason_snapshot: {
+                    type: String,
+                    default: '',
+                    trim: true,
+                },
+                tax_status: {
+                    type: String,
+                    enum: ['taxable', 'non_taxable', 'not_subject', 'special_scheme'],
+                    default: 'taxable',
+                },
+                declaration_stage: {
+                    type: String,
+                    enum: ['production_import', 'commercial_distribution', 'retail'],
+                    default: 'retail',
+                },
+                base_rate: {
+                    type: Number,
+                    default: 0,
+                },
+                reduced_rate: {
+                    type: Number,
+                    default: null,
+                },
+                final_rate: {
+                    type: Number,
+                    default: 0,
+                },
+                reduction_reason_code: {
+                    type: String,
+                    default: '',
+                    trim: true,
+                },
+                legal_basis_ref: {
+                    type: String,
+                    default: '',
+                    trim: true,
+                },
+                legal_basis_article: {
+                    type: String,
+                    default: '',
+                    trim: true,
+                },
+                legal_basis_clause: {
+                    type: String,
+                    default: '',
+                    trim: true,
+                },
+                legal_basis_note: {
+                    type: String,
+                    default: '',
+                    trim: true,
+                },
+                policy_version_id: {
+                    type: Schema.Types.ObjectId,
+                    ref: 'TaxPolicy',
+                    default: null,
+                },
+                rate_source: {
+                    type: String,
+                    enum: ['policy', 'product_override', 'category', 'store_default', 'household_business_mode'],
+                    default: 'store_default',
+                },
+                requires_manual_tax_review: {
+                    type: Boolean,
+                    default: false,
+                },
                 line_subtotal_amount: {
                     type: Number,
                     default: 0,
                 },
                 line_tax_amount: {
+                    type: Number,
+                    default: 0,
+                },
+                line_excise_amount: {
+                    type: Number,
+                    default: 0,
+                },
+                line_vat_amount: {
                     type: Number,
                     default: 0,
                 },
@@ -191,6 +291,58 @@ const salesInvoiceSchema = new Schema(
         tax_is_mixed: {
             type: Boolean,
             default: false,
+        },
+        tax_policy_version_id: {
+            type: Schema.Types.ObjectId,
+            ref: 'TaxPolicy',
+            default: null,
+        },
+        tax_policy_version_code: {
+            type: String,
+            default: '',
+            trim: true,
+        },
+        tax_legal_basis_ref: {
+            type: String,
+            default: '',
+            trim: true,
+        },
+        tax_legal_basis_article: {
+            type: String,
+            default: '',
+            trim: true,
+        },
+        tax_legal_basis_clause: {
+            type: String,
+            default: '',
+            trim: true,
+        },
+        tax_legal_basis_note: {
+            type: String,
+            default: '',
+            trim: true,
+        },
+        tax_rounding_mode: {
+            type: String,
+            default: 'half_up',
+        },
+        strict_compliance_snapshot: {
+            type: Boolean,
+            default: true,
+        },
+        tax_decision_trace: {
+            type: Schema.Types.Mixed,
+            default: null,
+        },
+        tax_breakdown_summary: {
+            type: [Schema.Types.Mixed],
+            default: [],
+        },
+        replaced_by_invoice_id: {
+            type: Schema.Types.ObjectId,
+            ref: 'SalesInvoice',
+            default: null,
+            index: true,
         },
         /**
          * Compliance / e-invoice preparation fields (phase 2 integration ready).

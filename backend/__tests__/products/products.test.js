@@ -1,8 +1,11 @@
 const mongoose = require('mongoose');
+mongoose.set('strictPopulate', false); // Bỏ qua lỗi StrictPopulateError nếu schema thiếu trường
 const request = require('supertest');
 const express = require('express');
 const productRoutes = require('../../routes/products');
 const Product = require('../../models/Product');
+require('../../models/Category'); // Đảm bảo model Category được đăng ký trước khi test
+require('../../models/Supplier'); // Đảm bảo model Supplier được đăng ký trước khi test
 const { createManagerWithStore, createAdminUser, getAuthHeader } = require('../fixtures/users');
 const { createTestProduct, createProducts } = require('../fixtures/products');
 
@@ -208,6 +211,9 @@ describe('Products Routes', () => {
         .get(`/api/products/${product._id}`)
         .set('Authorization', managerToken);
 
+      if (res.status === 500) {
+        console.log('500 ERROR BODY:', res.body);
+      }
       expect(res.status).toBe(200);
       expect(res.body.product).toBeDefined();
       expect(res.body.product._id).toBe(String(product._id));

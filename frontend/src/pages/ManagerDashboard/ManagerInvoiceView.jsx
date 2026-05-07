@@ -58,7 +58,7 @@ export default function ManagerInvoiceView() {
     if (id && id !== 'new') fetchInvoice();
   }, [id]);
 
-  const shortId = invoice?._id ? String(invoice._id).slice(-8).toUpperCase() : '';
+  const shortId = invoice?.display_code || (invoice?._id ? String(invoice._id).slice(-8).toUpperCase() : '');
   const statusView = getInvoiceStatusView(invoice);
   const soldGrossAmount = (invoice?.items || []).reduce((sum, it) => sum + (Number(it.line_total) || 0), 0);
   const invoiceLevelDiscount = Number(invoice?.invoice_level_discount || 0);
@@ -136,7 +136,7 @@ export default function ManagerInvoiceView() {
                 <dl className="space-y-3 text-sm">
                   <div className="flex justify-between gap-2">
                     <dt className="text-slate-500">Mã hóa đơn</dt>
-                    <dd className="font-mono text-xs font-semibold text-slate-900">{invoice._id || '—'}</dd>
+                    <dd className="font-mono text-xs font-semibold text-slate-900">{invoice.display_code || invoice._id || '—'}</dd>
                   </div>
                   <div className="flex justify-between gap-2">
                     <dt className="text-slate-500">Ngày tạo</dt>

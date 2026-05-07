@@ -114,6 +114,15 @@ const storeSchema = new Schema(
             min: 0,
             max: 100,
         },
+        default_tax_profile: {
+            type: String,
+            default: 'default',
+            trim: true,
+        },
+        strict_tax_compliance: {
+            type: Boolean,
+            default: true,
+        },
         price_includes_tax: {
             type: Boolean,
             default: true,

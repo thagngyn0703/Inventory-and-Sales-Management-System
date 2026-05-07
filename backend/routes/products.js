@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const Product = require('../models/Product');
+const Category = require('../models/Category');
 const ProductUnit = require('../models/ProductUnit');
 const StockBatch = require('../models/StockBatch');
 const ProductPriceHistory = require('../models/ProductPriceHistory');
@@ -77,7 +78,7 @@ function isValidNoSpecialText(value) {
 }
 
 function isValidProductName(value) {
-  return trimText(value).length > 0;
+  return isValidNoSpecialText(value);
 }
 
 function parseNonNegativeNumber(value) {
@@ -85,6 +86,18 @@ function parseNonNegativeNumber(value) {
   const n = Number(value);
   if (!Number.isFinite(n) || n < 0) return null;
   return n;
+}
+
+function normalizeCategoryTaxConfig(categoryDoc) {
+  if (!categoryDoc) return null;
+  const vat = Number(categoryDoc.vat_rate);
+  return {
+    vat_rate: Number.isFinite(vat) && vat >= 0 ? vat : 0,
+    tax_profile: String(categoryDoc.tax_profile || 'default').trim() || 'default',
+    tax_tags: Array.isArray(categoryDoc.tax_tags)
+      ? categoryDoc.tax_tags.map((t) => String(t).trim()).filter(Boolean)
+      : [],
+  };
 }
 
 function normalizeImageUrls(value) {
@@ -505,6 +518,12 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
       stock_qty,
       reorder_level,
       vat_rate,
+      tax_override_enabled,
+      tax_tags,
+      tax_category,
+      tax_profile,
+      price_includes_tax,
+      tax_override_reason,
       expiry_date,
       base_unit,
       selling_units: bodyUnits,
@@ -525,10 +544,13 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
     if (!Number.isFinite(vatNum) || vatNum < 0 || vatNum > 100) {
       return res.status(400).json({ message: 'VAT không hợp lệ (0-100).' });
     }
+    if (Boolean(tax_override_enabled) && !String(tax_override_reason || '').trim()) {
+      return res.status(400).json({ message: 'Bật tax override bắt buộc nhập lý do override.' });
+    }
 
     if (!nameTrim) return res.status(400).json({ message: 'Tên sản phẩm không được để trống.' });
     if (!isValidProductName(nameTrim)) {
-      return res.status(400).json({ message: 'Tên sản phẩm không được để trống.' });
+      return res.status(400).json({ message: 'Tên sản phẩm không được chứa ký tự đặc biệt.' });
     }
     if (!skuTrim) return res.status(400).json({ message: 'SKU không được để trống.' });
     if (!SKU_REGEX.test(skuTrim)) {
@@ -671,6 +693,24 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
     }
 
     const resolvedSupplierId = supplier_id && mongoose.isValidObjectId(supplier_id) ? supplier_id : undefined;
+    const resolvedCategoryId = category_id && mongoose.isValidObjectId(category_id) ? category_id : undefined;
+    const categoryDoc = resolvedCategoryId
+      ? await Category.findById(resolvedCategoryId).select('vat_rate tax_profile tax_tags').lean()
+      : null;
+    if (resolvedCategoryId && !categoryDoc) {
+      return res.status(400).json({ message: 'Danh mục không tồn tại hoặc đã bị xóa.' });
+    }
+    const categoryTax = normalizeCategoryTaxConfig(categoryDoc);
+    const hasVatInput = !(vat_rate === undefined || vat_rate === null || vat_rate === '');
+    const hasTaxProfileInput = tax_profile !== undefined;
+    const hasTaxTagsInput = tax_tags !== undefined;
+    const resolvedVatRate = (!hasVatInput && categoryTax) ? categoryTax.vat_rate : vatNum;
+    const resolvedTaxProfile = (!hasTaxProfileInput && categoryTax)
+      ? categoryTax.tax_profile
+      : (String(tax_profile || 'default').trim() || 'default');
+    const resolvedTaxTags = (!hasTaxTagsInput && categoryTax)
+      ? categoryTax.tax_tags
+      : (Array.isArray(tax_tags) ? tax_tags.map((t) => String(t).trim()).filter(Boolean) : []);
 
     // Tạo sản phẩm với stock_qty = 0; tồn kho sẽ được cộng qua GoodsReceipt bên dưới
     // Với trường hợp có tồn kho ban đầu, chạy transaction all-or-nothing để tránh tạo dở dang.
@@ -679,7 +719,7 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
       try {
         session.startTransaction();
         const [doc] = await Product.create([{
-          category_id: category_id && mongoose.isValidObjectId(category_id) ? category_id : undefined,
+          category_id: resolvedCategoryId,
           supplier_id: resolvedSupplierId,
           storeId: resolvedStoreId,
           name: nameTrim,
@@ -687,7 +727,13 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
           barcode: barcodeTrim || undefined,
           cost_price: Math.round(costNum),
           sale_price: Math.round(baseUnitPrice),
-          vat_rate: vatNum,
+          vat_rate: resolvedVatRate,
+          tax_override_enabled: Boolean(tax_override_enabled),
+          tax_tags: resolvedTaxTags,
+          tax_category: String(tax_category || 'DEFAULT').trim() || 'DEFAULT',
+          tax_profile: resolvedTaxProfile,
+          price_includes_tax: price_includes_tax === undefined ? null : Boolean(price_includes_tax),
+          tax_override_reason: String(tax_override_reason || '').trim(),
           stock_qty: 0,
           reorder_level: reorderNum,
           expiry_date: expCheck.date,
@@ -698,17 +744,17 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
         }], { session });
         await syncProductUnitsFromProduct(doc, session);
 
-      const paymentType = ['cash', 'credit'].includes(req.body.payment_type) ? req.body.payment_type : 'credit';
-      const unitCost = Math.round(costNum);
-      const totalCost = unitCost * stockNum;
-      let payableDueDate = null;
-      if (paymentType === 'credit') {
-        const supplierDoc = await Supplier.findOne({ _id: resolvedSupplierId, storeId: resolvedStoreId }).session(session);
-        const termDays = Number(supplierDoc?.default_payment_term_days) || 0;
-        const effectiveTermDays = termDays > 0 ? termDays : 30;
-        payableDueDate = new Date();
-        payableDueDate.setDate(payableDueDate.getDate() + effectiveTermDays);
-      }
+        const paymentType = ['cash', 'credit'].includes(req.body.payment_type) ? req.body.payment_type : 'credit';
+        const unitCost = Math.round(costNum);
+        const totalCost = unitCost * stockNum;
+        let payableDueDate = null;
+        if (paymentType === 'credit') {
+          const supplierDoc = await Supplier.findOne({ _id: resolvedSupplierId, storeId: resolvedStoreId }).session(session);
+          const termDays = Number(supplierDoc?.default_payment_term_days) || 0;
+          const effectiveTermDays = termDays > 0 ? termDays : 30;
+          payableDueDate = new Date();
+          payableDueDate.setDate(payableDueDate.getDate() + effectiveTermDays);
+        }
 
         const [gr] = await GoodsReceipt.create([{
           supplier_id: resolvedSupplierId,
@@ -794,7 +840,7 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
     }
 
     const doc = await Product.create({
-      category_id: category_id && mongoose.isValidObjectId(category_id) ? category_id : undefined,
+      category_id: resolvedCategoryId,
       supplier_id: resolvedSupplierId,
       storeId: resolvedStoreId,
       name: nameTrim,
@@ -802,7 +848,13 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
       barcode: barcodeTrim || undefined,
       cost_price: Math.round(costNum),
       sale_price: Math.round(baseUnitPrice),
-      vat_rate: vatNum,
+      vat_rate: resolvedVatRate,
+      tax_override_enabled: Boolean(tax_override_enabled),
+      tax_tags: resolvedTaxTags,
+      tax_category: String(tax_category || 'DEFAULT').trim() || 'DEFAULT',
+      tax_profile: resolvedTaxProfile,
+      price_includes_tax: price_includes_tax === undefined ? null : Boolean(price_includes_tax),
+      tax_override_reason: String(tax_override_reason || '').trim(),
       stock_qty: 0,
       reorder_level: reorderNum,
       expiry_date: expCheck.date,
@@ -1445,6 +1497,7 @@ router.get('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), asyn
       });
     }
     const product = await Product.findOne({ _id: id, ...storeFilter })
+      .populate('category_id', 'name')
       .populate('supplier_id', 'name phone email')
       .lean();
     if (!product) return res.status(404).json({ message: 'Product not found' });
@@ -1475,6 +1528,12 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
       stock_qty,
       reorder_level,
       vat_rate,
+      tax_override_enabled,
+      tax_tags,
+      tax_category,
+      tax_profile,
+      price_includes_tax,
+      tax_override_reason,
       expiry_date,
       base_unit,
       selling_units: bodyUnits,
@@ -1518,7 +1577,7 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
       const nameTrim = trimText(name);
       if (!nameTrim) return res.status(400).json({ message: 'Tên sản phẩm không được để trống.' });
       if (!isValidProductName(nameTrim)) {
-        return res.status(400).json({ message: 'Tên sản phẩm không được để trống.' });
+        return res.status(400).json({ message: 'Tên sản phẩm không được chứa ký tự đặc biệt.' });
       }
       product.name = nameTrim;
     }
@@ -1576,6 +1635,27 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
       }
       product.vat_rate = vatNum;
     }
+    if (tax_override_enabled !== undefined) {
+      product.tax_override_enabled = Boolean(tax_override_enabled);
+      if (Boolean(tax_override_enabled) && !String(tax_override_reason !== undefined ? tax_override_reason : product.tax_override_reason || '').trim()) {
+        return res.status(400).json({ message: 'Bật tax override bắt buộc nhập lý do override.' });
+      }
+    }
+    if (tax_tags !== undefined) {
+      product.tax_tags = Array.isArray(tax_tags) ? tax_tags.map((t) => String(t).trim()).filter(Boolean) : [];
+    }
+    if (tax_category !== undefined) {
+      product.tax_category = String(tax_category || 'DEFAULT').trim() || 'DEFAULT';
+    }
+    if (tax_profile !== undefined) {
+      product.tax_profile = String(tax_profile || 'default').trim() || 'default';
+    }
+    if (price_includes_tax !== undefined) {
+      product.price_includes_tax = price_includes_tax === null ? null : Boolean(price_includes_tax);
+    }
+    if (tax_override_reason !== undefined) {
+      product.tax_override_reason = String(tax_override_reason || '').trim();
+    }
     if (base_unit !== undefined) {
       const base = base_unit ? trimText(base_unit) : 'Cái';
       if (!isValidNoSpecialText(base)) {
@@ -1586,7 +1666,29 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
     }
     if (status !== undefined) product.status = status === 'inactive' ? 'inactive' : 'active';
     if (category_id !== undefined) {
-      product.category_id = category_id && mongoose.isValidObjectId(category_id) ? category_id : null;
+      const resolvedCategoryId = category_id && mongoose.isValidObjectId(category_id) ? category_id : null;
+      product.category_id = resolvedCategoryId;
+    }
+    // Mỗi lần lưu sản phẩm, nếu không truyền tax thủ công thì tự đồng bộ theo danh mục hiện tại.
+    // Điều này giúp tránh trạng thái "đã lưu nhưng VAT ở list chưa đổi".
+    const effectiveCategoryId = product.category_id && mongoose.isValidObjectId(product.category_id)
+      ? product.category_id
+      : null;
+    if (effectiveCategoryId && (vat_rate === undefined || tax_profile === undefined || tax_tags === undefined)) {
+      const categoryDoc = await Category.findById(effectiveCategoryId).select('vat_rate tax_profile tax_tags').lean();
+      if (!categoryDoc) {
+        return res.status(400).json({ message: 'Danh mục không tồn tại hoặc đã bị xóa.' });
+      }
+      const categoryTax = normalizeCategoryTaxConfig(categoryDoc);
+      if (vat_rate === undefined) {
+        product.vat_rate = categoryTax.vat_rate;
+      }
+      if (tax_profile === undefined) {
+        product.tax_profile = categoryTax.tax_profile;
+      }
+      if (tax_tags === undefined) {
+        product.tax_tags = categoryTax.tax_tags;
+      }
     }
     if (supplier_id !== undefined) {
       product.supplier_id = supplier_id && mongoose.isValidObjectId(supplier_id) ? supplier_id : null;

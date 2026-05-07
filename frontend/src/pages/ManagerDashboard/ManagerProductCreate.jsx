@@ -36,6 +36,9 @@ const createDefaultForm = () => ({
     stock_qty: '',
     payment_type: 'cash',
     reorder_level: '',
+    vat_rate: '',
+    tax_override_enabled: false,
+    tax_tags_text: '',
     expiry_date: '',
     base_unit: 'Cái',
     selling_units: [defaultSellingUnit()],
@@ -275,6 +278,11 @@ export default function ManagerProductCreate() {
                 barcode: '',
             });
         }
+        const baseUnitCount = units.filter((u) => Number(u.ratio) === 1).length;
+        if (baseUnitCount !== 1) {
+            setError('Mỗi sản phẩm chỉ được có 1 đơn vị gốc (tỉ lệ = 1). Ví dụ: Chai = 1, Thùng phải > 1 (như 24).');
+            return;
+        }
         const seenUnitNames = new Set();
         const seenUnitBarcodes = new Set();
         const unitPayload = [];
@@ -305,7 +313,7 @@ export default function ManagerProductCreate() {
         }
         if (barcodeCheck.value) {
             const baseUnit = unitPayload.find((u) => u.is_base) || unitPayload[0];
-            if (baseUnit && !baseUnit.barcode) baseUnit.barcode = barcodeCheck.value;
+            if (baseUnit) baseUnit.barcode = barcodeCheck.value;
         }
 
         if (form.expiry_date && !isExpiryDateNotInPast(form.expiry_date)) {
@@ -785,6 +793,9 @@ export default function ManagerProductCreate() {
                                                 placeholder="0"
                                                 className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
                                             />
+                                        </div>
+                                        <div className="md:col-span-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                                            Thuế sản phẩm đang lấy theo <strong>Danh mục</strong> để giảm thao tác. Cần chỉnh đặc biệt thì thực hiện ở chế độ nâng cao sau.
                                         </div>
                                         <div className="md:col-span-2">
                                             <label className="mb-1 block text-sm font-medium text-slate-600">Hạn sử dụng</label>

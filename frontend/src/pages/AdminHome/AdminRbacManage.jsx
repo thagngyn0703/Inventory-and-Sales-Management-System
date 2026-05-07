@@ -8,6 +8,7 @@ import {
 } from '../../services/adminApi';
 import '../ManagerDashboard/ManagerDashboard.css';
 import '../ManagerDashboard/ManagerProducts.css';
+import './AdminUserList.css';
 
 export default function AdminRbacManage() {
   const [roles, setRoles] = useState([]);
@@ -47,19 +48,19 @@ export default function AdminRbacManage() {
   };
 
   return (
-    <div className="manager-page-with-sidebar">
+    <div className="admin-page-with-sidebar">
       <Sidebar />
-      <div className="manager-main">
-        <header className="manager-topbar">
-          <div className="manager-topbar-search-wrap" />
-          <div className="manager-topbar-actions">
-            <div className="manager-user-badge">
+      <div className="admin-users-main">
+        <header className="admin-users-topbar">
+          <div className="admin-users-topbar-spacer" />
+          <div className="admin-users-topbar-actions">
+            <div className="admin-users-badge">
               <i className="fa-solid fa-circle-user" />
-              <span>Admin</span>
+              <span>Quản trị viên</span>
             </div>
           </div>
         </header>
-        <div className="manager-content">
+        <div className="admin-users-content">
           <div className="manager-products-header">
             <div>
               <h1 className="manager-page-title">Quản lý RBAC</h1>
@@ -68,7 +69,7 @@ export default function AdminRbacManage() {
           </div>
           {error && <div className="manager-products-error">{error}</div>}
 
-          <div className="manager-panel-card manager-products-card" style={{ marginBottom: 16 }}>
+          <div className="manager-panel-card manager-products-card admin-users-table-card" style={{ marginBottom: 16 }}>
             <h3 className="manager-detail-section-title">Danh sách role</h3>
             {loading ? (
               <p className="manager-products-loading">Đang tải...</p>
@@ -100,7 +101,7 @@ export default function AdminRbacManage() {
             )}
           </div>
 
-          <div className="manager-panel-card manager-products-card">
+          <div className="manager-panel-card manager-products-card admin-users-table-card">
             <h3 className="manager-detail-section-title">Gán role cho user</h3>
             {loading ? (
               <p className="manager-products-loading">Đang tải...</p>

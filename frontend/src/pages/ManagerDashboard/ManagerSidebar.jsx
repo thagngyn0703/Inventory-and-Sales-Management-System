@@ -8,12 +8,14 @@ import { getRealtimeSocket } from '../../services/realtimeSocket';
 import {
   BarChart3,
   Bell,
+  CalendarClock,
   ChevronDown,
   ClipboardCheck,
   ClipboardList,
   CreditCard,
   Drill,
   FileStack,
+  FolderTree,
   Handshake,
   History,
   LifeBuoy,
@@ -24,7 +26,6 @@ import {
   Receipt,
   RotateCcw,
   Settings,
-  Sparkles,
   Store,
   UserPlus,
   Users,
@@ -37,6 +38,7 @@ const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
 const overviewItems = [
   { type: 'item', label: 'Tổng quan', path: '/manager', icon: LayoutDashboard },
   { type: 'item', label: 'Sản phẩm', path: '/manager/products', icon: Package },
+  { type: 'item', label: 'Danh mục', path: '/manager/categories', icon: FolderTree },
   { type: 'item', label: 'Hóa đơn', path: '/manager/invoices', icon: Receipt },
   {
     type: 'group',
@@ -47,6 +49,9 @@ const overviewItems = [
       { label: 'Nhà cung cấp', path: '/manager/suppliers', icon: Handshake },
       { label: 'Thêm nhà cung cấp', path: '/manager/suppliers/new', icon: Plus },
       { label: 'Công nợ NCC', path: '/manager/supplier-payables', icon: CreditCard },
+      { label: 'Giao dịch đến NCC', path: '/manager/incoming-transactions', icon: ClipboardList },
+      { label: 'Tạo trả NCC', path: '/manager/supplier-returns/new', icon: RotateCcw },
+      { label: 'Danh sách trả NCC', path: '/manager/supplier-returns', icon: RotateCcw },
       { label: 'Báo cáo chi tiền NCC', path: '/manager/supplier-payables/report', icon: BarChart3 },
     ],
   },
@@ -83,7 +88,7 @@ const manageItems = [
   { type: 'item', label: 'Lịch sử điều chỉnh', path: '/manager/adjustments', icon: History },
   { type: 'item', label: 'Báo cáo thẻ kho', path: '/manager/stock-history', icon: ClipboardList },
   { type: 'item', label: 'Bán hàng trực tiếp', path: '/manager/pos', icon: Drill },
-  { type: 'item', label: 'Trợ lý AI (tham khảo)', path: '/manager/ai-assistant', icon: Sparkles },
+  { type: 'item', label: 'Nhật ký thu ngân', path: '/manager/shifts', icon: CalendarClock },
   {
     type: 'group',
     key: 'manage-staff',
@@ -118,8 +123,11 @@ function getActivePath(pathname) {
   if (pathname.startsWith('/manager/invoices')) return '/manager/invoices';
   if (pathname.startsWith('/manager/supplier-payables/report')) return '/manager/supplier-payables/report';
   if (pathname.startsWith('/manager/supplier-payables')) return '/manager/supplier-payables';
+  if (pathname.startsWith('/manager/incoming-transactions')) return '/manager/incoming-transactions';
+  if (pathname.startsWith('/manager/supplier-returns/new')) return '/manager/supplier-returns/new';
   if (pathname.startsWith('/manager/supplier-returns')) return '/manager/supplier-returns';
   if (pathname.startsWith('/manager/pos')) return '/manager/pos';
+  if (pathname.startsWith('/manager/shifts')) return '/manager/shifts';
   return pathname;
 }
 

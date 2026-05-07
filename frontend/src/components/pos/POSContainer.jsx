@@ -19,7 +19,7 @@ import {
   cancelUnpaidBankTransferInvoice,
 } from '../../services/invoicesApi';
 import { closeShift, getCurrentShift, openShift } from '../../services/shiftsApi';
-import { getProducts, getProductUnits, scanProductByCode } from '../../services/productsApi';
+import { getProduct, getProducts, getProductUnits, scanProductByCode } from '../../services/productsApi';
 import { getCustomers, createCustomer } from '../../services/customersApi';
 import { getStoreTaxSettings, getStoreBankSettings, getStoreLoyaltySettings } from '../../services/adminApi';
 import { sendLoyaltyUpdate } from '../../services/customerNotifyApi';
@@ -46,6 +46,36 @@ function calcTaxBreakdown(grandTotal, taxRate, priceIncludesTax) {
 function formatMoney(n) {
   if (n == null || isNaN(n)) return '0';
   return Number(n).toLocaleString('vi-VN') + '₫';
+}
+
+function resolveMediaUrl(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  if (/^https?:\/\//i.test(raw)) return raw;
+  if (raw.startsWith('//')) return `${window.location.protocol}${raw}`;
+
+  const apiBase = String(process.env.REACT_APP_API_URL || 'http://localhost:8000/api').replace(/\/+$/, '');
+  const apiOrigin = apiBase.replace(/\/api$/i, '');
+  const normalizedPath = raw.startsWith('/') ? raw : `/${raw}`;
+  return `${apiOrigin}${normalizedPath}`;
+}
+
+function getProductImageUrl(productLike) {
+  if (!productLike) return '';
+  const list = Array.isArray(productLike.image_urls) ? productLike.image_urls : [];
+  const candidates = [
+    ...list.map((entry) => {
+      if (typeof entry === 'string') return entry;
+      if (entry && typeof entry === 'object') return entry.url || entry.secure_url || entry.src || '';
+      return '';
+    }),
+    productLike.image_url || '',
+    productLike.image || '',
+    productLike.thumbnail || '',
+    productLike.photo || '',
+  ];
+  const first = candidates.find((u) => String(u || '').trim());
+  return first ? resolveMediaUrl(first) : '';
 }
 
 async function copyText(text) {
@@ -107,6 +137,14 @@ export default function POSContainer({
   const { toast: notify } = useToast();
 
   const isManager = layoutMode === 'manager';
+  const currentUserId = useMemo(() => {
+    try {
+      const raw = JSON.parse(localStorage.getItem('user') || 'null');
+      return String(raw?._id || raw?.id || '');
+    } catch {
+      return '';
+    }
+  }, []);
   const backToListPath = isManager ? '/manager/pos/list' : '/staff/invoices';
 
   const rawBankAccountConfig = String(process.env.REACT_APP_BANK_ACCOUNT || 'MB-0000000000').trim();
@@ -148,11 +186,15 @@ export default function POSContainer({
   const [customerModalError, setCustomerModalError] = useState('');
 
   const [pendingPayment, setPendingPayment] = useState(null);
+  const [productInfoModal, setProductInfoModal] = useState({ open: false, loading: false, product: null, error: '' });
   const pollingRef = useRef(null);
+  const pollingSessionRef = useRef(0);
   const searchWrapRef = useRef(null);
   const tabsListRef = useRef(null);
+  const summaryScrollRef = useRef(null);
   const scanBufferRef = useRef('');
   const scanTimerRef = useRef(null);
+  const prevItemCountRef = useRef(0);
 
   const isNew = id === 'new' || !id || id === 'undefined' || id === 'null';
 
@@ -162,9 +204,13 @@ export default function POSContainer({
   const [currentShift, setCurrentShift] = useState(null);
   const [openShiftCash, setOpenShiftCash] = useState('');
   const [closeShiftCash, setCloseShiftCash] = useState('');
-  const [closeShiftBank, setCloseShiftBank] = useState('');
-  const [closeShiftStatus, setCloseShiftStatus] = useState('pending');
-  const [closeShiftNote, setCloseShiftNote] = useState('');
+  const [hideShiftCard, setHideShiftCard] = useState(() => {
+    try {
+      return localStorage.getItem('pos_hide_shift_card') === '1';
+    } catch {
+      return false;
+    }
+  });
 
   const getNextTabNumber = useCallback((tabList) => {
     const used = new Set(
@@ -191,6 +237,30 @@ export default function POSContainer({
   const updateActiveTab = (updates) => {
     setTabs((prev) => prev.map((t) => (t.tabId === activeTabId ? { ...t, ...updates } : t)));
   };
+
+  const openProductInfoModal = useCallback(async (item) => {
+    const productId = String(item?.product_id || '').trim();
+    if (!productId) {
+      notify('Không tìm thấy mã sản phẩm để xem chi tiết.', 'error');
+      return;
+    }
+    setProductInfoModal({ open: true, loading: true, product: null, error: '' });
+    try {
+      const product = await getProduct(productId);
+      setProductInfoModal({ open: true, loading: false, product, error: '' });
+    } catch (e) {
+      setProductInfoModal({
+        open: true,
+        loading: false,
+        product: null,
+        error: e?.message || 'Không thể tải thông tin sản phẩm.',
+      });
+    }
+  }, [notify]);
+
+  const closeProductInfoModal = useCallback(() => {
+    setProductInfoModal({ open: false, loading: false, product: null, error: '' });
+  }, []);
 
   const loadProducts = useCallback(async () => {
     try {
@@ -260,16 +330,21 @@ export default function POSContainer({
   };
 
   const stopPolling = useCallback(() => {
+    pollingSessionRef.current += 1;
     if (pollingRef.current) {
       clearInterval(pollingRef.current);
+      clearTimeout(pollingRef.current);
       pollingRef.current = null;
     }
   }, []);
 
   const handlePrintInvoice = useCallback(
-    (invoice, tab) => {
-      const printWindow = window.open('', '_blank');
-      if (!printWindow) return;
+    (invoice, tab, options = {}) => {
+      const { requireUserConfirm = false } = options;
+      if (requireUserConfirm) {
+        notify('Đã xác nhận tiền chuyển khoản thành công. Đang in hóa đơn...', 'success');
+      }
+      const displayCode = invoice?.display_code || invoice?._id || '';
       const isHKD = (storeTax.business_type || 'ho_kinh_doanh') === 'ho_kinh_doanh';
       const sellerLine = tab._sellerName
         ? `<strong>Người bán:</strong> ${tab._sellerName}${tab._sellerRole ? ` (${tab._sellerRole})` : ''}<br/>`
@@ -278,101 +353,206 @@ export default function POSContainer({
       <!DOCTYPE html>
       <html>
         <head>
-          <title>In Hóa Đơn - ${invoice._id}</title>
+          <title>In Hóa Đơn - ${displayCode}</title>
           <style>
-            body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: ${isHKD ? '24px' : '20px'}; font-size: ${isHKD ? '15px' : '14px'}; color: #000; }
-            h2 { text-align: center; margin-bottom: 5px; font-size: 20px; }
-            .header-info { text-align: center; margin-bottom: 20px; font-size: 13px; color: #555; }
-            .invoice-details { margin-bottom: 20px; line-height: 1.5; }
-            table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-            th, td { border-bottom: 1px dashed #ccc; padding: ${isHKD ? '10px 6px' : '8px 4px'}; text-align: left; }
-            th { border-bottom: 2px solid #000; }
+            @page {
+              size: 80mm auto;
+              margin: 0;
+            }
+            html, body {
+              width: 80mm;
+              margin: 0;
+              padding: 0;
+              background: #fff;
+            }
+            body {
+              box-sizing: border-box;
+              font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+              font-size: 12px;
+              line-height: 1.4;
+              color: #000;
+              padding: 5mm 0;
+            }
+            .receipt {
+              width: 72mm; /* vùng in an toàn cho hầu hết máy 80mm */
+              margin: 0 auto;
+            }
+            h2 {
+              text-align: center;
+              margin: 0 0 5px;
+              font-size: 16px;
+              font-weight: 700;
+              word-break: break-word;
+            }
+            .header-info {
+              text-align: center;
+              margin-bottom: 9px;
+              font-size: 11px;
+              color: #111;
+              line-height: 1.4;
+            }
+            .invoice-details {
+              margin-bottom: 8px;
+              line-height: 1.45;
+              font-size: 11px;
+            }
+            .divider {
+              border-top: 1px dashed #666;
+              margin: 7px 0;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-bottom: 8px;
+              table-layout: fixed;
+            }
+            .col-item { width: 48%; }
+            .col-qty { width: 12%; }
+            .col-price { width: 20%; }
+            .col-total { width: 20%; }
+            th, td {
+              border-bottom: 1px dashed #9ca3af;
+              padding: 4px 2px;
+              text-align: left;
+              font-size: 11px;
+              vertical-align: top;
+              word-break: break-word;
+            }
+            th {
+              border-bottom: 1px solid #111;
+              font-weight: 700;
+            }
             .text-right { text-align: right; }
-            .total-row { font-weight: bold; font-size: 16px; margin-top: 10px; }
-            .footer { text-align: center; margin-top: 30px; font-style: italic; color: #555; }
+            .text-center { text-align: center; }
+            .total-row {
+              font-weight: 700;
+              font-size: 14px;
+              margin-top: 6px;
+            }
+            .footer {
+              text-align: center;
+              margin-top: 10px;
+              font-style: italic;
+              color: #333;
+              font-size: 11px;
+            }
             @media print {
-              @page { margin: 0; }
-              body { margin: 1cm; }
+              html, body {
+                width: 80mm;
+              }
+              .receipt {
+                width: 72mm;
+              }
+              body {
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+              }
             }
           </style>
         </head>
         <body>
-          <h2>${storeName.toUpperCase()}</h2>
-          <div class="header-info">
-            HÓA ĐƠN BÁN HÀNG<br/>
-            Mã Đơn: ${invoice._id}<br/>
-            Ngày: ${new Date().toLocaleString('vi-VN')}
-          </div>
-          <div class="invoice-details">
-            <strong>Khách hàng:</strong> ${tab.recipientName || 'Khách lẻ'}<br/>
-            ${sellerLine}
-            <strong>Thanh toán:</strong> ${
-              tab.paymentMethod === 'cash'
-                ? 'Tiền mặt'
-                : tab.paymentMethod === 'bank_transfer'
-                  ? 'Chuyển khoản'
-                  : tab.paymentMethod
-            }
-          </div>
-          <table>
-            <thead>
-              <tr>
-                <th>Tên hàng</th>
-                <th class="text-right">SL</th>
-                ${isHKD ? '' : '<th class="text-right">Đơn giá</th>'}
-                <th class="text-right">Thành tiền</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${tab.items
-                .map(
-                  (item) => `
-                <tr>
-                  <td>${item.name || 'Sản phẩm'}</td>
-                  <td class="text-right">${item.quantity}</td>
-                  ${isHKD ? '' : `<td class="text-right">${Number(item.unit_price || 0).toLocaleString('vi-VN')}₫</td>`}
-                  <td class="text-right">${Number(item.line_total || 0).toLocaleString('vi-VN')}₫</td>
-                </tr>`
-                )
-                .join('')}
-            </tbody>
-          </table>
-          ${(() => {
-            const rate = invoice.tax_rate_snapshot || 0;
-            const tax = invoice.tax_amount || 0;
-            const subtotal = invoice.subtotal_amount || invoice.total_amount || 0;
-            if (!isHKD && rate > 0) {
-              return `<div class="text-right" style="margin-top:8px;">Tạm tính: ${Number(subtotal).toLocaleString('vi-VN')}₫</div>
-              <div class="text-right" style="color:#64748b;">VAT (${rate}%): ${Number(tax).toLocaleString('vi-VN')}₫</div>`;
-            }
-            return `<div class="text-right">${isHKD ? 'Tổng tiền hàng (HKD):' : 'Tổng tiền hàng:'} ${Number(invoice.total_amount || 0).toLocaleString('vi-VN')}₫</div>`;
-          })()}
-          <div class="text-right total-row">
-            TỔNG CỘNG: ${Number(invoice.total_amount || 0).toLocaleString('vi-VN')}₫
-          </div>
-          ${
-            tab.payOldDebt
-              ? `<div class="text-right" style="margin-top: 5px;">
-              Nợ cũ đã trả: ${Number(tab.customerData?.debt_account || 0).toLocaleString('vi-VN')}₫
+          <div class="receipt">
+            <h2>${storeName.toUpperCase()}</h2>
+            <div class="header-info">
+              HÓA ĐƠN BÁN HÀNG<br/>
+              Mã Đơn: ${displayCode}<br/>
+              Ngày: ${new Date().toLocaleString('vi-VN')}
             </div>
-            <div class="text-right total-row" style="color: #000; border-top: 1px solid #000; padding-top: 5px; margin-top: 5px;">
-              TỔNG THANH TOÁN: ${Number(
-                (invoice.total_amount || 0) + (tab.customerData?.debt_account || 0)
-              ).toLocaleString('vi-VN')}₫
-            </div>`
-              : ''
-          }
-          <div class="footer">Cảm ơn quý khách và hẹn gặp lại!</div>
-          <script>
-            window.onload = function() { setTimeout(function() { window.print(); window.close(); }, 500); }
-          </script>
+            <div class="divider"></div>
+            <div class="invoice-details">
+              <strong>Khách hàng:</strong> ${tab.recipientName || 'Khách lẻ'}<br/>
+              ${sellerLine}
+              <strong>Thanh toán:</strong> ${
+                tab.paymentMethod === 'cash'
+                  ? 'Tiền mặt'
+                  : tab.paymentMethod === 'bank_transfer'
+                    ? 'Chuyển khoản'
+                    : tab.paymentMethod
+              }
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th class="col-item">Tên hàng</th>
+                  <th class="col-qty text-center">SL</th>
+                  ${isHKD ? '' : '<th class="col-price text-right">Đơn giá</th>'}
+                  <th class="col-total text-right">Thành tiền</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${tab.items
+                  .map(
+                    (item) => `
+                  <tr>
+                    <td>${item.name || 'Sản phẩm'}</td>
+                    <td class="text-center">${item.quantity}</td>
+                    ${isHKD ? '' : `<td class="text-right">${Number(item.unit_price || 0).toLocaleString('vi-VN')}₫</td>`}
+                    <td class="text-right">${Number(item.line_total || 0).toLocaleString('vi-VN')}₫</td>
+                  </tr>`
+                  )
+                  .join('')}
+              </tbody>
+            </table>
+            ${(() => {
+              const rate = invoice.tax_rate_snapshot || 0;
+              const tax = invoice.tax_amount || 0;
+              const subtotal = invoice.subtotal_amount || invoice.total_amount || 0;
+              if (!isHKD && rate > 0) {
+                return `<div class="text-right" style="margin-top:6px;">Tạm tính: ${Number(subtotal).toLocaleString('vi-VN')}₫</div>
+                <div class="text-right" style="color:#475569;">VAT (${rate}%): ${Number(tax).toLocaleString('vi-VN')}₫</div>`;
+              }
+              return `<div class="text-right">${isHKD ? 'Tổng tiền hàng (HKD):' : 'Tổng tiền hàng:'} ${Number(invoice.total_amount || 0).toLocaleString('vi-VN')}₫</div>`;
+            })()}
+            <div class="text-right total-row">
+              TỔNG CỘNG: ${Number(invoice.total_amount || 0).toLocaleString('vi-VN')}₫
+            </div>
+            ${
+              tab.payOldDebt
+                ? `<div class="text-right" style="margin-top: 4px;">
+                Nợ cũ đã trả: ${Number(tab.customerData?.debt_account || 0).toLocaleString('vi-VN')}₫
+              </div>
+              <div class="text-right total-row" style="color: #000; border-top: 1px solid #000; padding-top: 4px; margin-top: 4px;">
+                TỔNG THANH TOÁN: ${Number(
+                  (invoice.total_amount || 0) + (tab.customerData?.debt_account || 0)
+                ).toLocaleString('vi-VN')}₫
+              </div>`
+                : ''
+            }
+            <div class="divider"></div>
+            <div class="footer">Cảm ơn quý khách và hẹn gặp lại!</div>
+          </div>
         </body>
       </html>`;
-      printWindow.document.open();
-      printWindow.document.write(html);
-      printWindow.document.close();
+
+      const iframe = document.createElement('iframe');
+      iframe.style.position = 'fixed';
+      iframe.style.right = '0';
+      iframe.style.bottom = '0';
+      iframe.style.width = '0';
+      iframe.style.height = '0';
+      iframe.style.border = '0';
+      iframe.style.visibility = 'hidden';
+      document.body.appendChild(iframe);
+
+      const iframeDoc = iframe.contentWindow?.document;
+      if (!iframeDoc || !iframe.contentWindow) {
+        document.body.removeChild(iframe);
+        return;
+      }
+
+      iframeDoc.open();
+      iframeDoc.write(html);
+      iframeDoc.close();
+
+      setTimeout(() => {
+        iframe.contentWindow?.focus();
+        iframe.contentWindow?.print();
+        setTimeout(() => {
+          if (document.body.contains(iframe)) document.body.removeChild(iframe);
+        }, 1000);
+      }, 350);
     },
-    [storeName, storeTax.business_type]
+    [notify, storeName, storeTax.business_type]
   );
 
   const notifyCustomerLoyaltyMessage = useCallback(
@@ -423,17 +603,31 @@ export default function POSContainer({
 
   const startPolling = useCallback(
     (paymentRef, invoiceData, tabSnapshot) => {
+      const isPaymentSettled = (status) => {
+        const normalized = String(status || '').trim().toLowerCase();
+        return normalized === 'paid' || normalized === 'success' || normalized === 'completed';
+      };
+
       stopPolling();
+      const sessionId = pollingSessionRef.current;
       let attempts = 0;
-      const MAX_ATTEMPTS = 120;
-      pollingRef.current = setInterval(async () => {
+      const MAX_ATTEMPTS = 160;
+      const getNextDelayMs = (nextAttempt) => {
+        if (nextAttempt <= 10) return 1200; // 12s đầu kiểm tra rất nhanh
+        if (nextAttempt <= 25) return 2000;
+        if (nextAttempt <= 55) return 3000;
+        return 5000;
+      };
+
+      const pollOnce = async () => {
+        if (sessionId !== pollingSessionRef.current) return;
         attempts++;
         try {
           const result = await getPaymentStatus(paymentRef);
-          if (result.payment_status === 'paid') {
+          if (isPaymentSettled(result?.payment_status)) {
             stopPolling();
             setPendingPayment(null);
-            handlePrintInvoice(invoiceData, tabSnapshot);
+            handlePrintInvoice(invoiceData, tabSnapshot, { requireUserConfirm: true });
             await notifyCustomerLoyaltyMessage(tabSnapshot?.customerData, {
               earned_points: Number(result?.loyalty?.earned_points || 0),
               used_points: 0,
@@ -452,6 +646,7 @@ export default function POSContainer({
               return filtered;
             });
             loadProducts();
+            return;
           }
         } catch (e) {
           console.warn('[Polling] Error:', e.message);
@@ -465,8 +660,14 @@ export default function POSContainer({
             return null;
           });
           notify('Hết thời gian chờ thanh toán. Giao dịch đã bị hủy.', 'error');
+          return;
         }
-      }, 5000);
+        const delay = getNextDelayMs(attempts + 1);
+        pollingRef.current = setTimeout(pollOnce, delay);
+      };
+
+      // Gọi lần đầu ngay lập tức để giảm độ trễ cảm nhận tại quầy.
+      pollOnce();
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [stopPolling, handlePrintInvoice, loadProducts, notify, notifyCustomerLoyaltyMessage]
@@ -490,6 +691,21 @@ export default function POSContainer({
     []
   );
 
+  useEffect(() => {
+    const currentCount = Number(activeTab?.items?.length || 0);
+    const prevCount = Number(prevItemCountRef.current || 0);
+    prevItemCountRef.current = currentCount;
+    if (currentCount <= prevCount) return;
+    const scroller = summaryScrollRef.current;
+    if (!scroller) return;
+    requestAnimationFrame(() => {
+      scroller.scrollTo({
+        top: scroller.scrollHeight,
+        behavior: 'smooth',
+      });
+    });
+  }, [activeTab?.items?.length, activeTabId]);
+
   const loadInvoice = useCallback(async () => {
     if (!id || isNew) return;
     setLoading(true);
@@ -505,11 +721,18 @@ export default function POSContainer({
           exchange_value: Number(item.exchange_value) || 1,
           name: item.product_id?.name ?? '',
           sku: item.product_id?.sku ?? '',
+          image_url: getProductImageUrl(item.product_id),
           quantity: item.quantity || 0,
           unit_price: item.unit_price || 0,
           discount: item.discount || 0,
           line_total: item.line_total || 0,
           stock_qty: item.product_id?.stock_qty,
+          tax_category: item.tax_category_snapshot || 'DEFAULT',
+          tax_profile: item.tax_category_snapshot || 'default',
+          vat_rate: Number(item.vat_rate_snapshot ?? 0),
+          excise_rate: Number(item.excise_rate_snapshot ?? 0),
+          price_includes_tax: item.price_includes_tax_snapshot ?? null,
+          tax_override_reason: item.tax_override_reason_snapshot || '',
         })),
         paymentMethod: data.payment_method || 'cash',
         recipientName: data.recipient_name || '',
@@ -583,6 +806,12 @@ export default function POSContainer({
     loadShift();
   }, [loadShift]);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem('pos_hide_shift_card', hideShiftCard ? '1' : '0');
+    } catch {}
+  }, [hideShiftCard]);
+
   const filteredProducts = useMemo(() => {
     const term = searchTerm.toLowerCase().trim();
     if (!term) return products.slice(0, 50);
@@ -623,6 +852,10 @@ export default function POSContainer({
   };
 
   const handleAddProduct = (product, unitOverride = null) => {
+    if (isNew && !hasOpenShift) {
+      notify('Bạn cần mở ca trước khi bán hàng.', 'error');
+      return;
+    }
     setTabs((prev) =>
       prev.map((tab) => {
         if (tab.tabId !== activeTabId) return tab;
@@ -645,17 +878,22 @@ export default function POSContainer({
             notify(`Không đủ tồn kho. Tối đa ${maxQty} ${it.unit_name || 'đơn vị'}.`, 'error');
             return tab;
           }
-          newItems[existingIdx] = {
+          const updatedItem = {
             ...it,
+            image_url: getProductImageUrl(product) || it.image_url || '',
             quantity: newQty,
             unit_barcode: chosenUnit?.barcode || it.unit_barcode || '',
             line_total: Math.max(0, newQty * Number(it.unit_price || 0) - Number(it.discount || 0)),
           };
+          // UX bán hàng: mặt hàng vừa thêm sẽ nổi lên đầu danh sách.
+          newItems.splice(existingIdx, 1);
+          newItems.unshift(updatedItem);
         } else {
-          newItems.push({
+          newItems.unshift({
             product_id: product._id,
             unit_id: chosenUnit?._id || null,
             unit_name: chosenUnit?.unit_name || product.base_unit || 'Cái',
+              image_url: getProductImageUrl(product),
             unit_barcode: chosenUnit?.barcode || '',
             exchange_value: Number(chosenUnit?.exchange_value) || 1,
             name: product.name,
@@ -666,6 +904,12 @@ export default function POSContainer({
             line_total: Number(chosenUnit?.price ?? product.sale_price) || 0,
             stock_qty: product.stock_qty,
             available_units: unitOptionsByProduct[String(product._id)] || [],
+            tax_category: product.tax_category || product.tax_profile || 'DEFAULT',
+            tax_profile: product.tax_profile || 'default',
+            vat_rate: Number(product.vat_rate ?? storeTax.tax_rate ?? 0),
+            excise_rate: Number(product.excise_rate ?? 0),
+            price_includes_tax: product.price_includes_tax ?? null,
+            tax_override_reason: product.tax_override_reason || '',
           });
         }
         return { ...tab, items: newItems, customerPaid: '' };
@@ -676,6 +920,10 @@ export default function POSContainer({
   };
 
   const handleScanSubmit = async (rawCode) => {
+    if (isNew && !hasOpenShift) {
+      notify('Bạn cần mở ca trước khi bán hàng.', 'error');
+      return;
+    }
     const code = String(rawCode || '').trim();
     if (!code) return;
     try {
@@ -952,9 +1200,15 @@ export default function POSContainer({
   const missingAmount = Math.max(0, totalWithDebt - customerPaidNum);
   const customerDebt = activeTab.customerData?.debt_account || 0;
   const isDebtBlocked = customerDebt >= 100000 && !activeTab.payOldDebt;
+  const shiftOpenedBy = String(currentShift?.opened_by?._id || currentShift?.opened_by || '');
+  const canCloseShift = Boolean(
+    currentShift && (isManager || (currentUserId && shiftOpenedBy && currentUserId === shiftOpenedBy))
+  );
+  const hasOpenShift = Boolean(currentShift);
   const canSubmit =
     !activeTab.saving &&
     activeTab.items.length > 0 &&
+    hasOpenShift &&
     !isDebtBlocked &&
     (activeTab.paymentMethod === 'debt' ||
       customerPaidNum >= totalWithDebt ||
@@ -1005,6 +1259,10 @@ export default function POSContainer({
           quantity: it.quantity,
           unit_price: it.unit_price,
           discount: it.discount,
+          tax_category: it.tax_category || it.tax_profile || 'DEFAULT',
+          tax_profile: it.tax_profile || 'default',
+          tax_override_reason: it.tax_override_reason || '',
+          price_includes_tax: it.price_includes_tax,
         })),
         previous_debt_paid: activeTab.payOldDebt ? activeTab.customerData?.debt_account || 0 : 0,
         redeem_points_requested: loyaltyUsedPoints,
@@ -1257,6 +1515,7 @@ export default function POSContainer({
               <thead>
                 <tr>
                   <th style={{ width: 40 }}>#</th>
+                  <th style={{ width: 72 }}>Ảnh</th>
                   <th style={{ width: 220 }}>Mã hàng</th>
                   <th>Tên hàng</th>
                   <th style={{ width: 100 }}>Số lượng</th>
@@ -1269,14 +1528,42 @@ export default function POSContainer({
                 {activeTab.items.map((item, idx) => (
                   <tr key={idx}>
                     <td>{idx + 1}</td>
+                    <td>
+                      {item.image_url ? (
+                        <img
+                          src={item.image_url}
+                          alt={item.name || 'Ảnh sản phẩm'}
+                          className="pos-product-thumb"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <div className="pos-product-thumb-placeholder" aria-label="Không có ảnh">
+                          <i className="fa-regular fa-image" />
+                        </div>
+                      )}
+                    </td>
                     <td className="pos-sku-cell" title={item.sku}>
-                      {item.sku}
+                      <button
+                        type="button"
+                        className="pos-sku-link"
+                        title="Xem thông tin sản phẩm"
+                        onClick={() => openProductInfoModal(item)}
+                      >
+                        {item.sku}
+                      </button>
                     </td>
                     <td>
                       <div className="pos-item-name-cell">
                         <div className="pos-item-main-info">
                           <span className="pos-item-name-text">
-                            {item.name}
+                            <button
+                              type="button"
+                              className="pos-item-name-link"
+                              title="Xem thông tin sản phẩm"
+                              onClick={() => openProductInfoModal(item)}
+                            >
+                              {item.name}
+                            </button>
                           </span>
                           {item.unit_name ? (
                             <span className="pos-item-unit-text">({item.unit_name})</span>
@@ -1340,7 +1627,7 @@ export default function POSContainer({
                 ))}
                 {activeTab.items.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="pos-cart-empty-cell">
+                    <td colSpan={8} className="pos-cart-empty-cell">
                       Chưa có hàng hóa nào trong đơn
                     </td>
                   </tr>
@@ -1369,73 +1656,71 @@ export default function POSContainer({
           {/* Shift */}
           {isNew && (
             <div className="pos-sidebar-panel" style={{ marginBottom: 12 }}>
-              <div className="pos-sidebar-panel-head">Ca hiện tại</div>
-              <div className="pos-sidebar-panel-body pos-sidebar-panel-body-pad">
+              <div className="pos-sidebar-panel-head pos-shift-head">
+                <span>Ca hiện tại</span>
+                <button
+                  type="button"
+                  className="pos-shift-toggle-btn"
+                  onClick={() => setHideShiftCard((v) => !v)}
+                >
+                  {hideShiftCard ? 'Hiện' : 'Ẩn'}
+                </button>
+              </div>
+              {!hideShiftCard && <div className="pos-sidebar-panel-body pos-sidebar-panel-body-pad">
                 {shiftLoading ? (
                   <div style={{ fontSize: 12, color: '#64748b' }}>Đang tải ca...</div>
                 ) : currentShift ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <div style={{ fontSize: 12, color: '#334155', fontWeight: 700 }}>
-                      Đang mở • {new Date(currentShift.opened_at || currentShift.openedAt || Date.now()).toLocaleString('vi-VN')}
+                  <div className="pos-shift-wrap">
+                    <div className="pos-shift-meta">
+                      <div className="pos-shift-status-line">
+                        Đang mở • {new Date(currentShift.opened_at || currentShift.openedAt || Date.now()).toLocaleString('vi-VN')}
+                      </div>
+                      <div className="pos-shift-opening-cash">
+                        Tiền đầu ca: <b>{formatMoney(currentShift.opening_cash || 0)}</b>
+                      </div>
                     </div>
-                    <div style={{ fontSize: 12, color: '#64748b' }}>
-                      Tiền đầu ca: <b>{formatMoney(currentShift.opening_cash || 0)}</b>
-                    </div>
-                    {isManager && (
+                    {canCloseShift && (
                       <>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                          <input
-                            type="text"
-                            inputMode="numeric"
-                            placeholder="Tiền mặt kiểm đếm"
-                            className="pos-customer-pay-input"
-                            value={closeShiftCash}
-                            onChange={(e) => setCloseShiftCash(formatCurrencyInput(e.target.value))}
-                          />
-                          <input
-                            type="text"
-                            inputMode="numeric"
-                            placeholder="CK đã nhận"
-                            className="pos-customer-pay-input"
-                            value={closeShiftBank}
-                            onChange={(e) => setCloseShiftBank(formatCurrencyInput(e.target.value))}
-                          />
+                        <div className="pos-shift-grid">
+                          <label className="pos-shift-field">
+                            <span>Tiền mặt kiểm đếm</span>
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              placeholder="Nhập tiền mặt thực tế"
+                              className="pos-shift-input"
+                              value={closeShiftCash}
+                              onChange={(e) => setCloseShiftCash(formatCurrencyInput(e.target.value))}
+                            />
+                          </label>
                         </div>
-                        <select
-                          value={closeShiftStatus}
-                          onChange={(e) => setCloseShiftStatus(e.target.value)}
-                          className="pos-search-input"
-                          style={{ height: 38 }}
-                        >
-                          <option value="pending">Pending</option>
-                          <option value="confirmed">Confirmed</option>
-                          <option value="disputed">Disputed</option>
-                        </select>
-                        <input
-                          type="text"
-                          placeholder="Ghi chú (tuỳ chọn)"
-                          className="pos-search-input"
-                          value={closeShiftNote}
-                          onChange={(e) => setCloseShiftNote(e.target.value)}
-                        />
+                        <div className="pos-shift-note">
+                          Hệ thống tự tính tiền bàn giao = Tiền kiểm đếm - Mức để lại chuẩn (mặc định 1.000.000đ).
+                        </div>
                         <button
                           type="button"
                           className="pos-quick-paid-full"
                           onClick={async () => {
                             try {
                               const actual_cash = parseCurrencyInput(closeShiftCash);
-                              const actual_bank = parseCurrencyInput(closeShiftBank);
-                              await closeShift(currentShift._id, {
-                                actual_cash,
-                                actual_bank,
-                                reconciliation_status: closeShiftStatus,
-                                reconciliation_note: closeShiftNote,
-                              });
-                              notify('Đã đóng ca.', 'success');
+                              if (actual_cash <= 0) {
+                                notify('Vui lòng nhập tổng tiền mặt kiểm đếm trước khi đóng ca.', 'error');
+                                return;
+                              }
+                              const closedShift = await closeShift(currentShift._id, { actual_cash });
+                              const handover = Number(closedShift?.cash_to_handover || 0);
+                              const keep = Number(closedShift?.cash_to_keep || 0);
+                              const discrepancy = Number(closedShift?.discrepancy_cash || 0);
+                              const targetFloat = Number(closedShift?.target_float_cash || 1000000);
+                              notify(
+                                `Đóng ca thành công. Bàn giao: ${formatMoney(handover)} | Để lại ca sau: ${formatMoney(keep)}${
+                                  keep < targetFloat ? ` | Thiếu quỹ để lại: ${formatMoney(targetFloat - keep)}` : ''
+                                }${
+                                  discrepancy !== 0 ? ` | Chênh lệch: ${formatMoney(discrepancy)}` : ''
+                                }`,
+                                discrepancy !== 0 || keep < targetFloat ? 'warning' : 'success'
+                              );
                               setCloseShiftCash('');
-                              setCloseShiftBank('');
-                              setCloseShiftNote('');
-                              setCloseShiftStatus('pending');
                               await loadShift();
                             } catch (err) {
                               notify(err.message || 'Không thể đóng ca', 'error');
@@ -1446,17 +1731,30 @@ export default function POSContainer({
                         </button>
                       </>
                     )}
+                    {!canCloseShift && (
+                      <div className="pos-shift-warning">
+                        Bạn không thể đóng ca này vì không phải người mở ca.
+                      </div>
+                    )}
                   </div>
                 ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <div style={{ fontSize: 12, color: '#dc2626', fontWeight: 700 }}>
-                      Chưa mở ca
+                  <div className="pos-shift-wrap">
+                    <div className="pos-shift-empty-state">
+                      <div className="pos-shift-empty-icon" aria-hidden>
+                        <i className="fa-solid fa-lock" />
+                      </div>
+                      <div className="pos-shift-empty-content">
+                        <div className="pos-shift-empty-title">Chưa mở ca</div>
+                        <div className="pos-shift-empty-subtitle">
+                          Vui lòng mở ca để bắt đầu thêm sản phẩm và thanh toán.
+                        </div>
+                      </div>
                     </div>
                     <input
                       type="text"
                       inputMode="numeric"
                       placeholder="Tiền đầu ca (VD: 1.000.000)"
-                      className="pos-customer-pay-input"
+                      className="pos-shift-input"
                       value={openShiftCash}
                       onChange={(e) => setOpenShiftCash(formatCurrencyInput(e.target.value))}
                     />
@@ -1471,7 +1769,19 @@ export default function POSContainer({
                           setOpenShiftCash('');
                           await loadShift();
                         } catch (err) {
-                          notify(err.message || 'Không thể mở ca', 'error');
+                          if (err?.code === 'SHIFT_ALREADY_OPEN') {
+                            const openerName =
+                              err?.payload?.open_shift?.opened_by?.fullName
+                              || err?.payload?.open_shift?.opened_by?.email
+                              || 'một tài khoản khác';
+                            const openedAtRaw = err?.payload?.open_shift?.opened_at;
+                            const openedAtText = openedAtRaw
+                              ? new Date(openedAtRaw).toLocaleString('vi-VN')
+                              : 'không xác định';
+                            notify(`Ca đã được mở bởi ${openerName} lúc ${openedAtText}. Vui lòng đóng ca hiện tại trước khi mở ca mới.`, 'error');
+                          } else {
+                            notify(err.message || 'Không thể mở ca', 'error');
+                          }
                         }
                       }}
                     >
@@ -1479,7 +1789,7 @@ export default function POSContainer({
                     </button>
                   </div>
                 )}
-              </div>
+              </div>}
             </div>
           )}
 
@@ -1652,7 +1962,7 @@ export default function POSContainer({
           </div>
 
           {/* Summary + Payment */}
-          <div className="pos-summary-section">
+          <div className="pos-summary-section" ref={summaryScrollRef}>
             <div className="pos-sidebar-panel pos-summary-panel">
               <div className="pos-sidebar-panel-head pos-sidebar-panel-head-cols">
                 <span>Khoản mục</span>
@@ -1682,6 +1992,18 @@ export default function POSContainer({
                     <span className="pos-summary-amount" style={{ color: '#0f766e' }}>- {formatMoney(loyaltyRedeemValue)}</span>
                   </div>
                 )}
+                {activeTab.items.some((it) => Number(it.excise_rate || 0) > 0 || /BEER|ALCOHOL|TOBACCO|VAT_EXCISE/i.test(String(it.tax_category || ''))) && (
+                  <div className="pos-summary-line">
+                    <span style={{ fontSize: 12, color: '#92400e' }}>
+                      Có mặt hàng chịu TTĐB, hệ thống sẽ tính TTĐB trước rồi mới tính VAT.
+                    </span>
+                  </div>
+                )}
+                <div className="pos-summary-line">
+                  <span style={{ fontSize: 12, color: '#64748b' }}>
+                    Thuế hiển thị tại POS là tạm tính, hóa đơn sẽ chốt theo policy hiệu lực tại thời điểm xuất.
+                  </span>
+                </div>
               </div>
               <div className="pos-total-banner">
                 <span>{activeTab.payOldDebt ? 'Tổng thanh toán (+Nợ)' : 'Khách cần trả'}</span>
@@ -1759,14 +2081,14 @@ export default function POSContainer({
                               {(amount / 1000).toLocaleString('vi-VN')}k
                             </button>
                           ))}
-                          <button
-                            type="button"
-                            onClick={() => updateActiveTab({ customerPaid: toCurrencyInputFromNumber(totalWithDebt) })}
-                            className="pos-quick-paid-full"
-                          >
-                            Đủ tiền ({formatMoney(totalWithDebt)})
-                          </button>
                         </div>
+                        <button
+                          type="button"
+                          onClick={() => updateActiveTab({ customerPaid: toCurrencyInputFromNumber(totalWithDebt) })}
+                          className="pos-quick-paid-full pos-quick-paid-full-standalone"
+                        >
+                          Đủ tiền ({formatMoney(totalWithDebt)})
+                        </button>
                       </>
                     )}
                   </>
@@ -1943,11 +2265,25 @@ export default function POSContainer({
                   Chọn "Trả luôn" để mở khóa thanh toán
                 </div>
               )}
+              {!hasOpenShift && (
+                <div
+                  style={{ marginBottom: 8, fontSize: 12, color: '#dc2626', textAlign: 'center', fontWeight: 600 }}
+                >
+                  <i className="fa-solid fa-lock" style={{ marginRight: 4 }} />
+                  Bắt buộc mở ca trước khi thanh toán hóa đơn.
+                </div>
+              )}
               <button
                 className="pos-pay-button"
                 onClick={handleSubmit}
                 disabled={!canSubmit}
-                title={isDebtBlocked ? `Khách nợ ${formatMoney(customerDebt)} ≥ 100.000₫, phải trả nợ trước` : ''}
+                title={
+                  !hasOpenShift
+                    ? 'Bạn cần mở ca trước khi bán hàng'
+                    : isDebtBlocked
+                      ? `Khách nợ ${formatMoney(customerDebt)} ≥ 100.000₫, phải trả nợ trước`
+                      : ''
+                }
               >
                 {activeTab.saving ? 'ĐANG XỬ LÝ...' : 'THANH TOÁN'}
               </button>
@@ -1971,6 +2307,50 @@ export default function POSContainer({
           notify('Đã hủy giao dịch chuyển khoản.', 'error');
         }}
       />
+
+      {productInfoModal.open && (
+        <div className="pos-product-modal-backdrop" onClick={closeProductInfoModal}>
+          <div className="pos-product-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="pos-product-modal-head">
+              <h3>Thông tin sản phẩm</h3>
+              <button type="button" className="pos-product-modal-close" onClick={closeProductInfoModal}>
+                <i className="fa-solid fa-xmark" />
+              </button>
+            </div>
+            <div className="pos-product-modal-body">
+              {productInfoModal.loading && <p>Đang tải thông tin sản phẩm...</p>}
+              {!productInfoModal.loading && productInfoModal.error && (
+                <p className="pos-product-modal-error">{productInfoModal.error}</p>
+              )}
+              {!productInfoModal.loading && !productInfoModal.error && productInfoModal.product && (
+                <>
+                  {getProductImageUrl(productInfoModal.product) ? (
+                    <img
+                      src={getProductImageUrl(productInfoModal.product)}
+                      alt={productInfoModal.product.name || 'Ảnh sản phẩm'}
+                      className="pos-product-modal-image"
+                    />
+                  ) : (
+                    <div className="pos-product-modal-image-placeholder">
+                      <i className="fa-regular fa-image" />
+                    </div>
+                  )}
+                  <div className="pos-product-modal-grid">
+                    <div><b>Tên:</b> {productInfoModal.product.name || '—'}</div>
+                    <div><b>SKU:</b> {productInfoModal.product.sku || '—'}</div>
+                    <div><b>Barcode:</b> {productInfoModal.product.barcode || '—'}</div>
+                    <div><b>Giá bán:</b> {formatMoney(productInfoModal.product.sale_price || 0)}</div>
+                    <div><b>Giá vốn:</b> {formatMoney(productInfoModal.product.cost_price || 0)}</div>
+                    <div><b>Tồn kho:</b> {Number(productInfoModal.product.stock_qty || 0).toLocaleString('vi-VN')}</div>
+                    <div><b>Đơn vị gốc:</b> {productInfoModal.product.base_unit || 'Cái'}</div>
+                    <div><b>Trạng thái:</b> {String(productInfoModal.product.status || 'active') === 'inactive' ? 'Ngừng bán' : 'Đang bán'}</div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

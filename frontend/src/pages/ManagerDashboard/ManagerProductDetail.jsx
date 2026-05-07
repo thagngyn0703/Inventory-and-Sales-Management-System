@@ -21,6 +21,7 @@ export default function ManagerProductDetail() {
     const [toggling, setToggling] = useState(false);
 
     const [productUnits, setProductUnits] = useState([]);
+    const [categories, setCategories] = useState([]);
 
     const user = JSON.parse(localStorage.getItem('user') || '{}');
     const isManager = user.role === 'manager' || user.role === 'admin';
@@ -39,6 +40,26 @@ export default function ManagerProductDetail() {
             .finally(() => setLoading(false));
 
     }, [id]);
+
+    useEffect(() => {
+        const token = localStorage.getItem('token') || '';
+        let cancelled = false;
+        fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:8000/api'}/categories?all=true`, {
+            headers: { Authorization: `Bearer ${token}` },
+        })
+            .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
+            .then(({ ok, data }) => {
+                if (cancelled) return;
+                if (!ok) throw new Error(data?.message || 'Không thể tải danh mục');
+                setCategories(Array.isArray(data) ? data : []);
+            })
+            .catch(() => {
+                if (!cancelled) setCategories([]);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, []);
 
     const handleToggleStatus = async () => {
         if (!product || toggling) return;
@@ -97,6 +118,14 @@ export default function ManagerProductDetail() {
     }
 
     const p = product || {};
+    const categoryIdValue =
+        p?.category_id && typeof p.category_id === 'object'
+            ? String(p.category_id?._id || '')
+            : String(p?.category_id || '');
+    const categoryName =
+        (typeof p.category_id === 'object' ? p.category_id?.name : '')
+        || categories.find((c) => String(c?._id || '') === categoryIdValue)?.name
+        || '—';
     const unitBarcodeBySignature = new Map(
         (productUnits || []).map((u) => [
             `${String(u.unit_name || '').trim().toLowerCase()}::${Number(u.exchange_value || 1)}`,
@@ -141,10 +170,13 @@ export default function ManagerProductDetail() {
                         <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Thông tin chung</h3>
                         <div className="grid gap-2 md:grid-cols-2">
                             <div className="text-sm text-slate-600">Tên: <strong className="text-slate-900">{p.name || '—'}</strong></div>
+                            <div className="text-sm text-slate-600">Danh mục: <strong className="text-slate-900">{categoryName}</strong></div>
                             <div className="text-sm text-slate-600">SKU: <strong className="text-slate-900">{p.sku || '—'}</strong></div>
                             <div className="text-sm text-slate-600">Barcode: <strong className="text-slate-900">{p.barcode || '—'}</strong></div>
                             <div className="text-sm text-slate-600">Nhà cung cấp: <strong className="text-slate-900">{typeof p.supplier_id === 'object' ? (p.supplier_id?.name || '—') : '—'}</strong></div>
                             <div className="text-sm text-slate-600">Hạn dùng: <strong className="text-slate-900">{p.expiry_date ? new Date(p.expiry_date).toLocaleDateString('vi-VN') : '—'}</strong></div>
+                            <div className="text-sm text-slate-600">Tax profile: <strong className="text-slate-900">{p.tax_profile || '—'}</strong></div>
+                            <div className="text-sm text-slate-600">VAT đang lưu: <strong className="text-slate-900">{p.vat_rate === null || p.vat_rate === undefined || p.vat_rate === '' ? '—' : `${Number(p.vat_rate)}%`}</strong></div>
                             <div className="text-sm text-slate-600">Trạng thái: <Badge className={p.status === 'inactive' ? 'border border-rose-200/80 bg-rose-100 text-rose-800' : 'border border-teal-200/80 bg-teal-50 text-teal-800'}>{p.status === 'inactive' ? 'Ngừng bán' : 'Đang bán'}</Badge></div>
                         </div>
                         <p className="text-xs text-slate-500">{Platform.select({ web: 'Thông tin hiển thị đồng bộ với màn thêm/sửa sản phẩm.', default: 'Thông tin sản phẩm.' })}</p>

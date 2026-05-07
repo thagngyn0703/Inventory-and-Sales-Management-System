@@ -1,8 +1,14 @@
 const express = require('express');
 const Category = require('../models/Category');
+const Product = require('../models/Product');
 const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
+
+function logUnexpectedError(context, err) {
+    if (String(err?.name) === 'CastError') return;
+    console.error(context, err);
+}
 
 // Apply JWT verification to all routes
 router.use(requireAuth);
@@ -18,7 +24,7 @@ router.get('/', requireRole(['manager', 'staff', 'admin']), async (req, res) => 
         const categories = await Category.find(filter).sort({ created_at: -1 });
         res.json(categories);
     } catch (err) {
-        console.error('Failed to fetch categories', err);
+        logUnexpectedError('Failed to fetch categories', err);
         res.status(500).json({ message: 'Server error' });
     }
 });
@@ -26,7 +32,7 @@ router.get('/', requireRole(['manager', 'staff', 'admin']), async (req, res) => 
 // POST /api/categories - create new category
 router.post('/', requireRole(['manager', 'staff', 'admin']), async (req, res) => {
     try {
-        const { name, vat_rate } = req.body;
+        const { name, vat_rate, tax_profile, tax_tags } = req.body;
         if (!name || !name.trim()) {
             return res.status(400).json({ message: 'Tên danh mục không được để trống' });
         }
@@ -42,10 +48,15 @@ router.post('/', requireRole(['manager', 'staff', 'admin']), async (req, res) =>
         if (exists) {
             return res.status(400).json({ message: 'Danh mục đã tồn tại' });
         }
-        const cat = await Category.create({ name: normalized, vat_rate: vat });
+        const cat = await Category.create({
+            name: normalized,
+            vat_rate: vat,
+            tax_profile: String(tax_profile || 'default').trim() || 'default',
+            tax_tags: Array.isArray(tax_tags) ? tax_tags.map((t) => String(t).trim()).filter(Boolean) : [],
+        });
         res.status(201).json(cat);
     } catch (err) {
-        console.error('Failed to create category', err);
+        logUnexpectedError('Failed to create category', err);
         res.status(500).json({ message: 'Server error' });
     }
 });
@@ -54,7 +65,7 @@ router.post('/', requireRole(['manager', 'staff', 'admin']), async (req, res) =>
 router.put('/:id', requireRole(['manager', 'staff', 'admin']), async (req, res) => {
     try {
         const { id } = req.params;
-        const { name, vat_rate } = req.body;
+        const { name, vat_rate, tax_profile, tax_tags } = req.body;
         if (!name || !name.trim()) {
             return res.status(400).json({ message: 'Tên danh mục không được để trống' });
         }
@@ -79,10 +90,14 @@ router.put('/:id', requireRole(['manager', 'staff', 'admin']), async (req, res) 
         }
         cat.name = normalized;
         if (vat_rate !== undefined) cat.vat_rate = vat;
+        if (tax_profile !== undefined) cat.tax_profile = String(tax_profile || 'default').trim() || 'default';
+        if (tax_tags !== undefined) {
+            cat.tax_tags = Array.isArray(tax_tags) ? tax_tags.map((t) => String(t).trim()).filter(Boolean) : [];
+        }
         await cat.save();
         res.json(cat);
     } catch (err) {
-        console.error('Failed to update category', err);
+        logUnexpectedError('Failed to update category', err);
         res.status(500).json({ message: 'Server error' });
     }
 });
@@ -108,8 +123,32 @@ router.patch('/:id/activate', requireRole(['manager', 'staff', 'admin']), async 
         }
         res.json(updated);
     } catch (err) {
-        console.error('Failed to change active state', err);
+        logUnexpectedError('Failed to change active state', err);
         res.status(500).json({ message: 'Server error' });
+    }
+});
+
+// DELETE /api/categories/:id - delete category (manager/admin)
+router.delete('/:id', requireRole(['manager', 'admin']), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const cat = await Category.findById(id);
+        if (!cat) {
+            return res.status(404).json({ message: 'Không tìm thấy danh mục' });
+        }
+        const inUseCount = await Product.countDocuments({ category_id: id });
+        if (inUseCount > 0) {
+            return res.status(409).json({
+                message: `Không thể xóa danh mục vì đang có ${inUseCount} sản phẩm sử dụng. Vui lòng chuyển sản phẩm sang danh mục khác trước.`,
+                code: 'CATEGORY_IN_USE',
+                in_use_count: inUseCount,
+            });
+        }
+        await Category.deleteOne({ _id: id });
+        return res.json({ message: 'Đã xóa danh mục.' });
+    } catch (err) {
+        logUnexpectedError('Failed to delete category', err);
+        return res.status(500).json({ message: 'Server error' });
     }
 });
 

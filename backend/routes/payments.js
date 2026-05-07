@@ -71,9 +71,38 @@ function normalizePaymentRef(ref = '') {
   return String(ref).toUpperCase().replace(/[^A-Z0-9]/g, '');
 }
 
+function normalizeAccountNumber(value = '') {
+  return String(value).replace(/\D/g, '');
+}
+
 function parseAmount(value) {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : 0;
+  if (value == null) return 0;
+  if (typeof value === 'number') return Number.isFinite(value) ? Math.round(value) : 0;
+
+  let raw = String(value).trim();
+  if (!raw) return 0;
+  raw = raw.replace(/\s+/g, '');
+
+  // Chuẩn hóa các định dạng số thường gặp: 5,000 | 5.000 | 5,000.00 | 5.000,00
+  if (raw.includes(',') && raw.includes('.')) {
+    if (raw.lastIndexOf(',') > raw.lastIndexOf('.')) {
+      // Kiểu EU: 5.000,00 -> 5000.00
+      raw = raw.replace(/\./g, '').replace(',', '.');
+    } else {
+      // Kiểu US: 5,000.00 -> 5000.00
+      raw = raw.replace(/,/g, '');
+    }
+  } else if (raw.includes(',')) {
+    const parts = raw.split(',');
+    raw = parts[parts.length - 1].length === 3 ? parts.join('') : raw.replace(',', '.');
+  } else if (raw.includes('.')) {
+    const parts = raw.split('.');
+    if (parts[parts.length - 1].length === 3) raw = parts.join('');
+  }
+
+  raw = raw.replace(/[^\d.-]/g, '');
+  const n = Number(raw);
+  return Number.isFinite(n) ? Math.round(n) : 0;
 }
 
 async function fetchSepayTransactionsByAmount(amount) {
@@ -115,7 +144,7 @@ async function reconcileInvoiceFromSepay(invoice) {
   const targetAmount = paymentSplit
     ? parseAmount(paymentSplit.bank_transfer)
     : parseAmount(invoice.total_amount) + parseAmount(invoice.previous_debt_paid);
-  const accountFilter = String(process.env.SEPAY_ACCOUNT_NUMBER || '').trim();
+  const accountFilter = normalizeAccountNumber(process.env.SEPAY_ACCOUNT_NUMBER || '');
 
   let transactions = [];
   try {
@@ -129,9 +158,13 @@ async function reconcileInvoiceFromSepay(invoice) {
     const contentRaw = String(tx?.transaction_content || tx?.content || tx?.description || '').toUpperCase();
     const normalizedContent = normalizePaymentRef(contentRaw);
     const amountIn = parseAmount(tx?.amount_in ?? tx?.amount ?? tx?.transferAmount);
-    const accountNumber = String(tx?.account_number || '');
-    const accountOk = !accountFilter || accountNumber === accountFilter;
-    return accountOk && amountIn === targetAmount && normalizedContent.includes(normalizedRef);
+    const accountNumber = normalizeAccountNumber(
+      tx?.account_number || tx?.accountNumber || tx?.account_no || tx?.account || ''
+    );
+    // Một số response SePay API không luôn có account_number; khi thiếu thì bỏ qua filter này.
+    const accountOk = !accountFilter || !accountNumber || accountNumber === accountFilter;
+    const amountMatched = Math.abs(amountIn - targetAmount) <= 1;
+    return accountOk && amountMatched && normalizedContent.includes(normalizedRef);
   });
 
   if (!matchedTx) return { matched: false, reason: 'not_found' };
@@ -347,7 +380,7 @@ router.get('/status/:paymentRef', requireAuth, requireRole(['staff', 'manager', 
     if (!paymentRef) return res.status(400).json({ message: 'paymentRef is required' });
 
     const invoice = await SalesInvoice.findOne({ payment_ref: paymentRef.toUpperCase() })
-      .select('payment_status paid_at total_amount previous_debt_paid payment_ref store_id payment_method customer_id loyalty_earned_points');
+      .select('payment_status paid_at total_amount previous_debt_paid payment_ref store_id payment_method payment customer_id loyalty_earned_points');
 
     if (!invoice) {
       return res.status(404).json({ message: 'Không tìm thấy hóa đơn' });
@@ -361,8 +394,9 @@ router.get('/status/:paymentRef', requireAuth, requireRole(['staff', 'manager', 
       }
     }
 
-    // Fallback: nếu webhook chưa tới, thử đối soát trực tiếp qua SePay API
-    if (invoice.payment_status !== 'paid' && invoice.payment_method === 'bank_transfer') {
+    // Fallback: nếu webhook chưa tới, thử đối soát trực tiếp qua SePay API.
+    // Dựa vào phần tiền chuyển khoản > 0 để cover cả đơn "split".
+    if (invoice.payment_status !== 'paid' && Number(invoice.payment?.bank_transfer || 0) > 0) {
       await reconcileInvoiceFromSepay(invoice);
     }
     const customer = invoice.customer_id ? await Customer.findById(invoice.customer_id).select('loyalty_points').lean() : null;

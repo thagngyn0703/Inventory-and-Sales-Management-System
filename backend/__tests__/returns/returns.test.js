@@ -54,6 +54,20 @@ describe('Returns VAT helper', () => {
     expect(result.subtotal_amount).toBe(50);
     expect(result.tax_amount).toBe(5);
   });
+
+  it('should always use original invoice tax snapshot even after policy changes', () => {
+    const invoice = {
+      total_amount: 1080000,
+      subtotal_amount: 1000000,
+      tax_amount: 80000, // snapshot from discounted VAT period
+      tax_rate_snapshot: 8,
+    };
+    const result = computeReturnTaxBreakdown(540000, invoice);
+    expect(result.total_amount).toBe(540000);
+    expect(result.subtotal_amount).toBe(500000);
+    expect(result.tax_amount).toBe(40000);
+    expect(result.tax_rate_snapshot).toBe(8);
+  });
 });
 
 describe('Returns API integration', () => {

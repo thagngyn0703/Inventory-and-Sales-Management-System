@@ -53,6 +53,33 @@ const productSchema = new Schema(
             min: 0,
             max: 100,
         },
+        tax_override_enabled: {
+            type: Boolean,
+            default: false,
+        },
+        tax_tags: {
+            type: [String],
+            default: [],
+        },
+        tax_category: {
+            type: String,
+            default: 'DEFAULT',
+            trim: true,
+        },
+        tax_profile: {
+            type: String,
+            default: 'default',
+            trim: true,
+        },
+        price_includes_tax: {
+            type: Boolean,
+            default: null,
+        },
+        tax_override_reason: {
+            type: String,
+            default: '',
+            trim: true,
+        },
         expiry_date: {
             type: Date,
         },

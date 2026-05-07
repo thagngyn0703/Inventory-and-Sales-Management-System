@@ -4,6 +4,7 @@ import Sidebar from '../../components/Sidebar';
 import { listSupportTickets } from '../../services/supportTicketsApi';
 import '../ManagerDashboard/ManagerDashboard.css';
 import '../ManagerDashboard/ManagerProducts.css';
+import './AdminUserList.css';
 
 const PAGE_SIZE = 15;
 
@@ -44,20 +45,20 @@ export default function AdminSupportTickets() {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (
-    <div className="manager-page-with-sidebar">
+    <div className="admin-page-with-sidebar">
       <Sidebar />
-      <div className="manager-main">
-        <header className="manager-topbar">
-          <div className="manager-topbar-search-wrap" />
-          <div className="manager-topbar-actions">
-            <div className="manager-user-badge">
+      <div className="admin-users-main">
+        <header className="admin-users-topbar">
+          <div className="admin-users-topbar-spacer" />
+          <div className="admin-users-topbar-actions">
+            <div className="admin-users-badge">
               <i className="fa-solid fa-circle-user" />
-              <span>Admin</span>
+              <span>Quản trị viên</span>
             </div>
           </div>
         </header>
 
-        <div className="manager-content">
+        <div className="admin-users-content">
           <div className="manager-products-header" style={{ alignItems: 'flex-end', flexWrap: 'wrap', gap: 12 }}>
             <div>
               <h1 className="manager-page-title">Phiếu hỗ trợ từ cửa hàng</h1>
@@ -83,7 +84,7 @@ export default function AdminSupportTickets() {
 
           {error && <div className="manager-products-error">{error}</div>}
 
-          <div className="manager-panel-card manager-products-card">
+          <div className="manager-panel-card manager-products-card admin-users-table-card">
             {loading ? (
               <p className="manager-products-loading" style={{ padding: '1rem' }}>
                 Đang tải…
