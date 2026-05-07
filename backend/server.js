@@ -39,6 +39,8 @@ const posRegisterRoutes = require('./routes/posRegisters');
 const barcodeLookupRoutes = require('./routes/barcodeLookup');
 const subscriptionRoutes = require('./routes/subscriptions');
 const ShiftSession = require('./models/ShiftSession');
+const Product = require('./models/Product');
+const ProductUnit = require('./models/ProductUnit');
 const { startBackupScheduler } = require('./services/backupScheduler');
 const { hasSmtpConfig } = require('./services/emailService');
 
@@ -66,6 +68,37 @@ async function assertMongoSupportsTransactions() {
             'Vui lòng kiểm tra MONGO_URI/môi trường DB trước khi chạy server.'
         );
     }
+}
+
+async function reconcileProductBarcodeIndexes() {
+    const reconcileOne = async (model, modelName) => {
+        const indexes = await model.collection.indexes();
+        const staleGlobalBarcodeIndexes = indexes.filter((idx) => {
+            if (!idx?.unique) return false;
+            const key = idx.key || {};
+            const hasBarcode = Object.prototype.hasOwnProperty.call(key, 'barcode');
+            const hasStoreId = Object.prototype.hasOwnProperty.call(key, 'storeId');
+            // Legacy global unique barcode index (e.g. { barcode: 1 }) blocks multi-store duplicates.
+            return hasBarcode && !hasStoreId;
+        });
+        for (const idx of staleGlobalBarcodeIndexes) {
+            try {
+                await model.collection.dropIndex(idx.name);
+                console.log(`[IndexFix] Dropped stale ${modelName} index: ${idx.name}`);
+            } catch (e) {
+                console.warn(`[IndexFix] Cannot drop ${modelName} index ${idx.name}:`, e.message || e);
+            }
+        }
+        try {
+            await model.syncIndexes();
+            console.log(`[IndexFix] ${modelName}.syncIndexes() OK`);
+        } catch (e) {
+            console.warn(`[IndexFix] ${modelName}.syncIndexes() failed:`, e.message || e);
+        }
+    };
+
+    await reconcileOne(Product, 'Product');
+    await reconcileOne(ProductUnit, 'ProductUnit');
 }
 
 if (!process.env.JWT_SECRET) {
@@ -196,6 +229,7 @@ mongoose
         }
         await assertMongoSupportsTransactions();
         console.log('MongoDB hỗ trợ transaction: OK');
+        await reconcileProductBarcodeIndexes();
         initSocket(server, corsConfig.socket);
         server.listen(PORT,"0.0.0.0", () => {
             console.log(`Server chạy tại http://localhost:${PORT}`);

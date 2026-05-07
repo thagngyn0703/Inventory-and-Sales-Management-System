@@ -144,7 +144,13 @@ async function reconcileInvoiceFromSepay(invoice) {
   const targetAmount = paymentSplit
     ? parseAmount(paymentSplit.bank_transfer)
     : parseAmount(invoice.total_amount) + parseAmount(invoice.previous_debt_paid);
-  const accountFilter = normalizeAccountNumber(process.env.SEPAY_ACCOUNT_NUMBER || '');
+  const storeBank = invoice?.store_id
+    ? await Store.findById(invoice.store_id).select('bank_account').lean()
+    : null;
+  const storeAccountFilter = normalizeAccountNumber(storeBank?.bank_account || '');
+  const fallbackEnvAccountFilter = normalizeAccountNumber(process.env.SEPAY_ACCOUNT_NUMBER || '');
+  // Ưu tiên account của đúng cửa hàng; chỉ fallback env khi store chưa cấu hình.
+  const accountFilter = storeAccountFilter || fallbackEnvAccountFilter;
 
   let transactions = [];
   try {
@@ -324,7 +330,26 @@ router.post('/sepay/webhook', express.raw({ type: 'application/json' }), async (
       });
     }
 
+    const incomingAccountNumber = normalizeAccountNumber(
+      payload.accountNumber || payload.account_number || payload.accountNo || payload.account || ''
+    );
+
     if (matchedInvoice) {
+      const storeBank = matchedInvoice.store_id
+        ? await Store.findById(matchedInvoice.store_id).select('bank_account').lean()
+        : null;
+      const storeAccountNumber = normalizeAccountNumber(storeBank?.bank_account || '');
+      // Nếu payload có số tài khoản và khác account store thì KHÔNG auto-mark paid.
+      if (incomingAccountNumber && storeAccountNumber && incomingAccountNumber !== storeAccountNumber) {
+        txn.status = 'unmatched';
+        txn.storeId = matchedInvoice.store_id || null;
+        await txn.save();
+        console.warn(
+          `[SePay Webhook] Account mismatch for ref ${paymentRef}: incoming=${incomingAccountNumber}, store=${storeAccountNumber}`
+        );
+        return res.status(200).json({ success: true });
+      }
+
       txn.invoice_id = matchedInvoice._id;
       txn.storeId = matchedInvoice.store_id;
       txn.status = 'matched';

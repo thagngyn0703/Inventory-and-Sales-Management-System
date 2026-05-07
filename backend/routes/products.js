@@ -194,13 +194,28 @@ async function findBarcodeDuplicate({ barcode, storeId, excludeId }) {
   })
     .select('_id name sku')
     .lean();
-  // Ignore stale/orphan unit rows to avoid false duplicate errors.
-  if (!ownerProduct) return null;
+  // Self-heal orphan unit rows so unique index won't block valid create requests.
+  if (!ownerProduct) {
+    await ProductUnit.deleteOne({ _id: unitDup._id });
+    return null;
+  }
   return {
     ...unitDup,
     product_name: ownerProduct.name,
     product_sku: ownerProduct.sku,
   };
+}
+
+async function resolveExistingProductByBarcodeInStore({ barcode, storeId }) {
+  const b = String(barcode || '').trim();
+  if (!b) return null;
+  const storeFilter = storeId ? { storeId } : { storeId: null };
+  const byProduct = await Product.findOne({ ...storeFilter, barcode: b }).select('_id name sku').lean();
+  if (byProduct) return byProduct;
+  const byUnit = await ProductUnit.findOne({ ...storeFilter, barcode: b }).select('product_id').lean();
+  if (!byUnit?.product_id) return null;
+  const owner = await Product.findOne({ _id: byUnit.product_id, ...storeFilter }).select('_id name sku').lean();
+  return owner || null;
 }
 
 async function ensureBarcodeAvailableForProduct({ barcode, storeId, currentProductId }) {
@@ -665,11 +680,19 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
     }
 
     if (barcodeTrim) {
-      const dupBc = await findBarcodeDuplicate({ barcode: barcodeTrim, storeId: resolvedStoreId });
-      if (dupBc) {
+      const barcodeCheck = await ensureBarcodeAvailableForProduct({
+        barcode: barcodeTrim,
+        storeId: resolvedStoreId,
+      });
+      if (!barcodeCheck.ok) {
+        const existingId =
+          barcodeCheck?.conflict?.owner?._id
+          || barcodeCheck?.conflict?.product_id
+          || barcodeCheck?.conflict?._id
+          || undefined;
         return res.status(409).json({
           message: 'Barcode đã tồn tại cho sản phẩm khác trong cửa hàng này',
-          existing_product_id: dupBc.product_id || dupBc._id,
+          existing_product_id: existingId,
           code: 'BARCODE_ALREADY_EXISTS',
         });
       }
@@ -677,11 +700,19 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
     for (const u of selling_units) {
       const ub = String(u.barcode || '').trim();
       if (!ub) continue;
-      const dupUnitBarcode = await findBarcodeDuplicate({ barcode: ub, storeId: resolvedStoreId });
-      if (dupUnitBarcode) {
+      const barcodeCheck = await ensureBarcodeAvailableForProduct({
+        barcode: ub,
+        storeId: resolvedStoreId,
+      });
+      if (!barcodeCheck.ok) {
+        const existingId =
+          barcodeCheck?.conflict?.owner?._id
+          || barcodeCheck?.conflict?.product_id
+          || barcodeCheck?.conflict?._id
+          || undefined;
         return res.status(409).json({
           message: `Barcode đơn vị "${ub}" đã tồn tại trong cửa hàng. Vui lòng kiểm tra barcode từng đơn vị.`,
-          existing_product_id: dupUnitBarcode.product_id || dupUnitBarcode._id,
+          existing_product_id: existingId,
           code: 'DUPLICATE_PRODUCT_UNIT_BARCODE',
         });
       }
@@ -869,6 +900,10 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
   } catch (err) {
     if (err?.code === 11000) {
       const keys = err.keyPattern || {};
+      const dupBarcode =
+        String(err?.keyValue?.barcode || '').trim()
+        || ((String(err?.message || '').match(/barcode:\s*"?([^",}\s]+)"?/i) || [])[1] || '').trim();
+      const dupStoreId = err?.keyValue?.storeId ? String(err.keyValue.storeId) : null;
       const dupKeyText = String(err?.message || '');
       if (!Object.keys(keys).length && /product_id_1_unit_name_1/.test(dupKeyText)) {
         return res.status(409).json({
@@ -889,7 +924,15 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
         });
       }
       if (keys.barcode) {
-        return res.status(409).json({ message: 'Barcode đã tồn tại cho sản phẩm khác trong cửa hàng này' });
+        const existing = await resolveExistingProductByBarcodeInStore({
+          barcode: dupBarcode,
+          storeId: dupStoreId,
+        });
+        return res.status(409).json({
+          message: 'Barcode đã tồn tại cho sản phẩm khác trong cửa hàng này',
+          code: 'BARCODE_ALREADY_EXISTS',
+          existing_product_id: existing?._id || undefined,
+        });
       }
       if (keys.storeId && keys.sku) {
         return res.status(409).json({ message: 'SKU đã tồn tại trong cửa hàng này', duplicate_keys: keys });

@@ -280,12 +280,25 @@ router.post('/register-store', requireAuth, requireRole(['manager'], { allowMana
         if (!manager) {
             return res.status(401).json({ message: 'Unauthorized' });
         }
+        let existingStore = null;
         if (manager.storeId) {
-            const existingStore = await Store.findById(manager.storeId);
+            existingStore = await Store.findById(manager.storeId);
             if (!existingStore) {
                 manager.storeId = null;
                 await manager.save();
-            } else {
+            }
+        }
+
+        if (!existingStore) {
+            // Dữ liệu cũ có thể bị lệch: user.storeId rỗng nhưng Store vẫn tồn tại theo managerId.
+            existingStore = await Store.findOne({ managerId: manager._id });
+            if (existingStore && String(manager.storeId || '') !== String(existingStore._id)) {
+                manager.storeId = existingStore._id;
+                await manager.save();
+            }
+        }
+
+        if (existingStore) {
                 const existingApproval = normalizeStoreApprovalStatus(existingStore.approval_status);
                 if (existingApproval === 'approved') {
                     return res.status(400).json({ message: 'Tài khoản đã có cửa hàng đã duyệt.' });
@@ -335,7 +348,6 @@ router.post('/register-store', requireAuth, requireRole(['manager'], { allowMana
                         storeApprovalStatus: existingStore.approval_status,
                     },
                 });
-            }
         }
 
         const store = await Store.create({
@@ -381,6 +393,45 @@ router.post('/register-store', requireAuth, requireRole(['manager'], { allowMana
             },
         });
     } catch (err) {
+        // Tránh 500 khi dữ liệu cũ bị lệch: đã có store theo managerId nhưng user.storeId chưa đồng bộ.
+        if (err?.code === 11000 && (err?.keyPattern?.managerId || String(err?.message || '').includes('managerId_1'))) {
+            try {
+                const manager = await User.findById(req.user.id);
+                const existingStore = manager ? await Store.findOne({ managerId: manager._id }) : null;
+                if (manager && existingStore) {
+                    if (String(manager.storeId || '') !== String(existingStore._id)) {
+                        manager.storeId = existingStore._id;
+                        await manager.save();
+                    }
+                    return res.status(200).json({
+                        message: 'Đã đồng bộ cửa hàng hiện có cho tài khoản manager.',
+                        store: {
+                            id: existingStore._id,
+                            name: existingStore.name,
+                            address: existingStore.address,
+                            phone: existingStore.phone,
+                            status: existingStore.status,
+                            approval_status: existingStore.approval_status,
+                            tax_code: existingStore.tax_code,
+                            bank_account_number: existingStore.bank_account_number,
+                            business_license_number: existingStore.business_license_number,
+                        },
+                        user: {
+                            id: manager._id,
+                            fullName: manager.fullName,
+                            email: manager.email,
+                            role: manager.role,
+                            storeId: manager.storeId,
+                            storeName: existingStore.name,
+                            storeStatus: existingStore.status,
+                            storeApprovalStatus: existingStore.approval_status,
+                        },
+                    });
+                }
+            } catch (syncErr) {
+                console.error('register-store duplicate-key self-heal error:', syncErr);
+            }
+        }
         console.error('register-store error:', err);
         return res.status(500).json({ message: err.message || 'Server error' });
     }

@@ -26,11 +26,9 @@ router.get('/lookup', requireAuth, async (req, res) => {
     const storeId = req.user?.storeId || null;
 
     try {
-        const productFilter = { barcode: code };
-        if (storeId) productFilter.storeId = storeId;
-
-        const unitFilter = { barcode: code };
-        if (storeId) unitFilter.storeId = storeId;
+        // Scope barcode lookup strictly by current store to avoid cross-store false positives.
+        const productFilter = { barcode: code, ...(storeId ? { storeId } : { storeId: null }) };
+        const unitFilter = { barcode: code, ...(storeId ? { storeId } : { storeId: null }) };
 
         const [product, unit] = await Promise.all([
             Product.findOne(productFilter).lean(),
