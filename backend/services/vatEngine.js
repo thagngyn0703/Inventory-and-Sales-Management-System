@@ -103,6 +103,12 @@ function shouldApplyReduction({ baseRate, exciseRate = 0, product, category, pol
     }
     const cfg = policy?.vat_reduction_rule || {};
     if (cfg.eligible === false) return { apply: false, reason: 'reduction_disabled' };
+    // Ưu tiên mức VAT cấu hình tường minh trên sản phẩm/danh mục.
+    // Tránh lệch hiển thị "VAT danh mục 10%" nhưng hóa đơn tự giảm còn 8%.
+    const hasExplicitCategoryRate = category?.vat_rate != null && !product?.tax_override_enabled;
+    if (hasExplicitCategoryRate) {
+        return { apply: false, reason: 'explicit_rate_configured' };
+    }
     const when = new Date(taxPointAt || Date.now());
     const start = cfg.effective_from ? new Date(cfg.effective_from) : new Date('2025-07-01T00:00:00.000Z');
     const end = cfg.effective_to ? new Date(cfg.effective_to) : new Date('2026-12-31T23:59:59.999Z');

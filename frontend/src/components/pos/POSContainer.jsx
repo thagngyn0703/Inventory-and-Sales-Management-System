@@ -653,7 +653,6 @@ export default function POSContainer({
               current_points: Number(result?.loyalty?.current_points || 0),
               next_nudge: result?.loyalty?.next_nudge || null,
             }, tabSnapshot?.invoiceId || invoiceData?._id);
-            notify('Thanh toán chuyển khoản thành công!', 'success');
             setTabs((prev) => {
               const filtered = prev.filter((t) => t.tabId !== tabSnapshot.tabId);
               if (filtered.length === 0) {
@@ -1462,7 +1461,7 @@ export default function POSContainer({
       (posTaxPreview.tax_breakdown_by_category || []).length > 1 ||
       hasExciseInPreview);
 
-  const legacyTaxSplit = !taxPreviewOk && storeTax.tax_rate > 0;
+  const legacyTaxSplit = hasItems && !taxPreviewOk && storeTax.tax_rate > 0;
   const summaryShowTaxSplit = previewShowSplit || legacyTaxSplit;
 
   let posTaxPrimaryLabel = `VAT (${storeTax.tax_rate}%)`;

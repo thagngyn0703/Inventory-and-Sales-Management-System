@@ -37,6 +37,7 @@ const customerNotifyRoutes = require('./routes/customerNotify');
 const shiftRoutes = require('./routes/shifts');
 const posRegisterRoutes = require('./routes/posRegisters');
 const barcodeLookupRoutes = require('./routes/barcodeLookup');
+const subscriptionRoutes = require('./routes/subscriptions');
 const ShiftSession = require('./models/ShiftSession');
 const { startBackupScheduler } = require('./services/backupScheduler');
 const { hasSmtpConfig } = require('./services/emailService');
@@ -134,6 +135,7 @@ const corsConfig = buildCorsConfig();
 app.use(corsConfig.express);
 // express.raw phải đăng ký TRƯỚC express.json để webhook SePay nhận được raw body
 app.use('/api/payments/sepay/webhook', express.raw({ type: 'application/json' }));
+app.use('/api/subscriptions/sepay/webhook', express.raw({ type: 'application/json' }));
 app.use(express.json());
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
@@ -169,6 +171,7 @@ app.use('/api/customer-notify', customerNotifyRoutes);
 app.use('/api/shifts', shiftRoutes);
 app.use('/api/pos-registers', posRegisterRoutes);
 app.use('/api/barcode', barcodeLookupRoutes);
+app.use('/api/subscriptions', subscriptionRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

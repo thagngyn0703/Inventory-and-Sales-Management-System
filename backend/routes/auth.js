@@ -9,6 +9,7 @@ const UnauthenticatedUser = require('../models/UnauthenticatedUser');
 const PasswordReset = require('../models/PasswordReset');
 const { sendVerificationEmail, sendPasswordResetEmail } = require('../services/emailService');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const { evaluateStoreSubscription } = require('../utils/subscriptionAccess');
 
 const router = express.Router();
 
@@ -419,7 +420,11 @@ router.post('/verify-email', async (req, res) => {
         // Xóa khỏi collection UnauthenticatedUser ngay sau khi xác thực thành công
         await UnauthenticatedUser.deleteOne({ _id: unauth._id });
 
-        const store = user.storeId ? await Store.findById(user.storeId).select('name status approval_status').lean() : null;
+        const store = user.storeId
+            ? await Store.findById(user.storeId)
+                .select('name status approval_status trial_ends_at subscription_ends_at subscription_started_at current_plan_code subscription_status createdAt')
+                .lean()
+            : null;
 
         const jwtToken = jwt.sign(
             { id: user._id, email: user.email, role: user.role, storeId: user.storeId || null },
@@ -438,6 +443,7 @@ router.post('/verify-email', async (req, res) => {
                 storeName: store?.name || null,
                 storeStatus: store?.status || null,
                 storeApprovalStatus: store?.approval_status || 'approved',
+                subscription: store ? evaluateStoreSubscription(store) : null,
             },
         });
     } catch (err) {
@@ -614,7 +620,11 @@ router.post('/login', async (req, res) => {
             return res.status(400).json({ message: 'Email hoặc mật khẩu không đúng' });
         }
 
-        const store = user.storeId ? await Store.findById(user.storeId).select('name status approval_status').lean() : null;
+        const store = user.storeId
+            ? await Store.findById(user.storeId)
+                .select('name status approval_status trial_ends_at subscription_ends_at subscription_started_at current_plan_code subscription_status createdAt')
+                .lean()
+            : null;
 
         const token = jwt.sign(
             { id: user._id, email: user.email, role: user.role, storeId: user.storeId || null },
@@ -633,6 +643,7 @@ router.post('/login', async (req, res) => {
                 storeName: store?.name || null,
                 storeStatus: store?.status || null,
                 storeApprovalStatus: store?.approval_status || 'approved',
+                subscription: store ? evaluateStoreSubscription(store) : null,
             },
         });
     } catch (err) {
@@ -645,7 +656,11 @@ router.get('/me', requireAuth, async (req, res) => {
     try {
         const user = await User.findById(req.user.id).lean();
         if (!user) return res.status(401).json({ message: 'Unauthorized' });
-        const store = user.storeId ? await Store.findById(user.storeId).select('name status approval_status').lean() : null;
+        const store = user.storeId
+            ? await Store.findById(user.storeId)
+                .select('name status approval_status trial_ends_at subscription_ends_at subscription_started_at current_plan_code subscription_status createdAt')
+                .lean()
+            : null;
         return res.json({
             user: {
                 id: user._id,
@@ -656,6 +671,7 @@ router.get('/me', requireAuth, async (req, res) => {
                 storeName: store?.name || null,
                 storeStatus: store?.status || null,
                 storeApprovalStatus: store?.approval_status || 'approved',
+                subscription: store ? evaluateStoreSubscription(store) : null,
             },
         });
     } catch (err) {
