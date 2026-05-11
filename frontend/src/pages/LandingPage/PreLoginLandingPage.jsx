@@ -1,5 +1,6 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { formatVndIntegerDots } from "../../utils/currencyInput";
 import {
   ArrowRight,
   BarChart3,
@@ -88,11 +89,12 @@ const onlineSolutions = [
   },
 ];
 
-const pricingPlans = [
+const PRICING_PLANS_BASE = [
   {
+    code: "monthly",
     name: "Gói theo tháng",
     duration: "Chu kỳ 1 tháng",
-    price: "100.000đ",
+    fallbackVnd: 100000,
     note: "Phù hợp để bắt đầu nhanh và linh hoạt theo nhu cầu.",
     features: [
       "Đầy đủ chức năng vận hành của hệ thống",
@@ -103,9 +105,10 @@ const pricingPlans = [
     highlight: false,
   },
   {
+    code: "yearly",
     name: "Gói theo năm",
     duration: "Chu kỳ 12 tháng",
-    price: "1.100.000đ",
+    fallbackVnd: 1100000,
     note: "Tối ưu chi phí cho đội ngũ vận hành lâu dài.",
     features: [
       "Toàn bộ chức năng như gói tháng",
@@ -125,7 +128,38 @@ function GradientBadge({ children }) {
   );
 }
 
+function buildPricingPlansFromApi(apiPlans) {
+  const byCode = Object.fromEntries((apiPlans || []).map((p) => [p.code, p]));
+  return PRICING_PLANS_BASE.map((meta) => {
+    const p = byCode[meta.code];
+    const vnd = Math.round(Number(p?.price_vnd ?? meta.fallbackVnd) || 0);
+    return {
+      name: meta.name,
+      duration: meta.duration,
+      price: `${formatVndIntegerDots(String(vnd))}đ`,
+      note: meta.note,
+      features: meta.features,
+      cta: meta.cta,
+      highlight: meta.highlight,
+    };
+  });
+}
+
 export default function PreLoginLandingPage() {
+  const [pricingPlans, setPricingPlans] = useState(() => buildPricingPlansFromApi(null));
+
+  useEffect(() => {
+    const base = (process.env.REACT_APP_API_URL || "http://localhost:8000/api").replace(/\/$/, "");
+    fetch(`${base}/subscriptions/plans`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data && Array.isArray(data.plans) && data.plans.length > 0) {
+          setPricingPlans(buildPricingPlansFromApi(data.plans));
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
       <header className="sticky top-0 z-20 border-b border-slate-200/80 bg-white/95 backdrop-blur">

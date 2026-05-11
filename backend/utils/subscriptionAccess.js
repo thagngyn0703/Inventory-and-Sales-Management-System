@@ -27,8 +27,32 @@ function addMonths(date, months) {
   return d;
 }
 
-function getPlanByCode(planCode) {
-  return SUBSCRIPTION_PLANS.find((p) => p.code === String(planCode || '').toLowerCase()) || null;
+async function getResolvedSubscriptionPlans() {
+  try {
+    const SubscriptionPricingSettings = require('../models/SubscriptionPricingSettings');
+    const doc = await SubscriptionPricingSettings.findOne({ singleton_key: 'default' }).lean();
+    const monthlyOverride =
+      doc && Number.isFinite(Number(doc.monthly_price_vnd)) ? Math.round(Number(doc.monthly_price_vnd)) : null;
+    const yearlyOverride =
+      doc && Number.isFinite(Number(doc.yearly_price_vnd)) ? Math.round(Number(doc.yearly_price_vnd)) : null;
+    return SUBSCRIPTION_PLANS.map((p) => {
+      if (p.code === 'monthly' && monthlyOverride != null && monthlyOverride >= 0) {
+        return { ...p, price_vnd: monthlyOverride };
+      }
+      if (p.code === 'yearly' && yearlyOverride != null && yearlyOverride >= 0) {
+        return { ...p, price_vnd: yearlyOverride };
+      }
+      return { ...p };
+    });
+  } catch (err) {
+    console.error('getResolvedSubscriptionPlans', err);
+    return SUBSCRIPTION_PLANS.map((p) => ({ ...p }));
+  }
+}
+
+async function getPlanByCode(planCode) {
+  const plans = await getResolvedSubscriptionPlans();
+  return plans.find((p) => p.code === String(planCode || '').toLowerCase()) || null;
 }
 
 function evaluateStoreSubscription(store) {
@@ -85,6 +109,7 @@ function evaluateStoreSubscription(store) {
 module.exports = {
   TRIAL_DAYS,
   SUBSCRIPTION_PLANS,
+  getResolvedSubscriptionPlans,
   addDays,
   addMonths,
   getPlanByCode,
