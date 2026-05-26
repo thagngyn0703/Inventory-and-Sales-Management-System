@@ -7,6 +7,7 @@ const SalesInvoice = require('../models/SalesInvoice');
 const CustomerDebtPayment = require('../models/CustomerDebtPayment');
 const PaymentTransaction = require('../models/PaymentTransaction');
 const { upsertSystemCashFlow } = require('../utils/cashflowUtils');
+const { logAudit } = require('../utils/audit');
 const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
@@ -599,15 +600,6 @@ router.post('/:id/pay-debt/confirm-transfer', requireAuth, requireRole(['staff',
                     session,
                 });
 
-                const AuditLog = require('../models/AuditLog');
-                await AuditLog.create([{
-                    user_id: req.user.id,
-                    action: `Xác nhận thu nợ CK khách hàng ${customer.full_name}: ${payAmount.toLocaleString('vi-VN')}₫ (${ref})`,
-                    entity: 'Customer',
-                    entity_id: customer._id,
-                    ip_address: req.ip
-                }], { session });
-
                 if (providerTxnId) {
                     await PaymentTransaction.updateOne(
                         { provider_txn_id: providerTxnId },
@@ -625,6 +617,14 @@ router.post('/:id/pay-debt/confirm-transfer', requireAuth, requireRole(['staff',
         } finally {
             await session.endSession();
         }
+
+        await logAudit({
+            storeId,
+            actorId: req.user.id,
+            action: `Xác nhận thu nợ CK khách hàng ${customer.full_name}: ${payAmount.toLocaleString('vi-VN')}₫ (${ref})`,
+            entityType: 'Customer',
+            entityId: customer._id,
+        });
 
         const refreshedCustomer = await Customer.findOne({ _id: id, store_id: storeId }).lean();
         res.json({ message: 'Xác nhận thanh toán nợ chuyển khoản thành công', customer: refreshedCustomer || customer });
@@ -765,19 +765,18 @@ router.post('/:id/pay-debt', requireAuth, requireRole(['staff', 'manager', 'admi
                     transactedAt: new Date(),
                     session,
                 });
-
-                const AuditLog = require('../models/AuditLog');
-                await AuditLog.create([{
-                    user_id: req.user.id,
-                    action: `Thu nợ tiền mặt khách hàng ${customerInTx.full_name}: ${payAmount.toLocaleString('vi-VN')}₫`,
-                    entity: 'Customer',
-                    entity_id: customerInTx._id,
-                    ip_address: req.ip
-                }], { session });
             });
         } finally {
             await session.endSession();
         }
+
+        await logAudit({
+            storeId,
+            actorId: req.user.id,
+            action: `Thu nợ tiền mặt khách hàng ${customer.full_name}: ${payAmount.toLocaleString('vi-VN')}₫`,
+            entityType: 'Customer',
+            entityId: customer._id,
+        });
 
         const refreshedCustomer = await Customer.findOne({ _id: id, store_id: storeId }).lean();
         res.json({ message: 'Thanh toán nợ tiền mặt thành công', customer: refreshedCustomer || customer });

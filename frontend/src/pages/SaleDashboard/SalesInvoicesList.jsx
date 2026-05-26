@@ -10,6 +10,7 @@ import { InlineNotice } from '../../components/ui/inline-notice';
 import { FileText, Loader2, Receipt, Search, X } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { getCurrentUser, normalizeRole } from '../../utils/auth';
+import { getInvoiceDisplayCode } from '../../utils/invoiceDisplayCode';
 
 const LIMIT = 10;
 
@@ -90,7 +91,7 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
         type: 'sale',
         _id: String(inv._id),
         createdAt: inv.invoice_at,
-        code: String(inv.display_code || inv._id),
+        code: getInvoiceDisplayCode(inv),
         customerName: inv.recipient_name || 'Khách lẻ',
         sellerName: inv.seller_name || inv.created_by?.fullName || inv.created_by?.email || '—',
         status: getInvoiceStatusView(inv),
@@ -114,7 +115,7 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
           type: 'return',
           _id: `return-${rt._id}`,
           createdAt: rt.return_at || rt.created_at,
-          code: String(rt._id),
+          code: getInvoiceDisplayCode(originInvoice || rt.invoice_id),
           customerName: rt.invoice_id?.recipient_name || originInvoice?.recipient_name || '—',
           sellerName: rt.created_by?.fullName || rt.created_by?.email || '—',
           status: returnStatus,
