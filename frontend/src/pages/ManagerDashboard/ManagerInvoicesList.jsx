@@ -6,6 +6,7 @@ import { Receipt } from 'lucide-react';
 import { getInvoices } from '../../services/invoicesApi';
 import { getReturns } from '../../services/returnsApi';
 import { useToast } from '../../contexts/ToastContext';
+import { getInvoiceDisplayCode } from '../../utils/invoiceDisplayCode';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
 
@@ -87,7 +88,7 @@ export default function ManagerInvoicesList() {
       const invoiceRows = allInvoicesRaw.map((inv) => ({
         type: 'sale',
         createdAt: inv.invoice_at,
-        code: inv.display_code || inv._id,
+        code: getInvoiceDisplayCode(inv),
         sellerName: inv.seller_name || inv.created_by?.fullName || inv.created_by?.email || '—',
         sellerRole: inv.seller_role || '',
         customerName: inv.recipient_name || '—',
@@ -106,7 +107,7 @@ export default function ManagerInvoicesList() {
         return {
           type: 'return',
           createdAt: rt.return_at || rt.created_at,
-          code: rt._id,
+          code: getInvoiceDisplayCode(originInvoice || rt.invoice_id),
           sellerName: rt.created_by?.fullName || rt.created_by?.email || '—',
           sellerRole: '',
           customerName: rt.invoice_id?.recipient_name || originInvoice?.recipient_name || '—',

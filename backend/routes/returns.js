@@ -8,6 +8,7 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 const { adjustCustomerDebtAccount } = require('../utils/customerDebt');
 const { upsertSystemCashFlow } = require('../utils/cashflowUtils');
 const { appendLoyaltyTxn, computeEarnedPoints, normalizeLoyaltySettings } = require('../utils/loyalty');
+const { decorateInvoiceDisplayCode } = require('../utils/invoiceDisplayCode');
 
 const router = express.Router();
 const RETURN_REASON_OPTIONS = [
@@ -292,13 +293,20 @@ router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (
             .sort({ created_at: -1 })
             .skip(skip)
             .limit(limitNum)
-            .populate('invoice_id', '_id recipient_name total_amount invoice_at')
+            .populate('invoice_id', '_id recipient_name total_amount invoice_at display_code created_at')
             .populate('created_by', 'fullName email')
             .populate('items.product_id', 'name sku')
             .lean();
 
+        const returnsWithCodes = returns.map((rt) => {
+            if (rt.invoice_id && typeof rt.invoice_id === 'object') {
+                rt.invoice_id = decorateInvoiceDisplayCode(rt.invoice_id);
+            }
+            return rt;
+        });
+
         return res.json({
-            returns,
+            returns: returnsWithCodes,
             total,
             page: pageNum,
             limit: limitNum,
@@ -334,6 +342,9 @@ router.get('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), asyn
         const role = String(req.user?.role || '').toLowerCase();
         if (role !== 'admin' && req.user.storeId && String(salesReturn.store_id) !== String(req.user.storeId)) {
             return res.status(403).json({ message: 'Không có quyền xem phiếu trả hàng này.' });
+        }
+        if (salesReturn.invoice_id && typeof salesReturn.invoice_id === 'object') {
+            salesReturn.invoice_id = decorateInvoiceDisplayCode(salesReturn.invoice_id);
         }
         return res.json({ salesReturn });
     } catch (err) {

@@ -157,4 +157,19 @@ describe('Customers Routes', () => {
       expect(res.status).toBe(404);
     });
   });
+
+  describe('POST /api/customers/:id/pay-debt', () => {
+    it('should collect cash debt payment and reduce debt_account', async () => {
+      const customer = await createTestCustomer(store._id, { debt_account: 34000 });
+
+      const res = await request(app)
+        .post(`/api/customers/${customer._id}/pay-debt`)
+        .set('Authorization', managerToken)
+        .send({ amount: 34000, payment_method: 'cash' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.message).toContain('thành công');
+      expect(res.body.customer.debt_account).toBe(0);
+    });
+  });
 });
