@@ -557,18 +557,6 @@ export default function SalesCustomerPage({ managerMode = false }) {
                                                     {c.debt_account > 0 && (
                                                         <Button
                                                             type="button"
-                                                            onClick={() => handleSendDebtReminder({
-                                                                customer: c,
-                                                                amount: toCurrencyInputFromNumber(c.debt_account || 0),
-                                                            })}
-                                                            className="h-9 min-w-[90px] rounded-lg border border-amber-200 bg-amber-50 px-3 text-xs font-semibold text-amber-700 hover:bg-amber-100 gap-1 inline-flex items-center"
-                                                        >
-                                                            <Send size={12} /> Nhắc nợ
-                                                        </Button>
-                                                    )}
-                                                    {c.debt_account > 0 && (
-                                                        <Button
-                                                            type="button"
                                                             onClick={() => setPayDebtModal({
                                                                 show: true,
                                                                 customer: c,
@@ -999,31 +987,6 @@ export default function SalesCustomerPage({ managerMode = false }) {
                                             Quá {OVERDUE_DAYS} ngày ({overdueDebtInvoices.length})
                                         </button>
                                     </div>
-                                    {overdueDebtInvoices.length > 0 && (
-                                        <button
-                                            type="button"
-                                            onClick={() => handleSendDebtReminder({
-                                                customer: historyModal.customer,
-                                                amount: overdueTotalAmount,
-                                                overdueDays: oldestOverdueDays,
-                                            })}
-                                            style={{
-                                                padding: '6px 14px',
-                                                borderRadius: 6,
-                                                border: '1px solid #fde68a',
-                                                background: '#fef3c7',
-                                                color: '#92400e',
-                                                fontSize: 12,
-                                                fontWeight: 700,
-                                                cursor: 'pointer',
-                                                display: 'inline-flex',
-                                                alignItems: 'center',
-                                                gap: 5,
-                                            }}
-                                        >
-                                            <Send size={12} /> Gửi nhắc nợ quá hạn
-                                        </button>
-                                    )}
                                 </div>
                             )}
 

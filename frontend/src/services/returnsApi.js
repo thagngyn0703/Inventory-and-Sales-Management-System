@@ -23,6 +23,7 @@ export async function getReturns(params = {}) {
   if (params.limit) query.set('limit', params.limit);
   if (params.status) query.set('status', params.status);
   if (params.sales_scope) query.set('sales_scope', params.sales_scope);
+  if (params.searchKey) query.set('searchKey', params.searchKey);
   const res = await fetch(`${API_BASE}/returns?${query.toString()}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
