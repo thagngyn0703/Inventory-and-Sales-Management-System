@@ -187,7 +187,7 @@ export default function SalesReturnPage({ backPathOverride = null }) {
           <input
             type="text"
             className="h-11 flex-1 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-sky-200 focus:ring-2"
-            placeholder="Nhập mã hóa đơn (ID)..."
+            placeholder="Nhập mã hóa đơn (VD: HD260526-ABC123)..."
             value={invoiceInput}
             onChange={e => setInvoiceInput(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleLoadInvoice()}
@@ -216,7 +216,7 @@ export default function SalesReturnPage({ backPathOverride = null }) {
 
           {/* Invoice info summary */}
           <div className="flex flex-wrap gap-x-6 gap-y-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-            <span><strong>Mã HĐ:</strong> <span className="font-mono text-[11px]">{invoice._id}</span></span>
+            <span><strong>Mã HĐ:</strong> <span className="font-mono text-[11px]">{invoice.display_code || invoice._id}</span></span>
             <span><strong>Ngày:</strong> {formatDate(invoice.invoice_at)}</span>
             <span><strong>Khách hàng:</strong> {invoice.recipient_name || 'Khách lẻ'}</span>
             <span><strong>Tổng tiền HĐ:</strong> <span className="font-bold text-sky-600">{formatMoney(invoice.total_amount)}</span></span>

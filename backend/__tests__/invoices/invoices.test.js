@@ -211,6 +211,37 @@ describe('Invoices Routes', () => {
 
       expect(res.status).toBe(404);
     });
+
+    it('should return invoice by display_code', async () => {
+      const product = await createTestProduct(store._id, { stock_qty: 100 });
+
+      const createRes = await request(app)
+        .post('/api/invoices')
+        .set('Authorization', managerToken)
+        .send({
+          payment_method: 'cash',
+          payment_status: 'paid',
+          items: [
+            {
+              product_id: String(product._id),
+              quantity: 1,
+              unit_price: product.sale_price,
+            },
+          ],
+        });
+
+      expect(createRes.status).toBe(201);
+      const displayCode = createRes.body.invoice.display_code;
+      expect(displayCode).toMatch(/^HD\d{6}-[A-F0-9]{6}$/i);
+
+      const res = await request(app)
+        .get(`/api/invoices/${displayCode}`)
+        .set('Authorization', managerToken);
+
+      expect(res.status).toBe(200);
+      expect(String(res.body.invoice._id)).toBe(String(createRes.body.invoice._id));
+      expect(res.body.invoice.display_code).toBe(displayCode);
+    });
   });
 
   describe('POST /api/invoices/:id/cancel', () => {
