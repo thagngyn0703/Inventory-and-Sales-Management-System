@@ -1550,17 +1550,33 @@ router.post('/:id/cancel', requireAuth, requireRole(['manager', 'admin']), async
                 message: 'Vui lòng nhập lý do hủy hóa đơn.',
             });
         }
+        const role = String(req.user?.role || '').toLowerCase();
+        const isAdmin = role === 'admin';
+        // Nghiệp vụ: (trừ admin) bắt buộc đang mở ca mới được thao tác hủy
+        // và hóa đơn phải thuộc một ca còn mở để đảm bảo đối soát tiền mặt/ca.
+        if (!isAdmin) {
+            const openShift = await findOpenShiftForUser(req.user.storeId, req.user.id);
+            if (!openShift && !isTestEnv) {
+                return res.status(400).json({
+                    code: 'SHIFT_REQUIRED',
+                    message: 'Vui lòng mở ca trước khi hủy hóa đơn.',
+                });
+            }
+            if (!invoice.shift_id) {
+                return res.status(409).json({
+                    code: 'INVOICE_SHIFT_REQUIRED',
+                    message: 'Hóa đơn chưa gán ca: không được hủy. Vui lòng liên hệ quản trị để xử lý dữ liệu hoặc lập nghiệp vụ điều chỉnh theo quy trình.',
+                });
+            }
+        }
         // Anti-fraud: không cho hủy hóa đơn thuộc ca đã đóng (trừ admin)
-        if (invoice.shift_id) {
-            const role = String(req.user?.role || '').toLowerCase();
-            if (role !== 'admin') {
-                const shift = await ShiftSession.findById(invoice.shift_id).select('status store_id').lean();
-                if (shift && String(shift.status) === 'closed') {
-                    return res.status(409).json({
-                        code: 'SHIFT_CLOSED_INVOICE_LOCKED',
-                        message: 'Ca đã đóng: không được hủy hóa đơn. Vui lòng tạo nghiệp vụ trả hàng/điều chỉnh theo quy trình quản lý.',
-                    });
-                }
+        if (invoice.shift_id && !isAdmin) {
+            const shift = await ShiftSession.findById(invoice.shift_id).select('status store_id').lean();
+            if (shift && String(shift.status) === 'closed') {
+                return res.status(409).json({
+                    code: 'SHIFT_CLOSED_INVOICE_LOCKED',
+                    message: 'Ca đã đóng: không được hủy hóa đơn. Vui lòng tạo nghiệp vụ trả hàng/điều chỉnh theo quy trình quản lý.',
+                });
             }
         }
         // Store ownership check
