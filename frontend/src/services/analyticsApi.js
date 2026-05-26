@@ -51,6 +51,40 @@ export async function getVatReport({ from, to } = {}) {
   return parseResponse(res, 'Không thể tải báo cáo VAT');
 }
 
+export async function getTaxReport({ from, to, presumptive_rate } = {}) {
+  const url = new URL(`${API_BASE}/analytics/tax-report`);
+  if (from) url.searchParams.set('from', from);
+  if (to) url.searchParams.set('to', to);
+  if (presumptive_rate != null) url.searchParams.set('presumptive_rate', String(presumptive_rate));
+  const res = await fetch(url.toString(), { headers: authHeaders() });
+  return parseResponse(res, 'Không thể tải báo cáo thuế');
+}
+
+export async function downloadTaxReportExcel({ from, to, presumptive_rate } = {}) {
+  const url = new URL(`${API_BASE}/analytics/tax-report/export.xlsx`);
+  if (from) url.searchParams.set('from', from);
+  if (to) url.searchParams.set('to', to);
+  if (presumptive_rate != null) url.searchParams.set('presumptive_rate', String(presumptive_rate));
+  const res = await fetch(url.toString(), { headers: authHeaders() });
+  if (!res.ok) {
+    let message = 'Không thể xuất báo cáo thuế';
+    try {
+      const data = await res.json();
+      if (data?.message) message = data.message;
+    } catch (_) {
+      // ignore
+    }
+    throw new Error(message);
+  }
+  const blob = await res.blob();
+  const contentDisposition = res.headers.get('content-disposition') || '';
+  const match = /filename="?([^"]+)"?/i.exec(contentDisposition);
+  return {
+    blob,
+    fileName: match?.[1] || 'bao-cao-thue.xlsx',
+  };
+}
+
 export async function getAuditLogs({ limit = 50 } = {}) {
   const url = new URL(`${API_BASE}/analytics/audit-logs`);
   url.searchParams.set('limit', String(limit));

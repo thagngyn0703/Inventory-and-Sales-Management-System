@@ -10,6 +10,8 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 const router = express.Router();
 
 const ALLOWED_BUSINESS_TYPES = ['ho_kinh_doanh', 'doanh_nghiep'];
+const BANK_ID_PATTERN = /^[a-z0-9]{2,12}$/i;
+const BANK_ACCOUNT_PATTERN = /^[0-9]{6,24}$/;
 
 function hasCompletedLegalProfile(store) {
     return Boolean(
@@ -287,9 +289,37 @@ router.patch('/bank', requireAuth, requireRole(['manager', 'admin']), async (req
         }
 
         const updates = {};
-        if (bank_id !== undefined) updates.bank_id = String(bank_id || '').trim();
+        if (bank_id !== undefined) updates.bank_id = String(bank_id || '').trim().toLowerCase();
         if (bank_account !== undefined) updates.bank_account = String(bank_account || '').trim();
         if (bank_account_name !== undefined) updates.bank_account_name = String(bank_account_name || '').trim();
+
+        const existingStore = await Store.findById(storeId)
+            .select('bank_id bank_account bank_account_name')
+            .lean();
+        if (!existingStore) return res.status(404).json({ message: 'Không tìm thấy cửa hàng.' });
+
+        const effectiveBankId = updates.bank_id ?? String(existingStore.bank_id || '').trim().toLowerCase();
+        const effectiveBankAccount = updates.bank_account ?? String(existingStore.bank_account || '').trim();
+        const effectiveBankAccountName = updates.bank_account_name ?? String(existingStore.bank_account_name || '').trim();
+
+        if (!effectiveBankId || !effectiveBankAccount || !effectiveBankAccountName) {
+            return res.status(400).json({
+                message: 'Cấu hình QR theo cửa hàng bắt buộc đủ 3 trường: bank_id, bank_account, bank_account_name.',
+                error_code: 'STORE_BANK_CONFIG_REQUIRED',
+            });
+        }
+        if (!BANK_ID_PATTERN.test(effectiveBankId)) {
+            return res.status(400).json({
+                message: 'bank_id không hợp lệ (2-12 ký tự chữ/số, ví dụ: vcb, tcb, mb).',
+                error_code: 'INVALID_BANK_ID',
+            });
+        }
+        if (!BANK_ACCOUNT_PATTERN.test(effectiveBankAccount)) {
+            return res.status(400).json({
+                message: 'bank_account không hợp lệ (chỉ gồm chữ số, độ dài 6-24).',
+                error_code: 'INVALID_BANK_ACCOUNT',
+            });
+        }
 
         const store = await Store.findByIdAndUpdate(
             storeId,

@@ -5,6 +5,7 @@ const goodsReceiptRoutes = require('../../routes/goodsReceipts');
 const GoodsReceipt = require('../../models/GoodsReceipt');
 const Product = require('../../models/Product');
 const Supplier = require('../../models/Supplier');
+const Category = require('../../models/Category');
 const { createManagerUser, createStaffUser, createManagerWithStore, getAuthHeader } = require('../fixtures/users');
 
 const app = express();
@@ -20,11 +21,13 @@ describe('Goods Receipt Routes', () => {
   let managerWithStore;
   let staffWithStore;
   let supplier;
+  let category;
 
   beforeEach(async () => {
     await GoodsReceipt.deleteMany({});
     await Product.deleteMany({});
     await Supplier.deleteMany({});
+    await Category.deleteMany({});
 
     const managerResult = await createManagerWithStore();
     managerWithStore = managerResult;
@@ -34,6 +37,12 @@ describe('Goods Receipt Routes', () => {
       name: 'Test Supplier',
       storeId: store._id,
       status: 'active',
+    });
+    category = await Category.create({
+      name: 'Test Category VAT10',
+      vat_rate: 10,
+      tax_profile: 'VAT_10',
+      tax_tags: ['standard_vat'],
     });
   });
 
@@ -139,7 +148,7 @@ describe('Goods Receipt Routes', () => {
         .send({
           supplier_id: supplier._id.toString(),
           items: [
-            { product_id: product._id.toString(), quantity: 5, unit_cost: 100 },
+            { product_id: product._id.toString(), category_id: category._id.toString(), quantity: 5, unit_cost: 100 },
           ],
         });
 
@@ -264,7 +273,7 @@ describe('Goods Receipt Routes', () => {
         storeId: managerWithStore.store._id,
         received_by: managerWithStore.manager._id,
         status: 'draft',
-        items: [{ product_id: product._id, quantity: 10, unit_cost: 50 }],
+        items: [{ product_id: product._id, category_id: category._id, quantity: 10, unit_cost: 50 }],
         total_amount: 500,
       });
 
@@ -290,7 +299,7 @@ describe('Goods Receipt Routes', () => {
         storeId: managerWithStore.store._id,
         received_by: managerWithStore.manager._id,
         status: 'pending',
-        items: [{ product_id: product._id, quantity: 10, unit_cost: 50 }],
+        items: [{ product_id: product._id, category_id: category._id, quantity: 10, unit_cost: 50 }],
         total_amount: 500,
       });
 

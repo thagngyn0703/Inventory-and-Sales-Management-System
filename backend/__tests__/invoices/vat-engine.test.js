@@ -38,7 +38,7 @@ describe('vatEngine', () => {
     Product.find.mockReturnValueOnce(mockChain([
       { _id: 'p1', category_id: 'c1', vat_rate: 10, tax_override_enabled: true, tax_tags: [] },
     ]));
-    Category.find.mockReturnValueOnce(mockChain([{ _id: 'c1', vat_rate: 10, tax_tags: [] }]));
+    Category.find.mockReturnValueOnce(mockChain([{ _id: 'c1', vat_rate: null, tax_tags: [] }]));
 
     const out = await computeInvoiceTaxSnapshot({
       storeId: '67f3adf5f1a26a83e5b7f111',
@@ -77,7 +77,7 @@ describe('vatEngine', () => {
     })).rejects.toMatchObject({ code: 'TAX_MAPPING_REQUIRED' });
   });
 
-  test('reverse calculation handles mixed basket with NO_VAT + VAT_8 + TTDB+VAT', async () => {
+  test('reverse calculation keeps explicit category VAT rate in mixed basket', async () => {
     TaxPolicy.findOne.mockReturnValueOnce(mockChain({
       _id: 'policy-3',
       version_code: 'VN-2026Q4',
@@ -141,10 +141,10 @@ describe('vatEngine', () => {
     expect(beer.line_tax_amount).toBe(81500);
 
     expect(household.base_rate).toBe(10);
-    expect(household.final_rate).toBe(8);
-    expect(household.reduction_reason_code).toBe('reduction_10_to_8');
-    expect(household.line_subtotal_amount).toBe(100000);
-    expect(household.line_tax_amount).toBe(8000);
+    expect(household.final_rate).toBe(10);
+    expect(household.reduction_reason_code).toBe('explicit_rate_configured');
+    expect(household.line_subtotal_amount).toBe(98182);
+    expect(household.line_tax_amount).toBe(9818);
 
     const breakdown = out.tax_breakdown_by_category || [];
     expect(breakdown.some((b) => b.tax_category === 'BEER_2026')).toBe(true);
@@ -192,8 +192,8 @@ describe('vatEngine', () => {
     Product.find.mockReturnValueOnce(mockChain([
       { _id: 'p1', category_id: 'c1', vat_rate: 10, tax_override_enabled: false, tax_tags: [], tax_category: 'VAT_10' },
     ]));
-    Category.find.mockReturnValueOnce(mockChain([{ _id: 'c1', vat_rate: 10, tax_profile: 'VAT_10', tax_tags: [] }]));
-    Category.find.mockReturnValueOnce(mockChain([{ _id: 'c1', vat_rate: 10, tax_profile: 'VAT_10', tax_tags: [] }]));
+    Category.find.mockReturnValueOnce(mockChain([{ _id: 'c1', vat_rate: null, tax_profile: 'VAT_10', tax_tags: [] }]));
+    Category.find.mockReturnValueOnce(mockChain([{ _id: 'c1', vat_rate: null, tax_profile: 'VAT_10', tax_tags: [] }]));
 
     const out2026 = await computeInvoiceTaxSnapshot({
       storeId: '67f3adf5f1a26a83e5b7f114',

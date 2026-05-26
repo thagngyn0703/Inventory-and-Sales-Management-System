@@ -2,6 +2,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const SalesReturn = require('../models/SalesReturn');
 const SalesInvoice = require('../models/SalesInvoice');
+const ShiftSession = require('../models/ShiftSession');
 const Product = require('../models/Product');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { adjustCustomerDebtAccount } = require('../utils/customerDebt');
@@ -264,7 +265,7 @@ async function applyApprovedReturn({
 router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
         if (!assertStoreScope(req, res)) return;
-        const { page = '1', limit = '50', status } = req.query;
+        const { page = '1', limit = '50', status, sales_scope } = req.query;
         const pageNum = Math.max(1, parseInt(page, 10) || 1);
         const limitNum = Math.min(200, Math.max(1, parseInt(limit, 10) || 50));
         const filter = {};
@@ -275,6 +276,14 @@ router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (
         }
         if (status && ['pending', 'approved', 'rejected'].includes(status)) {
             filter.status = status;
+        }
+        const salesScopeNorm = String(sales_scope || '').toLowerCase().trim();
+        if (userRole === 'staff' && salesScopeNorm !== 'store' && req.user.storeId) {
+            const myInvoiceIds = await SalesInvoice.distinct('_id', {
+                store_id: req.user.storeId,
+                created_by: req.user.id,
+            });
+            filter.invoice_id = { $in: myInvoiceIds };
         }
 
         const total = await SalesReturn.countDocuments(filter);

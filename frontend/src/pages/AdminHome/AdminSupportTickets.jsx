@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import Sidebar from '../../components/Sidebar';
+import AdminPageFrame from '../../components/admin/AdminPageFrame';
+import AdminSoftSelect from '../../components/admin/AdminSoftSelect';
 import { listSupportTickets } from '../../services/supportTicketsApi';
 import '../ManagerDashboard/ManagerDashboard.css';
 import '../ManagerDashboard/ManagerProducts.css';
@@ -45,20 +46,7 @@ export default function AdminSupportTickets() {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (
-    <div className="admin-page-with-sidebar">
-      <Sidebar />
-      <div className="admin-users-main">
-        <header className="admin-users-topbar">
-          <div className="admin-users-topbar-spacer" />
-          <div className="admin-users-topbar-actions">
-            <div className="admin-users-badge">
-              <i className="fa-solid fa-circle-user" />
-              <span>Quản trị viên</span>
-            </div>
-          </div>
-        </header>
-
-        <div className="admin-users-content">
+    <AdminPageFrame>
           <div className="manager-products-header" style={{ alignItems: 'flex-end', flexWrap: 'wrap', gap: 12 }}>
             <div>
               <h1 className="manager-page-title">Phiếu hỗ trợ từ cửa hàng</h1>
@@ -66,20 +54,20 @@ export default function AdminSupportTickets() {
                 Đọc yêu cầu từ quản lý cửa hàng và trả lời trong trang chi tiết.
               </p>
             </div>
-            <select
-              className="manager-input"
-              style={{ maxWidth: 220 }}
+            <AdminSoftSelect
+              className="admin-topbar-select"
               value={statusFilter}
-              onChange={(ev) => {
+              onChange={(next) => {
                 setPage(1);
-                setStatusFilter(ev.target.value);
+                setStatusFilter(next);
               }}
-            >
-              <option value="">Tất cả trạng thái</option>
-              <option value="open">Mở</option>
-              <option value="answered">Đã trả lời</option>
-              <option value="closed">Đã đóng</option>
-            </select>
+              options={[
+                { value: '', label: 'Tất cả trạng thái' },
+                { value: 'open', label: 'Mở' },
+                { value: 'answered', label: 'Đã trả lời' },
+                { value: 'closed', label: 'Đã đóng' },
+              ]}
+            />
           </div>
 
           {error && <div className="manager-products-error">{error}</div>}
@@ -161,8 +149,6 @@ export default function AdminSupportTickets() {
               </div>
             )}
           </div>
-        </div>
-      </div>
-    </div>
+    </AdminPageFrame>
   );
 }

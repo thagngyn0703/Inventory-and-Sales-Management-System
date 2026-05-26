@@ -165,6 +165,35 @@ const storeSchema = new Schema(
             default: 1,
             min: 1,
         },
+        subscription_status: {
+            type: String,
+            enum: ['trialing', 'active', 'expired'],
+            default: 'trialing',
+            index: true,
+        },
+        trial_started_at: {
+            type: Date,
+            default: Date.now,
+        },
+        trial_ends_at: {
+            type: Date,
+            default: () => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+            index: true,
+        },
+        current_plan_code: {
+            type: String,
+            default: '',
+            trim: true,
+        },
+        subscription_started_at: {
+            type: Date,
+            default: null,
+        },
+        subscription_ends_at: {
+            type: Date,
+            default: null,
+            index: true,
+        },
     },
     { timestamps: true }
 );

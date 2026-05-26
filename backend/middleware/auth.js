@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const { evaluateStoreSubscription } = require('../utils/subscriptionAccess');
 
 function getBearerToken(req) {
   const h = req.headers.authorization || '';
@@ -21,9 +22,14 @@ async function requireAuth(req, res, next) {
     let storeApprovalStatus = null;
     if (user.storeId) {
       const Store = require('../models/Store');
-      const store = await Store.findById(user.storeId).select('status approval_status').lean();
+      const store = await Store.findById(user.storeId)
+        .select('status approval_status trial_ends_at subscription_ends_at subscription_started_at current_plan_code subscription_status createdAt')
+        .lean();
       storeStatus = store?.status || 'active';
       storeApprovalStatus = store?.approval_status || 'approved';
+      req.storeSubscription = evaluateStoreSubscription(store);
+    } else {
+      req.storeSubscription = null;
     }
 
     req.user = {
@@ -33,6 +39,7 @@ async function requireAuth(req, res, next) {
       storeId: user.storeId ? String(user.storeId) : null,
       storeStatus,
       storeApprovalStatus,
+      storeSubscriptionStatus: req.storeSubscription?.status || null,
     };
     next();
   } catch (err) {
@@ -56,6 +63,7 @@ function requireRole(allowedRoles, options = {}) {
   const allowManagerWithoutStore = Boolean(options.allowManagerWithoutStore);
   const allowLockedStoreForManager = Boolean(options.allowLockedStoreForManager);
   const allowApprovalBlockedWriteForManager = Boolean(options.allowApprovalBlockedWriteForManager);
+  const allowExpiredSubscriptionForManager = Boolean(options.allowExpiredSubscriptionForManager);
   const canRoleAccess = (role) => {
     if (allowed.includes(role)) return true;
     // Hierarchy: manager inherits staff permissions.
@@ -85,6 +93,7 @@ function requireRole(allowedRoles, options = {}) {
     const isReadOnlyMethod = ['GET', 'HEAD', 'OPTIONS'].includes(method);
     const skipLockedForManager = allowLockedStoreForManager && role === 'manager';
     const skipApprovalBlockedForManager = allowApprovalBlockedWriteForManager && role === 'manager';
+    const skipExpiredSubscriptionForManager = allowExpiredSubscriptionForManager && role === 'manager';
     const approvalBlockedStatuses = ['draft_profile', 'pending_approval', 'rejected', 'suspended'];
     const isTestEnv = String(process.env.NODE_ENV || '').toLowerCase() === 'test';
     if (
@@ -103,6 +112,19 @@ function requireRole(allowedRoles, options = {}) {
       return res.status(403).json({
         message: 'Cửa hàng của bạn đã bị khóa. Vui lòng liên hệ admin để được hỗ trợ.',
         code: 'STORE_LOCKED',
+      });
+    }
+    const subscription = req.storeSubscription;
+    if (
+      isStoreScopedRole &&
+      subscription &&
+      !subscription.is_access_allowed &&
+      !skipExpiredSubscriptionForManager
+    ) {
+      return res.status(403).json({
+        message: 'Gói dịch vụ đã hết hạn dùng thử. Vui lòng mua gói dịch vụ để tiếp tục sử dụng hệ thống.',
+        code: 'SUBSCRIPTION_REQUIRED',
+        subscription,
       });
     }
 

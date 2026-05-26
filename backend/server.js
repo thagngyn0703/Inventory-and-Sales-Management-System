@@ -35,6 +35,12 @@ const backupRoutes = require('./routes/backup');
 const storeSettingsRoutes = require('./routes/storeSettings');
 const customerNotifyRoutes = require('./routes/customerNotify');
 const shiftRoutes = require('./routes/shifts');
+const posRegisterRoutes = require('./routes/posRegisters');
+const barcodeLookupRoutes = require('./routes/barcodeLookup');
+const subscriptionRoutes = require('./routes/subscriptions');
+const ShiftSession = require('./models/ShiftSession');
+const Product = require('./models/Product');
+const ProductUnit = require('./models/ProductUnit');
 const { startBackupScheduler } = require('./services/backupScheduler');
 const { hasSmtpConfig } = require('./services/emailService');
 
@@ -62,6 +68,37 @@ async function assertMongoSupportsTransactions() {
             'Vui lòng kiểm tra MONGO_URI/môi trường DB trước khi chạy server.'
         );
     }
+}
+
+async function reconcileProductBarcodeIndexes() {
+    const reconcileOne = async (model, modelName) => {
+        const indexes = await model.collection.indexes();
+        const staleGlobalBarcodeIndexes = indexes.filter((idx) => {
+            if (!idx?.unique) return false;
+            const key = idx.key || {};
+            const hasBarcode = Object.prototype.hasOwnProperty.call(key, 'barcode');
+            const hasStoreId = Object.prototype.hasOwnProperty.call(key, 'storeId');
+            // Legacy global unique barcode index (e.g. { barcode: 1 }) blocks multi-store duplicates.
+            return hasBarcode && !hasStoreId;
+        });
+        for (const idx of staleGlobalBarcodeIndexes) {
+            try {
+                await model.collection.dropIndex(idx.name);
+                console.log(`[IndexFix] Dropped stale ${modelName} index: ${idx.name}`);
+            } catch (e) {
+                console.warn(`[IndexFix] Cannot drop ${modelName} index ${idx.name}:`, e.message || e);
+            }
+        }
+        try {
+            await model.syncIndexes();
+            console.log(`[IndexFix] ${modelName}.syncIndexes() OK`);
+        } catch (e) {
+            console.warn(`[IndexFix] ${modelName}.syncIndexes() failed:`, e.message || e);
+        }
+    };
+
+    await reconcileOne(Product, 'Product');
+    await reconcileOne(ProductUnit, 'ProductUnit');
 }
 
 if (!process.env.JWT_SECRET) {
@@ -131,6 +168,7 @@ const corsConfig = buildCorsConfig();
 app.use(corsConfig.express);
 // express.raw phải đăng ký TRƯỚC express.json để webhook SePay nhận được raw body
 app.use('/api/payments/sepay/webhook', express.raw({ type: 'application/json' }));
+app.use('/api/subscriptions/sepay/webhook', express.raw({ type: 'application/json' }));
 app.use(express.json());
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
@@ -164,6 +202,9 @@ app.use('/api/backup', backupRoutes);
 app.use('/api/store-settings', storeSettingsRoutes);
 app.use('/api/customer-notify', customerNotifyRoutes);
 app.use('/api/shifts', shiftRoutes);
+app.use('/api/pos-registers', posRegisterRoutes);
+app.use('/api/barcode', barcodeLookupRoutes);
+app.use('/api/subscriptions', subscriptionRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -175,10 +216,22 @@ mongoose
     .connect(process.env.MONGO_URI)
     .then(async () => {
         console.log('Đã kết nối MongoDB');
+        try {
+            await ShiftSession.collection.dropIndex('store_id_1_status_1');
+            console.log('Đã gỡ index ca cũ (một ca mở / cửa hàng)');
+        } catch (e) {
+            // Index có thể không tồn tại hoặc tên khác tùy MongoDB
+        }
+        try {
+            await ShiftSession.syncIndexes();
+        } catch (e) {
+            console.warn('ShiftSession.syncIndexes:', e.message || e);
+        }
         await assertMongoSupportsTransactions();
         console.log('MongoDB hỗ trợ transaction: OK');
+        await reconcileProductBarcodeIndexes();
         initSocket(server, corsConfig.socket);
-        server.listen(PORT, () => {
+        server.listen(PORT,"0.0.0.0", () => {
             console.log(`Server chạy tại http://localhost:${PORT}`);
             // Khởi động backup scheduler sau khi server đã kết nối DB thành công
             startBackupScheduler();

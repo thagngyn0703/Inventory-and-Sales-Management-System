@@ -448,7 +448,7 @@ export default function AuthPage({ forcedMode = null }) {
 
     return (
         <>
-        <div className="flex min-h-screen w-full bg-white">
+        <div className="flex min-h-screen w-full min-w-0 bg-white">
             <aside
                 className="relative hidden w-[42%] min-w-[320px] flex-col justify-center overflow-hidden lg:flex"
                 aria-hidden
@@ -477,7 +477,7 @@ export default function AuthPage({ forcedMode = null }) {
                 </div>
             </aside>
 
-            <main className="relative flex min-h-screen flex-1 flex-col bg-sky-50/90">
+            <main className="relative flex min-h-screen min-w-0 flex-1 flex-col bg-sky-50/90">
                 <div className="absolute right-4 top-4 z-20 md:right-6 md:top-6">
                     <Button
                         type="button"
@@ -491,8 +491,8 @@ export default function AuthPage({ forcedMode = null }) {
                     </Button>
                 </div>
 
-                <div className="flex flex-1 items-center justify-center px-4 py-10 sm:px-8">
-                    <div className="w-full max-w-md">
+                <div className="flex flex-1 items-center justify-center px-3 py-8 sm:px-8 sm:py-10">
+                    <div className="w-full min-w-0 max-w-md">
                         <div className="mb-8 text-center lg:text-left">
                             <h2 className="text-xl font-bold text-slate-900 sm:text-2xl">{title}</h2>
                             <p className="mt-2 text-sm text-slate-600">

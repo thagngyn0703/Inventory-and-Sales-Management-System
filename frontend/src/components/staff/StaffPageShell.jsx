@@ -43,7 +43,7 @@ export function StaffPageShell({
           <div className="flex flex-col gap-3 border-t border-slate-200/70 bg-slate-50/90 px-5 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
             <div className="min-w-0 flex-1">
               {subtitle ? (
-                <p className="max-w-3xl text-sm leading-relaxed text-slate-600">{subtitle}</p>
+                <p className="max-w-3xl break-words text-sm leading-relaxed text-slate-600">{subtitle}</p>
               ) : null}
             </div>
             {headerActions ? (

@@ -9,6 +9,7 @@ import { Badge } from '../../components/ui/badge';
 import { InlineNotice } from '../../components/ui/inline-notice';
 import { FileText, Loader2, Receipt, Search, X } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { getCurrentUser, normalizeRole } from '../../utils/auth';
 
 const LIMIT = 10;
 
@@ -54,21 +55,32 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
+  const [salesByShift, setSalesByShift] = useState([]);
 
   const basePath = basePathOverride || (location.pathname.startsWith('/manager') ? '/manager' : '/staff');
   const isReturnsPage = location.pathname.includes('/returns');
+  const viewerRole = normalizeRole(getCurrentUser()?.role);
+  const isStaffViewer = viewerRole === 'staff';
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [searchKey, setSearchKey] = useState('');
+  /** Chỉ dùng khi là nhân viên: đơn do mình bán vs toàn cửa hàng */
+  const [staffSalesScope, setStaffSalesScope] = useState('mine'); // mine | store
   const hasFilters = Boolean(dateFrom || dateTo || searchKey);
+
+  useEffect(() => {
+    if (viewerRole === 'staff') setStaffSalesScope('mine');
+  }, [basePath, viewerRole]);
 
   const fetchInvoices = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
+      const scopeParams =
+        isStaffViewer ? { sales_scope: staffSalesScope === 'store' ? 'store' : 'mine' } : {};
       const [invoiceResp, returnsResp] = await Promise.all([
-        getInvoices({ page: 1, limit: 1000 }),
-        getReturns({ page: 1, limit: 1000 }),
+        getInvoices({ page: 1, limit: 1000, ...scopeParams }),
+        getReturns({ page: 1, limit: 1000, ...scopeParams }),
       ]);
       const allInvoicesRaw = invoiceResp.invoices || [];
       const allReturnsRaw = returnsResp.returns || [];
@@ -82,8 +94,13 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
         customerName: inv.recipient_name || 'Khách lẻ',
         sellerName: inv.seller_name || inv.created_by?.fullName || inv.created_by?.email || '—',
         status: getInvoiceStatusView(inv),
+        rawStatus: inv.status || '',
         paymentMethod: PAYMENT_LABEL[inv.payment_method] || inv.payment_method || '—',
         amount: Number(inv.total_amount || 0),
+        rawShiftKey:
+          String(inv.register_label_snapshot || '').trim() ||
+          (inv.shift_id ? String(inv.shift_id) : ''),
+        shiftLabel: 'Chưa gán ca',
         invoiceId: inv._id,
       }));
 
@@ -101,8 +118,13 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
           customerName: rt.invoice_id?.recipient_name || originInvoice?.recipient_name || '—',
           sellerName: rt.created_by?.fullName || rt.created_by?.email || '—',
           status: returnStatus,
+          rawStatus: 'return',
           paymentMethod: originInvoice?.payment_method ? (PAYMENT_LABEL[originInvoice.payment_method] || originInvoice.payment_method) : '—',
           amount: Number(rt.total_amount || 0),
+          rawShiftKey:
+            String(originInvoice?.register_label_snapshot || '').trim() ||
+            (originInvoice?.shift_id ? String(originInvoice.shift_id) : ''),
+          shiftLabel: 'Chưa gán ca',
           invoiceId: originInvoiceId || null,
           returnId: rt._id,
         };
@@ -115,12 +137,12 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
       if (dateFrom) {
         const df = new Date(dateFrom);
         df.setHours(0, 0, 0, 0);
-        allInvoices = allInvoices.filter((i) => new Date(i.invoice_at) >= df);
+        allInvoices = allInvoices.filter((i) => new Date(i.createdAt) >= df);
       }
       if (dateTo) {
         const dt = new Date(dateTo);
         dt.setHours(23, 59, 59, 999);
-        allInvoices = allInvoices.filter((i) => new Date(i.invoice_at) <= dt);
+        allInvoices = allInvoices.filter((i) => new Date(i.createdAt) <= dt);
       }
       if (searchKey) {
         const lowerSearch = searchKey.toLowerCase().trim();
@@ -130,6 +152,54 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
             (i.customerName && i.customerName.toLowerCase().includes(lowerSearch)) ||
             (i.sellerName && i.sellerName.toLowerCase().includes(lowerSearch))
         );
+      }
+
+      // Chuẩn hóa nhãn ca theo ngày: Ca 1, Ca 2, Ca 3...
+      // Sang ngày mới reset lại từ Ca 1.
+      const dayShiftMap = new Map();
+      const sortAscByTime = [...allInvoices].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+      sortAscByTime.forEach((row) => {
+        const d = new Date(row.createdAt);
+        const dayKey = Number.isNaN(d.getTime()) ? 'unknown' : d.toISOString().slice(0, 10);
+        const shiftKey = String(row.rawShiftKey || '').trim();
+        if (!shiftKey) {
+          row.shiftLabel = 'Chưa gán ca';
+          row.shiftDayKey = dayKey;
+          return;
+        }
+        if (!dayShiftMap.has(dayKey)) dayShiftMap.set(dayKey, new Map());
+        const perDay = dayShiftMap.get(dayKey);
+        if (!perDay.has(shiftKey)) {
+          perDay.set(shiftKey, perDay.size + 1);
+        }
+        row.shiftLabel = `Ca ${perDay.get(shiftKey)}`;
+        row.shiftDayKey = dayKey;
+      });
+      const normalizedById = new Map(sortAscByTime.map((row) => [String(row._id), row]));
+      allInvoices = allInvoices.map((row) => normalizedById.get(String(row._id)) || row);
+
+      if (!isReturnsPage) {
+        const byShiftMap = new Map();
+        allInvoices
+          .filter((row) => row.type === 'sale' && String(row.rawStatus || '').toLowerCase() !== 'cancelled')
+          .forEach((row) => {
+            const d = new Date(row.createdAt);
+            const dayLabel = Number.isNaN(d.getTime()) ? 'Không rõ ngày' : d.toLocaleDateString('vi-VN');
+            const shiftLabel = String(row.shiftLabel || 'Chưa gán ca').trim() || 'Chưa gán ca';
+            const key = `${dayLabel}__${shiftLabel}`;
+            const prev = byShiftMap.get(key) || { key, dayLabel, shiftLabel, invoiceCount: 0, totalAmount: 0 };
+            prev.invoiceCount += 1;
+            prev.totalAmount += Number(row.amount || 0);
+            byShiftMap.set(key, prev);
+          });
+        setSalesByShift(
+          Array.from(byShiftMap.values()).sort((a, b) => {
+            if (a.dayLabel === b.dayLabel) return Number(b.totalAmount || 0) - Number(a.totalAmount || 0);
+            return a.dayLabel > b.dayLabel ? -1 : 1;
+          })
+        );
+      } else {
+        setSalesByShift([]);
       }
 
       setTotal(allInvoices.length);
@@ -143,11 +213,15 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
     } finally {
       setLoading(false);
     }
-  }, [page, dateFrom, dateTo, searchKey, isReturnsPage]);
+  }, [page, dateFrom, dateTo, searchKey, isReturnsPage, staffSalesScope, isStaffViewer]);
 
   useEffect(() => {
     setPage(1);
   }, [dateFrom, dateTo, searchKey]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [staffSalesScope]);
 
   useEffect(() => {
     setPage(1);
@@ -190,13 +264,50 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
       subtitle={
         isReturnsPage
           ? 'Theo dõi các đơn đã thực hiện trả hàng.'
-          : 'Theo dõi toàn bộ hóa đơn bán lẻ và trạng thái thanh toán.'
+          : 'Nhân viên có thể xem đơn do mình bán hoặc toàn bộ đơn cửa hàng (hỗ trợ đổi trả).'
       }
     >
       <InlineNotice message={error} type="error" />
 
       <Card className="border-slate-200/80 shadow-sm shadow-slate-900/5">
         <CardContent className="p-4 sm:p-6">
+          {!isReturnsPage && isStaffViewer ? (
+            <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Phạm vi xem</p>
+                <p className="mt-1 text-xs text-slate-600">
+                  Ca của tôi — mọi hóa đơn do bạn bán và phiếu trả của những đơn đó. Tất cả hóa đơn — để tra cứu đơn
+                  của đồng nghiệp (ví dụ đổi trả).
+                </p>
+              </div>
+              <div className="inline-flex shrink-0 rounded-xl border border-slate-200 bg-slate-50/90 p-0.5 shadow-inner shadow-slate-900/5">
+                <button
+                  type="button"
+                  className={cn(
+                    'min-h-10 rounded-lg px-3.5 py-2 text-xs font-semibold transition-colors sm:text-sm',
+                    staffSalesScope === 'mine'
+                      ? 'bg-white text-slate-900 shadow-sm shadow-slate-900/10'
+                      : 'text-slate-600 hover:text-slate-900'
+                  )}
+                  onClick={() => setStaffSalesScope('mine')}
+                >
+                  Ca của tôi
+                </button>
+                <button
+                  type="button"
+                  className={cn(
+                    'min-h-10 rounded-lg px-3.5 py-2 text-xs font-semibold transition-colors sm:text-sm',
+                    staffSalesScope === 'store'
+                      ? 'bg-white text-slate-900 shadow-sm shadow-slate-900/10'
+                      : 'text-slate-600 hover:text-slate-900'
+                  )}
+                  onClick={() => setStaffSalesScope('store')}
+                >
+                  Tất cả hóa đơn
+                </button>
+              </div>
+            </div>
+          ) : null}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div>
               <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">Từ ngày</label>
@@ -286,6 +397,7 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50/90 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                       <th className="px-4 py-3">Ngày tạo</th>
+                      <th className="px-4 py-3">Ca</th>
                       <th className="px-4 py-3">Mã đơn</th>
                       <th className="px-4 py-3">Khách hàng</th>
                       <th className="px-4 py-3">Trạng thái</th>
@@ -303,6 +415,11 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
                         <td className="whitespace-nowrap px-4 py-3.5 text-slate-600">
                           <div className="font-semibold text-slate-900">{dt.date}</div>
                           {dt.time ? <div className="text-xs text-slate-500">{dt.time}</div> : null}
+                        </td>
+                        <td className="px-4 py-3.5 text-slate-700">
+                          <span className="inline-flex rounded-full border border-slate-200 bg-white px-2.5 py-0.5 text-xs font-semibold">
+                            {inv.shiftLabel || 'Chưa gán ca'}
+                          </span>
                         </td>
                         <td className="max-w-[160px] truncate px-4 py-3.5 font-mono text-xs text-slate-700" title={inv.code}>{inv.code}</td>
                         <td className="max-w-[180px] truncate px-4 py-3.5 font-medium text-slate-900">
@@ -375,6 +492,23 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
                   </Button>
                 </div>
               </div>
+              {!isReturnsPage && salesByShift.length > 0 && (
+                <div className="border-t border-slate-100 px-4 py-4">
+                  <h3 className="mb-3 text-sm font-semibold text-slate-700">Tổng số tiền bán theo từng ca</h3>
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {salesByShift.map((row) => (
+                      <div key={row.key} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{row.dayLabel}</div>
+                        <div className="text-sm font-semibold text-slate-700">{row.shiftLabel}</div>
+                        <div className="mt-1 text-sm text-slate-600">{row.invoiceCount} hóa đơn</div>
+                        <div className="text-base font-bold text-emerald-700">
+                          {Number(row.totalAmount || 0).toLocaleString('vi-VN')}₫
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </>
           )}
         </CardContent>

@@ -4,6 +4,7 @@ import { useWarehouseBase } from '../../utils/useWarehouseBase';
 import { getProducts, getProductUnits, scanProductByCode } from '../../services/productsApi';
 import { createSupplier, getSuppliers } from '../../services/suppliersApi';
 import { createGoodsReceipt } from '../../services/goodsReceiptsApi';
+import { getCategories } from '../../services/categoriesApi';
 import WarehouseProductCreateModal from './WarehouseProductCreateModal';
 import { useToast } from '../../contexts/ToastContext';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
@@ -28,6 +29,7 @@ export default function WarehouseGoodsReceiptCreate() {
   const { toast } = useToast();
 
   const [suppliers, setSuppliers] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [creatingSupplier, setCreatingSupplier] = useState(false);
   const [newSupplier, setNewSupplier] = useState({ name: '', phone: '' });
   const [selectedSupplierId, setSelectedSupplierId] = useState('');
@@ -44,6 +46,7 @@ export default function WarehouseGoodsReceiptCreate() {
   const [submitting, setSubmitting] = useState(false);
   const [showProductModal, setShowProductModal] = useState(false);
   const searchReqSeqRef = useRef(0);
+  const submitLockRef = useRef(false);
   const scanBufferRef = useRef('');
   const scanTimerRef = useRef(null);
 
@@ -58,6 +61,12 @@ export default function WarehouseGoodsReceiptCreate() {
     getSuppliers()
       .then(setSuppliers)
       .catch((e) => toast(e.message || 'Không tải được nhà cung cấp', 'error'));
+  }, [toast]);
+
+  useEffect(() => {
+    getCategories()
+      .then((list) => setCategories(list || []))
+      .catch((e) => toast(e.message || 'Không tải được danh mục', 'error'));
   }, [toast]);
 
   const runSearchProducts = useCallback(async (rawKeyword, opts = {}) => {
@@ -137,21 +146,31 @@ export default function WarehouseGoodsReceiptCreate() {
     const defaultRatio = Number(baseUnit?.exchange_value) > 0 ? Number(baseUnit.exchange_value) : 1;
     const defaultUnitName = String(baseUnit?.unit_name || product.base_unit || 'Cái').trim();
     const lineUnitCost = unitCostFromBaseCost(product, defaultRatio);
+    const defaultCategoryId =
+      typeof product?.category_id === 'object' && product?.category_id?._id
+        ? String(product.category_id._id)
+        : (product?.category_id ? String(product.category_id) : '');
 
-    setItems((prev) => [
-      ...prev,
-      {
-        product,
-        unit_id: baseUnit?._id || null,
-        quantity: 1,
-        unit_cost: lineUnitCost,
-        system_unit_cost: lineUnitCost,
-        unit_name: defaultUnitName,
-        ratio: defaultRatio,
-        available_units: units,
-        price_gap_note: '',
-      },
-    ]);
+    setItems((prev) => {
+      if (prev.some((row) => String(row?.product?._id) === String(product._id))) {
+        return prev;
+      }
+      return [
+        ...prev,
+        {
+          product,
+          category_id: defaultCategoryId,
+          unit_id: baseUnit?._id || null,
+          quantity: 1,
+          unit_cost: lineUnitCost,
+          system_unit_cost: lineUnitCost,
+          unit_name: defaultUnitName,
+          ratio: defaultRatio,
+          available_units: units,
+          price_gap_note: '',
+        },
+      ];
+    });
   };
 
   const handleScanSubmit = useCallback(async (rawCode) => {
@@ -221,6 +240,7 @@ export default function WarehouseGoodsReceiptCreate() {
     setItems((prev) =>
       prev.map((item) => {
         if (item.product._id !== productId) return item;
+        if (field === 'category_id') return { ...item, category_id: String(value || '') };
         if (field === 'unit') {
           const selectedUnit = (item.available_units || unitMapByProduct[String(item.product._id)] || [])
             .find((u) => String(u._id || '') === String(value || ''));
@@ -269,6 +289,7 @@ export default function WarehouseGoodsReceiptCreate() {
   }, [newSupplier.name, newSupplier.phone, toast]);
 
   const handleSubmit = async (status) => {
+    if (submitLockRef.current || submitting) return;
     if (!selectedSupplierId) {
       toast('Vui lòng chọn nhà cung cấp', 'error');
       return;
@@ -287,11 +308,18 @@ export default function WarehouseGoodsReceiptCreate() {
       toast('Có dòng chưa chọn đơn vị nhập hợp lệ. Vui lòng chọn lại trước khi gửi.', 'error');
       return;
     }
+    const missingCategoryItems = items.filter((item) => !String(item.category_id || '').trim());
+    if (missingCategoryItems.length > 0) {
+      toast('Có dòng chưa chọn danh mục (để áp thuế). Vui lòng chọn danh mục cho từng sản phẩm.', 'error');
+      return;
+    }
 
+    submitLockRef.current = true;
     setSubmitting(true);
     try {
       const payloadItems = items.map((item) => ({
         product_id: item.product._id,
+        category_id: String(item.category_id || '').trim() || undefined,
         unit_id: item.unit_id || null,
         quantity: item.quantity,
         unit_cost: item.unit_cost,
@@ -301,13 +329,14 @@ export default function WarehouseGoodsReceiptCreate() {
         price_gap_note: item.price_gap_note,
       }));
 
+      const idempotencyKey = `gr-create-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       await createGoodsReceipt({
         supplier_id: selectedSupplierId,
         reason,
         status,
         items: payloadItems,
         total_amount: totalAmount,
-      });
+      }, { idempotencyKey });
 
       navigate(`${warehouseBase}/receipts`, {
         state: { success: 'Đã tạo phiếu nhập kho thành công' },
@@ -315,6 +344,7 @@ export default function WarehouseGoodsReceiptCreate() {
     } catch (err) {
       toast(err.message || 'Không thể tạo phiếu nhập kho', 'error');
       setSubmitting(false);
+      submitLockRef.current = false;
     }
   };
 
@@ -507,6 +537,7 @@ export default function WarehouseGoodsReceiptCreate() {
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50/90 text-left text-xs font-semibold uppercase text-slate-500">
                       <th className="px-3 py-2">Sản phẩm</th>
+                      <th className="px-3 py-2">Danh mục (thuế)</th>
                       <th className="px-3 py-2">SL</th>
                       <th className="px-3 py-2">Giá gốc HS (đ)</th>
                       <th className="px-3 py-2 text-right">Thành tiền</th>
@@ -534,6 +565,20 @@ export default function WarehouseGoodsReceiptCreate() {
                                   {u.unit_name} (×{u.exchange_value})
                                 </option>
                               ))}
+                          </select>
+                        </td>
+                        <td className="px-3 py-2">
+                          <select
+                            className="w-full min-w-[200px] rounded-lg border border-slate-200 px-2 py-1.5 text-xs"
+                            value={item.category_id || ''}
+                            onChange={(e) => handleItemChange(item.product._id, 'category_id', e.target.value)}
+                          >
+                            <option value="">— Chọn danh mục —</option>
+                            {categories.map((c) => (
+                              <option key={c._id} value={c._id}>
+                                {c.name} ({Number(c.vat_rate ?? 0)}%)
+                              </option>
+                            ))}
                           </select>
                         </td>
                         <td className="px-3 py-2">

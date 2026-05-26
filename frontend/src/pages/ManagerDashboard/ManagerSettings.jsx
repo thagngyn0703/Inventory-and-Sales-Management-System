@@ -2,7 +2,20 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
-import { FolderTree, Settings, UsersRound, Bell, UserPlus, Receipt, Percent, Store, Building2, Info, Gift } from 'lucide-react';
+import {
+  FolderTree,
+  Settings,
+  UsersRound,
+  Bell,
+  UserPlus,
+  Receipt,
+  Percent,
+  Store,
+  Building2,
+  Info,
+  Gift,
+  CreditCard,
+} from 'lucide-react';
 import {
   getStoreTaxSettings,
   updateStoreTaxSettings,
@@ -15,7 +28,15 @@ import {
   getStoreLegalSettings,
   updateStoreLegalSettings,
 } from '../../services/adminApi';
+import {
+  getSubscriptionPlans,
+  getMyStoreSubscription,
+  createSubscriptionCheckout,
+  getMyStoreSubscriptionOrders,
+  reconcileSubscriptionOrder,
+} from '../../services/subscriptionApi';
 import { useToast } from '../../contexts/ToastContext';
+import { formatVndIntegerDots } from '../../utils/currencyInput';
 
 const linkClass =
   'flex items-center justify-between gap-3 rounded-xl border border-slate-200/80 bg-white px-4 py-3 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-teal-200 hover:bg-teal-50/40';
@@ -25,6 +46,10 @@ const TAX_RATE_OPTIONS = [
   { label: '5%', value: 5 },
   { label: '8%', value: 8 },
   { label: '10%', value: 10 },
+];
+const FALLBACK_SUBSCRIPTION_PLANS = [
+  { code: 'monthly', name: 'Gói theo tháng', duration_months: 1, price_vnd: 100000 },
+  { code: 'yearly', name: 'Gói theo năm', duration_months: 12, price_vnd: 1100000 },
 ];
 
 /** Tính ví dụ breakdown để hiển thị preview */
@@ -88,6 +113,46 @@ export default function ManagerSettings() {
   const [legalMsg, setLegalMsg] = useState({ type: '', text: '' });
   const [legalLoaded, setLegalLoaded] = useState(false);
   const legalStatusToastRef = useRef('');
+  const [subscriptionPlans, setSubscriptionPlans] = useState([]);
+  const [subscriptionInfo, setSubscriptionInfo] = useState(null);
+  const [subscriptionOrders, setSubscriptionOrders] = useState([]);
+  const [subscriptionLoading, setSubscriptionLoading] = useState(true);
+  const [checkoutLoadingPlan, setCheckoutLoadingPlan] = useState('');
+  const [subscriptionMsg, setSubscriptionMsg] = useState({ type: '', text: '' });
+  const [checkoutGuide, setCheckoutGuide] = useState(null);
+  const [reconcilingPayment, setReconcilingPayment] = useState(false);
+
+  const loadSubscriptionData = async () => {
+    let plans = [];
+    let info = null;
+    let orders = [];
+    // Retry nhẹ cho trường hợp backend vừa restart.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const [plansRes, infoRes, ordersRes] = await Promise.all([
+          getSubscriptionPlans(),
+          getMyStoreSubscription().catch(() => ({ subscription: null })),
+          getMyStoreSubscriptionOrders().catch(() => ({ orders: [] })),
+        ]);
+        plans = Array.isArray(plansRes?.plans) ? plansRes.plans : [];
+        info = infoRes?.subscription || null;
+        orders = Array.isArray(ordersRes?.orders) ? ordersRes.orders : [];
+        break;
+      } catch (_) {
+        if (attempt === 1) {
+          const [infoRes, ordersRes] = await Promise.all([
+            getMyStoreSubscription().catch(() => ({ subscription: null })),
+            getMyStoreSubscriptionOrders().catch(() => ({ orders: [] })),
+          ]);
+          info = infoRes?.subscription || null;
+          orders = Array.isArray(ordersRes?.orders) ? ordersRes.orders : [];
+        }
+      }
+    }
+    setSubscriptionPlans(plans);
+    setSubscriptionInfo(info);
+    setSubscriptionOrders(orders);
+  };
 
   useEffect(() => {
     getStoreTaxSettings()
@@ -182,7 +247,10 @@ export default function ManagerSettings() {
       )
       .catch(() => {})
       .finally(() => setLegalLoaded(true));
-  }, []);
+
+    loadSubscriptionData()
+      .finally(() => setSubscriptionLoading(false));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSave = async () => {
     setSaving(true);
@@ -287,6 +355,59 @@ export default function ManagerSettings() {
     }
   };
 
+  const handleCheckoutSubscription = async (planCode) => {
+    setCheckoutLoadingPlan(String(planCode || ''));
+    setSubscriptionMsg({ type: '', text: '' });
+    try {
+      const data = await createSubscriptionCheckout(planCode);
+      const paymentRef = data?.order?.payment_ref || '';
+      setCheckoutGuide({
+        order_id: data?.order?._id || '',
+        qr_url: data?.qr_url || '',
+        bank_code: data?.bank_code || '',
+        bank_account_number: data?.bank_account_number || '',
+        bank_account_name: data?.bank_account_name || '',
+        amount_vnd: Number(data?.order?.amount_vnd || 0),
+        payment_content: data?.payment_content || '',
+      });
+      setSubscriptionMsg({
+        type: 'success',
+        text: paymentRef
+          ? `Đã tạo đơn thanh toán. Nội dung chuyển khoản: ISMS ${paymentRef}`
+          : 'Đã tạo đơn thanh toán thành công.',
+      });
+      await loadSubscriptionData();
+    } catch (err) {
+      const msg = String(err?.message || '');
+      setSubscriptionMsg({
+        type: 'error',
+        text: /failed to fetch|networkerror/i.test(msg)
+          ? 'Không kết nối được máy chủ backend. Vui lòng kiểm tra server backend đang chạy.'
+          : msg || 'Không thể tạo đơn thanh toán.',
+      });
+    } finally {
+      setCheckoutLoadingPlan('');
+    }
+  };
+
+  const handleReconcilePayment = async () => {
+    if (!checkoutGuide?.order_id) return;
+    setReconcilingPayment(true);
+    try {
+      const data = await reconcileSubscriptionOrder(checkoutGuide.order_id);
+      await loadSubscriptionData();
+      if (data?.matched) {
+        setSubscriptionMsg({ type: 'success', text: 'Đã xác nhận thanh toán thành công. Gói dịch vụ đã được kích hoạt.' });
+      } else {
+        setSubscriptionMsg({ type: 'error', text: data?.message || 'Chưa tìm thấy giao dịch khớp. Vui lòng chờ thêm 1-2 phút rồi kiểm tra lại.' });
+      }
+    } catch (err) {
+      setSubscriptionMsg({ type: 'error', text: err.message || 'Không thể kiểm tra trạng thái thanh toán.' });
+    } finally {
+      setReconcilingPayment(false);
+    }
+  };
+
   const isHKD = config.business_type === 'ho_kinh_doanh';
   const preview = calcPreview(100000, config.tax_rate, config.price_includes_tax);
   const approvalLabelMap = {
@@ -298,6 +419,7 @@ export default function ManagerSettings() {
   };
   const approvalLabel = approvalLabelMap[legalConfig.approval_status] || legalConfig.approval_status || 'Chờ duyệt';
   const legalRequiredMissing = !legalConfig.legal_profile_completed;
+  const displaySubscriptionPlans = subscriptionPlans.length > 0 ? subscriptionPlans : FALLBACK_SUBSCRIPTION_PLANS;
 
   useEffect(() => {
     if (!legalLoaded) return;
@@ -340,6 +462,132 @@ export default function ManagerSettings() {
         {/* ══════════════════════════════════════════
             BẢNG CẤU HÌNH THUẾ
         ══════════════════════════════════════════ */}
+        <div className="mb-6 rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm sm:p-6">
+          <div className="mb-5 flex items-center gap-2">
+            <CreditCard className="h-5 w-5 text-teal-600" aria-hidden />
+            <h3 className="text-base font-bold text-slate-800">Gói dịch vụ cửa hàng</h3>
+          </div>
+          {subscriptionLoading ? (
+            <p className="text-sm text-slate-500">Đang tải thông tin gói dịch vụ...</p>
+          ) : (
+            <div className="space-y-4">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-sm font-semibold text-slate-700">
+                  Trạng thái hiện tại:{' '}
+                  <span className="text-teal-700">
+                    {subscriptionInfo?.status === 'active'
+                      ? 'Đang hoạt động'
+                      : subscriptionInfo?.status === 'trialing'
+                      ? 'Đang dùng thử'
+                      : 'Đã hết hạn'}
+                  </span>
+                </p>
+                <p className="mt-1 text-xs text-slate-600">
+                  {subscriptionInfo?.status === 'trialing'
+                    ? `Còn ${Math.max(0, Number(subscriptionInfo?.days_left || 0))} ngày dùng thử.`
+                    : subscriptionInfo?.status === 'active'
+                    ? `Gói hiện tại còn ${Math.max(0, Number(subscriptionInfo?.days_left || 0))} ngày sử dụng.`
+                    : 'Cửa hàng cần mua gói dịch vụ để tiếp tục sử dụng hệ thống.'}
+                </p>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                {displaySubscriptionPlans.map((plan) => (
+                  <div key={plan.code} className="rounded-xl border border-slate-200 bg-white p-4">
+                    <p className="text-sm font-bold text-slate-800">{plan.name}</p>
+                    <p className="mt-1 text-xs text-slate-500">Chu kỳ {plan.duration_months} tháng</p>
+                    <p className="mt-2 text-lg font-extrabold text-teal-700">
+                      {formatVndIntegerDots(String(plan.price_vnd || 0))}đ
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => handleCheckoutSubscription(plan.code)}
+                      disabled={checkoutLoadingPlan === plan.code}
+                      className="mt-3 rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:opacity-60"
+                    >
+                      {checkoutLoadingPlan === plan.code ? 'Đang tạo đơn...' : 'Mua gói ngay'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+              {subscriptionPlans.length === 0 && (
+                <p className="text-xs text-amber-700">
+                  Không tải được danh sách gói từ máy chủ, đang hiển thị gói mặc định để bạn thao tác mua ngay.
+                </p>
+              )}
+
+              {subscriptionMsg.text && (
+                <p
+                  className={`text-sm font-medium ${
+                    subscriptionMsg.type === 'success' ? 'text-emerald-700' : 'text-red-600'
+                  }`}
+                >
+                  {subscriptionMsg.text}
+                </p>
+              )}
+
+              {checkoutGuide && (
+                <div className="rounded-xl border border-teal-200 bg-teal-50/40 p-4">
+                  <p className="text-sm font-semibold text-teal-800">Quét QR để thanh toán gói dịch vụ</p>
+                  {checkoutGuide.qr_url ? (
+                    <div className="mt-3 flex flex-wrap items-start gap-4">
+                      <img
+                        src={checkoutGuide.qr_url}
+                        alt="QR thanh toán gói dịch vụ"
+                        className="h-44 w-44 rounded-lg border border-teal-200 bg-white p-1"
+                      />
+                      <div className="space-y-1 text-xs text-slate-700">
+                        <p>
+                          <b>Số tiền:</b> {formatVndIntegerDots(String(checkoutGuide.amount_vnd || 0))}đ
+                        </p>
+                        <p>
+                          <b>Ngân hàng:</b> {checkoutGuide.bank_code || 'N/A'}
+                        </p>
+                        <p>
+                          <b>Số tài khoản:</b> {checkoutGuide.bank_account_number || 'N/A'}
+                        </p>
+                        <p>
+                          <b>Chủ tài khoản:</b> {checkoutGuide.bank_account_name || 'N/A'}
+                        </p>
+                        <p>
+                          <b>Nội dung CK:</b> {checkoutGuide.payment_content || 'N/A'}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={handleReconcilePayment}
+                          disabled={reconcilingPayment}
+                          className="mt-2 rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 disabled:opacity-60"
+                        >
+                          {reconcilingPayment ? 'Đang kiểm tra...' : 'Tôi đã chuyển khoản - Kiểm tra ngay'}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-xs text-amber-700">
+                      Chưa tạo được ảnh QR vì thiếu cấu hình ngân hàng nhận SePay ở backend
+                      (`SEPAY_BANK_CODE`, `SEPAY_ACCOUNT_NUMBER`, `SEPAY_ACCOUNT_NAME`).
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {subscriptionOrders.length > 0 && (
+                <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                  <p className="mb-2 text-xs font-semibold text-slate-600">Đơn mua gói gần đây</p>
+                  <div className="space-y-1">
+                    {subscriptionOrders.slice(0, 5).map((order) => (
+                      <p key={order._id} className="text-xs text-slate-600">
+                        {new Date(order.createdAt).toLocaleString('vi-VN')} - {order.plan_name} -{' '}
+                        {formatVndIntegerDots(String(order.amount_vnd || 0))}đ - {order.status} - {order.payment_ref}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
         <div className="mb-6 rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm sm:p-6">
           <div className="mb-5 flex items-center gap-2">
             <Percent className="h-5 w-5 text-teal-600" aria-hidden />
@@ -712,13 +960,33 @@ export default function ManagerSettings() {
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="text-sm text-slate-700">
               <span className="mb-1 block text-xs text-slate-500">Bật tích điểm</span>
-              <input
-                type="checkbox"
-                checked={Boolean(loyaltyConfig.enabled)}
-                onChange={(e) => setLoyaltyConfig((prev) => ({ ...prev, enabled: e.target.checked }))}
-                className="h-4 w-4 accent-teal-600"
-              />
+              <button
+                type="button"
+                role="switch"
+                aria-checked={Boolean(loyaltyConfig.enabled)}
+                onClick={() =>
+                  setLoyaltyConfig((prev) => ({
+                    ...prev,
+                    enabled: !prev.enabled,
+                  }))
+                }
+                className={`relative inline-flex h-7 w-14 items-center rounded-full border transition ${
+                  loyaltyConfig.enabled
+                    ? 'border-teal-500 bg-teal-500'
+                    : 'border-slate-300 bg-slate-300'
+                }`}
+                title={loyaltyConfig.enabled ? 'Tắt tích điểm' : 'Bật tích điểm'}
+              >
+                <span
+                  className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition ${
+                    loyaltyConfig.enabled ? 'translate-x-8' : 'translate-x-1'
+                  }`}
+                />
+              </button>
             </label>
+            <div className={`text-xs ${loyaltyConfig.enabled ? 'text-emerald-700' : 'text-rose-700'}`}>
+              {loyaltyConfig.enabled ? 'Tích điểm đang bật cho giao dịch mới.' : 'Tích điểm đang tắt cho giao dịch mới.'}
+            </div>
             <div className="text-xs text-slate-500">
               Cấu hình đơn giản cho tạp hóa: <b>Mua 20.000đ tặng 1 điểm, 1 điểm = 500đ</b>.
             </div>
@@ -734,6 +1002,7 @@ export default function ManagerSettings() {
                     earn: { ...prev.earn, spend_amount_vnd: Number(e.target.value) || 20000 },
                   }))
                 }
+                disabled={!loyaltyConfig.enabled}
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
               />
             </label>
@@ -749,6 +1018,7 @@ export default function ManagerSettings() {
                     earn: { ...prev.earn, points: Number(e.target.value) || 1 },
                   }))
                 }
+                disabled={!loyaltyConfig.enabled}
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
               />
             </label>
@@ -764,6 +1034,7 @@ export default function ManagerSettings() {
                     redeem: { ...prev.redeem, point_value_vnd: Number(e.target.value) || 500 },
                   }))
                 }
+                disabled={!loyaltyConfig.enabled}
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
               />
             </label>
@@ -779,6 +1050,7 @@ export default function ManagerSettings() {
                     redeem: { ...prev.redeem, min_points: Number(e.target.value) || 10 },
                   }))
                 }
+                disabled={!loyaltyConfig.enabled}
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
               />
             </label>
@@ -795,6 +1067,7 @@ export default function ManagerSettings() {
                     redeem: { ...prev.redeem, max_percent_per_invoice: Number(e.target.value) || 50 },
                   }))
                 }
+                disabled={!loyaltyConfig.enabled}
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
               />
             </label>

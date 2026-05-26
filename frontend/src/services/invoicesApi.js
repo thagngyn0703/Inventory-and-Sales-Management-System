@@ -10,13 +10,25 @@ function parseResponse(res, defaultMessage) {
     .catch(() => ({}))
     .then((data) => {
       if (!res.ok) {
-        throw new Error(data.message || defaultMessage);
+        const err = new Error(data.message || defaultMessage);
+        err.code = data.code || null;
+        throw err;
       }
       return data;
     });
 }
 
-export async function getInvoices({ page = 1, limit = 20, status, dateFrom, dateTo, searchKey, customer_id, payment_method } = {}) {
+export async function getInvoices({
+  page = 1,
+  limit = 20,
+  status,
+  dateFrom,
+  dateTo,
+  searchKey,
+  customer_id,
+  payment_method,
+  sales_scope,
+} = {}) {
   const token = getToken();
   const url = new URL(`${API_BASE}/invoices`);
   url.searchParams.set('page', String(page));
@@ -27,6 +39,7 @@ export async function getInvoices({ page = 1, limit = 20, status, dateFrom, date
   if (searchKey) url.searchParams.set('searchKey', searchKey);
   if (customer_id) url.searchParams.set('customer_id', customer_id);
   if (payment_method) url.searchParams.set('payment_method', payment_method);
+  if (sales_scope) url.searchParams.set('sales_scope', sales_scope);
   const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${token}` } });
   const data = await parseResponse(res, 'Không thể tải danh sách hóa đơn');
   return data;
@@ -39,6 +52,22 @@ export async function getInvoice(id) {
   });
   const data = await parseResponse(res, 'Không thể tải hóa đơn');
   return data.invoice;
+}
+
+/** POS: tách tiền hàng / thuế giống backend khi tạo HĐ (theo danh mục, chính sách, TTĐB). */
+export async function previewInvoiceTax(payload, options = {}) {
+  const token = getToken();
+  const { signal } = options;
+  const res = await fetch(`${API_BASE}/invoices/tax-preview`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+    signal,
+  });
+  return parseResponse(res, 'Không tính được thuế dự kiến');
 }
 
 export async function createInvoice(body) {

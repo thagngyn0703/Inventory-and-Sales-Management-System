@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import Sidebar from '../../components/Sidebar';
+import AdminPageFrame from '../../components/admin/AdminPageFrame';
 import {
   getSupportTicket,
   patchSupportTicketStatus,
@@ -79,20 +79,7 @@ export default function AdminSupportTicketDetail() {
   const sender = ticket?.createdBy?.fullName || ticket?.createdBy?.email || '—';
 
   return (
-    <div className="manager-page-with-sidebar">
-      <Sidebar />
-      <div className="manager-main">
-        <header className="manager-topbar">
-          <div className="manager-topbar-search-wrap" />
-          <div className="manager-topbar-actions">
-            <div className="manager-user-badge">
-              <i className="fa-solid fa-circle-user" />
-              <span>Admin</span>
-            </div>
-          </div>
-        </header>
-
-        <div className="manager-content">
+    <AdminPageFrame>
           <div className="manager-products-header">
             <div>
               <button type="button" className="manager-btn-outline" onClick={() => navigate('/admin/support')}>
@@ -233,8 +220,6 @@ export default function AdminSupportTicketDetail() {
               </div>
             </>
           )}
-        </div>
-      </div>
-    </div>
+    </AdminPageFrame>
   );
 }

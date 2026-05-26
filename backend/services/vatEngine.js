@@ -91,10 +91,24 @@ function resolveTaxCategoryRule({ policy, categoryCode, product, category, fallb
     };
 }
 
-function shouldApplyReduction({ baseRate, product, category, policy, taxPointAt, categoryCode }) {
+function shouldApplyReduction({ baseRate, exciseRate = 0, product, category, policy, taxPointAt, categoryCode }) {
     if (baseRate !== 10) return { apply: false, reason: 'base_rate_not_10' };
+    if (Number(exciseRate) > 0) {
+        // Hàng chịu TTDB (bia/ruou/thuoc la...) khong nam trong nhom duoc giam VAT.
+        return { apply: false, reason: 'special_consumption_tax_item' };
+    }
+    const normalizedCategory = normalizeTaxCategory(categoryCode);
+    if (normalizedCategory === 'BEER_2026') {
+        return { apply: false, reason: 'special_consumption_tax_category' };
+    }
     const cfg = policy?.vat_reduction_rule || {};
     if (cfg.eligible === false) return { apply: false, reason: 'reduction_disabled' };
+    // Ưu tiên mức VAT cấu hình tường minh trên sản phẩm/danh mục.
+    // Tránh lệch hiển thị "VAT danh mục 10%" nhưng hóa đơn tự giảm còn 8%.
+    const hasExplicitCategoryRate = category?.vat_rate != null && !product?.tax_override_enabled;
+    if (hasExplicitCategoryRate) {
+        return { apply: false, reason: 'explicit_rate_configured' };
+    }
     const when = new Date(taxPointAt || Date.now());
     const start = cfg.effective_from ? new Date(cfg.effective_from) : new Date('2025-07-01T00:00:00.000Z');
     const end = cfg.effective_to ? new Date(cfg.effective_to) : new Date('2026-12-31T23:59:59.999Z');
@@ -104,10 +118,13 @@ function shouldApplyReduction({ baseRate, product, category, policy, taxPointAt,
     const tags = [
         ...(Array.isArray(product?.tax_tags) ? product.tax_tags : []),
         ...(Array.isArray(category?.tax_tags) ? category.tax_tags : []),
-    ].map((t) => String(t).trim());
+    ].map((t) => String(t).trim().toLowerCase());
+    if (tags.some((t) => t === 'special_consumption_tax' || t === 'ttdb' || t === 'excise')) {
+        return { apply: false, reason: 'special_consumption_tax_tag' };
+    }
 
     const excludedCategories = Array.isArray(cfg.excluded_categories) ? cfg.excluded_categories.map(normalizeTaxCategory) : [];
-    if (excludedCategories.includes(normalizeTaxCategory(categoryCode))) {
+    if (excludedCategories.includes(normalizedCategory)) {
         return { apply: false, reason: 'excluded_tax_category' };
     }
     const exclusionRules = Array.isArray(cfg.exclusion_rules)
@@ -218,6 +235,7 @@ async function computeInvoiceTaxSnapshot({
             ? { apply: false, reason: 'household_business_no_vat' }
             : shouldApplyReduction({
                 baseRate,
+                exciseRate,
                 product,
                 category,
                 policy,

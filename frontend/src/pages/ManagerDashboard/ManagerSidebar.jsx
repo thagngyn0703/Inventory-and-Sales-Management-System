@@ -87,6 +87,8 @@ const manageItems = [
   { type: 'item', label: 'Yêu cầu tạo sản phẩm', path: '/manager/product-requests', icon: FileStack },
   { type: 'item', label: 'Lịch sử điều chỉnh', path: '/manager/adjustments', icon: History },
   { type: 'item', label: 'Báo cáo thẻ kho', path: '/manager/stock-history', icon: ClipboardList },
+  { type: 'item', label: 'Báo cáo thuế', path: '/manager/tax-report', icon: BarChart3 },
+  { type: 'item', label: 'Báo cáo đổi giá', path: '/manager/reports', icon: BarChart3 },
   { type: 'item', label: 'Bán hàng trực tiếp', path: '/manager/pos', icon: Drill },
   { type: 'item', label: 'Nhật ký thu ngân', path: '/manager/shifts', icon: CalendarClock },
   {
@@ -113,6 +115,8 @@ function getActivePath(pathname) {
   if (pathname.startsWith('/manager/stocktakes/')) return '/manager/stocktakes/pending';
   if (pathname.startsWith('/manager/adjustments/')) return '/manager/adjustments';
   if (pathname.startsWith('/manager/stock-history')) return '/manager/stock-history';
+  if (pathname.startsWith('/manager/tax-report')) return '/manager/tax-report';
+  if (pathname.startsWith('/manager/reports')) return '/manager/reports';
   if (pathname.startsWith('/manager/cashflow')) return '/manager/cashflow';
   if (pathname.startsWith('/manager/notifications/')) return '/manager/notifications';
   if (pathname.startsWith('/manager/support')) return '/manager/support';
@@ -131,7 +135,7 @@ function getActivePath(pathname) {
   return pathname;
 }
 
-export default function ManagerSidebar({ collapsed = false, ...restProps }) {
+export default function ManagerSidebar({ collapsed = false, onRequestClose, ...restProps }) {
   const navigate = useNavigate();
   const location = useLocation();
   const [currentUser, setCurrentUser] = useState(() => {
@@ -274,7 +278,10 @@ export default function ManagerSidebar({ collapsed = false, ...restProps }) {
         <Link
           key={item.path}
           to={item.path}
-          onClick={(e) => preventSameRouteNavigation(e, item.path)}
+          onClick={(e) => {
+            preventSameRouteNavigation(e, item.path);
+            onRequestClose?.();
+          }}
           className={cn(
             'group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200',
             nested && 'ml-3',
@@ -359,7 +366,7 @@ export default function ManagerSidebar({ collapsed = false, ...restProps }) {
     <>
       <aside
         className={cn(
-          'manager-sidebar fixed left-0 top-0 z-[100] flex h-screen w-[250px] flex-col border-r border-slate-200/70 bg-gradient-to-b from-white via-slate-50/90 to-sky-50/35 shadow-[4px_0_24px_-8px_rgba(15,23,42,0.12)] transition-transform duration-300 ease-out',
+          'manager-sidebar fixed left-0 top-0 z-[100] flex h-screen w-[min(100vw-3rem,280px)] max-w-[280px] flex-col border-r border-slate-200/70 bg-white shadow-[4px_0_24px_-8px_rgba(15,23,42,0.12)] transition-transform duration-300 ease-out lg:w-[250px] lg:max-w-none lg:bg-gradient-to-b lg:from-white lg:via-slate-50/90 lg:to-sky-50/35',
           collapsed && '-translate-x-full'
         )}
         {...restProps}
@@ -378,7 +385,11 @@ export default function ManagerSidebar({ collapsed = false, ...restProps }) {
           </div>
         </div>
 
-        <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto overflow-x-hidden px-3 py-3">
+        <nav
+          id="manager-sidebar-nav"
+          className="flex flex-1 flex-col gap-0.5 overflow-y-auto overflow-x-hidden px-3 py-3"
+          aria-label="Menu quản lý cửa hàng"
+        >
           <p className="px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Vận hành</p>
           {renderNavBlock(overviewItems)}
 
@@ -390,7 +401,10 @@ export default function ManagerSidebar({ collapsed = false, ...restProps }) {
           <button
             type="button"
             className="flex w-full items-center gap-3 rounded-xl border border-slate-200/80 bg-white px-3 py-2.5 text-sm font-semibold text-slate-600 shadow-sm transition hover:border-rose-200 hover:bg-rose-50/90 hover:text-rose-700"
-            onClick={handleLogout}
+            onClick={() => {
+              onRequestClose?.();
+              handleLogout();
+            }}
           >
             <LogOut className="h-4 w-4" aria-hidden />
             Đăng xuất

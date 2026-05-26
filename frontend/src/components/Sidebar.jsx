@@ -5,7 +5,7 @@ import { cn } from '../lib/utils';
 import { LayoutDashboard, Store, Users, LifeBuoy, LogOut, ShieldCheck } from 'lucide-react';
 import './Sidebar.css';
 
-export default function Sidebar() {
+export default function Sidebar({ collapsed = false, onRequestClose }) {
     const navigate = useNavigate();
     const location = useLocation();
     let user = null;
@@ -36,7 +36,11 @@ export default function Sidebar() {
     };
 
     const renderAdmin = () => (
-        <aside className="admin-sidebar">
+        <aside
+            className={cn('admin-sidebar', collapsed && 'admin-sidebar--drawer-closed')}
+            id="admin-sidebar-nav"
+            aria-label="Menu quản trị"
+        >
             <div className="admin-sidebar-header">
                 <div className="admin-sidebar-brand-icon">
                     <ShieldCheck className="h-5 w-5" strokeWidth={2.2} aria-hidden />
@@ -54,7 +58,10 @@ export default function Sidebar() {
                         <button
                             key={item.path}
                             className={cn('admin-sidebar-item', active && 'active')}
-                            onClick={() => navigate(item.path)}
+                            onClick={() => {
+                                navigate(item.path);
+                                onRequestClose?.();
+                            }}
                             type="button"
                         >
                             <Icon className="admin-sidebar-item-icon" strokeWidth={2} aria-hidden />
@@ -64,7 +71,14 @@ export default function Sidebar() {
                 })}
             </nav>
             <div className="admin-sidebar-footer">
-                <button type="button" className="admin-sidebar-logout-btn" onClick={handleLogout}>
+                <button
+                  type="button"
+                  className="admin-sidebar-logout-btn"
+                  onClick={() => {
+                    handleLogout();
+                    onRequestClose?.();
+                  }}
+                >
                     <LogOut className="h-4 w-4" aria-hidden />
                     Đăng xuất
                 </button>

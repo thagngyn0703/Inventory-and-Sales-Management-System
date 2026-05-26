@@ -11,6 +11,7 @@ import React, { useState, useEffect } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import ManagerSidebar from './ManagerSidebar';
 import POSContainer from '../../components/pos/POSContainer';
+import { useNavDrawer } from '../../hooks/useNavDrawer';
 import '../SaleDashboard/SalesDashboard.css';
 
 const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
@@ -18,7 +19,12 @@ const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
 export default function ManagerPOSPage() {
   const location = useLocation();
   const navigate = useNavigate();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const {
+    isDesktop,
+    collapsed: sidebarCollapsed,
+    toggle: toggleSidebar,
+    close: closeSidebar,
+  } = useNavDrawer(1024);
   const [currentUser, setCurrentUser] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem('user') || 'null');
@@ -45,32 +51,41 @@ export default function ManagerPOSPage() {
   const storeName = currentUser?.storeName || '';
   const displayName = currentUser?.fullName || currentUser?.email || 'Quản lý';
   const roleLabel = 'Quản lý';
-  const toggleSidebar = () => setSidebarCollapsed((c) => !c);
 
   // Chỉ màn quầy tạo HĐ mới là fullscreen POS
   const normalizedPath = location.pathname.replace(/\/$/, '') || '/';
   const isPosRoute = normalizedPath === '/manager/pos' || normalizedPath === '/manager/pos/new';
 
   return (
-    <div
-      className={`sales-layout${sidebarCollapsed ? ' sidebar-collapsed' : ''}${isPosRoute ? ' pos-mode' : ''}`}
-      style={{ '--sidebar-width': '250px' }}
-    >
-      {/* Sidebar Manager — manager luôn thấy sidebar của mình */}
-      <ManagerSidebar collapsed={sidebarCollapsed} />
+    <div className={`sales-layout${sidebarCollapsed ? ' sidebar-collapsed' : ''}${isPosRoute ? ' pos-mode' : ''}`}>
+      {!isDesktop && !sidebarCollapsed ? (
+        <button
+          type="button"
+          className="app-shell-nav-overlay"
+          aria-label="Đóng menu điều hướng"
+          onClick={closeSidebar}
+        />
+      ) : null}
 
-      <main className={`sales-main${isPosRoute ? ' pos-mode' : ''}`} style={{ marginLeft: sidebarCollapsed ? 0 : 250 }}>
+      {/* Sidebar Manager — drawer trên mobile, cố định trên desktop */}
+      <ManagerSidebar collapsed={sidebarCollapsed} onRequestClose={closeSidebar} />
+
+      <main className={`sales-main${isPosRoute ? ' pos-mode' : ''}`}>
         {/* Header bar với nút quay lại Manager dashboard */}
         {!isPosRoute && (
           <header className="sales-header flex min-h-12 flex-wrap items-center gap-2 border-b border-teal-900/20 bg-[linear-gradient(120deg,#0d9488_0%,#0ea5e9_48%,#0284c7_100%)] px-3 py-2 shadow-md shadow-teal-900/15">
-            <button
-              type="button"
-              className="sales-toggle-btn flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/35 bg-white/15 text-white shadow-sm transition hover:bg-white/25"
-              onClick={toggleSidebar}
-              title={sidebarCollapsed ? 'Mở menu' : 'Thu nhỏ menu'}
-            >
-              <i className="fa-solid fa-bars text-sm" />
-            </button>
+            {!isDesktop ? (
+              <button
+                type="button"
+                className="sales-toggle-btn flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/35 bg-white/15 text-white shadow-sm transition hover:bg-white/25"
+                onClick={toggleSidebar}
+                title={sidebarCollapsed ? 'Mở menu' : 'Đóng menu'}
+                aria-expanded={!sidebarCollapsed}
+                aria-controls="manager-sidebar-nav"
+              >
+                <i className="fa-solid fa-bars text-sm" />
+              </button>
+            ) : null}
             <div className="min-w-0 flex-1" />
             <button
               type="button"

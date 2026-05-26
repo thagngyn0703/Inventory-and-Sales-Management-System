@@ -5,12 +5,18 @@ const Topbar = ({
   title = 'Tổng quan bán hàng',
   subtitle = 'Theo dõi hiệu quả kinh doanh và tồn kho theo thời gian thực',
   searchPlaceholder = 'Tìm kiếm đơn hàng, khách hàng, sản phẩm...',
+  menuButton = null,
 }) => {
   return (
     <header className="topbar">
       <div className="topbar__left">
-        <div className="topbar__title">{title}</div>
-        {subtitle && <div className="topbar__subtitle">{subtitle}</div>}
+        <div className="topbar__title-row">
+          {menuButton}
+          <div className="topbar__titles">
+            <div className="topbar__title">{title}</div>
+            {subtitle && <div className="topbar__subtitle">{subtitle}</div>}
+          </div>
+        </div>
       </div>
       <div className="topbar__right">
         <div className="topbar__search">
@@ -28,7 +34,7 @@ const Topbar = ({
         </button>
         <button type="button" className="topbar__user">
           <span className="topbar__avatar">Q</span>
-          <span className="topbar__user-name">Quản lý</span>
+          <span className="topbar__user-name topbar__user-name--full">Quản lý</span>
         </button>
       </div>
     </header>
@@ -36,4 +42,3 @@ const Topbar = ({
 };
 
 export default Topbar;
-

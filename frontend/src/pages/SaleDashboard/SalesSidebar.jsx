@@ -39,7 +39,7 @@ const warehouseItems = [
   { to: '/staff/product-requests', icon: FileStack, label: 'Phiếu đăng ký SP mới', end: true },
 ];
 
-export default function SalesSidebar({ collapsed }) {
+export default function SalesSidebar({ collapsed, onRequestClose }) {
   const navigate = useNavigate();
 
   const [currentUser, setCurrentUser] = useState(() => {
@@ -77,9 +77,10 @@ export default function SalesSidebar({ collapsed }) {
   return (
     <aside
       className={cn(
-        'sales-sidebar fixed left-0 top-0 z-[100] flex h-screen w-[250px] flex-col border-r border-slate-200/70 bg-gradient-to-b from-white via-slate-50/90 to-sky-50/35 shadow-[4px_0_24px_-8px_rgba(15,23,42,0.12)] transition-transform duration-300 ease-out',
+        'sales-sidebar fixed left-0 top-0 z-[100] flex h-screen w-[min(100vw-3rem,280px)] max-w-[280px] flex-col border-r border-slate-200/70 bg-white shadow-[4px_0_24px_-8px_rgba(15,23,42,0.12)] transition-transform duration-300 ease-out lg:w-[250px] lg:max-w-none lg:bg-gradient-to-b lg:from-white lg:via-slate-50/90 lg:to-sky-50/35',
         collapsed && '-translate-x-full'
       )}
+      aria-label="Menu quầy bán hàng"
     >
       <div className="flex shrink-0 items-center gap-3 border-b border-slate-200/60 bg-white/60 px-5 py-5 backdrop-blur-sm">
         <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[linear-gradient(135deg,#0d9488_0%,#0ea5e9_55%,#0284c7_100%)] text-lg font-extrabold text-white shadow-md shadow-teal-600/30">
@@ -95,13 +96,14 @@ export default function SalesSidebar({ collapsed }) {
         </div>
       </div>
 
-      <nav className="sales-nav flex flex-1 flex-col gap-0.5 overflow-y-auto overflow-x-hidden px-3 py-3">
+      <nav id="sales-sidebar-nav" className="sales-nav flex flex-1 flex-col gap-0.5 overflow-y-auto overflow-x-hidden px-3 py-3">
         <p className="px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Bán hàng</p>
         {salesItems.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}
             end={item.end}
+            onClick={() => onRequestClose?.()}
             className={({ isActive }) =>
               cn(
                 'group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200',
@@ -139,6 +141,7 @@ export default function SalesSidebar({ collapsed }) {
             key={item.to}
             to={item.to}
             end={item.end}
+            onClick={() => onRequestClose?.()}
             className={({ isActive }) =>
               cn(
                 'group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200',
@@ -175,7 +178,10 @@ export default function SalesSidebar({ collapsed }) {
         <button
           type="button"
           className="flex w-full items-center gap-3 rounded-xl border border-slate-200/80 bg-white px-3 py-2.5 text-sm font-semibold text-slate-600 shadow-sm transition hover:border-rose-200 hover:bg-rose-50/90 hover:text-rose-700"
-          onClick={handleLogout}
+          onClick={() => {
+            onRequestClose?.();
+            handleLogout();
+          }}
         >
           <LogOut className="h-4 w-4" />
           Đăng xuất

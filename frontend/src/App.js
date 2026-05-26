@@ -1,4 +1,5 @@
 import './App.css';
+import { useEffect } from 'react';
 import { Routes, Route, Navigate } from "react-router-dom";
 import AuthPage from './pages/AuthPage/AuthPage';
 import PreLoginLandingPage from "./pages/LandingPage/PreLoginLandingPage";
@@ -73,12 +74,20 @@ import ManagerReturnDetail from "./pages/ManagerDashboard/ManagerReturnDetail";
 import ManagerStockHistoryReport from "./pages/ManagerDashboard/ManagerStockHistoryReport";
 import ManagerCashflowDashboard from "./pages/ManagerDashboard/ManagerCashflowDashboard";
 import ManagerShiftSessionsPage from "./pages/ManagerDashboard/ManagerShiftSessionsPage";
+import ManagerTaxReport from "./pages/ManagerDashboard/ManagerTaxReport";
 import AdminSupportTickets from "./pages/AdminHome/AdminSupportTickets";
 import AdminSupportTicketDetail from "./pages/AdminHome/AdminSupportTicketDetail";
 import RequireManagerStore from "./components/RequireManagerStore";
 import RequireStaffStore from "./components/RequireStaffStore";
+import useMobileTableCards from './hooks/useMobileTableCards';
 
 function App() {
+  useMobileTableCards();
+  useEffect(() => {
+    document.body.classList.add('mobile-table-card-root');
+    return () => document.body.classList.remove('mobile-table-card-root');
+  }, []);
+
   return (
     <Routes>
       <Route path="/" element={<PreLoginLandingPage />} />
@@ -198,6 +207,7 @@ function App() {
       <Route path="/manager/support" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerSupportTickets /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/support/:id" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerSupportTicketDetail /></RequireManagerStore></RequireRole></RequireAuth>} />
       <Route path="/manager/reports" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerPriceChangeReport /></RequireManagerStore></RequireRole></RequireAuth>} />
+      <Route path="/manager/tax-report" element={<RequireAuth><RequireRole allowedRoles={["manager"]}><RequireManagerStore><ManagerTaxReport /></RequireManagerStore></RequireRole></RequireAuth>} />
       {/* Manager POS — bán hàng trực tiếp trong layout Manager */}
       <Route
         path="/manager/pos"

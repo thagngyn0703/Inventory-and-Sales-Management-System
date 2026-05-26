@@ -11,6 +11,8 @@ const SupplierPayment = require('../models/SupplierPayment');
 const Customer = require('../models/Customer');
 const CustomerLoyaltyTransaction = require('../models/CustomerLoyaltyTransaction');
 const AuditLog = require('../models/AuditLog');
+const Store = require('../models/Store');
+const xlsx = require('xlsx');
 const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
@@ -285,6 +287,110 @@ async function buildLoyaltyAnalyticsPayload({ req, from, to }) {
     },
     monthly,
   };
+}
+
+function round2(value) {
+  return Math.round((Number(value) || 0) * 100) / 100;
+}
+
+function getDefaultPresumptiveTaxRate() {
+  const v = Number(process.env.HKD_PRESUMPTIVE_TAX_RATE || 1.5);
+  if (!Number.isFinite(v) || v < 0) return 1.5;
+  return v;
+}
+
+async function resolveStoreTaxReportContext(req) {
+  const role = String(req.user?.role || '').toLowerCase();
+  if (role === 'admin') {
+    const rawStoreId = String(req.query.store_id || '').trim();
+    if (!rawStoreId || !mongoose.isValidObjectId(rawStoreId)) {
+      return { error: { status: 400, body: { message: 'Admin cần truyền store_id hợp lệ để xem báo cáo thuế.' } } };
+    }
+    const store = await Store.findById(rawStoreId).select('_id name business_type tax_rate').lean();
+    if (!store) return { error: { status: 404, body: { message: 'Không tìm thấy cửa hàng.' } } };
+    return { storeIdObj: new mongoose.Types.ObjectId(rawStoreId), store };
+  }
+  const rawStoreId = String(req.user?.storeId || '').trim();
+  if (!rawStoreId || !mongoose.isValidObjectId(rawStoreId)) {
+    return { error: { status: 403, body: { message: 'Chưa có cửa hàng', code: 'STORE_REQUIRED' } } };
+  }
+  const store = await Store.findById(rawStoreId).select('_id name business_type tax_rate').lean();
+  if (!store) return { error: { status: 404, body: { message: 'Không tìm thấy cửa hàng.' } } };
+  return { storeIdObj: new mongoose.Types.ObjectId(rawStoreId), store };
+}
+
+function buildInvoiceMatchForTaxReport({ storeIdObj, from, to }) {
+  return {
+    store_id: storeIdObj,
+    status: 'confirmed',
+    invoice_at: { $gte: from, $lte: to },
+    ...PAID_TRANSFER_FILTER,
+  };
+}
+
+async function buildEnterpriseVatBuckets(invoiceMatch) {
+  const buckets = await SalesInvoice.aggregate([
+    { $match: invoiceMatch },
+    { $unwind: '$items' },
+    {
+      $addFields: {
+        __lineGross: { $ifNull: ['$items.line_total', 0] },
+        __invTotal: { $ifNull: ['$total_amount', 0] },
+        __invSubtotal: { $ifNull: ['$subtotal_amount', '$total_amount'] },
+        __invTax: { $ifNull: ['$tax_amount', 0] },
+      },
+    },
+    {
+      $addFields: {
+        __lineNetEffective: {
+          $ifNull: [
+            '$items.line_subtotal_amount',
+            {
+              $cond: [
+                { $gt: ['$__invTotal', 0] },
+                { $multiply: ['$__lineGross', { $divide: ['$__invSubtotal', '$__invTotal'] }] },
+                '$__lineGross',
+              ],
+            },
+          ],
+        },
+        __lineVatEffective: {
+          $ifNull: [
+            '$items.line_vat_amount',
+            {
+              $ifNull: [
+                '$items.line_tax_amount',
+                {
+                  $cond: [
+                    { $gt: ['$__invTotal', 0] },
+                    { $multiply: ['$__lineGross', { $divide: ['$__invTax', '$__invTotal'] }] },
+                    0,
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      },
+    },
+    {
+      $group: {
+        _id: {
+          final_rate: { $ifNull: ['$items.final_rate', '$items.vat_rate_snapshot'] },
+        },
+        net_amount: { $sum: '$__lineNetEffective' },
+        vat_amount: { $sum: '$__lineVatEffective' },
+        line_count: { $sum: 1 },
+      },
+    },
+    { $sort: { '_id.final_rate': 1 } },
+  ]);
+  return buckets.map((bucket) => ({
+    tax_rate: Number(bucket?._id?.final_rate || 0),
+    net_amount: Number(bucket?.net_amount || 0),
+    vat_amount: Number(bucket?.vat_amount || 0),
+    line_count: Number(bucket?.line_count || 0),
+  }));
 }
 
 /**
@@ -1021,6 +1127,253 @@ router.get(
       });
     } catch (err) {
       console.error(err);
+      return res.status(500).json({ message: err.message || 'Server error' });
+    }
+  }
+);
+
+router.get(
+  '/tax-report',
+  requireAuth,
+  requireRole(['manager', 'admin']),
+  async (req, res) => {
+    try {
+      const { from, to } = parseDateRange(req.query);
+      const context = await resolveStoreTaxReportContext(req);
+      if (context.error) return res.status(context.error.status).json(context.error.body);
+      const { storeIdObj, store } = context;
+      const businessType = String(store?.business_type || 'ho_kinh_doanh');
+      const invoiceMatch = buildInvoiceMatchForTaxReport({ storeIdObj, from, to });
+      const summaryAgg = await SalesInvoice.aggregate([
+        { $match: invoiceMatch },
+        {
+          $group: {
+            _id: null,
+            gross_revenue: { $sum: { $ifNull: ['$total_amount', 0] } },
+            invoice_count: { $sum: 1 },
+          },
+        },
+      ]);
+      const grossRevenue = Number(summaryAgg[0]?.gross_revenue || 0);
+      const invoiceCount = Number(summaryAgg[0]?.invoice_count || 0);
+
+      if (businessType === 'ho_kinh_doanh') {
+        const presumptiveRate = Number(req.query.presumptive_rate);
+        const safeRate = Number.isFinite(presumptiveRate) && presumptiveRate >= 0
+          ? presumptiveRate
+          : getDefaultPresumptiveTaxRate();
+        const presumptiveTax = round2(grossRevenue * (safeRate / 100));
+        return res.json({
+          report_type: 'household_business',
+          period: { from: from.toISOString(), to: to.toISOString() },
+          store: {
+            id: store?._id || null,
+            name: String(store?.name || ''),
+            business_type: businessType,
+          },
+          totals: {
+            total_revenue: grossRevenue,
+            invoice_count: invoiceCount,
+            presumptive_tax_rate: safeRate,
+            presumptive_tax_estimate: presumptiveTax,
+          },
+          business_note: 'Số liệu này dùng để kê khai mẫu 01/CNKD trên app eTax Mobile.',
+        });
+      }
+
+      const outputBuckets = await buildEnterpriseVatBuckets(invoiceMatch);
+      const netRevenue = outputBuckets.reduce((sum, row) => sum + (Number(row.net_amount) || 0), 0);
+      const outputVat = outputBuckets.reduce((sum, row) => sum + (Number(row.vat_amount) || 0), 0);
+      return res.json({
+        report_type: 'enterprise',
+        period: { from: from.toISOString(), to: to.toISOString() },
+        store: {
+          id: store?._id || null,
+          name: String(store?.name || ''),
+          business_type: businessType,
+        },
+        totals: {
+          output_revenue_gross: grossRevenue,
+          output_revenue_net: netRevenue,
+          output_vat: outputVat,
+          input_vat: null,
+          vat_payable_estimate: null,
+          invoice_count: invoiceCount,
+        },
+        output_vat_breakdown: outputBuckets,
+        business_note: 'Số liệu dùng để đối chiếu tờ khai thuế GTGT mẫu 01/GTGT.',
+      });
+    } catch (err) {
+      return res.status(500).json({ message: err.message || 'Server error' });
+    }
+  }
+);
+
+router.get(
+  '/tax-report/export.xlsx',
+  requireAuth,
+  requireRole(['manager', 'admin']),
+  async (req, res) => {
+    try {
+      const { from, to } = parseDateRange(req.query);
+      const context = await resolveStoreTaxReportContext(req);
+      if (context.error) return res.status(context.error.status).json(context.error.body);
+      const { storeIdObj, store } = context;
+      const businessType = String(store?.business_type || 'ho_kinh_doanh');
+      const invoiceMatch = buildInvoiceMatchForTaxReport({ storeIdObj, from, to });
+
+      const wb = xlsx.utils.book_new();
+      if (businessType === 'ho_kinh_doanh') {
+        const presumptiveRate = Number(req.query.presumptive_rate);
+        const safeRate = Number.isFinite(presumptiveRate) && presumptiveRate >= 0
+          ? presumptiveRate
+          : getDefaultPresumptiveTaxRate();
+        const rows = await SalesInvoice.aggregate([
+          { $match: invoiceMatch },
+          { $sort: { invoice_at: 1, _id: 1 } },
+          { $unwind: '$items' },
+          {
+            $lookup: {
+              from: 'products',
+              localField: 'items.product_id',
+              foreignField: '_id',
+              as: '__product',
+            },
+          },
+          { $unwind: { path: '$__product', preserveNullAndEmptyArrays: true } },
+          {
+            $project: {
+              invoice_at: 1,
+              invoice_code: {
+                $ifNull: [
+                  '$display_code',
+                  { $concat: ['INV-', { $substr: [{ $toString: '$_id' }, 18, 6] }] },
+                ],
+              },
+              product_name: { $ifNull: ['$__product.name', 'Hàng hóa'] },
+              unit_name: { $ifNull: ['$items.unit_name', 'Cái'] },
+              quantity: { $ifNull: ['$items.quantity', 0] },
+              amount: { $ifNull: ['$items.line_total', 0] },
+            },
+          },
+        ]);
+        const totalRevenue = rows.reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
+        const summaryRows = [
+          { 'Trường': 'Loại báo cáo', 'Giá trị': 'Báo cáo thuế HKD' },
+          { 'Trường': 'Kỳ báo cáo', 'Giá trị': `${from.toISOString()} -> ${to.toISOString()}` },
+          { 'Trường': 'Cửa hàng', 'Giá trị': String(store?.name || '') },
+          { 'Trường': 'Tổng doanh thu', 'Giá trị': round2(totalRevenue) },
+          { 'Trường': 'Thuế khoán dự kiến (%)', 'Giá trị': safeRate },
+          { 'Trường': 'Thuế khoán dự kiến', 'Giá trị': round2(totalRevenue * (safeRate / 100)) },
+          { 'Trường': 'Ghi chú nghiệp vụ', 'Giá trị': 'Số liệu này dùng để kê khai mẫu 01/CNKD trên app eTax Mobile.' },
+        ];
+        const detailRows = rows.map((row) => ({
+          'Ngày tháng': row.invoice_at ? new Date(row.invoice_at).toLocaleString('vi-VN') : '',
+          'Số hiệu hóa đơn': String(row.invoice_code || ''),
+          'Tên hàng hóa/dịch vụ': String(row.product_name || ''),
+          'Đơn vị tính': String(row.unit_name || ''),
+          'Số lượng': Number(row.quantity || 0),
+          'Thành tiền': Number(row.amount || 0),
+        }));
+        const wsSummary = xlsx.utils.json_to_sheet(summaryRows);
+        const wsDetail = xlsx.utils.json_to_sheet(detailRows);
+        xlsx.utils.book_append_sheet(wb, wsSummary, 'TongHop');
+        xlsx.utils.book_append_sheet(wb, wsDetail, 'SoChiTietDoanhThu');
+      } else {
+        const rows = await SalesInvoice.aggregate([
+          { $match: invoiceMatch },
+          { $sort: { invoice_at: 1, _id: 1 } },
+          { $unwind: '$items' },
+          {
+            $addFields: {
+              __lineGross: { $ifNull: ['$items.line_total', 0] },
+              __invTotal: { $ifNull: ['$total_amount', 0] },
+              __invSubtotal: { $ifNull: ['$subtotal_amount', '$total_amount'] },
+              __invTax: { $ifNull: ['$tax_amount', 0] },
+            },
+          },
+          {
+            $addFields: {
+              __lineNetEffective: {
+                $ifNull: [
+                  '$items.line_subtotal_amount',
+                  {
+                    $cond: [
+                      { $gt: ['$__invTotal', 0] },
+                      { $multiply: ['$__lineGross', { $divide: ['$__invSubtotal', '$__invTotal'] }] },
+                      '$__lineGross',
+                    ],
+                  },
+                ],
+              },
+              __lineVatEffective: {
+                $ifNull: [
+                  '$items.line_vat_amount',
+                  {
+                    $ifNull: [
+                      '$items.line_tax_amount',
+                      {
+                        $cond: [
+                          { $gt: ['$__invTotal', 0] },
+                          { $multiply: ['$__lineGross', { $divide: ['$__invTax', '$__invTotal'] }] },
+                          0,
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          },
+          {
+            $project: {
+              invoice_at: 1,
+              invoice_code: {
+                $ifNull: [
+                  '$display_code',
+                  { $concat: ['INV-', { $substr: [{ $toString: '$_id' }, 18, 6] }] },
+                ],
+              },
+              tax_rate: { $ifNull: ['$items.final_rate', '$items.vat_rate_snapshot'] },
+              net_amount: '$__lineNetEffective',
+              vat_amount: '$__lineVatEffective',
+            },
+          },
+        ]);
+        const outputBuckets = await buildEnterpriseVatBuckets(invoiceMatch);
+        const summaryRows = [
+          { 'Trường': 'Loại báo cáo', 'Giá trị': 'Báo cáo thuế doanh nghiệp' },
+          { 'Trường': 'Kỳ báo cáo', 'Giá trị': `${from.toISOString()} -> ${to.toISOString()}` },
+          { 'Trường': 'Cửa hàng', 'Giá trị': String(store?.name || '') },
+          { 'Trường': 'Ghi chú nghiệp vụ', 'Giá trị': 'Số liệu dùng để đối chiếu tờ khai thuế GTGT mẫu 01/GTGT.' },
+        ];
+        const bucketRows = outputBuckets.map((row) => ({
+            'Mức thuế suất (%)': row.tax_rate,
+            'Doanh thu chưa thuế': round2(row.net_amount),
+            'VAT đầu ra': round2(row.vat_amount),
+            'Số dòng': row.line_count,
+          }));
+        const detailRows = rows.map((row) => ({
+          'Ngày hóa đơn': row.invoice_at ? new Date(row.invoice_at).toLocaleString('vi-VN') : '',
+          'Số hóa đơn': String(row.invoice_code || ''),
+          'Thuế suất VAT (%)': Number(row.tax_rate || 0),
+          'Doanh thu chưa VAT': Number(row.net_amount || 0),
+          'VAT đầu ra': Number(row.vat_amount || 0),
+        }));
+        const wsSummary = xlsx.utils.json_to_sheet(summaryRows);
+        const wsBucket = xlsx.utils.json_to_sheet(bucketRows);
+        const wsDetail = xlsx.utils.json_to_sheet(detailRows);
+        xlsx.utils.book_append_sheet(wb, wsSummary, 'TongHop');
+        xlsx.utils.book_append_sheet(wb, wsBucket, 'TongHopTheoThueSuat');
+        xlsx.utils.book_append_sheet(wb, wsDetail, 'BangKeBanRa');
+      }
+
+      const stamp = new Date().toISOString().slice(0, 10);
+      const fileBuffer = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="bao-cao-thue-${stamp}.xlsx"`);
+      return res.send(fileBuffer);
+    } catch (err) {
       return res.status(500).json({ message: err.message || 'Server error' });
     }
   }

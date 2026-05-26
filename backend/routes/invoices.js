@@ -14,6 +14,8 @@ const { upsertSystemCashFlow } = require('../utils/cashflowUtils');
 const { normalizeInvoicePayment, normalizeNonNegativeInt } = require('../utils/invoicePaymentUtils');
 const ShiftSession = require('../models/ShiftSession');
 const ShiftUser = require('../models/ShiftUser');
+const PosRegister = require('../models/PosRegister');
+const { ensureRegistersAndMigrateLegacyOpenShift } = require('../utils/posRegisterBootstrap');
 const {
     normalizeLoyaltySettings,
     computeRedeemPlan,
@@ -28,6 +30,37 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 const { decorateInvoiceDisplayCode, decorateInvoiceListDisplayCode, buildInvoiceDisplayCode } = require('../utils/invoiceDisplayCode');
 
 const router = express.Router();
+
+async function resolveRegisterIdForInvoice(storeId, rawFromClient) {
+    await ensureRegistersAndMigrateLegacyOpenShift(storeId);
+    const trimmed = rawFromClient != null ? String(rawFromClient).trim() : '';
+    if (trimmed && mongoose.isValidObjectId(trimmed)) {
+        const ok = await PosRegister.findOne({
+            _id: trimmed,
+            store_id: storeId,
+            is_active: true,
+        })
+            .select('_id name')
+            .lean();
+        if (ok) return { id: String(ok._id), name: ok.name || '' };
+        return null;
+    }
+    const regs = await PosRegister.find({ store_id: storeId, is_active: true }).sort({ sort_order: 1, _id: 1 }).lean();
+    if (regs.length === 1) return { id: String(regs[0]._id), name: regs[0].name || '' };
+    return null;
+}
+
+async function findOpenShiftForUser(storeId, userId) {
+    if (!storeId || !userId) return null;
+    return ShiftSession.findOne({
+        store_id: storeId,
+        opened_by: userId,
+        status: 'open',
+    })
+        .select('_id register_id')
+        .populate('register_id', 'name')
+        .lean();
+}
 
 /**
  * FIFO settlement: đóng các hóa đơn ghi nợ pending từ cũ nhất đến mới nhất,
@@ -681,8 +714,12 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
 
         const { loyalty_settings: loyaltySettings, loyalty_policy_version: loyaltyPolicyVersion } =
             await getStoreLoyaltyConfig(req.user.storeId);
+        const loyaltyEnabled = Boolean(loyaltySettings?.enabled);
         const requestedRedeemPoints = Math.max(0, Math.round(Number(redeem_points_requested) || 0));
         const promoDiscount = Math.max(0, Math.round(Number(promo_discount) || 0));
+        if (!loyaltyEnabled && requestedRedeemPoints > 0) {
+            return res.status(400).json({ message: 'Cửa hàng đang tắt tích điểm, không thể dùng điểm.' });
+        }
         if (requestedRedeemPoints > 0 && !customer_id) {
             return res.status(400).json({ message: 'Phải chọn khách hàng để dùng điểm.' });
         }
@@ -750,6 +787,22 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
 
         const normalizedMethod = normalizedPayment.payment_method;
         const paymentSplit = normalizedPayment.payment;
+        if (paymentSplit.bank_transfer > 0) {
+            const storeBankConfig = await Store.findById(req.user.storeId)
+                .select('bank_id bank_account bank_account_name')
+                .lean();
+            const hasStoreBankConfig = Boolean(
+                String(storeBankConfig?.bank_id || '').trim() &&
+                String(storeBankConfig?.bank_account || '').trim() &&
+                String(storeBankConfig?.bank_account_name || '').trim()
+            );
+            if (!hasStoreBankConfig) {
+                return res.status(400).json({
+                    message: 'Cửa hàng chưa cấu hình tài khoản ngân hàng nhận QR. Vui lòng vào Cài đặt -> Cấu hình ngân hàng.',
+                    code: 'STORE_BANK_CONFIG_REQUIRED',
+                });
+            }
+        }
 
         // Với chuyển khoản hoặc split có bank_transfer: sinh payment_ref để nhúng vào nội dung QR
         const paymentRef = paymentSplit.bank_transfer > 0 ? generatePaymentRef() : null;
@@ -836,13 +889,11 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
 
         // Use syncInventory to handle deduction if created as confirmed
         try {
-            // Auto-attach current open shift (staff must have an open shift)
+            // Auto-attach current open shift (mỗi nhân viên có ca riêng)
             const isTestEnv = String(process.env.NODE_ENV || '').toLowerCase() === 'test';
             if (req.user.storeId && userRole !== 'admin') {
-                const openShift = await ShiftSession.findOne({ store_id: req.user.storeId, status: 'open' })
-                    .select('_id')
-                    .lean();
-                if (!openShift && userRole !== 'admin' && !isTestEnv) {
+                const openShift = await findOpenShiftForUser(req.user.storeId, req.user.id);
+                if (!openShift && !isTestEnv) {
                     return res.status(400).json({
                         code: 'SHIFT_REQUIRED',
                         message: 'Vui lòng mở ca trước khi bán hàng.',
@@ -850,7 +901,16 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
                 }
                 if (openShift) {
                     invoice.shift_id = openShift._id;
-                    // Ensure staff is recorded as active in shift (multi-user support)
+                    if (openShift.register_id?._id || openShift.register_id) {
+                        invoice.register_id = openShift.register_id?._id || openShift.register_id;
+                        invoice.register_label_snapshot = openShift.register_id?.name || '';
+                    } else {
+                        const regResolved = await resolveRegisterIdForInvoice(req.user.storeId, req.body?.register_id);
+                        if (regResolved) {
+                            invoice.register_id = regResolved.id;
+                            invoice.register_label_snapshot = regResolved.name || '';
+                        }
+                    }
                     await ShiftUser.findOneAndUpdate(
                         { shift_id: openShift._id, user_id: req.user.id, left_at: null },
                         {
@@ -979,6 +1039,7 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
             payment_ref: paymentRef,
             payment_status: paymentStatus,
             loyalty_summary: {
+                enabled: loyaltyEnabled,
                 used_points: redeemPlan.used_points,
                 redeem_value: redeemPlan.redeem_value,
                 earned_points: loyaltyEarnedPoints,
@@ -997,7 +1058,17 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
 router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
         if (!assertStoreScope(req, res)) return;
-        const { page = '1', limit = '20', status, dateFrom, dateTo, searchKey, customer_id, payment_method } = req.query;
+        const {
+            page = '1',
+            limit = '20',
+            status,
+            dateFrom,
+            dateTo,
+            searchKey,
+            customer_id,
+            payment_method,
+            sales_scope,
+        } = req.query;
         const pageNum = Math.max(1, parseInt(page, 10) || 1);
         const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
         const filter = {};
@@ -1006,8 +1077,9 @@ router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (
         if (req.user.storeId && userRole !== 'admin') {
             filter.store_id = req.user.storeId;
         }
-        // Staff chỉ xem hóa đơn do chính mình tạo.
-        if (userRole === 'staff') {
+        // Staff: mặc định chỉ đơn do mình bán; sales_scope=store → mọi đơn của cửa hàng (tra cứu / đổi trả).
+        const salesScopeNorm = String(sales_scope || '').toLowerCase().trim();
+        if (userRole === 'staff' && salesScopeNorm !== 'store') {
             filter.created_by = req.user.id;
         }
         if (status) {
@@ -1172,6 +1244,67 @@ router.get('/stats/daily-sales', requireAuth, requireRole(['staff', 'manager', '
     }
 });
 
+// POST /api/invoices/tax-preview — tách tiền hàng/thuế giống lúc xuất HĐ (POS xem trước)
+router.post('/tax-preview', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
+    try {
+        if (!assertStoreScope(req, res)) return;
+        const rawItems = req.body?.items;
+        const items = Array.isArray(rawItems)
+            ? rawItems
+                  .map((it) => {
+                      const pid = it?.product_id;
+                      const oid = mongoose.isValidObjectId(String(pid || '')) ? String(pid) : null;
+                      return {
+                          product_id: oid,
+                          line_total: Math.max(0, Math.round(Number(it.line_total) || 0)),
+                          tax_category: it.tax_category,
+                          price_includes_tax: it.price_includes_tax,
+                          tax_override_reason: it.tax_override_reason,
+                          quantity: Number(it.quantity) || 0,
+                      };
+                  })
+                  .filter((it) => it.product_id)
+            : [];
+
+        const invoiceLevelDiscount = Math.max(0, Math.round(Number(req.body?.invoice_level_discount) || 0));
+
+        if (items.length === 0) {
+            return res.json({
+                subtotal_amount: 0,
+                tax_amount: 0,
+                tax_rate_snapshot: 0,
+                tax_is_mixed: false,
+                tax_breakdown_by_category: [],
+                price_includes_tax: true,
+            });
+        }
+
+        const taxSnapshot = await computeInvoiceTaxSnapshot({
+            storeId: req.user.storeId,
+            invoiceTaxPointAt: new Date(),
+            items,
+            invoiceLevelDiscount,
+        });
+
+        return res.json({
+            subtotal_amount: taxSnapshot.subtotal_amount,
+            tax_amount: taxSnapshot.tax_amount,
+            tax_rate_snapshot: taxSnapshot.tax_rate_snapshot,
+            tax_is_mixed: Boolean(taxSnapshot.tax_is_mixed),
+            tax_breakdown_by_category: taxSnapshot.tax_breakdown_by_category || [],
+            price_includes_tax: Boolean(taxSnapshot.price_includes_tax),
+        });
+    } catch (err) {
+        console.error(err);
+        const code = err.code || null;
+        const status = code === 'TAX_MAPPING_REQUIRED' ? 422 : 500;
+        return res.status(status).json({
+            message: err.message || 'Không tính được thuế.',
+            code,
+        });
+    }
+});
+
 // GET /api/invoices/:id
 router.get('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
@@ -1191,11 +1324,6 @@ router.get('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), asyn
         if (userRole2 !== 'admin' && req.user.storeId && String(invoice.store_id) !== String(req.user.storeId)) {
             return res.status(403).json({ message: 'Không có quyền xem hóa đơn này' });
         }
-        // Staff chỉ xem hóa đơn của chính mình.
-        if (userRole2 === 'staff' && String(invoice.created_by) !== String(req.user.id)) {
-            return res.status(403).json({ message: 'Nhân viên chỉ được xem hóa đơn do chính mình tạo' });
-        }
-
         const productIds = (invoice.items || [])
             .map((item) => normalizeId(item.product_id))
             .filter(Boolean);

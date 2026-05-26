@@ -6,6 +6,8 @@ const ProductRequest = require('../models/ProductRequest');
 const Stocktake = require('../models/Stocktake');
 const SalesInvoice = require('../models/SalesInvoice');
 const SalesReturn = require('../models/SalesReturn');
+const SubscriptionPricingSettings = require('../models/SubscriptionPricingSettings');
+const { SUBSCRIPTION_PLANS, getResolvedSubscriptionPlans } = require('../utils/subscriptionAccess');
 const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
@@ -129,6 +131,67 @@ async function getMonthlyStoreStats(monthCount) {
 
   return { months: monthCount, rows };
 }
+
+/** GET /api/admin/dashboard/subscription-plan-prices — giá gói SaaS (admin chỉnh) */
+router.get('/subscription-plan-prices', requireAuth, requireRole(['admin']), async (req, res) => {
+  try {
+    const [plans, doc] = await Promise.all([
+      getResolvedSubscriptionPlans(),
+      SubscriptionPricingSettings.findOne({ singleton_key: 'default' }).select('updatedAt').lean(),
+    ]);
+    const monthly = plans.find((p) => p.code === 'monthly');
+    const yearly = plans.find((p) => p.code === 'yearly');
+    const defM = SUBSCRIPTION_PLANS.find((p) => p.code === 'monthly');
+    const defY = SUBSCRIPTION_PLANS.find((p) => p.code === 'yearly');
+    return res.json({
+      monthly_price_vnd: monthly?.price_vnd ?? defM?.price_vnd ?? 100000,
+      yearly_price_vnd: yearly?.price_vnd ?? defY?.price_vnd ?? 1100000,
+      defaults: {
+        monthly_price_vnd: defM?.price_vnd ?? 100000,
+        yearly_price_vnd: defY?.price_vnd ?? 1100000,
+      },
+      updated_at: doc?.updatedAt || null,
+    });
+  } catch (err) {
+    console.error('subscription-plan-prices GET:', err);
+    return res.status(500).json({ message: err.message || 'Server error' });
+  }
+});
+
+/** PUT /api/admin/dashboard/subscription-plan-prices */
+router.put('/subscription-plan-prices', requireAuth, requireRole(['admin']), async (req, res) => {
+  try {
+    const monthly = Math.round(Number(req.body?.monthly_price_vnd));
+    const yearly = Math.round(Number(req.body?.yearly_price_vnd));
+    if (!Number.isFinite(monthly) || monthly < 0 || monthly > 500000000) {
+      return res.status(400).json({ message: 'Giá gói tháng không hợp lệ (0 – 500.000.000đ).' });
+    }
+    if (!Number.isFinite(yearly) || yearly < 0 || yearly > 2000000000) {
+      return res.status(400).json({ message: 'Giá gói năm không hợp lệ (0 – 2.000.000.000đ).' });
+    }
+    await SubscriptionPricingSettings.findOneAndUpdate(
+      { singleton_key: 'default' },
+      {
+        $set: {
+          monthly_price_vnd: monthly,
+          yearly_price_vnd: yearly,
+          updated_by: req.user.id,
+        },
+      },
+      { upsert: true, new: true }
+    );
+    const plans = await getResolvedSubscriptionPlans();
+    return res.json({
+      ok: true,
+      monthly_price_vnd: monthly,
+      yearly_price_vnd: yearly,
+      plans,
+    });
+  } catch (err) {
+    console.error('subscription-plan-prices PUT:', err);
+    return res.status(500).json({ message: err.message || 'Server error' });
+  }
+});
 
 // GET /api/admin/dashboard — tổng quan cho trang dashboard admin
 router.get('/', requireAuth, requireRole(['admin']), async (req, res) => {

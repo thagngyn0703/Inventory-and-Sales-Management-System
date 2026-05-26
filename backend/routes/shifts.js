@@ -4,6 +4,8 @@ const ShiftSession = require('../models/ShiftSession');
 const ShiftUser = require('../models/ShiftUser');
 const SalesInvoice = require('../models/SalesInvoice');
 const User = require('../models/User');
+const PosRegister = require('../models/PosRegister');
+const { ensureRegistersAndMigrateLegacyOpenShift } = require('../utils/posRegisterBootstrap');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { sumPayment, normalizeNonNegativeInt } = require('../utils/invoicePaymentUtils');
 const { decorateInvoiceListDisplayCode } = require('../utils/invoiceDisplayCode');
@@ -18,6 +20,26 @@ function assertStoreScope(req, res) {
         return false;
     }
     return true;
+}
+
+/** Trả về ObjectId string hợp lệ hoặc null nếu cần client chọn quầy (nhiều quầy). */
+async function resolveRegisterId(storeId, rawFromClient) {
+    await ensureRegistersAndMigrateLegacyOpenShift(storeId);
+    const trimmed = rawFromClient != null ? String(rawFromClient).trim() : '';
+    if (trimmed && mongoose.isValidObjectId(trimmed)) {
+        const ok = await PosRegister.findOne({
+            _id: trimmed,
+            store_id: storeId,
+            is_active: true,
+        })
+            .select('_id name')
+            .lean();
+        if (ok) return { id: String(ok._id), name: ok.name || '' };
+        return null;
+    }
+    const regs = await PosRegister.find({ store_id: storeId, is_active: true }).sort({ sort_order: 1, _id: 1 }).lean();
+    if (regs.length === 1) return { id: String(regs[0]._id), name: regs[0].name || '' };
+    return null;
 }
 
 function derivePaymentSplitForLegacyInvoice(inv) {
@@ -77,6 +99,7 @@ function parseLocalDateEnd(dateText) {
 function buildShiftInvoiceFilter(shift, participantUserIds = []) {
     const openedAt = shift?.opened_at ? new Date(shift.opened_at) : null;
     const closedAt = shift?.closed_at ? new Date(shift.closed_at) : new Date();
+    const scopedUserIds = [...new Set([shift?.opened_by, ...(participantUserIds || [])].filter(Boolean))];
     const fallbackConditions = [];
     if (openedAt && !Number.isNaN(openedAt.getTime())) {
         fallbackConditions.push({
@@ -86,13 +109,26 @@ function buildShiftInvoiceFilter(shift, participantUserIds = []) {
             },
         });
     }
+    if (scopedUserIds.length > 0) {
+        fallbackConditions.push({
+            created_by: {
+                $in: scopedUserIds,
+            },
+        });
+    }
+    /** Bán chịu: POST /api/invoices đặt status pending + payment_method debt cho đến khi được trả/đối soát FIFO → confirmed. */
+    const saleStatusClause = {
+        $or: [
+            { status: 'confirmed' },
+            { $and: [{ status: 'pending' }, { payment_method: 'debt' }] },
+        ],
+    };
+    const scopeClause = fallbackConditions.length > 0
+        ? { $or: [{ shift_id: shift._id }, { $and: fallbackConditions }] }
+        : { shift_id: shift._id };
     return {
         store_id: shift.store_id,
-        status: 'confirmed',
-        $or: [
-            { shift_id: shift._id },
-            { $and: fallbackConditions },
-        ],
+        $and: [saleStatusClause, scopeClause],
     };
 }
 
@@ -144,7 +180,7 @@ async function computeShiftSalesSnapshot(shift, participantUserIds = []) {
 
 async function computeShiftKpis(shift, participantUserIds = []) {
     const baseMatch = buildShiftInvoiceFilter(shift, participantUserIds);
-    const [invoiceAgg = { invoice_count: 0, total_revenue: 0 }, profitAgg = { total_profit: 0 }] = await Promise.all([
+    const [invoiceAgg = { invoice_count: 0, total_revenue: 0 }, profitAgg = { total_profit: 0 }, debtAgg = { total_debt_created: 0 }] = await Promise.all([
         SalesInvoice.aggregate([
             {
                 $match: baseMatch,
@@ -171,22 +207,43 @@ async function computeShiftKpis(shift, participantUserIds = []) {
             },
             { $project: { _id: 0, total_profit: 1 } },
         ]),
+        SalesInvoice.aggregate([
+            {
+                $match: {
+                    ...baseMatch,
+                    payment_method: 'debt',
+                },
+            },
+            {
+                $group: {
+                    _id: null,
+                    total_debt_created: { $sum: { $ifNull: ['$total_amount', 0] } },
+                },
+            },
+            { $project: { _id: 0, total_debt_created: 1 } },
+        ]),
     ]);
 
     return {
         invoice_count: Math.max(0, Math.round(Number(invoiceAgg.invoice_count) || 0)),
         total_revenue: Math.max(0, Math.round(Number(invoiceAgg.total_revenue) || 0)),
         total_profit: Math.round(Number(profitAgg.total_profit) || 0),
+        total_debt_created: Math.max(0, Math.round(Number(debtAgg.total_debt_created) || 0)),
     };
 }
 
-// GET /api/shifts/current
+// GET /api/shifts/current?register_id=
 router.get('/current', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
         if (!assertStoreScope(req, res)) return;
         const storeId = req.user.storeId;
-        const shift = await ShiftSession.findOne({ store_id: storeId, status: 'open' })
-            .sort({ opened_at: -1 })
+        const shift = await ShiftSession.findOne({
+            store_id: storeId,
+            opened_by: req.user.id,
+            status: 'open',
+        })
+            .populate('opened_by', 'fullName email')
+            .populate('register_id', 'name sort_order')
             .lean();
         return res.json({ shift: shift || null });
     } catch (err) {
@@ -264,6 +321,7 @@ router.get('/', requireAuth, requireRole(['manager', 'admin']), async (req, res)
         const shifts = await ShiftSession.find(filter)
             .populate('opened_by', 'fullName email employeeCode role')
             .populate('closed_by', 'fullName email employeeCode role')
+            .populate('register_id', 'name sort_order')
             .sort({ opened_at: -1, _id: -1 })
             .skip((page - 1) * limit)
             .limit(limit)
@@ -316,25 +374,33 @@ router.get('/', requireAuth, requireRole(['manager', 'admin']), async (req, res)
     }
 });
 
-// POST /api/shifts/open
+// POST /api/shifts/open  body: { opening_cash, register_id? }
 router.post('/open', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
         if (!assertStoreScope(req, res)) return;
         const storeId = req.user.storeId;
         const opening_cash = normalizeNonNegativeInt(req.body?.opening_cash);
 
-        const existing = await ShiftSession.findOne({ store_id: storeId, status: 'open' })
-            .select('_id opened_by opened_at')
+        const resolved = await resolveRegisterId(storeId, req.body?.register_id);
+
+        const existing = await ShiftSession.findOne({
+            store_id: storeId,
+            opened_by: req.user.id,
+            status: 'open',
+        })
+            .select('_id opened_by opened_at register_id')
             .populate('opened_by', 'fullName email')
+            .populate('register_id', 'name')
             .lean();
         if (existing) {
             return res.status(409).json({
                 code: 'SHIFT_ALREADY_OPEN',
-                message: 'Đang có ca mở trong cửa hàng.',
+                message: 'Bạn đang có ca mở. Vui lòng đóng ca hiện tại trước khi mở ca mới.',
                 open_shift: {
                     _id: existing._id,
                     opened_at: existing.opened_at || null,
                     opened_by: existing.opened_by || null,
+                    register_id: existing.register_id || null,
                     store_id: storeId,
                 },
             });
@@ -342,6 +408,7 @@ router.post('/open', requireAuth, requireRole(['staff', 'manager', 'admin']), as
 
         const shift = await ShiftSession.create({
             store_id: storeId,
+            register_id: resolved?.id || null,
             opened_by: req.user.id,
             opened_at: new Date(),
             status: 'open',
@@ -356,7 +423,11 @@ router.post('/open', requireAuth, requireRole(['staff', 'manager', 'admin']), as
             role_in_shift: 'primary',
         });
 
-        return res.status(201).json({ shift });
+        const populated = await ShiftSession.findById(shift._id)
+            .populate('opened_by', 'fullName email')
+            .populate('register_id', 'name sort_order')
+            .lean();
+        return res.status(201).json({ shift: populated || shift });
     } catch (err) {
         console.error(err);
         return res.status(500).json({ message: err.message || 'Server error' });
@@ -474,7 +545,8 @@ router.post('/:id/close', requireAuth, requireRole(['staff', 'manager', 'admin']
         shift.target_float_cash = targetFloatCash;
         shift.cash_to_keep = cash_to_keep;
         shift.cash_to_handover = cash_to_handover;
-        shift.discrepancy_cash = Math.round(actual_cash - expected.expected_cash);
+        const openingCash = normalizeNonNegativeInt(shift.opening_cash || 0);
+        shift.discrepancy_cash = Math.round(actual_cash - openingCash - expected.expected_cash);
         shift.discrepancy_bank = Math.round(actual_bank - expected.expected_bank);
         const absCashDiscrepancy = Math.abs(Math.round(actual_cash - expected.expected_cash));
         const absBankDiscrepancy = Math.abs(Math.round(actual_bank - expected.expected_bank));
