@@ -11,6 +11,7 @@ import { FileText, Loader2, Receipt, Search, X } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { getCurrentUser, normalizeRole } from '../../utils/auth';
 import { getInvoiceDisplayCode } from '../../utils/invoiceDisplayCode';
+import { shouldShowOnRetailHistory } from '../../utils/invoiceListFilters';
 
 const LIMIT = 10;
 
@@ -79,12 +80,28 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
     try {
       const scopeParams =
         isStaffViewer ? { sales_scope: staffSalesScope === 'store' ? 'store' : 'mine' } : {};
-      const [invoiceResp, returnsResp] = await Promise.all([
-        getInvoices({ page: 1, limit: 1000, ...scopeParams }),
-        getReturns({ page: 1, limit: 1000, ...scopeParams }),
-      ]);
-      const allInvoicesRaw = invoiceResp.invoices || [];
-      const allReturnsRaw = returnsResp.returns || [];
+
+      let allInvoicesRaw = [];
+      let allReturnsRaw = [];
+
+      let serverReturnMeta = null;
+      if (isReturnsPage) {
+        const returnsResp = await getReturns({
+          page,
+          limit: LIMIT,
+          searchKey: searchKey.trim() || undefined,
+          ...scopeParams,
+        });
+        allReturnsRaw = returnsResp.returns || [];
+        serverReturnMeta = {
+          total: returnsResp.total || 0,
+          totalPages: returnsResp.totalPages || 1,
+        };
+      } else {
+        const invoiceResp = await getInvoices({ page: 1, limit: 1000, ...scopeParams });
+        allInvoicesRaw = (invoiceResp.invoices || []).filter(shouldShowOnRetailHistory);
+      }
+
       const invoiceMap = new Map(allInvoicesRaw.map((inv) => [String(inv._id), inv]));
 
       const invoiceRows = allInvoicesRaw.map((inv) => ({
@@ -131,9 +148,9 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
         };
       });
 
-      let allInvoices = isReturnsPage
-        ? returnRows
-        : [...invoiceRows, ...returnRows].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      let allInvoices = (isReturnsPage ? returnRows : invoiceRows).sort(
+        (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
+      );
 
       if (dateFrom) {
         const df = new Date(dateFrom);
@@ -145,7 +162,7 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
         dt.setHours(23, 59, 59, 999);
         allInvoices = allInvoices.filter((i) => new Date(i.createdAt) <= dt);
       }
-      if (searchKey) {
+      if (searchKey && !isReturnsPage) {
         const lowerSearch = searchKey.toLowerCase().trim();
         allInvoices = allInvoices.filter(
           (i) =>
@@ -203,18 +220,23 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
         setSalesByShift([]);
       }
 
-      setTotal(allInvoices.length);
-      setTotalPages(Math.ceil(allInvoices.length / LIMIT) || 1);
-
-      const startIndex = (page - 1) * LIMIT;
-      setInvoices(allInvoices.slice(startIndex, startIndex + LIMIT));
+      if (isReturnsPage && serverReturnMeta) {
+        setTotal(serverReturnMeta.total);
+        setTotalPages(serverReturnMeta.totalPages);
+        setInvoices(allInvoices);
+      } else {
+        setTotal(allInvoices.length);
+        setTotalPages(Math.ceil(allInvoices.length / LIMIT) || 1);
+        const startIndex = (page - 1) * LIMIT;
+        setInvoices(allInvoices.slice(startIndex, startIndex + LIMIT));
+      }
     } catch (e) {
       setError(e.message || 'Không thể tải danh sách hóa đơn');
       setInvoices([]);
     } finally {
       setLoading(false);
     }
-  }, [page, dateFrom, dateTo, searchKey, isReturnsPage, staffSalesScope, isStaffViewer]);
+  }, [page, dateFrom, dateTo, searchKey, isReturnsPage, staffSalesScope, isStaffViewer, LIMIT]);
 
   useEffect(() => {
     setPage(1);
@@ -265,7 +287,7 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
       subtitle={
         isReturnsPage
           ? 'Theo dõi các đơn đã thực hiện trả hàng.'
-          : 'Nhân viên có thể xem đơn do mình bán hoặc toàn bộ đơn cửa hàng (hỗ trợ đổi trả).'
+          : 'Chỉ hiển thị đơn đã bán và đơn ghi nợ. Đơn trả hàng xem tại mục Hàng trả lại.'
       }
     >
       <InlineNotice message={error} type="error" />
@@ -277,8 +299,7 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Phạm vi xem</p>
                 <p className="mt-1 text-xs text-slate-600">
-                  Ca của tôi — mọi hóa đơn do bạn bán và phiếu trả của những đơn đó. Tất cả hóa đơn — để tra cứu đơn
-                  của đồng nghiệp (ví dụ đổi trả).
+                  Ca của tôi — hóa đơn do bạn bán. Tất cả hóa đơn — tra cứu đơn của cả cửa hàng.
                 </p>
               </div>
               <div className="inline-flex shrink-0 rounded-xl border border-slate-200 bg-slate-50/90 p-0.5 shadow-inner shadow-slate-900/5">
@@ -401,6 +422,7 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
                       <th className="px-4 py-3">Ca</th>
                       <th className="px-4 py-3">Mã đơn</th>
                       <th className="px-4 py-3">Khách hàng</th>
+                      {isReturnsPage ? <th className="px-4 py-3">Nhân viên</th> : null}
                       <th className="px-4 py-3">Trạng thái</th>
                       <th className="px-4 py-3">Thanh toán</th>
                       <th className="px-4 py-3 text-right">Tổng tiền</th>
@@ -426,6 +448,11 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
                         <td className="max-w-[180px] truncate px-4 py-3.5 font-medium text-slate-900">
                           {inv.customerName || 'Khách lẻ'}
                         </td>
+                        {isReturnsPage ? (
+                          <td className="max-w-[140px] truncate px-4 py-3.5 text-slate-600">
+                            {inv.sellerName || '—'}
+                          </td>
+                        ) : null}
                         <td className="px-4 py-3.5">
                           <Badge className={cn('inline-flex rounded-full border px-2.5 py-0.5 font-semibold', statusBadgeClass(statusView))}>
                             {STATUS_LABEL[statusView] ?? statusView}

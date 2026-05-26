@@ -4,6 +4,7 @@ const SalesReturn = require('../models/SalesReturn');
 const SalesInvoice = require('../models/SalesInvoice');
 const ShiftSession = require('../models/ShiftSession');
 const Product = require('../models/Product');
+const User = require('../models/User');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { adjustCustomerDebtAccount } = require('../utils/customerDebt');
 const { upsertSystemCashFlow } = require('../utils/cashflowUtils');
@@ -266,7 +267,7 @@ async function applyApprovedReturn({
 router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
         if (!assertStoreScope(req, res)) return;
-        const { page = '1', limit = '50', status, sales_scope } = req.query;
+        const { page = '1', limit = '50', status, sales_scope, searchKey } = req.query;
         const pageNum = Math.max(1, parseInt(page, 10) || 1);
         const limitNum = Math.min(200, Math.max(1, parseInt(limit, 10) || 50));
         const filter = {};
@@ -285,6 +286,35 @@ router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (
                 created_by: req.user.id,
             });
             filter.invoice_id = { $in: myInvoiceIds };
+        }
+
+        const q = String(searchKey || '').trim();
+        if (q) {
+            const regex = { $regex: q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
+            const storeIdForSearch = filter.store_id || (req.user.storeId && userRole !== 'admin' ? req.user.storeId : null);
+            const invoiceSearchFilter = storeIdForSearch ? { store_id: storeIdForSearch } : {};
+            const [matchingUsers, matchingInvoices] = await Promise.all([
+                User.find({ fullName: regex }, '_id').lean(),
+                SalesInvoice.find({
+                    ...invoiceSearchFilter,
+                    $or: [
+                        { display_code: regex },
+                        { recipient_name: regex },
+                        { $expr: { $regexMatch: { input: { $toString: '$_id' }, regex: q, options: 'i' } } },
+                    ],
+                }, '_id').lean(),
+            ]);
+            const orClauses = [
+                { reason: regex },
+                { $expr: { $regexMatch: { input: { $toString: '$_id' }, regex: q, options: 'i' } } },
+            ];
+            if (matchingUsers.length > 0) {
+                orClauses.push({ created_by: { $in: matchingUsers.map((u) => u._id) } });
+            }
+            if (matchingInvoices.length > 0) {
+                orClauses.push({ invoice_id: { $in: matchingInvoices.map((inv) => inv._id) } });
+            }
+            filter.$or = orClauses;
         }
 
         const total = await SalesReturn.countDocuments(filter);
@@ -332,7 +362,7 @@ router.get('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), asyn
             return res.status(400).json({ message: 'return id không hợp lệ' });
         }
         const salesReturn = await SalesReturn.findById(id)
-            .populate('invoice_id')
+            .populate('invoice_id', '_id recipient_name total_amount invoice_at display_code created_at items')
             .populate('created_by', 'fullName email')
             .populate('items.product_id', 'name sku')
             .lean();
@@ -345,6 +375,9 @@ router.get('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), asyn
         }
         if (salesReturn.invoice_id && typeof salesReturn.invoice_id === 'object') {
             salesReturn.invoice_id = decorateInvoiceDisplayCode(salesReturn.invoice_id);
+        }
+        if (!salesReturn.created_by || typeof salesReturn.created_by !== 'object') {
+            salesReturn.created_by = await User.findById(salesReturn.created_by).select('fullName email').lean();
         }
         return res.json({ salesReturn });
     } catch (err) {

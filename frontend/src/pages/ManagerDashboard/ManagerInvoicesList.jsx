@@ -4,9 +4,9 @@ import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { Receipt } from 'lucide-react';
 import { getInvoices } from '../../services/invoicesApi';
-import { getReturns } from '../../services/returnsApi';
 import { useToast } from '../../contexts/ToastContext';
 import { getInvoiceDisplayCode } from '../../utils/invoiceDisplayCode';
+import { shouldShowOnRetailHistory } from '../../utils/invoiceListFilters';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
 
@@ -77,15 +77,22 @@ export default function ManagerInvoicesList() {
     setLoading(true);
     setError('');
     try {
-      const [invoiceResp, returnsResp] = await Promise.all([
-        getInvoices({ page: 1, limit: 1000, status: statusFilter === 'returned_partial' || statusFilter === 'returned_full' ? undefined : statusFilter || undefined }),
-        getReturns({ page: 1, limit: 1000 }),
-      ]);
+      const invoiceResp = await getInvoices({
+        page: 1,
+        limit: 1000,
+        status: statusFilter === 'sold' ? 'confirmed' : statusFilter === 'pending' ? 'pending' : statusFilter === 'cancelled' ? 'cancelled' : undefined,
+      });
       const allInvoicesRaw = invoiceResp.invoices || [];
-      const allReturnsRaw = returnsResp.returns || [];
-      const invoiceMap = new Map(allInvoicesRaw.map((inv) => [String(inv._id), inv]));
 
-      const invoiceRows = allInvoicesRaw.map((inv) => ({
+      const invoiceRows = allInvoicesRaw
+        .filter((inv) => {
+          if (statusFilter === 'cancelled') return String(inv.status || '').toLowerCase() === 'cancelled';
+          if (statusFilter === 'pending') return String(inv.status || '').toLowerCase() === 'pending';
+          if (statusFilter === 'sold') return getInvoiceStatusView(inv) === 'sold';
+          if (!statusFilter) return shouldShowOnRetailHistory(inv);
+          return true;
+        })
+        .map((inv) => ({
         type: 'sale',
         createdAt: inv.invoice_at,
         code: getInvoiceDisplayCode(inv),
@@ -98,36 +105,7 @@ export default function ManagerInvoicesList() {
         invoiceId: inv._id,
       }));
 
-      const returnRows = allReturnsRaw.map((rt) => {
-        const originInvoiceId = String(rt?.invoice_id?._id || '');
-        const originInvoice = invoiceMap.get(originInvoiceId);
-        const returnedTotal = Number(originInvoice?.returned_total_amount || 0);
-        const originTotal = Number(originInvoice?.total_amount || 0);
-        const returnStatus = originTotal > 0 && returnedTotal >= originTotal ? 'returned_full' : 'returned_partial';
-        return {
-          type: 'return',
-          createdAt: rt.return_at || rt.created_at,
-          code: getInvoiceDisplayCode(originInvoice || rt.invoice_id),
-          sellerName: rt.created_by?.fullName || rt.created_by?.email || '—',
-          sellerRole: '',
-          customerName: rt.invoice_id?.recipient_name || originInvoice?.recipient_name || '—',
-          status: returnStatus,
-          paymentMethod: originInvoice?.payment_method ? (PAYMENT_LABEL[originInvoice.payment_method] || originInvoice.payment_method) : '—',
-          amount: Number(rt.total_amount || 0),
-          returnId: rt._id,
-          invoiceId: originInvoiceId || null,
-        };
-      });
-
-      let allInvoices = [...invoiceRows, ...returnRows].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
-      if (statusFilter === 'returned_partial' || statusFilter === 'returned_full') {
-        allInvoices = allInvoices.filter((r) => r.type === 'return' && r.status === statusFilter);
-      } else if (statusFilter === 'sold') {
-        allInvoices = allInvoices.filter((r) => r.type === 'sale' && r.status === 'sold');
-      } else if (statusFilter) {
-        allInvoices = allInvoices.filter((r) => r.status === statusFilter);
-      }
+      let allInvoices = invoiceRows.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
       if (dateFrom) {
         const df = new Date(dateFrom); df.setHours(0,0,0,0);
@@ -279,8 +257,6 @@ export default function ManagerInvoicesList() {
                 <option value="sold">Đã bán</option>
                 <option value="pending">Chờ thanh toán</option>
                 <option value="cancelled">Đã hủy</option>
-                <option value="returned_partial">Trả một phần</option>
-                <option value="returned_full">Trả toàn bộ</option>
               </select>
             </div>
             <div className="manager-filter-group manager-filter-group--flex">

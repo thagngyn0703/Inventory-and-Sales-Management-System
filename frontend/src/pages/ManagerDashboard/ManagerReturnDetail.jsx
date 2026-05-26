@@ -7,6 +7,7 @@ import { Button } from '../../components/ui/button';
 import { InlineNotice } from '../../components/ui/inline-notice';
 import { getReturnById, getReturns } from '../../services/returnsApi';
 import { getInvoice } from '../../services/invoicesApi';
+import { getInvoiceDisplayCode } from '../../utils/invoiceDisplayCode';
 
 function fmtMoney(n) {
   return Number(n || 0).toLocaleString('vi-VN') + '₫';
@@ -74,7 +75,7 @@ export default function ManagerReturnDetail() {
         title={loading ? 'Đang tải…' : `Phiếu trả #${String(data?._id || '').slice(-8).toUpperCase()}`}
         subtitle="Chi tiết đối chiếu giữa hóa đơn mua và phiếu trả hàng."
         headerActions={
-          <Button type="button" variant="outline" className="gap-2" onClick={() => navigate('/manager/invoices')}>
+          <Button type="button" variant="outline" className="gap-2" onClick={() => navigate(-1)}>
             <ArrowLeft className="h-4 w-4" />
             Quay lại
           </Button>
@@ -87,7 +88,8 @@ export default function ManagerReturnDetail() {
             <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
               <h3 className="mb-3 text-base font-bold text-slate-800">Hóa đơn mua gốc</h3>
               <div className="grid gap-2 text-sm text-slate-700">
-                <p>Mã hóa đơn: <strong>{invoice?._id || '—'}</strong></p>
+                <p>Mã hóa đơn: <strong>{getInvoiceDisplayCode(invoice) || '—'}</strong></p>
+                <p>Nhân viên xử lý: <strong>{data?.created_by?.fullName || data?.created_by?.email || '—'}</strong></p>
                 <p>Ngày tạo: <strong>{fmtDate(invoice?.invoice_at || invoice?.created_at)}</strong></p>
                 <p>Khách hàng: <strong>{invoice?.recipient_name || 'Khách lẻ'}</strong></p>
               </div>

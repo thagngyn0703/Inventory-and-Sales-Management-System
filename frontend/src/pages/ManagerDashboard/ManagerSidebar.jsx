@@ -86,9 +86,7 @@ const manageItems = [
   { type: 'item', label: 'Phiếu nhập chờ duyệt', path: '/manager/receipts', icon: ClipboardList },
   { type: 'item', label: 'Yêu cầu tạo sản phẩm', path: '/manager/product-requests', icon: FileStack },
   { type: 'item', label: 'Lịch sử điều chỉnh', path: '/manager/adjustments', icon: History },
-  { type: 'item', label: 'Báo cáo thẻ kho', path: '/manager/stock-history', icon: ClipboardList },
   { type: 'item', label: 'Báo cáo thuế', path: '/manager/tax-report', icon: BarChart3 },
-  { type: 'item', label: 'Báo cáo đổi giá', path: '/manager/reports', icon: BarChart3 },
   { type: 'item', label: 'Bán hàng trực tiếp', path: '/manager/pos', icon: Drill },
   { type: 'item', label: 'Nhật ký thu ngân', path: '/manager/shifts', icon: CalendarClock },
   {
@@ -114,9 +112,7 @@ function getActivePath(pathname) {
   if (pathname === '/manager/stocktakes') return '/manager/stocktakes';
   if (pathname.startsWith('/manager/stocktakes/')) return '/manager/stocktakes/pending';
   if (pathname.startsWith('/manager/adjustments/')) return '/manager/adjustments';
-  if (pathname.startsWith('/manager/stock-history')) return '/manager/stock-history';
   if (pathname.startsWith('/manager/tax-report')) return '/manager/tax-report';
-  if (pathname.startsWith('/manager/reports')) return '/manager/reports';
   if (pathname.startsWith('/manager/cashflow')) return '/manager/cashflow';
   if (pathname.startsWith('/manager/notifications/')) return '/manager/notifications';
   if (pathname.startsWith('/manager/support')) return '/manager/support';
