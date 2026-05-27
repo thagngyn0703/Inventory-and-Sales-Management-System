@@ -2,7 +2,8 @@ const request = require('supertest');
 const express = require('express');
 const returnsRoutes = require('../../routes/returns');
 const SalesInvoice = require('../../models/SalesInvoice');
-const { computeReturnTaxBreakdown } = require('../../routes/returns');
+const Product = require('../../models/Product');
+const { computeReturnTaxBreakdown, resolveReturnDisposition } = require('../../routes/returns');
 const { createManagerWithStore, getAuthHeader } = require('../fixtures/users');
 const { createTestProduct } = require('../fixtures/products');
 
@@ -53,6 +54,12 @@ describe('Returns VAT helper', () => {
     expect(result.total_amount).toBe(55);
     expect(result.subtotal_amount).toBe(50);
     expect(result.tax_amount).toBe(5);
+  });
+
+  it('should map reason codes to stock disposition', () => {
+    expect(resolveReturnDisposition('customer_changed_mind')).toBe('restock');
+    expect(resolveReturnDisposition('other')).toBe('scrap');
+    expect(resolveReturnDisposition('defective')).toBe('scrap');
   });
 
   it('should always use original invoice tax snapshot even after policy changes', () => {
@@ -131,7 +138,7 @@ describe('Returns API integration', () => {
       .set(auth)
       .send({
         invoice_id: String(invoice._id),
-        reason_code: 'defective',
+        reason_code: 'customer_changed_mind',
         reason: 'Tra phan con lai',
         items: [{ product_id: String(product._id), quantity: 7 }],
       });
@@ -153,7 +160,7 @@ describe('Returns API integration', () => {
       .set(auth)
       .send({
         invoice_id: String(invoice._id),
-        reason_code: 'other',
+        reason_code: 'customer_changed_mind',
         items: [{ product_id: String(product._id), quantity: 9 }],
       });
 
@@ -163,6 +170,7 @@ describe('Returns API integration', () => {
       .send({
         invoice_id: String(invoice._id),
         reason_code: 'other',
+        reason: 'Hang loi',
         items: [{ product_id: String(product._id), quantity: 2 }],
       });
 
@@ -178,7 +186,44 @@ describe('Returns API integration', () => {
 
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body.reasons)).toBe(true);
-    expect(res.body.reasons.some((r) => r.code === 'defective')).toBe(true);
+    expect(res.body.reasons.some((r) => r.code === 'customer_changed_mind')).toBe(true);
+    expect(res.body.reasons.some((r) => r.code === 'other')).toBe(true);
+    expect(res.body.reasons.some((r) => r.code === 'defective')).toBe(false);
+  });
+
+  it('should not restock when reason is other', async () => {
+    const auth = getAuthHeader(managerWithStore.manager);
+    const beforeStock = Number(product.stock_qty);
+
+    const res = await request(app)
+      .post('/api/returns')
+      .set(auth)
+      .send({
+        invoice_id: String(invoice._id),
+        reason_code: 'other',
+        reason: 'Hang hu hong',
+        items: [{ product_id: String(product._id), quantity: 2 }],
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.salesReturn.items[0].disposition).toBe('scrap');
+    const updatedProduct = await Product.findById(product._id).lean();
+    expect(Number(updatedProduct.stock_qty)).toBe(beforeStock);
+  });
+
+  it('should require note when reason is other', async () => {
+    const auth = getAuthHeader(managerWithStore.manager);
+    const res = await request(app)
+      .post('/api/returns')
+      .set(auth)
+      .send({
+        invoice_id: String(invoice._id),
+        reason_code: 'other',
+        items: [{ product_id: String(product._id), quantity: 1 }],
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toContain('ghi chú');
   });
 
   it('should reject invalid reason_code', async () => {

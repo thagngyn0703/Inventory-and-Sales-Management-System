@@ -10,7 +10,9 @@ function parseResponse(res, defaultMessage) {
     .catch(() => ({}))
     .then((data) => {
       if (!res.ok) {
-        throw new Error(data.message || defaultMessage);
+        const err = new Error(data.message || defaultMessage);
+        err.code = data.code || data.error_code || null;
+        throw err;
       }
       return data;
     });

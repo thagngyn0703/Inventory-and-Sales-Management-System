@@ -48,6 +48,18 @@ function getInvoiceStatusView(inv) {
   return inv?.status || 'confirmed';
 }
 
+/** Trạng thái hiển thị cho một dòng phiếu trả trên lịch sử. */
+function getReturnRowStatus(rt) {
+  const inv = rt?.invoice_id && typeof rt.invoice_id === 'object' ? rt.invoice_id : null;
+  const originTotal = Number(inv?.total_amount || 0);
+  const thisReturnTotal = Number(rt?.total_amount || 0);
+  const returnedTotal = Number(inv?.returned_total_amount || 0);
+  if (inv?.status === 'cancelled') return 'returned_full';
+  if (originTotal > 0 && thisReturnTotal >= originTotal) return 'returned_full';
+  if (originTotal > 0 && returnedTotal >= originTotal) return 'returned_full';
+  return 'returned_partial';
+}
+
 export default function SalesInvoicesList({ basePathOverride = null, detailPathBuilder = null }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -123,21 +135,23 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
       }));
 
       const returnRows = allReturnsRaw.map((rt) => {
-        const originInvoiceId = String(rt?.invoice_id?._id || '');
-        const originInvoice = invoiceMap.get(originInvoiceId);
-        const returnedTotal = Number(originInvoice?.returned_total_amount || 0);
-        const originTotal = Number(originInvoice?.total_amount || 0);
-        const returnStatus = originTotal > 0 && returnedTotal >= originTotal ? 'returned_full' : 'returned_partial';
+        const originInvoiceId = String(rt?.invoice_id?._id || rt?.invoice_id || '');
+        const originInvoice =
+          (rt?.invoice_id && typeof rt.invoice_id === 'object' ? rt.invoice_id : null) ||
+          invoiceMap.get(originInvoiceId) ||
+          null;
         return {
           type: 'return',
           _id: `return-${rt._id}`,
           createdAt: rt.return_at || rt.created_at,
           code: getInvoiceDisplayCode(originInvoice || rt.invoice_id),
-          customerName: rt.invoice_id?.recipient_name || originInvoice?.recipient_name || '—',
+          customerName: originInvoice?.recipient_name || rt.invoice_id?.recipient_name || '—',
           sellerName: rt.created_by?.fullName || rt.created_by?.email || '—',
-          status: returnStatus,
+          status: getReturnRowStatus(rt),
           rawStatus: 'return',
-          paymentMethod: originInvoice?.payment_method ? (PAYMENT_LABEL[originInvoice.payment_method] || originInvoice.payment_method) : '—',
+          paymentMethod: originInvoice?.payment_method
+            ? PAYMENT_LABEL[originInvoice.payment_method] || originInvoice.payment_method
+            : '',
           amount: Number(rt.total_amount || 0),
           rawShiftKey:
             String(originInvoice?.register_label_snapshot || '').trim() ||
@@ -415,7 +429,7 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
           ) : (
             <>
               <div className="overflow-x-auto rounded-xl border border-slate-200/80">
-                <table className="w-full min-w-[860px] text-sm text-slate-700">
+                <table className={cn('w-full text-sm text-slate-700', isReturnsPage ? 'min-w-[760px]' : 'min-w-[860px]')}>
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50/90 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                       <th className="px-4 py-3">Ngày tạo</th>
@@ -424,7 +438,7 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
                       <th className="px-4 py-3">Khách hàng</th>
                       {isReturnsPage ? <th className="px-4 py-3">Nhân viên</th> : null}
                       <th className="px-4 py-3">Trạng thái</th>
-                      <th className="px-4 py-3">Thanh toán</th>
+                      {!isReturnsPage ? <th className="px-4 py-3">Thanh toán</th> : null}
                       <th className="px-4 py-3 text-right">Tổng tiền</th>
                       <th className="w-24 px-4 py-3 text-right" />
                     </tr>
@@ -458,9 +472,11 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
                             {STATUS_LABEL[statusView] ?? statusView}
                           </Badge>
                         </td>
-                        <td className="px-4 py-3.5 text-slate-600">
-                          {inv.paymentMethod || '—'}
-                        </td>
+                        {!isReturnsPage ? (
+                          <td className="px-4 py-3.5 text-slate-600">
+                            {inv.paymentMethod || '—'}
+                          </td>
+                        ) : null}
                         <td className={cn(
                           'px-4 py-3.5 text-right font-semibold tabular-nums',
                           inv.type === 'return' ? 'text-red-600' : 'text-slate-900'

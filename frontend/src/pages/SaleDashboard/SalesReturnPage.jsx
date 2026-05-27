@@ -111,15 +111,14 @@ export default function SalesReturnPage({ backPathOverride = null }) {
   const normalizedReasonOptions = useMemo(
     () =>
       reasonOptions.length > 0
-        ? reasonOptions.filter((r) => r.code !== 'wrong_item')
+        ? reasonOptions.filter((r) => r.code === 'customer_changed_mind' || r.code === 'other')
         : [
-            { code: 'customer_changed_mind', label: 'Khách đổi ý' },
-            { code: 'defective', label: 'Lỗi nhà sản xuất' },
-            { code: 'expired', label: 'Hết hạn sử dụng' },
-            { code: 'other', label: 'Lý do khác' },
+            { code: 'customer_changed_mind', label: 'Khách đổi ý', restocks: true },
+            { code: 'other', label: 'Lý do khác', restocks: false },
           ],
     [reasonOptions]
   );
+  const isOtherReason = reasonCode === 'other';
   const selectedReasonLabel =
     normalizedReasonOptions.find((r) => r.code === reasonCode)?.label || 'Chọn lý do';
 
@@ -184,6 +183,11 @@ export default function SalesReturnPage({ backPathOverride = null }) {
       setSubmitError('Vui lòng chọn ít nhất 1 sản phẩm để trả.');
       return;
     }
+    if (isOtherReason && !reasonNote.trim()) {
+      setSubmitError('Vui lòng nhập ghi chú chi tiết (VD: đồ hỏng, hết hạn...).');
+      toast('Vui lòng nhập ghi chú khi chọn lý do khác.', 'error');
+      return;
+    }
     setSubmitting(true);
     setSubmitError('');
     try {
@@ -198,8 +202,8 @@ export default function SalesReturnPage({ backPathOverride = null }) {
       const { message } = await createReturn({
         invoice_id: invoice._id,
         items,
-        reason_code: reasonCode || 'other',
-        reason: reasonNote || 'Khách trả hàng',
+        reason_code: reasonCode || 'customer_changed_mind',
+        reason: isOtherReason ? reasonNote.trim() : (reasonNote.trim() || 'Khách đổi ý'),
       });
       toast(
         message ||
@@ -212,8 +216,12 @@ export default function SalesReturnPage({ backPathOverride = null }) {
       setReasonCode('customer_changed_mind');
       setReasonNote('');
     } catch (e) {
-      setSubmitError(e.message || 'Lỗi khi thực hiện trả hàng');
-      toast(e.message || 'Lỗi khi thực hiện trả hàng', 'error');
+      const msg =
+        e?.code === 'SHIFT_REQUIRED'
+          ? 'Vui lòng mở ca trước khi thực hiện trả hàng.'
+          : e.message || 'Lỗi khi thực hiện trả hàng';
+      setSubmitError(msg);
+      toast(msg, 'error');
     } finally {
       setSubmitting(false);
     }
@@ -381,6 +389,7 @@ export default function SalesReturnPage({ backPathOverride = null }) {
                         type="button"
                         onClick={() => {
                           setReasonCode(r.code);
+                          if (r.code !== 'other') setReasonNote('');
                           setReasonDropdownOpen(false);
                         }}
                         className={`flex w-full items-center rounded-lg px-3 py-2 text-sm transition ${
@@ -395,19 +404,30 @@ export default function SalesReturnPage({ backPathOverride = null }) {
                   </div>
                 )}
               </div>
+              {reasonCode === 'customer_changed_mind' ? (
+                <p className="mt-2 text-xs text-emerald-700">
+                  Sản phẩm trả sẽ được cộng lại vào tồn kho.
+                </p>
+              ) : (
+                <p className="mt-2 text-xs text-amber-700">
+                  Hàng lỗi/hết hạn sẽ không được cộng lại tồn kho.
+                </p>
+              )}
             </div>
-            <div>
-              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Ghi chú chi tiết (tuỳ chọn)
-              </label>
-              <textarea
-                placeholder="Ví dụ: Lỗi ở khóa kéo, khách yêu cầu đổi size..."
-                value={reasonNote}
-                onChange={e => setReasonNote(e.target.value)}
-                rows={3}
-                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none ring-sky-200 focus:ring-2"
-              />
-            </div>
+            {isOtherReason ? (
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Ghi chú chi tiết <span className="text-rose-500">*</span>
+                </label>
+                <textarea
+                  placeholder="VD: Đồ hỏng, hết hạn sử dụng, vỡ bao bì..."
+                  value={reasonNote}
+                  onChange={e => setReasonNote(e.target.value)}
+                  rows={3}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none ring-sky-200 focus:ring-2"
+                />
+              </div>
+            ) : null}
           </div>
           <InlineNotice message={submitError} type="error" className="mt-3" />
           <div className="mt-2 flex justify-end gap-2">
