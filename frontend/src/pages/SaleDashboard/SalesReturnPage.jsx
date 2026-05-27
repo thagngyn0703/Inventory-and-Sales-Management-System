@@ -2,6 +2,7 @@ import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom';
 import { getInvoice } from '../../services/invoicesApi';
 import { createReturn, getReturnReasons } from '../../services/returnsApi';
+import { getCurrentShift } from '../../services/shiftsApi';
 import { useToast } from '../../contexts/ToastContext';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { Button } from '../../components/ui/button';
@@ -25,6 +26,7 @@ export default function SalesReturnPage({ backPathOverride = null }) {
   const location = useLocation();
   const { toast } = useToast();
   const backPath = backPathOverride || (location.pathname.startsWith('/manager') ? '/manager/returns' : '/staff/invoices');
+  const isStaffPath = location.pathname.startsWith('/staff');
 
   // Step 1: search invoice
   const [invoiceInput, setInvoiceInput] = useState('');
@@ -43,6 +45,51 @@ export default function SalesReturnPage({ backPathOverride = null }) {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const reasonDropdownRef = useRef(null);
+
+  // Shift guard: staff must open shift before doing returns
+  const [currentShift, setCurrentShift] = useState(null);
+  const [shiftLoading, setShiftLoading] = useState(false);
+  const [shiftError, setShiftError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!isStaffPath) {
+      setCurrentShift(null);
+      setShiftLoading(false);
+      setShiftError('');
+      return () => {
+        cancelled = true;
+      };
+    }
+    (async () => {
+      try {
+        setShiftLoading(true);
+        setShiftError('');
+        const shift = await getCurrentShift();
+        if (!cancelled) {
+          setCurrentShift(shift);
+          if (!shift) {
+            setShiftError('Bạn cần mở ca bán hàng trước khi thực hiện trả hàng.');
+          }
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setCurrentShift(null);
+          setShiftError(e.message || 'Không thể kiểm tra trạng thái ca làm việc.');
+        }
+      } finally {
+        if (!cancelled) {
+          setShiftLoading(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isStaffPath]);
+
+  const shiftRequired = isStaffPath;
+  const shiftMissing = shiftRequired && !shiftLoading && !currentShift;
 
   useEffect(() => {
     getReturnReasons()
@@ -77,6 +124,11 @@ export default function SalesReturnPage({ backPathOverride = null }) {
     normalizedReasonOptions.find((r) => r.code === reasonCode)?.label || 'Chọn lý do';
 
   const handleLoadInvoice = useCallback(async () => {
+    if (shiftMissing) {
+      setInvoiceError('Vui lòng mở ca trước khi tìm và trả hàng.');
+      toast('Vui lòng mở ca trước khi tìm và trả hàng.', 'error');
+      return;
+    }
     const id = invoiceInput.trim();
     if (!id) return;
     setLoadingInvoice(true);
@@ -103,7 +155,7 @@ export default function SalesReturnPage({ backPathOverride = null }) {
     } finally {
       setLoadingInvoice(false);
     }
-  }, [invoiceInput]);
+  }, [invoiceInput, shiftMissing, toast]);
 
   const updateQty = (pid, val, max) => {
     const num = Math.max(0, Math.min(max, Number(val) || 0));
@@ -123,6 +175,11 @@ export default function SalesReturnPage({ backPathOverride = null }) {
   }, 0);
 
   const handleSubmit = async () => {
+    if (shiftMissing) {
+      setSubmitError('Vui lòng mở ca trước khi xác nhận trả hàng.');
+      toast('Vui lòng mở ca trước khi xác nhận trả hàng.', 'error');
+      return;
+    }
     if (selectedItems.length === 0) {
       setSubmitError('Vui lòng chọn ít nhất 1 sản phẩm để trả.');
       return;
@@ -177,6 +234,20 @@ export default function SalesReturnPage({ backPathOverride = null }) {
       }
       className="max-w-4xl"
     >
+      {shiftRequired && (
+        <InlineNotice
+          message={
+            shiftLoading
+              ? 'Đang kiểm tra trạng thái ca làm việc...'
+              : shiftMissing
+                ? shiftError || 'Bạn cần mở ca bán hàng trước khi thực hiện trả hàng.'
+                : ''
+          }
+          type={shiftMissing ? 'warning' : 'info'}
+          className="mb-3"
+        />
+      )}
+
       <Card className="border-slate-200/80 shadow-sm">
         <CardContent className="space-y-4 p-5 sm:p-6">
         <h3 className="m-0 text-sm font-semibold text-slate-700">
@@ -190,13 +261,14 @@ export default function SalesReturnPage({ backPathOverride = null }) {
             placeholder="Nhập mã hóa đơn (VD: HD260526-ABC123)..."
             value={invoiceInput}
             onChange={e => setInvoiceInput(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handleLoadInvoice()}
+            onKeyDown={e => !shiftMissing && e.key === 'Enter' && handleLoadInvoice()}
+            disabled={shiftMissing}
           />
           <Button
             type="button"
             className="h-11 min-w-[120px]"
             onClick={handleLoadInvoice}
-            disabled={loadingInvoice}
+            disabled={loadingInvoice || shiftMissing}
           >
             {loadingInvoice ? 'Đang tải...' : 'Tải hóa đơn'}
           </Button>
@@ -343,13 +415,14 @@ export default function SalesReturnPage({ backPathOverride = null }) {
               type="button"
               variant="outline"
               onClick={() => { setInvoice(null); setInvoiceInput(''); setReturnQty({}); setReasonCode('customer_changed_mind'); setReasonNote(''); }}
+              disabled={shiftMissing}
             >
               Hủy
             </Button>
             <Button
               type="button"
               onClick={handleSubmit}
-              disabled={submitting || selectedItems.length === 0}
+              disabled={submitting || selectedItems.length === 0 || shiftMissing}
               className="gap-2 bg-rose-600 hover:bg-rose-700"
             >
               <i className="fa-solid fa-rotate-left" />
