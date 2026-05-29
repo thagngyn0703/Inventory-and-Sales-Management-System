@@ -11,6 +11,7 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 const { recalculatePayable, refreshSupplierPayableCache } = require('../utils/supplierPayableUtils');
 const { upsertSystemCashFlow } = require('../utils/cashflowUtils');
 const { logAudit } = require('../utils/audit');
+const { syncSupplierPayableDueNotificationsFromRequest } = require('../services/supplierPayableDueNotificationService');
 
 const router = express.Router();
 
@@ -34,6 +35,7 @@ function round2(v) {
 // Query: supplier_id, status, page, limit
 router.get('/', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
     try {
+        await syncSupplierPayableDueNotificationsFromRequest(req);
         const { supplier_id, status, page = '1', limit = '20', created_from, created_to } = req.query;
         const pageNum = Math.max(1, parseInt(page, 10) || 1);
         const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));

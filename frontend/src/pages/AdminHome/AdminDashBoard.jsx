@@ -154,6 +154,15 @@ export default function AdminDashboard() {
                                 <span>Phiếu hỗ trợ</span>
                                 <small>Theo dõi yêu cầu từ quản lý cửa hàng theo trạng thái</small>
                             </button>
+                            <button
+                                type="button"
+                                className="admin-dash-quick__btn"
+                                onClick={() => navigate("/admin/categories")}
+                            >
+                                <i className="fa-solid fa-folder-tree" />
+                                <span>Danh mục sản phẩm</span>
+                                <small>Thêm, sửa, xóa danh mục và cấu hình thuế áp dụng</small>
+                            </button>
                         </div>
                     </div>
 

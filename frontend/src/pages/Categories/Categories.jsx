@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
+import AdminPageFrame from '../../components/admin/AdminPageFrame';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { FolderTree, Search } from 'lucide-react';
 import './Categories.css';
@@ -92,7 +93,11 @@ function getEffectiveProfile(cat) {
     return 'NO_VAT';
 }
 
-const Categories = () => {
+const Categories = ({ readOnly = false, variant = 'manager' }) => {
+    const canManage = !readOnly && variant === 'admin';
+    const isAdminVariant = variant === 'admin';
+    const PageFrame = isAdminVariant ? AdminPageFrame : ManagerPageFrame;
+    const categoriesListUrl = `${API_BASE}/categories`;
     // ========== STATE MANAGEMENT ==========
     // Danh sách categories từ API
     const [categories, setCategories] = useState([]);
@@ -145,7 +150,7 @@ const Categories = () => {
             setLoading(true);
             setError('');
             try {
-                const res = await fetch(`${API_BASE}/categories`, {
+                const res = await fetch(categoriesListUrl, {
                     headers: { Authorization: 'Bearer ' + token },
                 });
                 const data = await res.json();
@@ -158,7 +163,7 @@ const Categories = () => {
             setLoading(false);
         };
         fetchCategories();
-    }, [token]);
+    }, [token, categoriesListUrl, toast]);
 
     // ========== UTILITY FUNCTIONS ==========
     /**
@@ -169,7 +174,7 @@ const Categories = () => {
         setLoading(true);
         setError('');
         try {
-            const res = await fetch(`${API_BASE}/categories`, {
+            const res = await fetch(categoriesListUrl, {
                 headers: { Authorization: 'Bearer ' + token },
             });
             const data = await res.json();
@@ -596,47 +601,56 @@ const Categories = () => {
         cat.name.toLowerCase().includes(search.toLowerCase())
     );
 
+    const searchBar = (
+        <form onSubmit={handleSearchSubmit} className="relative w-full min-w-0 max-w-xl">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+                type="search"
+                className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm text-slate-900 outline-none ring-teal-200/80 transition focus:ring-2"
+                placeholder="Tìm danh mục..."
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+            />
+        </form>
+    );
+
     return (
-        <ManagerPageFrame
-            showNotificationBell
-            topBarLeft={
-                <form onSubmit={handleSearchSubmit} className="relative w-full min-w-0 max-w-xl">
-                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                    <input
-                        type="search"
-                        className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm text-slate-900 outline-none ring-teal-200/80 transition focus:ring-2"
-                        placeholder="Tìm danh mục..."
-                        value={searchInput}
-                        onChange={(e) => setSearchInput(e.target.value)}
-                    />
-                </form>
-            }
+        <PageFrame
+            {...(isAdminVariant
+                ? { topBarLeft: searchBar }
+                : { showNotificationBell: true, topBarLeft: searchBar })}
         >
             <StaffPageShell
-                eyebrow="Quản lý cửa hàng"
+                eyebrow={isAdminVariant ? 'Quản trị hệ thống' : 'Quản lý cửa hàng'}
                 eyebrowIcon={FolderTree}
-                title="Danh mục sản phẩm"
-                subtitle="Tạo, sửa và bật/tắt danh mục dùng cho sản phẩm."
+                title="Danh mục"
+                subtitle={
+                    canManage
+                        ? 'Thêm, sửa và cấu hình thuế cho danh mục dùng trên toàn hệ thống.'
+                        : 'Xem danh sách danh mục và thuế áp dụng. Chỉ Admin mới được thêm, sửa hoặc xóa.'
+                }
                 headerActions={
-                    <div className="flex items-center gap-2">
-                        <button
-                            type="button"
-                            className="manager-btn-primary"
-                            onClick={applyTaxPresetAndSyncProducts}
-                            disabled={loading || syncingTaxSetup}
-                            title="Áp mẫu thuế VN 2026 và đồng bộ thuế cho sản phẩm hiện có"
-                        >
-                            <i className="fa-solid fa-wand-magic-sparkles" /> {syncingTaxSetup ? 'Đang đồng bộ thuế...' : 'Áp mẫu thuế'}
-                        </button>
-                        <button
-                            type="button"
-                            className="manager-btn-primary"
-                            onClick={() => setShowCreateModal(true)}
-                            disabled={loading}
-                        >
-                            <i className="fa-solid fa-plus" /> Thêm danh mục
-                        </button>
-                    </div>
+                    canManage ? (
+                        <div className="flex items-center gap-2">
+                            <button
+                                type="button"
+                                className="manager-btn-primary"
+                                onClick={applyTaxPresetAndSyncProducts}
+                                disabled={loading || syncingTaxSetup}
+                                title="Áp mẫu thuế VN 2026 và đồng bộ thuế cho sản phẩm hiện có"
+                            >
+                                <i className="fa-solid fa-wand-magic-sparkles" /> {syncingTaxSetup ? 'Đang đồng bộ thuế...' : 'Áp mẫu thuế'}
+                            </button>
+                            <button
+                                type="button"
+                                className="manager-btn-primary"
+                                onClick={() => setShowCreateModal(true)}
+                                disabled={loading}
+                            >
+                                <i className="fa-solid fa-plus" /> Thêm danh mục
+                            </button>
+                        </div>
+                    ) : null
                 }
             >
                     <div className="manager-panel-card manager-products-card rounded-2xl border border-slate-200/80 shadow-sm">
@@ -652,13 +666,13 @@ const Categories = () => {
                                             <th>VAT (%)</th>
                                             <th>TRẠNG THÁI</th>
                                             <th>NGÀY TẠO</th>
-                                            <th>THAO TÁC</th>
+                                            {canManage ? <th>THAO TÁC</th> : null}
                                         </tr>
                                     </thead>
                                     <tbody>
                                         {filteredCategories.length === 0 ? (
                                             <tr>
-                                                <td colSpan={6} className="manager-products-empty">
+                                                <td colSpan={canManage ? 6 : 5} className="manager-products-empty">
                                                     {search ? 'Không có danh mục nào phù hợp.' : 'Chưa có danh mục.'}
                                                 </td>
                                             </tr>
@@ -673,36 +687,47 @@ const Categories = () => {
                                                             : `${Number(cat.vat_rate)}%`}
                                                     </td>
                                                     <td>
-                                                        <button
-                                                            className={`manager-products-status manager-products-status--${cat.is_active ? 'active' : 'inactive'}`}
-                                                            onClick={() => toggleActive(cat._id, cat.is_active)}
-                                                        >
-                                                            {cat.is_active ? 'Hoạt động' : 'Dừng hoạt động'}
-                                                        </button>
+                                                        {canManage ? (
+                                                            <button
+                                                                type="button"
+                                                                className={`manager-products-status manager-products-status--${cat.is_active ? 'active' : 'inactive'}`}
+                                                                onClick={() => toggleActive(cat._id, cat.is_active)}
+                                                            >
+                                                                {cat.is_active ? 'Hoạt động' : 'Dừng hoạt động'}
+                                                            </button>
+                                                        ) : (
+                                                            <span
+                                                                className={`manager-products-status manager-products-status--${cat.is_active ? 'active' : 'inactive'}`}
+                                                            >
+                                                                {cat.is_active ? 'Hoạt động' : 'Dừng hoạt động'}
+                                                            </span>
+                                                        )}
                                                     </td>
                                                     <td>{new Date(cat.created_at).toLocaleDateString('vi-VN')}</td>
-                                                    <td>
-                                                        <div className="flex items-center gap-2">
-                                                            <button
-                                                                type="button"
-                                                                className="manager-action-btn"
-                                                                onClick={() => startEdit(cat)}
-                                                                aria-label="Sửa"
-                                                                title="Sửa danh mục"
-                                                            >
-                                                                ✏️
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                className="manager-action-btn"
-                                                                onClick={() => deleteCategory(cat)}
-                                                                aria-label="Xóa"
-                                                                title="Xóa danh mục"
-                                                            >
-                                                                🗑️
-                                                            </button>
-                                                        </div>
-                                                    </td>
+                                                    {canManage ? (
+                                                        <td>
+                                                            <div className="flex items-center gap-2">
+                                                                <button
+                                                                    type="button"
+                                                                    className="manager-action-btn"
+                                                                    onClick={() => startEdit(cat)}
+                                                                    aria-label="Sửa"
+                                                                    title="Sửa danh mục"
+                                                                >
+                                                                    ✏️
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    className="manager-action-btn"
+                                                                    onClick={() => deleteCategory(cat)}
+                                                                    aria-label="Xóa"
+                                                                    title="Xóa danh mục"
+                                                                >
+                                                                    🗑️
+                                                                </button>
+                                                            </div>
+                                                        </td>
+                                                    ) : null}
                                                 </tr>
                                             ))
                                         )}
@@ -713,7 +738,7 @@ const Categories = () => {
                     </div>
             </StaffPageShell>
 
-            {showCreateModal && (
+            {canManage && showCreateModal && (
                 <div className="modal-overlay" data-testid="create-modal-overlay" onClick={() => setShowCreateModal(false)}>
                     <div className="modal-content" data-testid="create-modal-content" onClick={(e) => e.stopPropagation()}>
                         <h2>Tạo danh mục mới</h2>
@@ -781,7 +806,7 @@ const Categories = () => {
                 </div>
             )}
 
-            {showEditModal && (
+            {canManage && showEditModal && (
                 <div className="modal-overlay" data-testid="edit-modal-overlay" onClick={cancelEdit}>
                     <div className="modal-content" data-testid="edit-modal-content" onClick={(e) => e.stopPropagation()}>
                         <h2>Chỉnh sửa danh mục</h2>
@@ -835,7 +860,7 @@ const Categories = () => {
                     </div>
                 </div>
             )}
-        </ManagerPageFrame>
+        </PageFrame>
     );
 };
 

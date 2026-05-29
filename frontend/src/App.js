@@ -77,6 +77,7 @@ import ManagerShiftSessionsPage from "./pages/ManagerDashboard/ManagerShiftSessi
 import ManagerTaxReport from "./pages/ManagerDashboard/ManagerTaxReport";
 import AdminSupportTickets from "./pages/AdminHome/AdminSupportTickets";
 import AdminSupportTicketDetail from "./pages/AdminHome/AdminSupportTicketDetail";
+import AdminCategoriesManage from "./pages/AdminHome/AdminCategoriesManage";
 import RequireManagerStore from "./components/RequireManagerStore";
 import RequireStaffStore from "./components/RequireStaffStore";
 import useMobileTableCards from './hooks/useMobileTableCards';
@@ -110,6 +111,7 @@ function App() {
       <Route path="/admin/users" element={<RequireAuth><RequireRole allowedRoles={["admin"]}><AdminUserList /></RequireRole></RequireAuth>} />
       <Route path="/admin/support" element={<RequireAuth><RequireRole allowedRoles={["admin"]}><AdminSupportTickets /></RequireRole></RequireAuth>} />
       <Route path="/admin/support/:id" element={<RequireAuth><RequireRole allowedRoles={["admin"]}><AdminSupportTicketDetail /></RequireRole></RequireAuth>} />
+      <Route path="/admin/categories" element={<RequireAuth><RequireRole allowedRoles={["admin"]}><AdminCategoriesManage /></RequireRole></RequireAuth>} />
       <Route
         path="/manager/store/register"
         element={
@@ -163,7 +165,7 @@ function App() {
             <RequireRole allowedRoles={["manager", "staff"]}>
               <RequireManagerStore>
                 <RequireStaffStore>
-                  <Categories />
+                  <Categories readOnly />
                 </RequireStaffStore>
               </RequireManagerStore>
             </RequireRole>
