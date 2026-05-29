@@ -2,7 +2,7 @@ const request = require('supertest');
 const express = require('express');
 const categoryRoutes = require('../../routes/categories');
 const Category = require('../../models/Category');
-const { createManagerUser, createStaffUser, createManagerWithStore, getAuthHeader } = require('../fixtures/users');
+const { createAdminUser, createStaffUser, createManagerWithStore, getAuthHeader } = require('../fixtures/users');
 
 const app = express();
 app.use(express.json());
@@ -11,6 +11,7 @@ app.use('/api/categories', categoryRoutes);
 describe('Category Routes', () => {
   let managerWithStore;
   let staffWithStore;
+  let adminUser;
 
   beforeEach(async () => {
     await Category.deleteMany({});
@@ -18,6 +19,7 @@ describe('Category Routes', () => {
     managerWithStore = managerResult;
     const store = managerResult.store;
     staffWithStore = await createStaffUser({ storeId: store._id });
+    adminUser = await createAdminUser();
   });
 
   // ==================== UC-12: View Category List ====================
@@ -68,7 +70,7 @@ describe('Category Routes', () => {
     it('TC11-01: should create category with valid data', async () => {
       const res = await request(app)
         .post('/api/categories')
-        .set(getAuthHeader(managerWithStore.manager))
+        .set(getAuthHeader(adminUser))
         .send({ name: 'New Category' });
 
       expect(res.status).toBe(201);
@@ -79,7 +81,7 @@ describe('Category Routes', () => {
     it('TC11-02: should return 400 if name is empty', async () => {
       const res = await request(app)
         .post('/api/categories')
-        .set(getAuthHeader(managerWithStore.manager))
+        .set(getAuthHeader(adminUser))
         .send({ name: '' });
 
       expect(res.status).toBe(400);
@@ -89,7 +91,7 @@ describe('Category Routes', () => {
     it('TC11-03: should return 400 if name is missing', async () => {
       const res = await request(app)
         .post('/api/categories')
-        .set(getAuthHeader(managerWithStore.manager))
+        .set(getAuthHeader(adminUser))
         .send({});
 
       expect(res.status).toBe(400);
@@ -100,7 +102,7 @@ describe('Category Routes', () => {
 
       const res = await request(app)
         .post('/api/categories')
-        .set(getAuthHeader(managerWithStore.manager))
+        .set(getAuthHeader(adminUser))
         .send({ name: 'Electronics' });
 
       expect(res.status).toBe(400);
@@ -112,7 +114,7 @@ describe('Category Routes', () => {
 
       const res = await request(app)
         .post('/api/categories')
-        .set(getAuthHeader(managerWithStore.manager))
+        .set(getAuthHeader(adminUser))
         .send({ name: 'ELECTRONICS' });
 
       expect(res.status).toBe(400);
@@ -129,7 +131,7 @@ describe('Category Routes', () => {
     it('TC11-07: should trim whitespace from name', async () => {
       const res = await request(app)
         .post('/api/categories')
-        .set(getAuthHeader(managerWithStore.manager))
+        .set(getAuthHeader(adminUser))
         .send({ name: '  Trimmed Name  ' });
 
       expect(res.status).toBe(201);
@@ -144,7 +146,7 @@ describe('Category Routes', () => {
 
       const res = await request(app)
         .put(`/api/categories/${cat._id}`)
-        .set(getAuthHeader(managerWithStore.manager))
+        .set(getAuthHeader(adminUser))
         .send({ name: 'New Name' });
 
       expect(res.status).toBe(200);
@@ -156,7 +158,7 @@ describe('Category Routes', () => {
 
       const res = await request(app)
         .put(`/api/categories/${fakeId}`)
-        .set(getAuthHeader(managerWithStore.manager))
+        .set(getAuthHeader(adminUser))
         .send({ name: 'New Name' });
 
       expect(res.status).toBe(404);
@@ -168,7 +170,7 @@ describe('Category Routes', () => {
 
       const res = await request(app)
         .put(`/api/categories/${cat._id}`)
-        .set(getAuthHeader(managerWithStore.manager))
+        .set(getAuthHeader(adminUser))
         .send({ name: '' });
 
       expect(res.status).toBe(400);
@@ -180,7 +182,7 @@ describe('Category Routes', () => {
 
       const res = await request(app)
         .put(`/api/categories/${catB._id}`)
-        .set(getAuthHeader(managerWithStore.manager))
+        .set(getAuthHeader(adminUser))
         .send({ name: 'Category A' });
 
       expect(res.status).toBe(400);
@@ -190,7 +192,7 @@ describe('Category Routes', () => {
     it('TC13-05: should return 500 for invalid id format (route bug - returns 500 instead of 400)', async () => {
       const res = await request(app)
         .put('/api/categories/invalid-id')
-        .set(getAuthHeader(managerWithStore.manager))
+        .set(getAuthHeader(adminUser))
         .send({ name: 'New Name' });
 
       // Route has bug: throws 500 instead of 400 for invalid ObjectId
@@ -205,7 +207,7 @@ describe('Category Routes', () => {
 
       const res = await request(app)
         .patch(`/api/categories/${cat._id}/activate`)
-        .set(getAuthHeader(managerWithStore.manager))
+        .set(getAuthHeader(adminUser))
         .send({ is_active: false });
 
       expect(res.status).toBe(200);
@@ -217,7 +219,7 @@ describe('Category Routes', () => {
 
       const res = await request(app)
         .patch(`/api/categories/${cat._id}/activate`)
-        .set(getAuthHeader(managerWithStore.manager))
+        .set(getAuthHeader(adminUser))
         .send({ is_active: true });
 
       expect(res.status).toBe(200);
@@ -229,7 +231,7 @@ describe('Category Routes', () => {
 
       const res = await request(app)
         .patch(`/api/categories/${cat._id}/activate`)
-        .set(getAuthHeader(managerWithStore.manager))
+        .set(getAuthHeader(adminUser))
         .send({});
 
       expect(res.status).toBe(200);
@@ -241,7 +243,7 @@ describe('Category Routes', () => {
 
       const res = await request(app)
         .patch(`/api/categories/${fakeId}/activate`)
-        .set(getAuthHeader(managerWithStore.manager))
+        .set(getAuthHeader(adminUser))
         .send({ is_active: false });
 
       expect(res.status).toBe(404);
@@ -252,7 +254,7 @@ describe('Category Routes', () => {
 
       const res = await request(app)
         .patch(`/api/categories/${cat._id}/activate`)
-        .set(getAuthHeader(managerWithStore.manager))
+        .set(getAuthHeader(adminUser))
         .send({ is_active: false });
 
       expect(res.status).toBe(200);
@@ -266,8 +268,25 @@ describe('Category Routes', () => {
         .get('/api/categories')
         .set(getAuthHeader(staffWithStore));
 
-      // Staff is allowed in requireManagerOrWarehouse
       expect(res.status).toBe(200);
+    });
+
+    it('should forbid manager from creating categories', async () => {
+      const res = await request(app)
+        .post('/api/categories')
+        .set(getAuthHeader(managerWithStore.manager))
+        .send({ name: 'Manager Attempt' });
+
+      expect(res.status).toBe(403);
+    });
+
+    it('should forbid staff from creating categories', async () => {
+      const res = await request(app)
+        .post('/api/categories')
+        .set(getAuthHeader(staffWithStore))
+        .send({ name: 'Staff Attempt' });
+
+      expect(res.status).toBe(403);
     });
 
     it('should return 401 without token', async () => {
