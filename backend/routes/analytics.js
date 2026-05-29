@@ -1351,7 +1351,6 @@ router.get(
             'Mức thuế suất (%)': row.tax_rate,
             'Doanh thu chưa thuế': round2(row.net_amount),
             'VAT đầu ra': round2(row.vat_amount),
-            'Số dòng': row.line_count,
           }));
         const detailRows = rows.map((row) => ({
           'Ngày hóa đơn': row.invoice_at ? new Date(row.invoice_at).toLocaleString('vi-VN') : '',
