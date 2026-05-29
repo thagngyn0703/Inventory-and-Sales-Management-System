@@ -151,21 +151,21 @@ describe('Products Routes', () => {
       expect(res.body.message).toContain('SKU');
     });
 
-    it('PT-04: should return 400 for SKU with special characters', async () => {
+    it('PT-04: should allow SKU with special characters', async () => {
+      const sku = `SKU-001-${Date.now()}`;
       const res = await request(app)
         .post('/api/products')
         .set('Authorization', managerToken)
         .send({
           name: 'Test Product',
-          sku: 'SKU-001',
+          sku,
           cost_price: 10000,
           sale_price: 15000,
           stock_qty: 50,
         });
 
-      expect(res.status).toBe(400);
-      expect(res.body.message).toContain('SKU');
-      expect(res.body.message).toContain('chữ và số');
+      expect(res.status).toBe(201);
+      expect(res.body.product.sku).toBe(sku);
     });
 
     it('PT-05: should return 400 for invalid barcode (letters)', async () => {

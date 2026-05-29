@@ -33,7 +33,6 @@ function normalizeProduct(p) {
 }
 
 const TEXT_NO_SPECIAL_REGEX = /^[\p{L}\p{N}\s]+$/u;
-const SKU_REGEX = /^[\p{L}\p{N},]+$/u;
 const DIGITS_ONLY_REGEX = /^\d+$/;
 
 function trimText(value) {
@@ -147,9 +146,6 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
     }
     if (!trimmedSku) {
       return res.status(400).json({ message: 'sku is required' });
-    }
-    if (!SKU_REGEX.test(trimmedSku)) {
-      return res.status(400).json({ message: 'SKU chỉ được gồm chữ, số và dấu phẩy.' });
     }
     if (trimmedBarcode && !DIGITS_ONLY_REGEX.test(trimmedBarcode)) {
       return res.status(400).json({ message: 'Barcode chỉ được nhập số, không chữ hoặc ký tự đặc biệt.' });

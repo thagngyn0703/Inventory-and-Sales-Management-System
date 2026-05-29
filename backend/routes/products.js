@@ -66,7 +66,6 @@ function parseOptionalDate(value) {
 }
 
 const TEXT_NO_SPECIAL_REGEX = /^[\p{L}\p{N}\s]+$/u;
-const SKU_REGEX = /^[\p{L}\p{N},]+$/u;
 const DIGITS_ONLY_REGEX = /^\d+$/;
 
 function trimText(value) {
@@ -75,10 +74,6 @@ function trimText(value) {
 
 function isValidNoSpecialText(value) {
   return TEXT_NO_SPECIAL_REGEX.test(trimText(value));
-}
-
-function isValidProductName(value) {
-  return isValidNoSpecialText(value);
 }
 
 function parseNonNegativeNumber(value) {
@@ -564,13 +559,7 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
     }
 
     if (!nameTrim) return res.status(400).json({ message: 'Tên sản phẩm không được để trống.' });
-    if (!isValidProductName(nameTrim)) {
-      return res.status(400).json({ message: 'Tên sản phẩm không được chứa ký tự đặc biệt.' });
-    }
     if (!skuTrim) return res.status(400).json({ message: 'SKU không được để trống.' });
-    if (!SKU_REGEX.test(skuTrim)) {
-      return res.status(400).json({ message: 'SKU chỉ được gồm chữ và số.' });
-    }
     if (barcodeTrim && !DIGITS_ONLY_REGEX.test(barcodeTrim)) {
       return res.status(400).json({ message: 'Barcode chỉ được nhập số, không chữ hoặc ký tự đặc biệt.' });
     }
@@ -1619,17 +1608,11 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
     if (name !== undefined) {
       const nameTrim = trimText(name);
       if (!nameTrim) return res.status(400).json({ message: 'Tên sản phẩm không được để trống.' });
-      if (!isValidProductName(nameTrim)) {
-        return res.status(400).json({ message: 'Tên sản phẩm không được chứa ký tự đặc biệt.' });
-      }
       product.name = nameTrim;
     }
     if (sku !== undefined) {
       const skuTrim = trimText(sku);
       if (!skuTrim) return res.status(400).json({ message: 'SKU không được để trống.' });
-      if (!SKU_REGEX.test(skuTrim)) {
-        return res.status(400).json({ message: 'SKU chỉ được gồm chữ và số.' });
-      }
       const skuChanged = originalSku.toLowerCase() !== skuTrim.toLowerCase();
       if (skuChanged) {
         product.sku = skuTrim;

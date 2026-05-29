@@ -82,34 +82,21 @@ describe('Request Validation Tests', () => {
   });
 
   describe('Product Create Validation', () => {
-    it('should return 400 if name contains special characters', async () => {
+    it('should allow product name and SKU with special characters', async () => {
+      const suffix = Date.now();
       const res = await request(app)
         .post('/api/products')
         .set('Authorization', managerToken)
         .send({
           name: 'Product@#$%',
-          sku: 'SKU123',
+          sku: `SKU-123-${suffix}`,
           cost_price: 10000,
           sale_price: 15000,
         });
 
-      expect(res.status).toBe(400);
-      expect(res.body.message).toContain('ký tự đặc biệt');
-    });
-
-    it('should return 400 if SKU contains special characters', async () => {
-      const res = await request(app)
-        .post('/api/products')
-        .set('Authorization', managerToken)
-        .send({
-          name: 'Test Product',
-          sku: 'SKU-123',
-          cost_price: 10000,
-          sale_price: 15000,
-        });
-
-      expect(res.status).toBe(400);
-      expect(res.body.message).toContain('chữ và số');
+      expect(res.status).toBe(201);
+      expect(res.body.product.name).toBe('Product@#$%');
+      expect(res.body.product.sku).toBe(`SKU-123-${suffix}`);
     });
 
     it('should return 400 if barcode contains letters', async () => {
