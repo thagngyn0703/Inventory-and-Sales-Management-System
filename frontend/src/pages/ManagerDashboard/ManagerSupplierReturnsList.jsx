@@ -111,7 +111,7 @@ export default function ManagerSupplierReturnsList() {
                       <th className="px-4 py-3 text-left font-semibold">Ngày</th>
                       <th className="px-4 py-3 text-left font-semibold">Mã phiếu</th>
                       <th className="px-4 py-3 text-left font-semibold">Nhà cung cấp</th>
-                      <th className="px-4 py-3 text-right font-semibold">Giá trị trả</th>
+                      <th className="px-4 py-3 text-right font-semibold">Tiền NCC hoàn</th>
                       <th className="px-4 py-3 text-left font-semibold">Lý do</th>
                     </tr>
                   </thead>
@@ -125,7 +125,7 @@ export default function ManagerSupplierReturnsList() {
                           </Link>
                         </td>
                         <td className="px-4 py-3">{row.supplier_id?.name || '—'}</td>
-                        <td className="px-4 py-3 text-right font-semibold text-rose-700">{fmtMoney(row.total_amount || 0)}</td>
+                        <td className="px-4 py-3 text-right font-semibold text-emerald-700">{fmtMoney(row.total_amount || 0)}</td>
                         <td className="px-4 py-3 text-slate-600">{row.reason || ''}</td>
                       </tr>
                     ))}
