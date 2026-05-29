@@ -224,3 +224,22 @@ export async function updateStoreLegalSettings(payload) {
   return parseJson(res, 'Không thể cập nhật hồ sơ pháp lý cửa hàng');
 }
 
+/** Admin: giá gói thuê SaaS (tháng / năm) — đồng bộ với checkout và GET /subscriptions/plans */
+export async function getAdminSubscriptionPlanPrices() {
+  const token = getToken();
+  const res = await fetch(apiPath('/admin/dashboard/subscription-plan-prices'), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return parseJson(res, 'Không thể tải cấu hình giá gói');
+}
+
+export async function putAdminSubscriptionPlanPrices({ monthly_price_vnd, yearly_price_vnd }) {
+  const token = getToken();
+  const res = await fetch(apiPath('/admin/dashboard/subscription-plan-prices'), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ monthly_price_vnd, yearly_price_vnd }),
+  });
+  return parseJson(res, 'Không thể cập nhật giá gói');
+}
+

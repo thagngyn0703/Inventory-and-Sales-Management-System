@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { CalendarDays, CircleDollarSign, Clock3, Eye, ReceiptText, Search, UserRound, X } from 'lucide-react';
 import { closeShift, getShiftInvoices, getShiftSessions } from '../../services/shiftsApi';
+import { getInvoice } from '../../services/invoicesApi';
+import ManagerInvoiceReadOnlyPreview from './ManagerInvoiceReadOnlyPreview';
 import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
 import { useToast } from '../../contexts/ToastContext';
 
@@ -97,6 +99,12 @@ export default function ManagerShiftSessionsPage() {
     invoices: [],
     totalDebtCreated: 0,
   });
+  const [invoicePreview, setInvoicePreview] = useState({
+    open: false,
+    loading: false,
+    error: '',
+    invoice: null,
+  });
   const [filterError, setFilterError] = useState('');
   const [overrideModal, setOverrideModal] = useState({
     open: false,
@@ -138,13 +146,16 @@ export default function ManagerShiftSessionsPage() {
               : 0;
             return sum + itemProfit;
           }, 0);
+          const totalDebtCreated = scoped
+            .filter((inv) => String(inv?.payment_method || '').toLowerCase() === 'debt')
+            .reduce((sum, inv) => sum + Number(inv?.total_amount || 0), 0);
           return {
             ...shift,
             kpis: {
               invoice_count: scoped.length,
               total_revenue: Math.round(totalRevenue),
               total_profit: Math.round(totalProfit),
-              total_debt_created: 0,
+              total_debt_created: Math.round(totalDebtCreated),
             },
           };
         } catch {
@@ -307,6 +318,27 @@ export default function ManagerShiftSessionsPage() {
     });
   }, []);
 
+  const openInvoicePreview = useCallback(async (rawId) => {
+    const id = rawId != null ? String(rawId).trim() : '';
+    if (!id) return;
+    setInvoicePreview({ open: true, loading: true, error: '', invoice: null });
+    try {
+      const invoice = await getInvoice(id);
+      setInvoicePreview({ open: true, loading: false, error: '', invoice });
+    } catch (e) {
+      setInvoicePreview({
+        open: true,
+        loading: false,
+        error: e.message || 'Không thể tải hóa đơn',
+        invoice: null,
+      });
+    }
+  }, []);
+
+  const closeInvoicePreview = useCallback(() => {
+    setInvoicePreview({ open: false, loading: false, error: '', invoice: null });
+  }, []);
+
   const closeOverrideModal = useCallback(() => {
     setOverrideModal({
       open: false,
@@ -357,6 +389,9 @@ export default function ManagerShiftSessionsPage() {
             </p>
             <p className="mt-1 text-xs text-slate-500">
               Chênh lệch = tiền đóng ca - tiền mở ca - tổng tiền mặt ghi nhận từ hóa đơn trong ca.
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              Dòng nền hồng nhạt: chênh lệch tiền mặt âm (tiền mặt kiểm đếm thấp hơn số kỳ vọng từ hóa đơn).
             </p>
           </div>
           <button
@@ -715,12 +750,13 @@ export default function ManagerShiftSessionsPage() {
                             <td className="px-3 py-3">{inv?.payment_method || '--'}</td>
                             <td className="px-3 py-3 text-right font-semibold tabular-nums text-slate-900">{formatMoney(inv?.total_amount || 0)}</td>
                             <td className="px-3 py-3 text-right">
-                              <a
-                                href={`/manager/invoices/${inv._id}/view`}
+                              <button
+                                type="button"
+                                onClick={() => openInvoicePreview(inv._id)}
                                 className={`${btnSlateClass} md:text-sm`}
                               >
                                 Xem hóa đơn
-                              </a>
+                              </button>
                             </td>
                           </tr>
                         );
@@ -882,15 +918,65 @@ export default function ManagerShiftSessionsPage() {
                           <td className="px-3 py-3">{inv?.seller_name || inv?.created_by?.fullName || inv?.created_by?.email || '--'}</td>
                           <td className="px-3 py-3 text-right font-semibold tabular-nums text-rose-700">{formatMoney(inv?.total_amount || 0)}</td>
                           <td className="px-3 py-3 text-right">
-                            <a href={`/manager/invoices/${inv._id}/view`} className={`${btnSlateClass} md:text-sm`}>
+                            <button
+                              type="button"
+                              onClick={() => openInvoicePreview(inv._id)}
+                              className={`${btnSlateClass} md:text-sm`}
+                            >
                               Xem hóa đơn
-                            </a>
+                            </button>
                           </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {invoicePreview.open && (
+        <div
+          role="presentation"
+          className="fixed inset-0 z-[135] flex items-center justify-center bg-slate-900/50 p-4"
+          onClick={closeInvoicePreview}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="shift-invoice-preview-title"
+            className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-4 py-3 sm:px-5">
+              <div className="min-w-0 pr-2">
+                <div id="shift-invoice-preview-title" className="truncate text-base font-bold text-slate-800">
+                  Chi tiết hóa đơn
+                  {invoicePreview.invoice?.display_code
+                    ? ` · ${invoicePreview.invoice.display_code}`
+                    : ''}
+                </div>
+                <div className="mt-0.5 text-xs text-slate-500">Chỉ xem — đóng để quay lại nhật ký ca</div>
+              </div>
+              <button type="button" onClick={closeInvoicePreview} className={`${btnSlateClass} shrink-0 p-1.5`}>
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
+              {invoicePreview.loading && (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm font-semibold text-slate-500">
+                  Đang tải hóa đơn…
+                </div>
+              )}
+              {!invoicePreview.loading && invoicePreview.error && (
+                <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-4 text-sm font-medium text-rose-800">
+                  {invoicePreview.error}
+                </div>
+              )}
+              {!invoicePreview.loading && !invoicePreview.error && invoicePreview.invoice && (
+                <ManagerInvoiceReadOnlyPreview invoice={invoicePreview.invoice} />
               )}
             </div>
           </div>

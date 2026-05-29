@@ -1,6 +1,4 @@
-const nodeFetch = require('node-fetch');
-const fetch = nodeFetch.default || nodeFetch;
-
+/** Global fetch (Node 18+). Avoids node-fetch v3 ESM vs CommonJS issues. */
 const OFF_API_BASE = process.env.OFF_API_BASE || 'https://world.openfoodfacts.org';
 
 function safeTrim(value) {

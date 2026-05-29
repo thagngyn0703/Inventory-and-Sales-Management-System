@@ -5,7 +5,7 @@ const User = require('../models/User');
 const StoreSubscriptionOrder = require('../models/StoreSubscriptionOrder');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const {
-  SUBSCRIPTION_PLANS,
+  getResolvedSubscriptionPlans,
   addDays,
   addMonths,
   getPlanByCode,
@@ -140,8 +140,14 @@ async function applyPaidSubscription(order, payload) {
   return order;
 }
 
-router.get('/plans', (req, res) => {
-  return res.json({ plans: SUBSCRIPTION_PLANS });
+router.get('/plans', async (req, res) => {
+  try {
+    const plans = await getResolvedSubscriptionPlans();
+    return res.json({ plans });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: err.message || 'Server error' });
+  }
 });
 
 router.get('/my-store', requireAuth, requireRole(['manager', 'staff', 'admin']), async (req, res) => {
@@ -189,7 +195,7 @@ router.post(
       const store = await Store.findById(manager.storeId);
       if (!store) return res.status(404).json({ message: 'Không tìm thấy cửa hàng' });
 
-      const plan = getPlanByCode(req.body?.plan_code);
+      const plan = await getPlanByCode(req.body?.plan_code);
       if (!plan) {
         return res.status(400).json({ message: 'Gói dịch vụ không hợp lệ' });
       }

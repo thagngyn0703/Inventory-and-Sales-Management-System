@@ -47,7 +47,7 @@ export async function getInvoices({
 
 export async function getInvoice(id) {
   const token = getToken();
-  const res = await fetch(`${API_BASE}/invoices/${id}`, {
+  const res = await fetch(`${API_BASE}/invoices/${encodeURIComponent(String(id || '').trim())}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   const data = await parseResponse(res, 'Không thể tải hóa đơn');

@@ -10,6 +10,8 @@ import { InlineNotice } from '../../components/ui/inline-notice';
 import { FileText, Loader2, Receipt, Search, X } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { getCurrentUser, normalizeRole } from '../../utils/auth';
+import { getInvoiceDisplayCode } from '../../utils/invoiceDisplayCode';
+import { shouldShowOnRetailHistory } from '../../utils/invoiceListFilters';
 
 const LIMIT = 10;
 
@@ -46,6 +48,18 @@ function getInvoiceStatusView(inv) {
   return inv?.status || 'confirmed';
 }
 
+/** Trạng thái hiển thị cho một dòng phiếu trả trên lịch sử. */
+function getReturnRowStatus(rt) {
+  const inv = rt?.invoice_id && typeof rt.invoice_id === 'object' ? rt.invoice_id : null;
+  const originTotal = Number(inv?.total_amount || 0);
+  const thisReturnTotal = Number(rt?.total_amount || 0);
+  const returnedTotal = Number(inv?.returned_total_amount || 0);
+  if (inv?.status === 'cancelled') return 'returned_full';
+  if (originTotal > 0 && thisReturnTotal >= originTotal) return 'returned_full';
+  if (originTotal > 0 && returnedTotal >= originTotal) return 'returned_full';
+  return 'returned_partial';
+}
+
 export default function SalesInvoicesList({ basePathOverride = null, detailPathBuilder = null }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -78,19 +92,35 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
     try {
       const scopeParams =
         isStaffViewer ? { sales_scope: staffSalesScope === 'store' ? 'store' : 'mine' } : {};
-      const [invoiceResp, returnsResp] = await Promise.all([
-        getInvoices({ page: 1, limit: 1000, ...scopeParams }),
-        getReturns({ page: 1, limit: 1000, ...scopeParams }),
-      ]);
-      const allInvoicesRaw = invoiceResp.invoices || [];
-      const allReturnsRaw = returnsResp.returns || [];
+
+      let allInvoicesRaw = [];
+      let allReturnsRaw = [];
+
+      let serverReturnMeta = null;
+      if (isReturnsPage) {
+        const returnsResp = await getReturns({
+          page,
+          limit: LIMIT,
+          searchKey: searchKey.trim() || undefined,
+          ...scopeParams,
+        });
+        allReturnsRaw = returnsResp.returns || [];
+        serverReturnMeta = {
+          total: returnsResp.total || 0,
+          totalPages: returnsResp.totalPages || 1,
+        };
+      } else {
+        const invoiceResp = await getInvoices({ page: 1, limit: 1000, ...scopeParams });
+        allInvoicesRaw = (invoiceResp.invoices || []).filter(shouldShowOnRetailHistory);
+      }
+
       const invoiceMap = new Map(allInvoicesRaw.map((inv) => [String(inv._id), inv]));
 
       const invoiceRows = allInvoicesRaw.map((inv) => ({
         type: 'sale',
         _id: String(inv._id),
         createdAt: inv.invoice_at,
-        code: String(inv.display_code || inv._id),
+        code: getInvoiceDisplayCode(inv),
         customerName: inv.recipient_name || 'Khách lẻ',
         sellerName: inv.seller_name || inv.created_by?.fullName || inv.created_by?.email || '—',
         status: getInvoiceStatusView(inv),
@@ -105,21 +135,23 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
       }));
 
       const returnRows = allReturnsRaw.map((rt) => {
-        const originInvoiceId = String(rt?.invoice_id?._id || '');
-        const originInvoice = invoiceMap.get(originInvoiceId);
-        const returnedTotal = Number(originInvoice?.returned_total_amount || 0);
-        const originTotal = Number(originInvoice?.total_amount || 0);
-        const returnStatus = originTotal > 0 && returnedTotal >= originTotal ? 'returned_full' : 'returned_partial';
+        const originInvoiceId = String(rt?.invoice_id?._id || rt?.invoice_id || '');
+        const originInvoice =
+          (rt?.invoice_id && typeof rt.invoice_id === 'object' ? rt.invoice_id : null) ||
+          invoiceMap.get(originInvoiceId) ||
+          null;
         return {
           type: 'return',
           _id: `return-${rt._id}`,
           createdAt: rt.return_at || rt.created_at,
-          code: String(rt._id),
-          customerName: rt.invoice_id?.recipient_name || originInvoice?.recipient_name || '—',
+          code: getInvoiceDisplayCode(originInvoice || rt.invoice_id),
+          customerName: originInvoice?.recipient_name || rt.invoice_id?.recipient_name || '—',
           sellerName: rt.created_by?.fullName || rt.created_by?.email || '—',
-          status: returnStatus,
+          status: getReturnRowStatus(rt),
           rawStatus: 'return',
-          paymentMethod: originInvoice?.payment_method ? (PAYMENT_LABEL[originInvoice.payment_method] || originInvoice.payment_method) : '—',
+          paymentMethod: originInvoice?.payment_method
+            ? PAYMENT_LABEL[originInvoice.payment_method] || originInvoice.payment_method
+            : '',
           amount: Number(rt.total_amount || 0),
           rawShiftKey:
             String(originInvoice?.register_label_snapshot || '').trim() ||
@@ -130,9 +162,9 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
         };
       });
 
-      let allInvoices = isReturnsPage
-        ? returnRows
-        : [...invoiceRows, ...returnRows].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      let allInvoices = (isReturnsPage ? returnRows : invoiceRows).sort(
+        (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
+      );
 
       if (dateFrom) {
         const df = new Date(dateFrom);
@@ -144,7 +176,7 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
         dt.setHours(23, 59, 59, 999);
         allInvoices = allInvoices.filter((i) => new Date(i.createdAt) <= dt);
       }
-      if (searchKey) {
+      if (searchKey && !isReturnsPage) {
         const lowerSearch = searchKey.toLowerCase().trim();
         allInvoices = allInvoices.filter(
           (i) =>
@@ -202,18 +234,23 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
         setSalesByShift([]);
       }
 
-      setTotal(allInvoices.length);
-      setTotalPages(Math.ceil(allInvoices.length / LIMIT) || 1);
-
-      const startIndex = (page - 1) * LIMIT;
-      setInvoices(allInvoices.slice(startIndex, startIndex + LIMIT));
+      if (isReturnsPage && serverReturnMeta) {
+        setTotal(serverReturnMeta.total);
+        setTotalPages(serverReturnMeta.totalPages);
+        setInvoices(allInvoices);
+      } else {
+        setTotal(allInvoices.length);
+        setTotalPages(Math.ceil(allInvoices.length / LIMIT) || 1);
+        const startIndex = (page - 1) * LIMIT;
+        setInvoices(allInvoices.slice(startIndex, startIndex + LIMIT));
+      }
     } catch (e) {
       setError(e.message || 'Không thể tải danh sách hóa đơn');
       setInvoices([]);
     } finally {
       setLoading(false);
     }
-  }, [page, dateFrom, dateTo, searchKey, isReturnsPage, staffSalesScope, isStaffViewer]);
+  }, [page, dateFrom, dateTo, searchKey, isReturnsPage, staffSalesScope, isStaffViewer, LIMIT]);
 
   useEffect(() => {
     setPage(1);
@@ -264,7 +301,7 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
       subtitle={
         isReturnsPage
           ? 'Theo dõi các đơn đã thực hiện trả hàng.'
-          : 'Nhân viên có thể xem đơn do mình bán hoặc toàn bộ đơn cửa hàng (hỗ trợ đổi trả).'
+          : 'Chỉ hiển thị đơn đã bán và đơn ghi nợ. Đơn trả hàng xem tại mục Hàng trả lại.'
       }
     >
       <InlineNotice message={error} type="error" />
@@ -276,8 +313,7 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Phạm vi xem</p>
                 <p className="mt-1 text-xs text-slate-600">
-                  Ca của tôi — mọi hóa đơn do bạn bán và phiếu trả của những đơn đó. Tất cả hóa đơn — để tra cứu đơn
-                  của đồng nghiệp (ví dụ đổi trả).
+                  Ca của tôi — hóa đơn do bạn bán. Tất cả hóa đơn — tra cứu đơn của cả cửa hàng.
                 </p>
               </div>
               <div className="inline-flex shrink-0 rounded-xl border border-slate-200 bg-slate-50/90 p-0.5 shadow-inner shadow-slate-900/5">
@@ -393,15 +429,16 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
           ) : (
             <>
               <div className="overflow-x-auto rounded-xl border border-slate-200/80">
-                <table className="w-full min-w-[860px] text-sm text-slate-700">
+                <table className={cn('w-full text-sm text-slate-700', isReturnsPage ? 'min-w-[760px]' : 'min-w-[860px]')}>
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50/90 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                       <th className="px-4 py-3">Ngày tạo</th>
                       <th className="px-4 py-3">Ca</th>
                       <th className="px-4 py-3">Mã đơn</th>
                       <th className="px-4 py-3">Khách hàng</th>
+                      {isReturnsPage ? <th className="px-4 py-3">Nhân viên</th> : null}
                       <th className="px-4 py-3">Trạng thái</th>
-                      <th className="px-4 py-3">Thanh toán</th>
+                      {!isReturnsPage ? <th className="px-4 py-3">Thanh toán</th> : null}
                       <th className="px-4 py-3 text-right">Tổng tiền</th>
                       <th className="w-24 px-4 py-3 text-right" />
                     </tr>
@@ -425,14 +462,21 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
                         <td className="max-w-[180px] truncate px-4 py-3.5 font-medium text-slate-900">
                           {inv.customerName || 'Khách lẻ'}
                         </td>
+                        {isReturnsPage ? (
+                          <td className="max-w-[140px] truncate px-4 py-3.5 text-slate-600">
+                            {inv.sellerName || '—'}
+                          </td>
+                        ) : null}
                         <td className="px-4 py-3.5">
                           <Badge className={cn('inline-flex rounded-full border px-2.5 py-0.5 font-semibold', statusBadgeClass(statusView))}>
                             {STATUS_LABEL[statusView] ?? statusView}
                           </Badge>
                         </td>
-                        <td className="px-4 py-3.5 text-slate-600">
-                          {inv.paymentMethod || '—'}
-                        </td>
+                        {!isReturnsPage ? (
+                          <td className="px-4 py-3.5 text-slate-600">
+                            {inv.paymentMethod || '—'}
+                          </td>
+                        ) : null}
                         <td className={cn(
                           'px-4 py-3.5 text-right font-semibold tabular-nums',
                           inv.type === 'return' ? 'text-red-600' : 'text-slate-900'

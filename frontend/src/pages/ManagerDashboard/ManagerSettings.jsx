@@ -36,6 +36,7 @@ import {
   reconcileSubscriptionOrder,
 } from '../../services/subscriptionApi';
 import { useToast } from '../../contexts/ToastContext';
+import { formatVndIntegerDots } from '../../utils/currencyInput';
 
 const linkClass =
   'flex items-center justify-between gap-3 rounded-xl border border-slate-200/80 bg-white px-4 py-3 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-teal-200 hover:bg-teal-50/40';
@@ -496,7 +497,7 @@ export default function ManagerSettings() {
                     <p className="text-sm font-bold text-slate-800">{plan.name}</p>
                     <p className="mt-1 text-xs text-slate-500">Chu kỳ {plan.duration_months} tháng</p>
                     <p className="mt-2 text-lg font-extrabold text-teal-700">
-                      {Number(plan.price_vnd || 0).toLocaleString('vi-VN')}đ
+                      {formatVndIntegerDots(String(plan.price_vnd || 0))}đ
                     </p>
                     <button
                       type="button"
@@ -537,7 +538,7 @@ export default function ManagerSettings() {
                       />
                       <div className="space-y-1 text-xs text-slate-700">
                         <p>
-                          <b>Số tiền:</b> {Number(checkoutGuide.amount_vnd || 0).toLocaleString('vi-VN')}đ
+                          <b>Số tiền:</b> {formatVndIntegerDots(String(checkoutGuide.amount_vnd || 0))}đ
                         </p>
                         <p>
                           <b>Ngân hàng:</b> {checkoutGuide.bank_code || 'N/A'}
@@ -577,7 +578,7 @@ export default function ManagerSettings() {
                     {subscriptionOrders.slice(0, 5).map((order) => (
                       <p key={order._id} className="text-xs text-slate-600">
                         {new Date(order.createdAt).toLocaleString('vi-VN')} - {order.plan_name} -{' '}
-                        {Number(order.amount_vnd || 0).toLocaleString('vi-VN')}đ - {order.status} - {order.payment_ref}
+                        {formatVndIntegerDots(String(order.amount_vnd || 0))}đ - {order.status} - {order.payment_ref}
                       </p>
                     ))}
                   </div>

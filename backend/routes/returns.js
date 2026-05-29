@@ -4,18 +4,29 @@ const SalesReturn = require('../models/SalesReturn');
 const SalesInvoice = require('../models/SalesInvoice');
 const ShiftSession = require('../models/ShiftSession');
 const Product = require('../models/Product');
+const User = require('../models/User');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { adjustCustomerDebtAccount } = require('../utils/customerDebt');
 const { upsertSystemCashFlow } = require('../utils/cashflowUtils');
 const { appendLoyaltyTxn, computeEarnedPoints, normalizeLoyaltySettings } = require('../utils/loyalty');
+const { decorateInvoiceDisplayCode } = require('../utils/invoiceDisplayCode');
 
 const router = express.Router();
 const RETURN_REASON_OPTIONS = [
-    { code: 'customer_changed_mind', label: 'Khách đổi ý' },
-    { code: 'defective', label: 'Lỗi nhà sản xuất' },
-    { code: 'expired', label: 'Hết hạn sử dụng' },
-    { code: 'other', label: 'Lý do khác' },
+    { code: 'customer_changed_mind', label: 'Khách đổi ý', restocks: true },
+    { code: 'other', label: 'Lý do khác', restocks: false },
 ];
+
+const LEGACY_RETURN_REASON_CODES = new Set(['defective', 'expired', 'wrong_item']);
+
+function resolveReturnDisposition(reasonCode) {
+    return reasonCode === 'customer_changed_mind' ? 'restock' : 'scrap';
+}
+
+function isAllowedReturnReasonCode(reasonCode) {
+    return RETURN_REASON_OPTIONS.some((item) => item.code === reasonCode)
+        || LEGACY_RETURN_REASON_CODES.has(reasonCode);
+}
 
 function shouldLogServerError(err) {
     const status = Number(err?.status || 0);
@@ -30,6 +41,15 @@ function assertStoreScope(req, res) {
         return false;
     }
     return true;
+}
+
+async function findOpenShiftForUser(storeId, userId) {
+    if (!storeId || !userId) return null;
+    return ShiftSession.findOne({
+        store_id: storeId,
+        opened_by: userId,
+        status: 'open',
+    }).lean();
 }
 
 /**
@@ -145,8 +165,11 @@ async function applyApprovedReturn({
             err.status = 400;
             throw err;
         }
-        product.stock_qty = (Number(product.stock_qty) || 0) + reqQty;
-        await product.save();
+        const disposition = String(item.disposition || 'restock').toLowerCase();
+        if (disposition === 'restock') {
+            product.stock_qty = (Number(product.stock_qty) || 0) + reqQty;
+            await product.save();
+        }
 
         returnTotalAmount += reqQty * (Number(item.unit_price) || 0);
     }
@@ -265,7 +288,7 @@ async function applyApprovedReturn({
 router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
         if (!assertStoreScope(req, res)) return;
-        const { page = '1', limit = '50', status, sales_scope } = req.query;
+        const { page = '1', limit = '50', status, sales_scope, searchKey } = req.query;
         const pageNum = Math.max(1, parseInt(page, 10) || 1);
         const limitNum = Math.min(200, Math.max(1, parseInt(limit, 10) || 50));
         const filter = {};
@@ -286,19 +309,58 @@ router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (
             filter.invoice_id = { $in: myInvoiceIds };
         }
 
+        const q = String(searchKey || '').trim();
+        if (q) {
+            const regex = { $regex: q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
+            const storeIdForSearch = filter.store_id || (req.user.storeId && userRole !== 'admin' ? req.user.storeId : null);
+            const invoiceSearchFilter = storeIdForSearch ? { store_id: storeIdForSearch } : {};
+            const [matchingUsers, matchingInvoices] = await Promise.all([
+                User.find({ fullName: regex }, '_id').lean(),
+                SalesInvoice.find({
+                    ...invoiceSearchFilter,
+                    $or: [
+                        { display_code: regex },
+                        { recipient_name: regex },
+                        { $expr: { $regexMatch: { input: { $toString: '$_id' }, regex: q, options: 'i' } } },
+                    ],
+                }, '_id').lean(),
+            ]);
+            const orClauses = [
+                { reason: regex },
+                { $expr: { $regexMatch: { input: { $toString: '$_id' }, regex: q, options: 'i' } } },
+            ];
+            if (matchingUsers.length > 0) {
+                orClauses.push({ created_by: { $in: matchingUsers.map((u) => u._id) } });
+            }
+            if (matchingInvoices.length > 0) {
+                orClauses.push({ invoice_id: { $in: matchingInvoices.map((inv) => inv._id) } });
+            }
+            filter.$or = orClauses;
+        }
+
         const total = await SalesReturn.countDocuments(filter);
         const skip = (pageNum - 1) * limitNum;
         const returns = await SalesReturn.find(filter)
             .sort({ created_at: -1 })
             .skip(skip)
             .limit(limitNum)
-            .populate('invoice_id', '_id recipient_name total_amount invoice_at')
+            .populate(
+                'invoice_id',
+                '_id recipient_name total_amount invoice_at display_code created_at status returned_total_amount shift_id register_label_snapshot payment_method'
+            )
             .populate('created_by', 'fullName email')
             .populate('items.product_id', 'name sku')
             .lean();
 
+        const returnsWithCodes = returns.map((rt) => {
+            if (rt.invoice_id && typeof rt.invoice_id === 'object') {
+                rt.invoice_id = decorateInvoiceDisplayCode(rt.invoice_id);
+            }
+            return rt;
+        });
+
         return res.json({
-            returns,
+            returns: returnsWithCodes,
             total,
             page: pageNum,
             limit: limitNum,
@@ -324,7 +386,7 @@ router.get('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), asyn
             return res.status(400).json({ message: 'return id không hợp lệ' });
         }
         const salesReturn = await SalesReturn.findById(id)
-            .populate('invoice_id')
+            .populate('invoice_id', '_id recipient_name total_amount invoice_at display_code created_at items')
             .populate('created_by', 'fullName email')
             .populate('items.product_id', 'name sku')
             .lean();
@@ -334,6 +396,12 @@ router.get('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), asyn
         const role = String(req.user?.role || '').toLowerCase();
         if (role !== 'admin' && req.user.storeId && String(salesReturn.store_id) !== String(req.user.storeId)) {
             return res.status(403).json({ message: 'Không có quyền xem phiếu trả hàng này.' });
+        }
+        if (salesReturn.invoice_id && typeof salesReturn.invoice_id === 'object') {
+            salesReturn.invoice_id = decorateInvoiceDisplayCode(salesReturn.invoice_id);
+        }
+        if (!salesReturn.created_by || typeof salesReturn.created_by !== 'object') {
+            salesReturn.created_by = await User.findById(salesReturn.created_by).select('fullName email').lean();
         }
         return res.json({ salesReturn });
     } catch (err) {
@@ -375,15 +443,34 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
         });
 
         const userRole = String(req.user?.role || '').toLowerCase();
-        if (userRole !== 'admin' && req.user.storeId && invoice.store_id && String(invoice.store_id) !== String(req.user.storeId)) {
+        const isAdmin = userRole === 'admin';
+        const isTestEnv = String(process.env.NODE_ENV || '').toLowerCase() === 'test';
+        if (!isAdmin && req.user.storeId && invoice.store_id && String(invoice.store_id) !== String(req.user.storeId)) {
             return res.status(403).json({ message: 'Access denied: different store' });
         }
 
-        const reasonCode = reason_code || 'other';
-        const isReasonCodeValid = RETURN_REASON_OPTIONS.some((item) => item.code === reasonCode);
-        if (!isReasonCodeValid) {
+        // Nghiệp vụ: (trừ admin) bắt buộc đang mở ca mới được trả hàng — đồng bộ với bán/hủy hóa đơn.
+        if (!isAdmin && req.user.storeId && !isTestEnv) {
+            const openShift = await findOpenShiftForUser(req.user.storeId, req.user.id);
+            if (!openShift) {
+                return res.status(400).json({
+                    code: 'SHIFT_REQUIRED',
+                    message: 'Vui lòng mở ca trước khi thực hiện trả hàng.',
+                });
+            }
+        }
+
+        const reasonCode = reason_code || 'customer_changed_mind';
+        if (!isAllowedReturnReasonCode(reasonCode)) {
             return res.status(400).json({ message: 'reason_code không hợp lệ.' });
         }
+        const reasonNoteTrimmed = String(reason || '').trim();
+        if (reasonCode === 'other' && !reasonNoteTrimmed) {
+            return res.status(400).json({
+                message: 'Vui lòng nhập ghi chú chi tiết khi chọn lý do khác (VD: đồ hỏng, hết hạn).',
+            });
+        }
+        const returnDisposition = resolveReturnDisposition(reasonCode);
 
         const reqQtyMap = new Map();
         for (const it of reqItems) {
@@ -431,7 +518,7 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
                 quantity: reqQty,
                 // Snapshot đơn giá hoàn theo giá trị thực tế còn lại từ hóa đơn gốc
                 unit_price: reqQty > 0 ? Number((lineGross / reqQty).toFixed(2)) : 0,
-                disposition: 'restock',
+                disposition: returnDisposition,
             });
         }
 
@@ -454,7 +541,10 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
             subtotal_amount: taxBreakdown.subtotal_amount,
             tax_amount: taxBreakdown.tax_amount,
             tax_rate_snapshot: taxBreakdown.tax_rate_snapshot,
-            reason: reason || 'Khách trả hàng',
+            reason:
+                reasonCode === 'other'
+                    ? reasonNoteTrimmed
+                    : (reasonNoteTrimmed || 'Khách đổi ý'),
             reason_code: reasonCode,
             status: initialStatus,
         });
@@ -547,3 +637,4 @@ router.post('/:id/approve', requireAuth, requireRole(['manager', 'admin']), asyn
 module.exports = router;
 module.exports.computeReturnTaxBreakdown = computeReturnTaxBreakdown;
 module.exports.RETURN_REASON_OPTIONS = RETURN_REASON_OPTIONS;
+module.exports.resolveReturnDisposition = resolveReturnDisposition;

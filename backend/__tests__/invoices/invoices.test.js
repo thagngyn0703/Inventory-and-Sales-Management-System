@@ -3,7 +3,7 @@ const request = require('supertest');
 const express = require('express');
 const invoiceRoutes = require('../../routes/invoices');
 const Product = require('../../models/Product');
-const { createManagerWithStore, getAuthHeader } = require('../fixtures/users');
+const { createAdminUser, createManagerWithStore, getAuthHeader } = require('../fixtures/users');
 const { createTestProduct } = require('../fixtures/products');
 const { createTestCustomer } = require('../fixtures/customers');
 
@@ -211,11 +211,44 @@ describe('Invoices Routes', () => {
 
       expect(res.status).toBe(404);
     });
+
+    it('should return invoice by display_code', async () => {
+      const product = await createTestProduct(store._id, { stock_qty: 100 });
+
+      const createRes = await request(app)
+        .post('/api/invoices')
+        .set('Authorization', managerToken)
+        .send({
+          payment_method: 'cash',
+          payment_status: 'paid',
+          items: [
+            {
+              product_id: String(product._id),
+              quantity: 1,
+              unit_price: product.sale_price,
+            },
+          ],
+        });
+
+      expect(createRes.status).toBe(201);
+      const displayCode = createRes.body.invoice.display_code;
+      expect(displayCode).toMatch(/^HD\d{6}-[A-F0-9]{6}$/i);
+
+      const res = await request(app)
+        .get(`/api/invoices/${displayCode}`)
+        .set('Authorization', managerToken);
+
+      expect(res.status).toBe(200);
+      expect(String(res.body.invoice._id)).toBe(String(createRes.body.invoice._id));
+      expect(res.body.invoice.display_code).toBe(displayCode);
+    });
   });
 
   describe('POST /api/invoices/:id/cancel', () => {
     it('should cancel invoice and restore stock', async () => {
       const product = await createTestProduct(store._id, { stock_qty: 100 });
+      const admin = await createAdminUser();
+      const adminToken = getAuthHeader(admin).Authorization;
 
       const createRes = await request(app)
         .post('/api/invoices')
@@ -236,7 +269,7 @@ describe('Invoices Routes', () => {
 
       const res = await request(app)
         .post(`/api/invoices/${invoiceId}/cancel`)
-        .set('Authorization', managerToken);
+        .set('Authorization', adminToken);
 
       expect(res.status).toBe(200);
 

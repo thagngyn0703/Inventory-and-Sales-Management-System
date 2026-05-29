@@ -27,7 +27,12 @@ const { logAudit } = require('../utils/audit');
 const { computeInvoiceTaxSnapshot } = require('../services/vatEngine');
 const { notifyManagersInStore } = require('../services/managerNotificationService');
 const { requireAuth, requireRole } = require('../middleware/auth');
-const { decorateInvoiceDisplayCode, decorateInvoiceListDisplayCode, buildInvoiceDisplayCode } = require('../utils/invoiceDisplayCode');
+const {
+    decorateInvoiceDisplayCode,
+    decorateInvoiceListDisplayCode,
+    buildInvoiceDisplayCode,
+    findInvoiceByLookupInput,
+} = require('../utils/invoiceDisplayCode');
 
 const router = express.Router();
 
@@ -1305,22 +1310,33 @@ router.post('/tax-preview', requireAuth, requireRole(['staff', 'manager', 'admin
     }
 });
 
-// GET /api/invoices/:id
+// GET /api/invoices/:id — accepts Mongo _id or short display code (HDYYMMDD-XXXXXX)
 router.get('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
     try {
         if (!assertStoreScope(req, res)) return;
         const { id } = req.params;
-        if (!mongoose.isValidObjectId(id)) {
-            return res.status(400).json({ message: 'Invalid invoice id' });
+        const lookup = String(id || '').trim();
+        if (!lookup) {
+            return res.status(400).json({ message: 'Mã hóa đơn không hợp lệ' });
         }
-        const invoice = await SalesInvoice.findById(id)
+
+        const userRole2 = String(req.user?.role || '').toLowerCase();
+        const storeFilter = {};
+        if (userRole2 !== 'admin' && req.user.storeId) {
+            storeFilter.store_id = req.user.storeId;
+        }
+
+        const resolved = await findInvoiceByLookupInput(SalesInvoice, lookup, storeFilter);
+        if (!resolved) {
+            return res.status(404).json({ message: 'Không tìm thấy hóa đơn' });
+        }
+
+        const invoice = await SalesInvoice.findById(resolved._id)
             .populate('customer_id', 'full_name phone email debt_account')
             .populate('created_by', 'fullName email')
             .populate('items.product_id', 'name sku stock_qty image_urls')
             .lean();
-        if (!invoice) return res.status(404).json({ message: 'Invoice not found' });
-        // Store ownership check
-        const userRole2 = String(req.user?.role || '').toLowerCase();
+        if (!invoice) return res.status(404).json({ message: 'Không tìm thấy hóa đơn' });
         if (userRole2 !== 'admin' && req.user.storeId && String(invoice.store_id) !== String(req.user.storeId)) {
             return res.status(403).json({ message: 'Không có quyền xem hóa đơn này' });
         }
@@ -1534,17 +1550,33 @@ router.post('/:id/cancel', requireAuth, requireRole(['manager', 'admin']), async
                 message: 'Vui lòng nhập lý do hủy hóa đơn.',
             });
         }
+        const role = String(req.user?.role || '').toLowerCase();
+        const isAdmin = role === 'admin';
+        // Nghiệp vụ: (trừ admin) bắt buộc đang mở ca mới được thao tác hủy
+        // và hóa đơn phải thuộc một ca còn mở để đảm bảo đối soát tiền mặt/ca.
+        if (!isAdmin) {
+            const openShift = await findOpenShiftForUser(req.user.storeId, req.user.id);
+            if (!openShift && !isTestEnv) {
+                return res.status(400).json({
+                    code: 'SHIFT_REQUIRED',
+                    message: 'Vui lòng mở ca trước khi hủy hóa đơn.',
+                });
+            }
+            if (!invoice.shift_id) {
+                return res.status(409).json({
+                    code: 'INVOICE_SHIFT_REQUIRED',
+                    message: 'Hóa đơn chưa gán ca: không được hủy. Vui lòng liên hệ quản trị để xử lý dữ liệu hoặc lập nghiệp vụ điều chỉnh theo quy trình.',
+                });
+            }
+        }
         // Anti-fraud: không cho hủy hóa đơn thuộc ca đã đóng (trừ admin)
-        if (invoice.shift_id) {
-            const role = String(req.user?.role || '').toLowerCase();
-            if (role !== 'admin') {
-                const shift = await ShiftSession.findById(invoice.shift_id).select('status store_id').lean();
-                if (shift && String(shift.status) === 'closed') {
-                    return res.status(409).json({
-                        code: 'SHIFT_CLOSED_INVOICE_LOCKED',
-                        message: 'Ca đã đóng: không được hủy hóa đơn. Vui lòng tạo nghiệp vụ trả hàng/điều chỉnh theo quy trình quản lý.',
-                    });
-                }
+        if (invoice.shift_id && !isAdmin) {
+            const shift = await ShiftSession.findById(invoice.shift_id).select('status store_id').lean();
+            if (shift && String(shift.status) === 'closed') {
+                return res.status(409).json({
+                    code: 'SHIFT_CLOSED_INVOICE_LOCKED',
+                    message: 'Ca đã đóng: không được hủy hóa đơn. Vui lòng tạo nghiệp vụ trả hàng/điều chỉnh theo quy trình quản lý.',
+                });
             }
         }
         // Store ownership check

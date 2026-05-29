@@ -116,13 +116,19 @@ function buildShiftInvoiceFilter(shift, participantUserIds = []) {
             },
         });
     }
+    /** Bán chịu: POST /api/invoices đặt status pending + payment_method debt cho đến khi được trả/đối soát FIFO → confirmed. */
+    const saleStatusClause = {
+        $or: [
+            { status: 'confirmed' },
+            { $and: [{ status: 'pending' }, { payment_method: 'debt' }] },
+        ],
+    };
+    const scopeClause = fallbackConditions.length > 0
+        ? { $or: [{ shift_id: shift._id }, { $and: fallbackConditions }] }
+        : { shift_id: shift._id };
     return {
         store_id: shift.store_id,
-        status: 'confirmed',
-        $or: [
-            { shift_id: shift._id },
-            { $and: fallbackConditions },
-        ],
+        $and: [saleStatusClause, scopeClause],
     };
 }
 

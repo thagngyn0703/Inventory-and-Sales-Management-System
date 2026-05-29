@@ -11,7 +11,7 @@
  */
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { BrowserMultiFormatReader } from '@zxing/browser';
+import { BrowserMultiFormatReader } from '@zxing/browser/cjs/readers/BrowserMultiFormatReader';
 import {
   getInvoice,
   createInvoice,
