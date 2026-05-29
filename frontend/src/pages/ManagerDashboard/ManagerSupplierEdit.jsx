@@ -16,7 +16,6 @@ const defaultForm = {
     tax_code: '',
     note: '',
     status: 'active',
-    payable_account: '',
     bank_qr_image_url: '',
 };
 
@@ -45,7 +44,6 @@ export default function ManagerSupplierEdit() {
                     tax_code: s.tax_code || '',
                     note: s.note || '',
                     status: s.status === 'inactive' ? 'inactive' : 'active',
-                    payable_account: s.payable_account != null ? String(s.payable_account) : '',
                     bank_qr_image_url: s.bank_qr_image_url || '',
                 });
             })
@@ -81,7 +79,6 @@ export default function ManagerSupplierEdit() {
                 tax_code: form.tax_code ? String(form.tax_code).trim() : undefined,
                 note: form.note ? String(form.note).trim() : undefined,
                 status: form.status === 'inactive' ? 'inactive' : 'active',
-                payable_account: Number(form.payable_account) || 0,
                 bank_qr_image_url: qrUrl || undefined,
             });
             navigate('/manager/suppliers', { state: { success: 'Cập nhật nhà cung cấp thành công.' } });
@@ -192,17 +189,6 @@ export default function ManagerSupplierEdit() {
                                 </div>
                             </div>
                             <div className="manager-form-row manager-form-row--2">
-                                <div className="manager-form-group">
-                                    <label>Công nợ (₫)</label>
-                                    <input
-                                        type="number"
-                                        min="0"
-                                        step="1000"
-                                        value={form.payable_account}
-                                        onChange={(e) => update('payable_account', e.target.value)}
-                                        placeholder="0"
-                                    />
-                                </div>
                                 <div className="manager-form-group">
                                     <label>Ảnh QR chuyển khoản</label>
                                     <input type="file" accept="image/*" onChange={(e) => {

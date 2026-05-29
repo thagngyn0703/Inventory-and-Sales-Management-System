@@ -4,6 +4,7 @@ const Notification = require('../models/Notification');
 const Product = require('../models/Product');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { buildManagerCounts, emitNotificationCountRefresh } = require('../socket');
+const { syncSupplierPayableDueNotificationsFromRequest } = require('../services/supplierPayableDueNotificationService');
 
 const router = express.Router();
 
@@ -71,6 +72,7 @@ async function syncExpiryNotifications(req) {
 router.get('/unread-count', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
   try {
     await syncExpiryNotifications(req);
+    await syncSupplierPayableDueNotificationsFromRequest(req);
     const storeId = req.user?.storeId ? String(req.user.storeId) : null;
     const count = await Notification.countDocuments({
       user_id: req.user.id,
@@ -99,6 +101,7 @@ router.get('/manager-badge-counts', requireAuth, requireRole(['manager', 'admin'
 router.get('/', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
   try {
     await syncExpiryNotifications(req);
+    await syncSupplierPayableDueNotificationsFromRequest(req);
     const storeId = req.user?.storeId ? String(req.user.storeId) : null;
     const list = await Notification.find({
       user_id: req.user.id,
