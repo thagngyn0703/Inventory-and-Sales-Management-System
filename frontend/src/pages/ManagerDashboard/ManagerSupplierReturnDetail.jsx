@@ -13,6 +13,14 @@ function fmtMoney(v) {
   return `${Number(v || 0).toLocaleString('vi-VN')}₫`;
 }
 
+function refundMethodLabel(value) {
+  const key = String(value || '').toLowerCase();
+  if (key === 'cash') return 'Tiền mặt';
+  if (key === 'bank_transfer') return 'Chuyển khoản';
+  if (key === 'e_wallet') return 'Ví điện tử';
+  return 'Khác';
+}
+
 export default function ManagerSupplierReturnDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -55,7 +63,8 @@ export default function ManagerSupplierReturnDetail() {
                 <div><span className="text-slate-500">Mã phiếu:</span> <span className="font-mono font-semibold text-slate-800">{String(doc._id).slice(-6).toUpperCase()}</span></div>
                 <div><span className="text-slate-500">Thời gian:</span> <span className="font-medium text-slate-800">{new Date(doc.return_date || doc.created_at).toLocaleString('vi-VN')}</span></div>
                 <div><span className="text-slate-500">Nhà cung cấp:</span> <span className="font-medium text-slate-800">{doc.supplier_id?.name || '—'}</span></div>
-                <div><span className="text-slate-500">Giá trị trả:</span> <span className="font-semibold text-rose-700">{fmtMoney(doc.total_amount)}</span></div>
+                <div><span className="text-slate-500">Giá trị trả / hoàn:</span> <span className="font-semibold text-emerald-700">{fmtMoney(doc.total_amount)}</span></div>
+                <div><span className="text-slate-500">NCC hoàn tiền:</span> <span className="font-medium text-slate-800">{refundMethodLabel(doc.refund_method)}</span></div>
                 <div><span className="text-slate-500">Người tạo:</span> <span className="text-slate-800">{doc.created_by?.fullName || doc.created_by?.email || '—'}</span></div>
                 <div><span className="text-slate-500">Trạng thái:</span> <Badge variant="outline">{doc.status || 'approved'}</Badge></div>
               </div>
@@ -101,11 +110,13 @@ export default function ManagerSupplierReturnDetail() {
                   </div>
                 )}
               </div>
+              <div className="mt-2 rounded-md border border-emerald-100 bg-emerald-50/60 px-3 py-2 text-slate-700">
+                Phiếu này ghi nhận <strong>NCC hoàn tiền</strong> cho cửa hàng (thu vào dòng tiền).{' '}
+                <strong>Không</strong> bù trừ công nợ phải trả.
+              </div>
+              {allocations.length > 0 && (
               <div className="mt-2">
-                <p className="mb-2 text-slate-500">Payable đã bù trừ</p>
-                {allocations.length === 0 ? (
-                  <p className="text-slate-500">Chưa có dữ liệu phân bổ.</p>
-                ) : (
+                <p className="mb-2 text-slate-500">Payable đã bù trừ (phiếu cũ)</p>
                   <div className="overflow-x-auto rounded-md border border-slate-100">
                     <table className="min-w-full text-xs">
                       <thead className="bg-slate-100 text-slate-600">
@@ -132,8 +143,8 @@ export default function ManagerSupplierReturnDetail() {
                       </tbody>
                     </table>
                   </div>
-                )}
               </div>
+              )}
             </CardContent>
           </Card>
         )}

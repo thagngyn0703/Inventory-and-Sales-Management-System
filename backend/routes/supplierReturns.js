@@ -105,11 +105,18 @@ router.get('/export.xlsx', requireAuth, requireRole(['manager', 'admin']), async
             .populate('supplier_id', 'name')
             .populate('created_by', 'fullName email')
             .lean();
+        const refundLabels = {
+            cash: 'Tien mat',
+            bank_transfer: 'Chuyen khoan',
+            e_wallet: 'Vi dien tu',
+            other: 'Khac',
+        };
         const exportRows = rows.map((row) => ({
             'Thoi gian': row.created_at ? new Date(row.created_at).toLocaleString('vi-VN') : '',
             'Ma phieu': String(row._id || '').slice(-6).toUpperCase(),
             'Nha cung cap': row.supplier_id?.name || '',
-            'Gia tri tra': round2(row.total_amount || 0),
+            'Gia tri hoan': round2(row.total_amount || 0),
+            'Hinh thuc hoan': refundLabels[String(row.refund_method || 'cash').toLowerCase()] || row.refund_method || '',
             'Ly do': row.reason || '',
             'Ghi chu': row.note || '',
             'Nguoi tao': row.created_by?.fullName || row.created_by?.email || '',

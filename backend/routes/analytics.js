@@ -8,6 +8,7 @@ const Product = require('../models/Product');
 const ProductPriceHistory = require('../models/ProductPriceHistory');
 const Supplier = require('../models/Supplier');
 const SupplierPayment = require('../models/SupplierPayment');
+const SupplierReturn = require('../models/SupplierReturn');
 const Customer = require('../models/Customer');
 const CustomerLoyaltyTransaction = require('../models/CustomerLoyaltyTransaction');
 const AuditLog = require('../models/AuditLog');
@@ -927,7 +928,7 @@ router.get(
         : { status: 'confirmed', invoice_at: { $gte: yStart, $lte: yEnd }, ...PAID_TRANSFER_FILTER };
 
       // Doanh thu + số đơn + lợi nhuận gộp thực (từ cost_price snapshot trên từng dòng hóa đơn)
-      const [invoiceAgg, invoiceProfitAgg, returnAgg, returnAmountAgg, returnProfitAgg, grAgg, supplierPaymentAgg, todayAgg, yesterdayAgg, todayProfitAgg, yesterdayProfitAgg] = await Promise.all([
+      const [invoiceAgg, invoiceProfitAgg, returnAgg, returnAmountAgg, returnProfitAgg, grAgg, supplierReturnAgg, supplierPaymentAgg, todayAgg, yesterdayAgg, todayProfitAgg, yesterdayProfitAgg] = await Promise.all([
         // Aggregate 1: đếm số hóa đơn, tổng doanh thu, tổng thuế thu hộ
         SalesInvoice.aggregate([
           { $match: invoiceMatchPeriod },
@@ -995,14 +996,30 @@ router.get(
           },
         ]),
 
-        // Chi phí nhập hàng trong kỳ (phiếu đã duyệt) — giữ để tham khảo
+        // Chi phí nhập hàng trong kỳ (phiếu đã duyệt)
         GoodsReceipt.aggregate([
           {
             $match: storeIdObj
-              ? { status: 'approved', received_at: { $gte: from, $lte: to } }
+              ? { storeId: storeIdObj, status: 'approved', received_at: { $gte: from, $lte: to } }
               : { status: 'approved', received_at: { $gte: from, $lte: to } },
           },
           { $group: { _id: null, incoming_cost: { $sum: '$total_amount' } } },
+        ]),
+
+        // Tiền NCC hoàn do trả hàng trong kỳ (trừ khỏi chi phí nhập)
+        SupplierReturn.aggregate([
+          {
+            $match: storeIdObj
+              ? { storeId: storeIdObj, status: 'approved' }
+              : { status: 'approved' },
+          },
+          {
+            $addFields: {
+              __returnAt: { $ifNull: ['$return_date', '$created_at'] },
+            },
+          },
+          { $match: { __returnAt: { $gte: from, $lte: to } } },
+          { $group: { _id: null, refund_total: { $sum: '$total_amount' } } },
         ]),
 
         // Chi trả nợ NCC trong kỳ (dòng tiền thực chi), tách theo phương thức
@@ -1062,7 +1079,9 @@ router.get(
       const totalVatCollected = salesVatCollected - returnTax;
       const orderCount = invoiceAgg[0]?.order_count ?? 0;
       const returnCount = returnAgg[0]?.return_count ?? 0;
-      const incomingCost = grAgg[0]?.incoming_cost ?? 0;
+      const incomingCostGross = grAgg[0]?.incoming_cost ?? 0;
+      const supplierReturnRefund = supplierReturnAgg[0]?.refund_total ?? 0;
+      const incomingCost = Math.max(0, Math.round((incomingCostGross - supplierReturnRefund) * 100) / 100);
       const supplierPaymentTotal = supplierPaymentAgg[0]?.supplier_payment_total ?? 0;
       const supplierPaymentCash = supplierPaymentAgg[0]?.supplier_payment_cash ?? 0;
       const supplierPaymentBankTransfer = supplierPaymentAgg[0]?.supplier_payment_bank_transfer ?? 0;
@@ -1102,6 +1121,8 @@ router.get(
         return_rate: returnRate,
         return_rate_by_revenue: returnRateByRevenue,
         incoming_cost: incomingCost,
+        incoming_cost_gross: Math.round(incomingCostGross * 100) / 100,
+        supplier_return_refund: Math.round(supplierReturnRefund * 100) / 100,
         supplier_payment_total: supplierPaymentTotal,
         supplier_payment_cash: supplierPaymentCash,
         supplier_payment_bank_transfer: supplierPaymentBankTransfer,

@@ -34,7 +34,7 @@ function resolveSource(row) {
     case 'supplier_payment':
       return { label: 'Thanh toán NCC', path: '/manager/supplier-payables/report' };
     case 'supplier_return':
-      return { label: 'Phiếu trả NCC', path: refId ? `/manager/supplier-returns/${refId}` : null };
+      return { label: 'NCC hoàn tiền (trả hàng)', path: refId ? `/manager/supplier-returns/${refId}` : null };
     case 'sales_return':
       return { label: 'Trả hàng bán', path: '/manager/returns' };
     default:
