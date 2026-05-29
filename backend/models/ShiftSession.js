@@ -57,8 +57,8 @@ const shiftSessionSchema = new Schema(
         actual_cash: { type: Number, default: 0, min: 0 },
         actual_bank: { type: Number, default: 0, min: 0 },
 
-        // Cash float rule (target 1,000,000 VND)
-        target_float_cash: { type: Number, default: 1000000, min: 0 },
+        // Mức tiền mặt để lại ngăn kéo cho ca sau (= tiền đầu ca khi mở ca)
+        target_float_cash: { type: Number, default: 0, min: 0 },
         cash_to_keep: { type: Number, default: 0, min: 0 },
         cash_to_handover: { type: Number, default: 0, min: 0 },
 

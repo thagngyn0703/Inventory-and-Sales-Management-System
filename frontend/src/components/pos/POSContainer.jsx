@@ -1516,9 +1516,11 @@ export default function POSContainer({
 
   const submitCloseShiftFromModal = useCallback(async () => {
     if (!currentShift?._id) return;
-    const actual_cash = parseCurrencyInput(closeShiftCash);
-    if (actual_cash <= 0) {
-      notify('Vui lòng nhập tổng tiền mặt kiểm đếm trước khi đóng ca.', 'error');
+    const actual_cash = String(closeShiftCash || '').trim() === ''
+      ? 0
+      : parseCurrencyInput(closeShiftCash);
+    if (!Number.isFinite(actual_cash) || actual_cash < 0) {
+      notify('Số tiền kiểm đếm không hợp lệ.', 'error');
       return;
     }
     const openedBy = String(currentShift?.opened_by?._id || currentShift?.opened_by || '');
@@ -1530,13 +1532,15 @@ export default function POSContainer({
       const handover = Number(closedShift?.cash_to_handover || 0);
       const keep = Number(closedShift?.cash_to_keep || 0);
       const discrepancy = Number(closedShift?.discrepancy_cash || 0);
-      const targetFloat = Number(closedShift?.target_float_cash || 1000000);
-      notify(
-        `Đóng ca thành công. Bàn giao: ${formatMoney(handover)} | Để lại ca sau: ${formatMoney(keep)}${
-          keep < targetFloat ? ` | Thiếu quỹ để lại: ${formatMoney(targetFloat - keep)}` : ''
-        }${discrepancy !== 0 ? ` | Chênh lệch: ${formatMoney(discrepancy)}` : ''}`,
-        discrepancy !== 0 || keep < targetFloat ? 'warning' : 'success'
-      );
+      const parts = [
+        'Đóng ca thành công.',
+        `Bàn giao: ${formatMoney(handover)}`,
+        `Để lại ca sau: ${formatMoney(keep)}`,
+      ];
+      if (discrepancy !== 0) {
+        parts.push(`Chênh lệch tiền mặt (so với hóa đơn): ${formatMoney(discrepancy)}`);
+      }
+      notify(parts.join(' '), 'success');
       setCloseShiftCash('');
       setCloseShiftModalOpen(false);
       await loadShift();
@@ -2674,7 +2678,7 @@ export default function POSContainer({
               />
             </label>
             <p className="pos-shift-close-hint">
-              Tiền bàn giao = Kiểm đếm − mức để lại chuẩn (thường 1.000.000đ). Hệ thống báo chi tiết sau khi đóng.
+              Tiền để lại ca sau = tiền đầu ca. Tiền bàn giao = tiền kiểm đếm − tiền để lại. Có thể nhập 0đ nếu mở ca rồi đóng ngay.
             </p>
             <div className="pos-shift-close-actions">
               <button

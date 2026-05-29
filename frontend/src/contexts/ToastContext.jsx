@@ -38,6 +38,8 @@ export function ToastProvider({ children }) {
                 t.type === 'success' &&
                   'border-emerald-200/80 bg-emerald-50/95 text-emerald-900',
                 t.type === 'error' && 'border-red-200/80 bg-red-50/95 text-red-900',
+                t.type === 'warning' &&
+                  'border-amber-200/80 bg-amber-50/95 text-amber-900',
                 t.type === 'info' && 'border-slate-200/80 bg-white/95 text-slate-800'
               )}
             >
@@ -46,6 +48,9 @@ export function ToastProvider({ children }) {
               )}
               {t.type === 'error' && (
                 <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" aria-hidden />
+              )}
+              {t.type === 'warning' && (
+                <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" aria-hidden />
               )}
               {t.type === 'info' && (
                 <Info className="mt-0.5 h-5 w-5 shrink-0 text-sky-600" aria-hidden />
