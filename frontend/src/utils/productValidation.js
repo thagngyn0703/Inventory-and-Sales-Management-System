@@ -32,7 +32,7 @@ export function validateSku(value) {
 
 export function validateBarcode(value) {
     const trimmed = trimString(value);
-    if (!trimmed) return { ok: true, value: '' };
+    if (!trimmed) return { ok: false, message: 'Barcode không được để trống.' };
     if (!DIGITS_ONLY_REGEX.test(trimmed)) {
         return { ok: false, message: 'Barcode chỉ được nhập số, không chữ hoặc ký tự đặc biệt.' };
     }

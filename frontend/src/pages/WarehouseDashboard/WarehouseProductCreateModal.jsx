@@ -556,7 +556,7 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
                       />
                     </div>
                     <div>
-                      <label className="mb-1 block text-sm font-medium text-slate-700">Barcode</label>
+                      <label className="mb-1 block text-sm font-medium text-slate-700">Barcode *</label>
                       <div className="relative">
                         <input
                           type="text"

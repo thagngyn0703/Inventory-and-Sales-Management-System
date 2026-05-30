@@ -143,6 +143,7 @@ describe('Products Routes', () => {
         .send({
           name: 'Duplicate SKU Product',
           sku,
+          barcode: `${Date.now()}1`,
           cost_price: 10000,
           sale_price: 15000,
         });
@@ -159,6 +160,7 @@ describe('Products Routes', () => {
         .send({
           name: 'Test Product',
           sku,
+          barcode: `${Date.now()}`,
           cost_price: 10000,
           sale_price: 15000,
           stock_qty: 50,

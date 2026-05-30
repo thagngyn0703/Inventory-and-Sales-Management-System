@@ -147,7 +147,10 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
     if (!trimmedSku) {
       return res.status(400).json({ message: 'sku is required' });
     }
-    if (trimmedBarcode && !DIGITS_ONLY_REGEX.test(trimmedBarcode)) {
+    if (!trimmedBarcode) {
+      return res.status(400).json({ message: 'Barcode không được để trống.' });
+    }
+    if (!DIGITS_ONLY_REGEX.test(trimmedBarcode)) {
       return res.status(400).json({ message: 'Barcode chỉ được nhập số, không chữ hoặc ký tự đặc biệt.' });
     }
 
@@ -157,7 +160,7 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
       $or: [
         { sku: trimmedSku },
         { name: new RegExp(`^${escapeRegex(trimmedName)}$`, 'i') },
-        ...(trimmedBarcode ? [{ barcode: trimmedBarcode }] : []),
+        { barcode: trimmedBarcode },
       ],
     });
     if (existingProduct) {

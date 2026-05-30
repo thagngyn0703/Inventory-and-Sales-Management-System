@@ -553,7 +553,7 @@ export default function ManagerProductEdit() {
                                             <input type="text" value={form.sku} onChange={(e) => update('sku', e.target.value)} placeholder="Mã SKU" className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2" />
                                         </div>
                                         <div>
-                                            <label className="mb-1 block text-sm font-medium text-slate-600">Barcode</label>
+                                            <label className="mb-1 block text-sm font-medium text-slate-600">Barcode *</label>
                                             <div className="relative">
                                                 <input type="text" value={form.barcode} onChange={(e) => update('barcode', e.target.value)} placeholder="Mã vạch (tùy chọn)" className="h-10 w-full rounded-lg border border-slate-200 px-3 pr-11 text-sm outline-none ring-sky-200 transition focus:ring-2" />
                                                 <button

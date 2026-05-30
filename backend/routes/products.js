@@ -560,7 +560,8 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
 
     if (!nameTrim) return res.status(400).json({ message: 'Tên sản phẩm không được để trống.' });
     if (!skuTrim) return res.status(400).json({ message: 'SKU không được để trống.' });
-    if (barcodeTrim && !DIGITS_ONLY_REGEX.test(barcodeTrim)) {
+    if (!barcodeTrim) return res.status(400).json({ message: 'Barcode không được để trống.' });
+    if (!DIGITS_ONLY_REGEX.test(barcodeTrim)) {
       return res.status(400).json({ message: 'Barcode chỉ được nhập số, không chữ hoặc ký tự đặc biệt.' });
     }
     if (!isValidNoSpecialText(base)) {
@@ -1621,11 +1622,12 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
 
     if (barcode !== undefined) {
       const bc = trimText(barcode);
-      if (bc && !DIGITS_ONLY_REGEX.test(bc)) {
+      if (!bc) return res.status(400).json({ message: 'Barcode không được để trống.' });
+      if (!DIGITS_ONLY_REGEX.test(bc)) {
         return res.status(400).json({ message: 'Barcode chỉ được nhập số, không chữ hoặc ký tự đặc biệt.' });
       }
       const barcodeChanged = originalBarcode !== bc;
-      if (bc && barcodeChanged) {
+      if (barcodeChanged) {
         const barcodeCheck = await ensureBarcodeAvailableForProduct({
           barcode: bc,
           storeId: product.storeId,
@@ -1635,7 +1637,7 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
           return res.status(409).json({ message: 'Barcode đã tồn tại cho sản phẩm khác trong cửa hàng này' });
         }
       }
-      product.barcode = bc || undefined;
+      product.barcode = bc;
       if (barcodeChanged) shouldSyncUnits = true;
     }
 

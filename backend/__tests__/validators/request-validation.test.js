@@ -90,6 +90,7 @@ describe('Request Validation Tests', () => {
         .send({
           name: 'Product@#$%',
           sku: `SKU-123-${suffix}`,
+          barcode: `${suffix}`,
           cost_price: 10000,
           sale_price: 15000,
         });
@@ -97,6 +98,21 @@ describe('Request Validation Tests', () => {
       expect(res.status).toBe(201);
       expect(res.body.product.name).toBe('Product@#$%');
       expect(res.body.product.sku).toBe(`SKU-123-${suffix}`);
+    });
+
+    it('should return 400 if barcode is missing', async () => {
+      const res = await request(app)
+        .post('/api/products')
+        .set('Authorization', managerToken)
+        .send({
+          name: 'Test Product',
+          sku: 'SKU123',
+          cost_price: 10000,
+          sale_price: 15000,
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toContain('Barcode');
     });
 
     it('should return 400 if barcode contains letters', async () => {
@@ -122,6 +138,7 @@ describe('Request Validation Tests', () => {
         .send({
           name: 'Test Product',
           sku: 'SKU123',
+          barcode: '1234567890',
           cost_price: -100,
           sale_price: 15000,
         });
@@ -137,6 +154,7 @@ describe('Request Validation Tests', () => {
         .send({
           name: 'Test Product',
           sku: 'SKU123',
+          barcode: '1234567890',
           cost_price: 10000,
           sale_price: 15000,
           stock_qty: -5,
