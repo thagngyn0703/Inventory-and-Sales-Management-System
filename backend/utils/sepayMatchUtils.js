@@ -98,6 +98,21 @@ function findMatchingSepayTransaction(transactions, { paymentRef, expectedAmount
   return candidates[0];
 }
 
+/** Webhook secret — mỗi merchant SePay (mỗi cửa hàng) có secret riêng. */
+function getSepayWebhookSecrets() {
+  const primary = String(process.env.SEPAY_SECRET || '').trim();
+  const extras = String(process.env.SEPAY_SECRETS || '')
+    .split(/[,;\n]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const all = [];
+  if (primary) all.push(primary);
+  for (const s of extras) {
+    if (!all.includes(s)) all.push(s);
+  }
+  return all;
+}
+
 function getPreferredAccountsForStore(storeBankAccount) {
   const storeAcc = normalizeAccountNumber(storeBankAccount || '');
   const envAcc = normalizeAccountNumber(process.env.SEPAY_ACCOUNT_NUMBER || '');
@@ -107,10 +122,22 @@ function getPreferredAccountsForStore(storeBankAccount) {
   return list;
 }
 
-async function fetchSepayTransactionsByAmount(amount) {
-  const token = String(process.env.SEPAY_API_TOKEN || '').trim();
-  if (!token) return [];
+/** Mọi token SePay (mỗi cửa hàng / STK có thể có token riêng trên SePay). */
+function getSepayApiTokens() {
+  const primary = String(process.env.SEPAY_API_TOKEN || '').trim();
+  const extras = String(process.env.SEPAY_API_TOKENS || '')
+    .split(/[,;\n]+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+  const all = [];
+  if (primary) all.push(primary);
+  for (const t of extras) {
+    if (!all.includes(t)) all.push(t);
+  }
+  return all;
+}
 
+async function fetchSepayTransactionsWithToken(amount, token) {
   const baseUrl = String(process.env.SEPAY_API_BASE_URL || 'https://my.sepay.vn').replace(/\/+$/, '');
   const url = new URL(`${baseUrl}/userapi/transactions/list`);
   url.searchParams.set('limit', '50');
@@ -134,6 +161,37 @@ async function fetchSepayTransactionsByAmount(amount) {
   return Array.isArray(data?.transactions) ? data.transactions : [];
 }
 
+/**
+ * Gọi SePay với mọi token đã cấu hình (SEPAY_API_TOKEN + SEPAY_API_TOKENS).
+ * Gộp giao dịch để đối soát CK nhiều cửa hàng / nhiều STK.
+ */
+async function fetchSepayTransactionsByAmount(amount) {
+  const tokens = getSepayApiTokens();
+  if (!tokens.length) return [];
+
+  const merged = [];
+  const seen = new Set();
+  let lastError = null;
+
+  for (const token of tokens) {
+    try {
+      const txs = await fetchSepayTransactionsWithToken(amount, token);
+      for (const tx of txs) {
+        const key = String(tx?.id || tx?.reference_number || `${getTransactionContent(tx)}-${getTransactionAmountIn(tx)}`);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        merged.push(tx);
+      }
+    } catch (err) {
+      lastError = err;
+      console.warn('[SePay API] token poll failed:', err.message);
+    }
+  }
+
+  if (!merged.length && lastError) throw lastError;
+  return merged;
+}
+
 module.exports = {
   normalizePaymentRef,
   normalizeAccountNumber,
@@ -145,5 +203,8 @@ module.exports = {
   getTransactionAmountIn,
   getTransactionContent,
   getTransactionAccountNumber,
+  getSepayApiTokens,
+  getSepayWebhookSecrets,
   fetchSepayTransactionsByAmount,
+  fetchSepayTransactionsWithToken,
 };

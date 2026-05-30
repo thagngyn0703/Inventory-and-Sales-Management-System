@@ -1,6 +1,13 @@
+const mongoose = require('mongoose');
 const User = require('../models/User');
 const Notification = require('../models/Notification');
-const { emitNotificationCountRefresh, emitStorePaymentConfirmed } = require('../socket');
+const { emitNotificationCountRefresh, emitStorePaymentConfirmed, getIO } = require('../socket');
+
+function toStoreObjectId(storeId) {
+  const raw = String(storeId || '').trim();
+  if (!mongoose.Types.ObjectId.isValid(raw)) return null;
+  return new mongoose.Types.ObjectId(raw);
+}
 
 /**
  * Gửi thông báo nội bộ + realtime tới mọi manager/staff của cửa hàng khi CK được xác nhận.
@@ -19,7 +26,8 @@ async function notifyStoreBankTransferPaid({
 }) {
   if (!storeId || !paymentRef) return;
 
-  const storeOid = String(storeId);
+  const storeOid = toStoreObjectId(storeId);
+  if (!storeOid) return;
   const ref = String(paymentRef).trim().toUpperCase();
   const shortInv = invoiceId ? String(invoiceId).slice(-6).toUpperCase() : '';
   const amountNum = Math.round(Number(amount) || 0);
@@ -33,6 +41,11 @@ async function notifyStoreBankTransferPaid({
     .select('_id')
     .lean();
 
+  if (!users.length) {
+    console.warn('[bankTransferNotification] no manager/staff for store', String(storeOid));
+    return;
+  }
+
   const title = titleOverride || 'Khách đã chuyển khoản';
   const message =
     messageOverride ||
@@ -45,6 +58,7 @@ async function notifyStoreBankTransferPaid({
     uniqueKeyBase ||
     (invoiceId ? `bank_transfer_paid:${invoiceId}` : `bank_transfer_paid:${ref}`);
 
+  let createdCount = 0;
   for (const user of users) {
     const userId = String(user._id);
     try {
@@ -60,7 +74,8 @@ async function notifyStoreBankTransferPaid({
         is_read: false,
         created_at: new Date(),
       });
-      await emitNotificationCountRefresh({ storeId: storeOid, userId });
+      createdCount += 1;
+      await emitNotificationCountRefresh({ storeId: String(storeOid), userId });
     } catch (err) {
       if (err?.code !== 11000) {
         console.warn('[bankTransferNotification] create failed:', err.message);
@@ -68,13 +83,25 @@ async function notifyStoreBankTransferPaid({
     }
   }
 
+  if (createdCount === 0) return;
+
   emitStorePaymentConfirmed({
-    storeId: storeOid,
+    storeId: String(storeOid),
     payment_ref: ref,
     invoice_id: invoiceId ? String(invoiceId) : null,
     amount: amountNum,
     source,
   });
+
+  const io = getIO();
+  if (io) {
+    io.to(`store:${String(storeOid)}`).emit('manager:bank-transfer-paid', {
+      title,
+      message,
+      payment_ref: ref,
+      amount: amountNum,
+    });
+  }
 }
 
 module.exports = {

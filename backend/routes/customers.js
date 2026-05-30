@@ -13,6 +13,7 @@ const {
   findMatchingSepayTransaction,
   getPreferredAccountsForStore,
   fetchSepayTransactionsByAmount,
+  getSepayApiTokens,
 } = require('../utils/sepayMatchUtils');
 const { notifyStoreBankTransferPaid } = require('../services/bankTransferNotificationService');
 
@@ -463,8 +464,7 @@ router.post('/:id/pay-debt/confirm-transfer', requireAuth, requireRole(['staff',
             });
         }
 
-        const token = String(process.env.SEPAY_API_TOKEN || '').trim();
-        if (!token) {
+        if (!getSepayApiTokens().length) {
             lockedPendingPayment.status = 'pending';
             lockedPendingPayment.note = 'Thiếu cấu hình SEPAY_API_TOKEN';
             await lockedPendingPayment.save();

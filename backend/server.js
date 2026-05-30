@@ -108,8 +108,11 @@ if (!process.env.MONGO_URI) {
     console.error('Lỗi: MONGO_URI chưa được cấu hình trong file .env');
     process.exit(1);
 }
-if (!process.env.SEPAY_API_TOKEN || !String(process.env.SEPAY_API_TOKEN).trim()) {
-    console.warn('Cảnh báo: SEPAY_API_TOKEN chưa cấu hình — polling đối soát CK có thể không hoạt động (webhook vẫn nhận nếu SePay đã cấu hình URL).');
+const hasSepayApi =
+    (process.env.SEPAY_API_TOKEN && String(process.env.SEPAY_API_TOKEN).trim()) ||
+    (process.env.SEPAY_API_TOKENS && String(process.env.SEPAY_API_TOKENS).trim());
+if (!hasSepayApi) {
+    console.warn('Cảnh báo: SEPAY_API_TOKEN / SEPAY_API_TOKENS chưa cấu hình — polling đối soát CK có thể không hoạt động (webhook vẫn nhận nếu SePay đã cấu hình URL).');
 }
 if (!process.env.SEPAY_ACCOUNT_NUMBER || !String(process.env.SEPAY_ACCOUNT_NUMBER).trim()) {
     console.warn('Cảnh báo: SEPAY_ACCOUNT_NUMBER chưa cấu hình — hệ thống đối soát theo mã IMS + số tiền và STK QR từng cửa hàng (multi-store).');

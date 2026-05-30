@@ -25,10 +25,15 @@ export default function ManagerNotificationBell({ variant = 'default' }) {
       if (!stop) setCount(next);
     };
     socket?.on('manager:notification-unread-updated', onUnreadUpdated);
+    const onBankPaid = () => {
+      load();
+    };
+    socket?.on('manager:bank-transfer-paid', onBankPaid);
 
     return () => {
       stop = true;
       socket?.off('manager:notification-unread-updated', onUnreadUpdated);
+      socket?.off('manager:bank-transfer-paid', onBankPaid);
     };
   }, []);
 
