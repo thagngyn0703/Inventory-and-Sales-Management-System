@@ -15,6 +15,7 @@ const STATUS_LABEL = {
   submitted: 'Đã gửi',
   completed: 'Hoàn thành',
   cancelled: 'Đã hủy',
+  expired: 'Hết hiệu lực',
 };
 
 export default function WarehouseStocktakingDetail() {
@@ -182,9 +183,11 @@ export default function WarehouseStocktakingDetail() {
                 ? 'border border-emerald-200 bg-emerald-100 font-medium text-emerald-800'
                 : stocktake?.status === 'cancelled'
                   ? 'border border-red-200 bg-red-100 font-medium text-red-800'
-                  : stocktake?.status === 'submitted'
-                    ? 'border border-amber-200 bg-amber-100 font-medium text-amber-900'
-                    : 'border border-slate-200 bg-slate-100 font-medium text-slate-800'
+                  : stocktake?.status === 'expired'
+                    ? 'border border-slate-300 bg-slate-200 font-medium text-slate-700'
+                    : stocktake?.status === 'submitted'
+                      ? 'border border-amber-200 bg-amber-100 font-medium text-amber-900'
+                      : 'border border-slate-200 bg-slate-100 font-medium text-slate-800'
             }
           >
             {STATUS_LABEL[stocktake?.status] ?? stocktake?.status}
@@ -197,6 +200,9 @@ export default function WarehouseStocktakingDetail() {
     >
       {stocktake?.status === 'cancelled' && stocktake?.reject_reason && (
         <InlineNotice message={`Lý do từ chối: ${stocktake.reject_reason}`} type="error" />
+      )}
+      {stocktake?.status === 'expired' && (
+        <InlineNotice message="Tồn hệ thống đã thay đổi" type="error" />
       )}
 
       {isDraft && (
