@@ -110,13 +110,17 @@ export default function ManagerQuickGoodsReceipt() {
     const [selectedUnitId, setSelectedUnitId] = useState('');
     const [scanMode, setScanMode] = useState(false);
     const [barcodeNotFoundModal, setBarcodeNotFoundModal] = useState({ open: false, code: '' });
+    const closeBarcodeNotFoundModal = useCallback(() => {
+        setBarcodeNotFoundModal({ open: false, code: '' });
+        setLastOnlineLookup(null);
+        setOnlineLookupError('');
+    }, []);
     const [isCameraScanOpen, setIsCameraScanOpen] = useState(false);
     const [isCameraStarting, setIsCameraStarting] = useState(false);
     const [cameraError, setCameraError] = useState('');
     const [onlineLookupLoading, setOnlineLookupLoading] = useState(false);
     const [lastOnlineLookup, setLastOnlineLookup] = useState(null);
     const [onlineLookupError, setOnlineLookupError] = useState('');
-    const [showOffHoverCard, setShowOffHoverCard] = useState(false);
     const applyBarcodeToBaseUnit = (formState, rawBarcode) => {
         const nextBarcode = String(rawBarcode || '').trim();
         const units = Array.isArray(formState.selling_units) && formState.selling_units.length > 0
@@ -228,6 +232,15 @@ export default function ManagerQuickGoodsReceipt() {
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [barcodeNotFoundModal.open, barcodeNotFoundModal.code]);
+
+    useEffect(() => {
+        if (!barcodeNotFoundModal.open) return undefined;
+        const onKeyDown = (event) => {
+            if (event.key === 'Escape') closeBarcodeNotFoundModal();
+        };
+        document.addEventListener('keydown', onKeyDown);
+        return () => document.removeEventListener('keydown', onKeyDown);
+    }, [barcodeNotFoundModal.open, closeBarcodeNotFoundModal]);
 
     useEffect(() => {
         if (createMode && !selectedProduct) {
@@ -476,7 +489,6 @@ export default function ManagerQuickGoodsReceipt() {
         const ok = await handleScanSubmitRef.current?.(code);
         cameraScanLockRef.current = false;
         // Đã decode xong 1 mã: luôn đóng camera để tránh quét trùng / tăng số lượng ngoài ý muốn.
-        // Nếu người dùng muốn quét tiếp, popup "Tiếp tục quét" sẽ mở camera lại.
         if (ok !== undefined) setIsCameraScanOpen(false);
     }, []);
 
@@ -1533,9 +1545,31 @@ export default function ManagerQuickGoodsReceipt() {
                     </div>
                 </div>
                 {barcodeNotFoundModal.open && (
-                    <div className="fixed inset-0 z-[2100] flex items-center justify-center bg-slate-900/55 p-4">
-                        <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-4 shadow-2xl">
-                            <h4 className="text-base font-semibold text-slate-900">Không tìm thấy sản phẩm</h4>
+                    <div
+                        className="fixed inset-0 z-[2100] flex items-center justify-center bg-slate-900/55 p-4"
+                        role="presentation"
+                        onClick={closeBarcodeNotFoundModal}
+                    >
+                        <div
+                            role="dialog"
+                            aria-modal="true"
+                            aria-labelledby="barcode-not-found-title"
+                            className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-4 shadow-2xl"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            <div className="flex items-start justify-between gap-2">
+                                <h4 id="barcode-not-found-title" className="text-base font-semibold text-slate-900">
+                                    Không tìm thấy sản phẩm
+                                </h4>
+                                <button
+                                    type="button"
+                                    onClick={closeBarcodeNotFoundModal}
+                                    className="rounded-md p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                                    aria-label="Đóng"
+                                >
+                                    <X className="h-4 w-4" />
+                                </button>
+                            </div>
                             <p className="mt-2 text-sm text-slate-600">
                                 Barcode <strong>{barcodeNotFoundModal.code}</strong> chưa có trong hệ thống.
                             </p>
@@ -1549,91 +1583,71 @@ export default function ManagerQuickGoodsReceipt() {
                                     {onlineLookupError}
                                 </p>
                             )}
-                            <div className="mt-4 flex flex-wrap justify-end gap-2">
-                                <div
-                                    className="relative"
-                                    onMouseEnter={() => setShowOffHoverCard(true)}
-                                    onMouseLeave={() => setShowOffHoverCard(false)}
-                                >
+                            {!onlineLookupLoading && offPreviewProduct && (
+                                <div className="mt-3 rounded-lg border border-sky-200 bg-sky-50/60 p-3">
+                                    <p className="text-xs font-semibold text-sky-800">
+                                        Tìm thấy trên Open Food Facts — có thể tạo nhanh từ dữ liệu này.
+                                    </p>
+                                    <div className="mt-2 flex gap-3">
+                                        {offPreviewProduct.image_url ? (
+                                            <img
+                                                src={offPreviewProduct.image_url}
+                                                alt={offPreviewProduct.name || 'Ảnh sản phẩm OFF'}
+                                                className="h-16 w-16 shrink-0 rounded-lg border border-slate-200 bg-white object-contain"
+                                            />
+                                        ) : null}
+                                        <div className="min-w-0 text-sm">
+                                            <div className="font-semibold text-slate-900 line-clamp-2">
+                                                {offPreviewProduct.name || 'Không có tên'}
+                                            </div>
+                                            {offPreviewProduct.brand ? (
+                                                <div className="mt-0.5 text-xs text-slate-600">
+                                                    {offPreviewProduct.brand}
+                                                </div>
+                                            ) : null}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                            <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                                {offPreviewProduct ? (
+                                    <>
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            disabled={onlineLookupLoading}
+                                            onClick={() => {
+                                                startCreateModeFromCode(barcodeNotFoundModal.code);
+                                                clearFoundProduct();
+                                                setSearchInput(barcodeNotFoundModal.code);
+                                            }}
+                                        >
+                                            Tạo thủ công
+                                        </Button>
+                                        <Button
+                                            type="button"
+                                            disabled={onlineLookupLoading}
+                                            onClick={importOpenFoodFactsToForm}
+                                        >
+                                            <span className="inline-flex items-center gap-2">
+                                                <OpenFoodFactsLogo size={14} />
+                                                Tạo từ OFF
+                                            </span>
+                                        </Button>
+                                    </>
+                                ) : (
                                     <Button
                                         type="button"
-                                        variant="outline"
-                                        disabled={!lastOnlineLookup || lastOnlineLookup?.source !== 'open_food_facts' || !lastOnlineLookup?.product || onlineLookupLoading}
-                                        onClick={importOpenFoodFactsToForm}
-                                        onFocus={() => setShowOffHoverCard(true)}
-                                        onBlur={() => setShowOffHoverCard(false)}
-                                        title="Chỉ nhấn nút này để nạp thông tin từ Open Food Facts vào form"
+                                        disabled={onlineLookupLoading}
+                                        onClick={() => {
+                                            startCreateModeFromCode(barcodeNotFoundModal.code);
+                                            clearFoundProduct();
+                                            setSearchInput(barcodeNotFoundModal.code);
+                                        }}
                                     >
-                                        <span className="inline-flex items-center gap-2">
-                                            <OpenFoodFactsLogo size={14} />
-                                            Nhập thông tin từ OFF
-                                        </span>
+                                        Tạo sản phẩm mới
                                     </Button>
-                                    {showOffHoverCard && (
-                                        <div className="absolute right-0 top-full z-[2400] mt-2 w-72 rounded-xl border border-slate-200 bg-white p-3 shadow-2xl">
-                                            {onlineLookupLoading ? (
-                                                <p className="text-xs font-medium text-slate-600">Đang tải thông tin OFF...</p>
-                                            ) : offPreviewProduct ? (
-                                                <div className="space-y-2">
-                                                    {offPreviewProduct.image_url && (
-                                                        <div className="aspect-[16/9] w-full overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
-                                                            <img
-                                                                src={offPreviewProduct.image_url}
-                                                                alt={offPreviewProduct.name || 'OFF product image'}
-                                                                className="h-full w-full object-contain"
-                                                            />
-                                                        </div>
-                                                    )}
-                                                    <div className="text-sm font-semibold text-slate-900 line-clamp-2">
-                                                        {offPreviewProduct.name || 'Không có tên'}
-                                                    </div>
-                                                    {offPreviewProduct.brand ? (
-                                                        <div className="text-xs font-medium text-slate-600">
-                                                            Brand: {offPreviewProduct.brand}
-                                                        </div>
-                                                    ) : null}
-                                                    {Array.isArray(offPreviewProduct.categories) && offPreviewProduct.categories.length ? (
-                                                        <div className="text-xs font-medium text-slate-600">
-                                                            Category: {offPreviewProduct.categories.slice(0, 3).join(', ')}
-                                                        </div>
-                                                    ) : null}
-                                                </div>
-                                            ) : (
-                                                <p className="text-xs font-medium text-slate-600">Chưa có thông tin OFF để hiển thị.</p>
-                                            )}
-                                        </div>
-                                    )}
-                                </div>
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    onClick={() => {
-                                        setBarcodeNotFoundModal({ open: false, code: '' });
-                                        setIsCameraScanOpen(true);
-                                    }}
-                                >
-                                    Tiếp tục quét
-                                </Button>
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    onClick={() => {
-                                        startCreateModeFromCode(barcodeNotFoundModal.code);
-                                        setSearchInput(barcodeNotFoundModal.code);
-                                    }}
-                                >
-                                    Nhập barcode vào form tạo
-                                </Button>
-                                <Button
-                                    type="button"
-                                    onClick={() => {
-                                        startCreateModeFromCode(barcodeNotFoundModal.code);
-                                        clearFoundProduct();
-                                        setSearchInput(barcodeNotFoundModal.code);
-                                    }}
-                                >
-                                    Tạo sản phẩm mới
-                                </Button>
+                                )}
                             </div>
                         </div>
                     </div>
