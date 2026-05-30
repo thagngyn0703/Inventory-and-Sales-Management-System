@@ -49,6 +49,8 @@ export default function WarehouseGoodsReceiptCreate() {
   const submitLockRef = useRef(false);
   const scanBufferRef = useRef('');
   const scanTimerRef = useRef(null);
+  const [productPickerOpen, setProductPickerOpen] = useState(false);
+  const productPickerRef = useRef(null);
 
   const addedIds = useMemo(() => new Set(items.map((i) => i.product._id)), [items]);
 
@@ -69,11 +71,22 @@ export default function WarehouseGoodsReceiptCreate() {
       .catch((e) => toast(e.message || 'Không tải được danh mục', 'error'));
   }, [toast]);
 
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (!productPickerRef.current?.contains(event.target)) {
+        setProductPickerOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   const runSearchProducts = useCallback(async (rawKeyword, opts = {}) => {
     const keyword = String(rawKeyword || '').trim();
     const showEmptyToast = Boolean(opts.showEmptyToast);
     if (!keyword) {
       setProducts([]);
+      setProductPickerOpen(false);
       return;
     }
     const reqSeq = ++searchReqSeqRef.current;
@@ -83,6 +96,7 @@ export default function WarehouseGoodsReceiptCreate() {
       if (reqSeq !== searchReqSeqRef.current) return;
       const list = data.products || [];
       setProducts(list);
+      setProductPickerOpen(list.length > 0);
       if (list.length === 0 && showEmptyToast) toast('Không tìm thấy sản phẩm', 'info');
     } catch (e) {
       if (reqSeq === searchReqSeqRef.current) {
@@ -434,6 +448,7 @@ export default function WarehouseGoodsReceiptCreate() {
               Đăng ký thông tin sản phẩm mới
             </Button>
           </div>
+          <div ref={productPickerRef} className="space-y-2">
           <div className="flex flex-col gap-2 sm:flex-row">
             <div className="relative flex-1">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -442,7 +457,17 @@ export default function WarehouseGoodsReceiptCreate() {
                 placeholder="Tìm theo tên, SKU..."
                 className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-12 text-sm outline-none ring-sky-200 focus:ring-2"
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setSearch(next);
+                  if (!String(next).trim()) setProductPickerOpen(false);
+                }}
+                onFocus={() => {
+                  if (products.length > 0) setProductPickerOpen(true);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') setProductPickerOpen(false);
+                }}
               />
               <button
                 type="button"
@@ -474,7 +499,10 @@ export default function WarehouseGoodsReceiptCreate() {
               type="button"
               variant="outline"
               className="h-11 shrink-0"
-              onClick={handleSearchProducts}
+              onClick={() => {
+                setProductPickerOpen(true);
+                handleSearchProducts();
+              }}
               disabled={searching}
             >
               {searching ? (
@@ -493,7 +521,7 @@ export default function WarehouseGoodsReceiptCreate() {
             </p>
           )}
 
-          {products.length > 0 && (
+          {productPickerOpen && products.length > 0 && (
             <div className="max-h-56 overflow-y-auto rounded-xl border border-slate-200/80 bg-slate-50/40">
               {productsPickList.length === 0 ? (
                 <p className="p-4 text-center text-sm text-slate-500">
@@ -520,6 +548,7 @@ export default function WarehouseGoodsReceiptCreate() {
               )}
             </div>
           )}
+          </div>
         </CardContent>
       </Card>
 
