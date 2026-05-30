@@ -3,7 +3,7 @@ const request = require('supertest');
 const express = require('express');
 const invoiceRoutes = require('../../routes/invoices');
 const Product = require('../../models/Product');
-const { createManagerWithStore, getAuthHeader } = require('../fixtures/users');
+const { createAdminUser, createManagerWithStore, getAuthHeader } = require('../fixtures/users');
 const { createTestProduct } = require('../fixtures/products');
 const { createTestCustomer } = require('../fixtures/customers');
 
@@ -247,6 +247,8 @@ describe('Invoices Routes', () => {
   describe('POST /api/invoices/:id/cancel', () => {
     it('should cancel invoice and restore stock', async () => {
       const product = await createTestProduct(store._id, { stock_qty: 100 });
+      const admin = await createAdminUser();
+      const adminToken = getAuthHeader(admin).Authorization;
 
       const createRes = await request(app)
         .post('/api/invoices')
@@ -267,7 +269,7 @@ describe('Invoices Routes', () => {
 
       const res = await request(app)
         .post(`/api/invoices/${invoiceId}/cancel`)
-        .set('Authorization', managerToken);
+        .set('Authorization', adminToken);
 
       expect(res.status).toBe(200);
 

@@ -48,6 +48,7 @@ export default function ManagerSupplierDebtLedger() {
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [paymentNote, setPaymentNote] = useState('');
   const [returnAmount, setReturnAmount] = useState('');
+  const [returnRefundMethod, setReturnRefundMethod] = useState('cash');
   const [returnReason, setReturnReason] = useState('Trả hàng nhà cung cấp');
   const [returnNote, setReturnNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -122,10 +123,11 @@ export default function ManagerSupplierDebtLedger() {
     try {
       await createSupplierReturn(id, {
         total_amount: amountNum,
+        refund_method: returnRefundMethod,
         reason: returnReason || undefined,
         note: returnNote || undefined,
       });
-      setSuccess('Đã ghi nhận phiếu trả NCC và giảm công nợ.');
+      setSuccess('Đã ghi nhận phiếu trả NCC — NCC hoàn tiền (không ảnh hưởng công nợ).');
       setReturnAmount('');
       setReturnNote('');
       setPage(1);
@@ -185,15 +187,26 @@ export default function ManagerSupplierDebtLedger() {
               </form>
               <div className="h-px bg-slate-200" />
               <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Ghi nhận trả hàng NCC</h3>
+              <p className="text-xs text-slate-500">NCC hoàn tiền cho cửa hàng; không bù trừ công nợ. Dùng màn Tạo phiếu trả NCC nếu cần khai báo từng sản phẩm.</p>
               <form className="space-y-3" onSubmit={handleSubmitReturn}>
                 <input
                   type="text"
                   inputMode="numeric"
-                  placeholder="Giá trị trả NCC"
+                  placeholder="Số tiền NCC hoàn"
                   value={returnAmount}
                   onChange={(e) => setReturnAmount(formatCurrencyInput(e.target.value))}
                   className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm"
                 />
+                <select
+                  value={returnRefundMethod}
+                  onChange={(e) => setReturnRefundMethod(e.target.value)}
+                  className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm"
+                >
+                  <option value="cash">Tiền mặt</option>
+                  <option value="bank_transfer">Chuyển khoản</option>
+                  <option value="e_wallet">Ví điện tử</option>
+                  <option value="other">Khác</option>
+                </select>
                 <input
                   type="text"
                   value={returnReason}

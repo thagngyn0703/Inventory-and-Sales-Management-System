@@ -413,6 +413,7 @@ router.post('/open', requireAuth, requireRole(['staff', 'manager', 'admin']), as
             opened_at: new Date(),
             status: 'open',
             opening_cash,
+            target_float_cash: opening_cash,
             reconciliation_status: 'pending',
         });
 
@@ -533,7 +534,9 @@ router.post('/:id/close', requireAuth, requireRole(['staff', 'manager', 'admin']
             ? normalizeNonNegativeInt(expected.expected_bank)
             : normalizeNonNegativeInt(req.body?.actual_bank);
 
-        const targetFloatCash = normalizeNonNegativeInt(shift.target_float_cash || 1000000);
+        const openingCash = normalizeNonNegativeInt(shift.opening_cash || 0);
+        // Để lại trong ngăn kéo = tiền đầu ca (không ép 1 triệu mặc định).
+        const targetFloatCash = openingCash;
         const cash_to_keep = Math.min(targetFloatCash, actual_cash);
         const cash_to_handover = Math.max(0, actual_cash - cash_to_keep);
 
@@ -545,7 +548,6 @@ router.post('/:id/close', requireAuth, requireRole(['staff', 'manager', 'admin']
         shift.target_float_cash = targetFloatCash;
         shift.cash_to_keep = cash_to_keep;
         shift.cash_to_handover = cash_to_handover;
-        const openingCash = normalizeNonNegativeInt(shift.opening_cash || 0);
         shift.discrepancy_cash = Math.round(actual_cash - openingCash - expected.expected_cash);
         shift.discrepancy_bank = Math.round(actual_bank - expected.expected_bank);
         const absCashDiscrepancy = Math.abs(Math.round(actual_cash - expected.expected_cash));

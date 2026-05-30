@@ -614,7 +614,7 @@ router.post('/:id/payments', requireAuth, requireRole(['manager', 'admin']), asy
   }
 });
 
-// POST /api/suppliers/:id/returns — ghi nhận phiếu trả hàng NCC (giảm nợ)
+// POST /api/suppliers/:id/returns — ghi nhận phiếu trả hàng NCC (NCC hoàn tiền, không bù trừ nợ)
 router.post('/:id/returns', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
   const session = await mongoose.startSession();
   try {
@@ -631,7 +631,12 @@ router.post('/:id/returns', requireAuth, requireRole(['manager', 'admin']), asyn
       reference_code,
       reason,
       note,
+      refund_method: refundMethodRaw,
     } = req.body || {};
+    const REFUND_METHODS = ['cash', 'bank_transfer', 'e_wallet', 'other'];
+    const refund_method = REFUND_METHODS.includes(String(refundMethodRaw || '').toLowerCase())
+      ? String(refundMethodRaw).toLowerCase()
+      : 'cash';
     const normalizedItems = [];
     if (Array.isArray(items) && items.length > 0) {
       const reqQtyMap = new Map();
@@ -691,24 +696,8 @@ router.post('/:id/returns', requireAuth, requireRole(['manager', 'admin']), asyn
       }
     }
 
-    const openPayables = await SupplierPayable.find({
-      supplier_id: supplier._id,
-      storeId: supplier.storeId,
-      status: { $in: ['open', 'partial'] },
-      remaining_amount: { $gt: 0 },
-    }).sort({ due_date: 1, created_at: 1 });
-    if (!openPayables.length) {
-      return res.status(400).json({ message: 'Nhà cung cấp hiện không có khoản nợ nào để giảm' });
-    }
-    const totalRemaining = openPayables.reduce((s, p) => s + (Number(p.remaining_amount) || 0), 0);
-    if (amount > totalRemaining + 0.01) {
-      return res.status(400).json({
-        message: `Giá trị trả NCC (${amount.toLocaleString('vi-VN')}đ) vượt tổng còn nợ (${totalRemaining.toLocaleString('vi-VN')}đ)`,
-      });
-    }
-
-    const beforeDebt = round2(Number(supplier.current_debt) || Number(supplier.payable_account) || 0);
     session.startTransaction();
+    const returnNoteText = note || reason || 'Trả hàng nhà cung cấp — NCC hoàn tiền';
     const [supplierReturn] = await SupplierReturn.create(
       [{
         supplier_id: supplier._id,
@@ -719,48 +708,13 @@ router.post('/:id/returns', requireAuth, requireRole(['manager', 'admin']), asyn
         note: note || undefined,
         reference_code: reference_code || undefined,
         return_date: return_date ? new Date(return_date) : new Date(),
+        refund_method,
         status: 'approved',
         created_by: req.user.id,
         approved_by: req.user.id,
         approved_at: new Date(),
         created_at: new Date(),
       }],
-      { session }
-    );
-
-    const [payment] = await SupplierPayment.create(
-      [{
-        supplier_id: supplier._id,
-        storeId: supplier.storeId,
-        total_amount: amount,
-        payment_date: return_date ? new Date(return_date) : new Date(),
-        payment_method: 'other',
-        reference_code: reference_code || `RET-${String(supplierReturn._id).slice(-6).toUpperCase()}`,
-        note: note || `Bù trừ công nợ do trả hàng NCC #${String(supplierReturn._id).slice(-6).toUpperCase()}`,
-        created_by: req.user.id,
-      }],
-      { session }
-    );
-
-    let remaining = amount;
-    const allocations = [];
-    const updatedPayableIds = [];
-    for (const payable of openPayables) {
-      if (remaining <= 0) break;
-      const apply = Math.min(Number(payable.remaining_amount) || 0, remaining);
-      remaining = round2(remaining - apply);
-      allocations.push({
-        payment_id: payment._id,
-        payable_id: payable._id,
-        amount: round2(apply),
-      });
-      updatedPayableIds.push(payable._id);
-    }
-    const createdAllocations = await SupplierPaymentAllocation.insertMany(allocations, { session });
-    const allocationIds = createdAllocations.map((a) => a._id);
-    await SupplierReturn.findByIdAndUpdate(
-      supplierReturn._id,
-      { payment_id: payment._id, allocation_ids: allocationIds },
       { session }
     );
 
@@ -780,43 +734,24 @@ router.post('/:id/returns', requireAuth, requireRole(['manager', 'admin']), asyn
       );
     }
 
-    await session.commitTransaction();
-
-    for (const pid of updatedPayableIds) {
-      await recalculatePayable(pid);
-    }
-    await refreshSupplierPayableCache(supplier._id, supplier.storeId);
-    const supplierAfter = await Supplier.findById(supplier._id).select('current_debt').lean();
-    await SupplierDebtHistory.create({
-      supplier_id: supplier._id,
-      storeId: supplier.storeId,
-      type: 'DEBT_DECREASE_RETURN',
-      reference_type: 'supplier_return',
-      reference_id: supplierReturn._id,
-      before_debt: beforeDebt,
-      change_amount: -round2(amount),
-      after_debt: round2(supplierAfter?.current_debt),
-      note: reason || note || 'Giảm nợ do trả hàng nhà cung cấp',
-      actor_id: req.user.id,
-      created_at: new Date(),
-    });
     await upsertSystemCashFlow({
       storeId: supplier.storeId,
-      type: 'EXPENSE',
-      category: 'PURCHASE_RETURN',
+      type: 'INCOME',
+      category: 'SUPPLIER_REFUND',
       amount,
-      paymentMethod: 'other',
+      paymentMethod: refund_method,
       referenceModel: 'supplier_return',
       referenceId: supplierReturn._id,
-      note: reason || note || 'Giảm nợ do trả hàng nhà cung cấp',
+      note: returnNoteText,
       actorId: req.user.id,
       transactedAt: supplierReturn.return_date || new Date(),
+      session,
     });
 
+    await session.commitTransaction();
+
     return res.status(201).json({
-      supplier_return: { ...supplierReturn.toObject(), payment_id: payment._id, allocation_ids: allocationIds },
-      payment_id: payment._id,
-      allocations_count: allocationIds.length,
+      supplier_return: supplierReturn.toObject(),
     });
   } catch (err) {
     if (session.inTransaction()) await session.abortTransaction();

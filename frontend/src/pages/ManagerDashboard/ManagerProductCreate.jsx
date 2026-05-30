@@ -601,7 +601,7 @@ export default function ManagerProductCreate() {
                                             />
                                         </div>
                                         <div>
-                                            <label className="mb-1 block text-sm font-medium text-slate-600">Barcode</label>
+                                            <label className="mb-1 block text-sm font-medium text-slate-600">Barcode *</label>
                                             <div className="relative">
                                                 <input
                                                     type="text"

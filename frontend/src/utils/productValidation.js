@@ -1,5 +1,4 @@
 const TEXT_NO_SPECIAL_REGEX = /^[\p{L}\p{N}\s]+$/u;
-const SKU_REGEX = /^[\p{L}\p{N},]+$/u;
 const DIGITS_ONLY_REGEX = /^\d+$/;
 const NUMBER_REGEX = /^\d+(\.\d+)?$/;
 
@@ -28,15 +27,12 @@ export function validateRequiredText(value, label) {
 export function validateSku(value) {
     const trimmed = trimString(value);
     if (!trimmed) return { ok: false, message: 'SKU không được để trống.' };
-    if (!SKU_REGEX.test(trimmed)) {
-        return { ok: false, message: 'SKU chỉ được gồm chữ, số và dấu phẩy.' };
-    }
     return { ok: true, value: trimmed };
 }
 
 export function validateBarcode(value) {
     const trimmed = trimString(value);
-    if (!trimmed) return { ok: true, value: '' };
+    if (!trimmed) return { ok: false, message: 'Barcode không được để trống.' };
     if (!DIGITS_ONLY_REGEX.test(trimmed)) {
         return { ok: false, message: 'Barcode chỉ được nhập số, không chữ hoặc ký tự đặc biệt.' };
     }

@@ -13,6 +13,7 @@ import { createSupplier, getSuppliers } from '../../services/suppliersApi';
 import { getCategories } from '../../services/categoriesApi';
 import { minExpiryDateString } from '../../utils/dateInput';
 import { formatCurrencyInput, parseCurrencyInput, toCurrencyInputFromNumber } from '../../utils/currencyInput';
+import { validateBarcode } from '../../utils/productValidation';
 
 const PRODUCT_BASE_UNITS = ['Cái', 'Hộp', 'Chai', 'Lon', 'Thùng', 'Kg', 'Gói', 'Lít'];
 const makeSellingUnitRow = (base = 'Cái', overrides = {}) => ({
@@ -722,6 +723,8 @@ export default function ManagerQuickGoodsReceipt() {
         if (!supplierId) return toast('Vui lòng chọn nhà cung cấp.', 'error');
         if (!newProductForm.name.trim()) return toast('Tên sản phẩm là bắt buộc.', 'error');
         if (!newProductForm.sku.trim()) return toast('SKU là bắt buộc.', 'error');
+        const barcodeCheck = validateBarcode(newProductForm.barcode);
+        if (!barcodeCheck.ok) return toast(barcodeCheck.message, 'error');
         if (!String(newProductForm.category_id || '').trim()) return toast('Danh mục là bắt buộc để áp dụng thuế.', 'error');
         if (newProductForm.sale_price === '' || parseCurrencyInput(newProductForm.sale_price) < 0) return toast('Giá bán không hợp lệ.', 'error');
         if (newProductForm.cost_price === '' || parseCurrencyInput(newProductForm.cost_price) < 0) return toast('Giá nhập không hợp lệ.', 'error');
@@ -1239,7 +1242,7 @@ export default function ManagerQuickGoodsReceipt() {
                                             </select>
                                         </div>
                                         <div>
-                                            <label className="mb-1 block text-sm font-medium text-slate-600">Barcode</label>
+                                            <label className="mb-1 block text-sm font-medium text-slate-600">Barcode *</label>
                                             <input
                                                 type="text"
                                                 value={newProductForm.barcode}

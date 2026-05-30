@@ -466,7 +466,7 @@ export default function ManagerShiftSessionsPage() {
               <input
                 type="text"
                 value={keyword}
-                placeholder="Tên / email / mã NV"
+                placeholder="Tên / email"
                 onChange={(e) => {
                   setPage(1);
                   const next = e.target.value.replace(/\s{2,}/g, ' ').slice(0, 100);
@@ -571,7 +571,6 @@ export default function ManagerShiftSessionsPage() {
                           <UserRound className="h-4 w-4 text-teal-600" />
                           {openUser?.fullName || openUser?.email || 'Nhân viên chưa xác định'}
                         </div>
-                        <div className="mt-0.5 text-xs text-slate-500">Mã NV: {openUser?.employeeCode || 'N/A'}</div>
                       </td>
                       <td className="px-3 py-3 font-semibold text-slate-700">
                         {shift?.register_id?.name || '—'}

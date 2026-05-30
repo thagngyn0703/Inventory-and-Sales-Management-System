@@ -29,8 +29,8 @@ router.get('/', requireRole(['manager', 'staff', 'admin']), async (req, res) => 
     }
 });
 
-// POST /api/categories - create new category
-router.post('/', requireRole(['manager', 'staff', 'admin']), async (req, res) => {
+// POST /api/categories - create new category (admin only)
+router.post('/', requireRole(['admin']), async (req, res) => {
     try {
         const { name, vat_rate, tax_profile, tax_tags } = req.body;
         if (!name || !name.trim()) {
@@ -61,8 +61,8 @@ router.post('/', requireRole(['manager', 'staff', 'admin']), async (req, res) =>
     }
 });
 
-// PUT /api/categories/:id - update name
-router.put('/:id', requireRole(['manager', 'staff', 'admin']), async (req, res) => {
+// PUT /api/categories/:id - update name (admin only)
+router.put('/:id', requireRole(['admin']), async (req, res) => {
     try {
         const { id } = req.params;
         const { name, vat_rate, tax_profile, tax_tags } = req.body;
@@ -102,8 +102,8 @@ router.put('/:id', requireRole(['manager', 'staff', 'admin']), async (req, res) 
     }
 });
 
-// PATCH /api/categories/:id/activate - set active or inactive
-router.patch('/:id/activate', requireRole(['manager', 'staff', 'admin']), async (req, res) => {
+// PATCH /api/categories/:id/activate - set active or inactive (admin only)
+router.patch('/:id/activate', requireRole(['admin']), async (req, res) => {
     try {
         const { id } = req.params;
         let { is_active } = req.body;
@@ -128,8 +128,8 @@ router.patch('/:id/activate', requireRole(['manager', 'staff', 'admin']), async 
     }
 });
 
-// DELETE /api/categories/:id - delete category (manager/admin)
-router.delete('/:id', requireRole(['manager', 'admin']), async (req, res) => {
+// DELETE /api/categories/:id - delete category (admin only)
+router.delete('/:id', requireRole(['admin']), async (req, res) => {
     try {
         const { id } = req.params;
         const cat = await Category.findById(id);

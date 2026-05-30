@@ -2,7 +2,7 @@ import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { logout } from '../utils/auth';
 import { cn } from '../lib/utils';
-import { LayoutDashboard, Store, Users, LifeBuoy, LogOut, ShieldCheck } from 'lucide-react';
+import { LayoutDashboard, Store, Users, LifeBuoy, LogOut, ShieldCheck, FolderTree } from 'lucide-react';
 import './Sidebar.css';
 
 export default function Sidebar({ collapsed = false, onRequestClose }) {
@@ -21,10 +21,12 @@ export default function Sidebar({ collapsed = false, onRequestClose }) {
         { label: 'Quản lý cửa hàng', path: '/admin/stores', icon: Store },
         { label: 'Quản lý tài khoản', path: '/admin/users', icon: Users },
         { label: 'Phiếu hỗ trợ', path: '/admin/support', icon: LifeBuoy },
+        { label: 'Danh mục', path: '/admin/categories', icon: FolderTree },
     ];
 
     const resolveActivePath = (pathname) => {
         if (pathname.startsWith('/admin/support/')) return '/admin/support';
+        if (pathname.startsWith('/admin/categories')) return '/admin/categories';
         return pathname;
     };
     const activePath = resolveActivePath(location.pathname);

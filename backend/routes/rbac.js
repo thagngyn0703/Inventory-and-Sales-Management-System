@@ -16,7 +16,7 @@ const DEFAULT_ROLE_PERMISSION_KEYS = {
     ],
     manager: [
         'products.view', 'products.manage',
-        'categories.view', 'categories.manage',
+        'categories.view',
         'suppliers.view', 'suppliers.manage',
         'stocktakes.view', 'stocktakes.manage',
         'adjustments.view', 'adjustments.manage',

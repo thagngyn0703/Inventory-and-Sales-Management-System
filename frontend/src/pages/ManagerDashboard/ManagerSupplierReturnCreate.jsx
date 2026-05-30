@@ -22,8 +22,8 @@ export default function ManagerSupplierReturnCreate() {
   const [form, setForm] = useState({
     supplier_id: '',
     return_date: new Date().toISOString().slice(0, 10),
+    refund_method: 'cash',
     reason: 'Trả hàng nhà cung cấp',
-    reference_code: '',
     note: '',
     items: [{ product_id: '', quantity: '1' }],
   });
@@ -122,8 +122,8 @@ export default function ManagerSupplierReturnCreate() {
       const data = await createSupplierReturn(form.supplier_id, {
         items: normalizedItems,
         return_date: form.return_date || undefined,
+        refund_method: form.refund_method || 'cash',
         reason: form.reason || undefined,
-        reference_code: form.reference_code || undefined,
         note: form.note || undefined,
       });
       const createdId = data?.supplier_return?._id;
@@ -145,7 +145,7 @@ export default function ManagerSupplierReturnCreate() {
         eyebrow="Mua hàng & NCC"
         eyebrowIcon={RotateCcw}
         title="Tạo phiếu trả nhà cung cấp"
-        subtitle={selectedSupplier?.name || 'Ghi nhận trả hàng để giảm công nợ NCC'}
+        subtitle={selectedSupplier?.name || 'Trả hàng cho NCC — NCC hoàn tiền cho cửa hàng (không bù trừ công nợ)'}
       >
         <InlineNotice message={error} type="error" className="mb-3" />
         <Card className="border-slate-200/80 shadow-sm">
@@ -179,6 +179,23 @@ export default function ManagerSupplierReturnCreate() {
                   disabled={submitting}
                   className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm"
                 />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">
+                  Hình thức NCC hoàn tiền <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={form.refund_method}
+                  onChange={(e) => setForm((prev) => ({ ...prev, refund_method: e.target.value }))}
+                  disabled={submitting}
+                  className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm"
+                >
+                  <option value="cash">Tiền mặt</option>
+                  <option value="bank_transfer">Chuyển khoản</option>
+                  <option value="e_wallet">Ví điện tử</option>
+                  <option value="other">Khác</option>
+                </select>
               </div>
 
               <div className="md:col-span-2 rounded-md border border-slate-200 p-3">
@@ -252,25 +269,13 @@ export default function ManagerSupplierReturnCreate() {
                 </div>
               </div>
 
-              <div>
+              <div className="md:col-span-2">
                 <label className="mb-1 block text-sm font-medium text-slate-700">Lý do</label>
                 <input
                   type="text"
                   value={form.reason}
                   onChange={(e) => setForm((prev) => ({ ...prev, reason: e.target.value }))}
                   disabled={submitting}
-                  className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm"
-                />
-              </div>
-
-              <div>
-                <label className="mb-1 block text-sm font-medium text-slate-700">Mã tham chiếu</label>
-                <input
-                  type="text"
-                  value={form.reference_code}
-                  onChange={(e) => setForm((prev) => ({ ...prev, reference_code: e.target.value }))}
-                  disabled={submitting}
-                  placeholder="Tuỳ chọn"
                   className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm"
                 />
               </div>

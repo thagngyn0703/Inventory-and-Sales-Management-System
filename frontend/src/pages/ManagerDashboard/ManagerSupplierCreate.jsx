@@ -18,7 +18,6 @@ const defaultForm = {
     tax_code: '',
     note: '',
     status: 'active',
-    payable_account: '',
     bank_qr_image_url: '',
 };
 
@@ -57,7 +56,6 @@ export default function ManagerSupplierCreate() {
                 tax_code: form.tax_code ? String(form.tax_code).trim() : undefined,
                 note: form.note ? String(form.note).trim() : undefined,
                 status: form.status === 'inactive' ? 'inactive' : 'active',
-                payable_account: Number(form.payable_account) || 0,
                 bank_qr_image_url: qrUrl || undefined,
             });
             navigate('/manager/suppliers', { state: { success: 'Thêm nhà cung cấp thành công.' } });
@@ -166,20 +164,7 @@ export default function ManagerSupplierCreate() {
                                         className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-teal-200/80 focus:ring-2"
                                     />
                             </div>
-                            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                                <div>
-                                    <label className="mb-1 block text-sm font-medium text-slate-700">Công nợ (đ)</label>
-                                    <input
-                                        type="number"
-                                        min="0"
-                                        step="1000"
-                                        value={form.payable_account}
-                                        onChange={(e) => update('payable_account', e.target.value)}
-                                        placeholder="0"
-                                        className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-teal-200/80 focus:ring-2"
-                                    />
-                                </div>
-                                <div>
+                            <div>
                                     <label className="mb-1 block text-sm font-medium text-slate-700">Ảnh QR chuyển khoản</label>
                                     <input className="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-slate-700 hover:file:bg-slate-200" type="file" accept="image/*" onChange={(e) => {
                                         const f = e.target.files?.[0] || null;
@@ -190,7 +175,6 @@ export default function ManagerSupplierCreate() {
                                         <img src={qrPreviewUrl} alt="QR preview" className="mt-2 h-[140px] w-[140px] rounded-lg border border-slate-200 object-contain" />
                                     )}
                                     <p className="mt-1 text-xs text-slate-500">Chọn ảnh QR từ máy. Hệ thống sẽ tự upload.</p>
-                                </div>
                             </div>
                             <div>
                                 <label className="mb-1 block text-sm font-medium text-slate-700">Ghi chú</label>

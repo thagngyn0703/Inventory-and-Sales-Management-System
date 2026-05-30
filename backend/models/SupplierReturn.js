@@ -69,6 +69,12 @@ const supplierReturnSchema = new Schema(
             type: Date,
             default: Date.now,
         },
+        /** Hình thức NCC hoàn tiền cho cửa hàng (không bù trừ công nợ). */
+        refund_method: {
+            type: String,
+            enum: ['cash', 'bank_transfer', 'e_wallet', 'other'],
+            default: 'cash',
+        },
         status: {
             type: String,
             enum: ['approved'],

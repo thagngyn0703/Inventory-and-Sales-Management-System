@@ -66,7 +66,6 @@ function parseOptionalDate(value) {
 }
 
 const TEXT_NO_SPECIAL_REGEX = /^[\p{L}\p{N}\s]+$/u;
-const SKU_REGEX = /^[\p{L}\p{N},]+$/u;
 const DIGITS_ONLY_REGEX = /^\d+$/;
 
 function trimText(value) {
@@ -75,10 +74,6 @@ function trimText(value) {
 
 function isValidNoSpecialText(value) {
   return TEXT_NO_SPECIAL_REGEX.test(trimText(value));
-}
-
-function isValidProductName(value) {
-  return isValidNoSpecialText(value);
 }
 
 function parseNonNegativeNumber(value) {
@@ -564,14 +559,9 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
     }
 
     if (!nameTrim) return res.status(400).json({ message: 'Tên sản phẩm không được để trống.' });
-    if (!isValidProductName(nameTrim)) {
-      return res.status(400).json({ message: 'Tên sản phẩm không được chứa ký tự đặc biệt.' });
-    }
     if (!skuTrim) return res.status(400).json({ message: 'SKU không được để trống.' });
-    if (!SKU_REGEX.test(skuTrim)) {
-      return res.status(400).json({ message: 'SKU chỉ được gồm chữ và số.' });
-    }
-    if (barcodeTrim && !DIGITS_ONLY_REGEX.test(barcodeTrim)) {
+    if (!barcodeTrim) return res.status(400).json({ message: 'Barcode không được để trống.' });
+    if (!DIGITS_ONLY_REGEX.test(barcodeTrim)) {
       return res.status(400).json({ message: 'Barcode chỉ được nhập số, không chữ hoặc ký tự đặc biệt.' });
     }
     if (!isValidNoSpecialText(base)) {
@@ -1619,17 +1609,11 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
     if (name !== undefined) {
       const nameTrim = trimText(name);
       if (!nameTrim) return res.status(400).json({ message: 'Tên sản phẩm không được để trống.' });
-      if (!isValidProductName(nameTrim)) {
-        return res.status(400).json({ message: 'Tên sản phẩm không được chứa ký tự đặc biệt.' });
-      }
       product.name = nameTrim;
     }
     if (sku !== undefined) {
       const skuTrim = trimText(sku);
       if (!skuTrim) return res.status(400).json({ message: 'SKU không được để trống.' });
-      if (!SKU_REGEX.test(skuTrim)) {
-        return res.status(400).json({ message: 'SKU chỉ được gồm chữ và số.' });
-      }
       const skuChanged = originalSku.toLowerCase() !== skuTrim.toLowerCase();
       if (skuChanged) {
         product.sku = skuTrim;
@@ -1638,11 +1622,12 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
 
     if (barcode !== undefined) {
       const bc = trimText(barcode);
-      if (bc && !DIGITS_ONLY_REGEX.test(bc)) {
+      if (!bc) return res.status(400).json({ message: 'Barcode không được để trống.' });
+      if (!DIGITS_ONLY_REGEX.test(bc)) {
         return res.status(400).json({ message: 'Barcode chỉ được nhập số, không chữ hoặc ký tự đặc biệt.' });
       }
       const barcodeChanged = originalBarcode !== bc;
-      if (bc && barcodeChanged) {
+      if (barcodeChanged) {
         const barcodeCheck = await ensureBarcodeAvailableForProduct({
           barcode: bc,
           storeId: product.storeId,
@@ -1652,7 +1637,7 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
           return res.status(409).json({ message: 'Barcode đã tồn tại cho sản phẩm khác trong cửa hàng này' });
         }
       }
-      product.barcode = bc || undefined;
+      product.barcode = bc;
       if (barcodeChanged) shouldSyncUnits = true;
     }
 

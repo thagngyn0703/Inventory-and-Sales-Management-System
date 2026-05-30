@@ -14,6 +14,13 @@ function fmtMoney(v) {
   return `${Number(v || 0).toLocaleString('vi-VN')}₫`;
 }
 
+function fmtDate(v) {
+  if (!v) return '—';
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('vi-VN');
+}
+
 export default function ManagerSupplierReturnsList() {
   const [searchParams] = useSearchParams();
   const supplierIdFromQuery = searchParams.get('supplier_id') || '';
@@ -111,21 +118,21 @@ export default function ManagerSupplierReturnsList() {
                       <th className="px-4 py-3 text-left font-semibold">Ngày</th>
                       <th className="px-4 py-3 text-left font-semibold">Mã phiếu</th>
                       <th className="px-4 py-3 text-left font-semibold">Nhà cung cấp</th>
-                      <th className="px-4 py-3 text-right font-semibold">Giá trị trả</th>
+                      <th className="px-4 py-3 text-right font-semibold">Tiền NCC hoàn</th>
                       <th className="px-4 py-3 text-left font-semibold">Lý do</th>
                     </tr>
                   </thead>
                   <tbody>
                     {rows.map((row) => (
                       <tr key={row._id} className="border-t border-slate-100">
-                        <td className="px-4 py-3">{new Date(row.return_date || row.created_at).toLocaleString('vi-VN')}</td>
+                        <td className="px-4 py-3">{fmtDate(row.return_date || row.created_at)}</td>
                         <td className="px-4 py-3 font-mono text-xs text-teal-700">
                           <Link className="underline hover:text-teal-500" to={`/manager/supplier-returns/${row._id}`}>
                             {String(row._id).slice(-6).toUpperCase()}
                           </Link>
                         </td>
                         <td className="px-4 py-3">{row.supplier_id?.name || '—'}</td>
-                        <td className="px-4 py-3 text-right font-semibold text-rose-700">{fmtMoney(row.total_amount || 0)}</td>
+                        <td className="px-4 py-3 text-right font-semibold text-emerald-700">{fmtMoney(row.total_amount || 0)}</td>
                         <td className="px-4 py-3 text-slate-600">{row.reason || ''}</td>
                       </tr>
                     ))}

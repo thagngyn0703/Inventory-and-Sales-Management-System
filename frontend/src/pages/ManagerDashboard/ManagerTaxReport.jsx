@@ -178,13 +178,12 @@ export default function ManagerTaxReport() {
                       <p>VAT đầu vào: <strong>{fmtVND(payload?.totals?.input_vat)}</strong></p>
                     )}
                     <div className="overflow-x-auto rounded-xl border border-slate-200">
-                      <table className="w-full min-w-[520px] text-sm">
+                      <table className="w-full min-w-[400px] text-sm">
                         <thead>
                           <tr className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
                             <th className="px-3 py-2">Thuế suất</th>
                             <th className="px-3 py-2 text-right">Doanh thu chưa thuế</th>
                             <th className="px-3 py-2 text-right">VAT đầu ra</th>
-                            <th className="px-3 py-2 text-right">Số dòng</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -193,7 +192,6 @@ export default function ManagerTaxReport() {
                               <td className="px-3 py-2">{Number(row.tax_rate || 0)}%</td>
                               <td className="px-3 py-2 text-right">{fmtVND(row.net_amount)}</td>
                               <td className="px-3 py-2 text-right">{fmtVND(row.vat_amount)}</td>
-                              <td className="px-3 py-2 text-right">{Number(row.line_count || 0).toLocaleString('vi-VN')}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -204,7 +202,6 @@ export default function ManagerTaxReport() {
                       <p>- <strong>Thuế suất</strong>: mức VAT áp cho dòng hàng (0%, 5%, 8%, 10%).</p>
                       <p>- <strong>Doanh thu chưa thuế</strong>: doanh thu thuần trước VAT của từng nhóm thuế suất.</p>
                       <p>- <strong>VAT đầu ra</strong>: tiền VAT thu hộ Nhà nước từ bán hàng ở nhóm thuế suất đó.</p>
-                      <p>- <strong>Số dòng</strong>: số dòng hàng phát sinh thuộc nhóm thuế suất tương ứng.</p>
                     </div>
                   </>
                 )}
