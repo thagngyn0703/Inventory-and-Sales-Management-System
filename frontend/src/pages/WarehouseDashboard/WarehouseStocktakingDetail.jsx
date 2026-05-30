@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useWarehouseBase } from '../../utils/useWarehouseBase';
-import { getStocktake, updateStocktake, approveStocktake } from '../../services/stocktakesApi';
+import { getStocktake, updateStocktake, completeStocktake } from '../../services/stocktakesApi';
 import { getCurrentUser, normalizeRole } from '../../utils/auth';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { Button } from '../../components/ui/button';
@@ -70,11 +70,14 @@ export default function WarehouseStocktakingDetail() {
   const isDraft = stocktake?.status === 'draft';
   const currentUser = getCurrentUser();
   const creatorId = String(stocktake?.created_by?._id || stocktake?.created_by || '');
-  const isManagerOwnDraft =
+  const localManagerOwnDraft =
     isDraft &&
     ['manager', 'admin'].includes(normalizeRole(currentUser?.role)) &&
     creatorId &&
     String(currentUser?.id || currentUser?._id) === creatorId;
+  const isManagerOwnDraft =
+    stocktake?.can_self_complete === true ||
+    (stocktake?.can_self_complete === undefined && localManagerOwnDraft);
 
   const updateItem = (index, field, value) => {
     setEditableItems((prev) => {
@@ -129,8 +132,10 @@ export default function WarehouseStocktakingDetail() {
     setError('');
     setSuccessMessage('');
     try {
-      await updateStocktake(id, { items: getPayloadItems() });
-      await approveStocktake(id, { reason: 'Quản lý tự kiểm kê và hoàn tất phiếu' });
+      await completeStocktake(id, {
+        items: getPayloadItems(),
+        reason: 'Quản lý tự kiểm kê và hoàn tất phiếu',
+      });
       setSuccessMessage('Đã hoàn tất kiểm kê và cập nhật tồn kho.');
       navigate(`${warehouseBase}/stocktakes`, { state: { success: 'Đã hoàn tất phiếu kiểm kê.' } });
     } catch (e) {
@@ -196,9 +201,18 @@ export default function WarehouseStocktakingDetail() {
 
       {isDraft && (
         <p className="text-sm text-slate-600">
-          Nhập <strong className="text-slate-800">số lượng thực tế</strong> đã kiểm đếm và{' '}
-          <strong className="text-slate-800">lý do chênh lệch</strong> (nếu có), sau đó bấm Lưu
-          {isManagerOwnDraft ? ' hoặc Hoàn tất & điều chỉnh tồn.' : ' hoặc Gửi duyệt.'}
+          {isManagerOwnDraft ? (
+            <>
+              <strong className="text-slate-800">Quản lý tự kiểm kê:</strong> nhập số thực tế và lý do chênh lệch (nếu có),
+              sau đó bấm <strong className="text-slate-800">Hoàn tất &amp; điều chỉnh tồn</strong> — hệ thống cộng/trừ tồn ngay,
+              không cần gửi duyệt.
+            </>
+          ) : (
+            <>
+              Nhập <strong className="text-slate-800">số lượng thực tế</strong> và <strong className="text-slate-800">lý do chênh lệch</strong> (nếu có),
+              sau đó bấm <strong className="text-slate-800">Gửi duyệt</strong> để quản lý xem và duyệt phiếu.
+            </>
+          )}
         </p>
       )}
 

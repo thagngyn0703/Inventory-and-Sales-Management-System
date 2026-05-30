@@ -72,6 +72,26 @@ export async function updateStocktake(id, body) {
 }
 
 /**
+ * Quản lý hoàn tất phiếu nháp do mình tạo: lưu số thực tế + cập nhật tồn kho (không gửi duyệt).
+ * @param {string} id
+ * @param {{ items: Array<{ product_id: string, actual_qty?: number | null, reason?: string }>, reason?: string }} body
+ */
+export async function completeStocktake(id, body = {}) {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/stocktakes/${id}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ ...body, complete: true }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || 'Không thể hoàn tất phiếu kiểm kê');
+  return data;
+}
+
+/**
  * Manager/Admin duyệt phiếu kiểm kê (submitted) → tạo điều chỉnh tồn, cập nhật Product.stock_qty
  * @param {string} id — stocktake id
  * @param {{ reason?: string }} [body] — lý do điều chỉnh (tùy chọn)

@@ -233,18 +233,16 @@ describe('Stocktakes Routes', () => {
 
       const stocktakeId = createRes.body.stocktake._id;
 
-      await request(app)
+      const res = await request(app)
         .patch(`/api/stocktakes/${stocktakeId}`)
         .set('Authorization', managerToken)
         .send({
           items: [{ product_id: productIds[0], actual_qty: originalStock + 3 }],
+          complete: true,
         });
 
-      const res = await request(app)
-        .post(`/api/stocktakes/${stocktakeId}/approve`)
-        .set('Authorization', managerToken);
-
       expect(res.status).toBe(200);
+      expect(res.body.message).toContain('hoàn tất');
       const updatedProduct = await Product.findById(products[0]._id);
       expect(updatedProduct.stock_qty).toBe(originalStock + 3);
     });
