@@ -19,6 +19,7 @@ const {
 const Customer = require('../models/Customer');
 const Store = require('../models/Store');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const { notifyStoreBankTransferPaid } = require('../services/bankTransferNotificationService');
 
 const router = express.Router();
 
@@ -72,6 +73,24 @@ function getInvoiceBankTransferTarget(invoice) {
     : parseAmount(invoice.total_amount) + parseAmount(invoice.previous_debt_paid);
 }
 
+async function notifyIfBankTransferPaid(invoice, source = 'sepay') {
+  if (!invoice?.store_id || !invoice?.payment_ref) return;
+  if (String(invoice.payment_status) !== 'paid') return;
+  const amount = getInvoiceBankTransferTarget(invoice);
+  if (amount <= 0) return;
+  try {
+    await notifyStoreBankTransferPaid({
+      storeId: invoice.store_id,
+      paymentRef: invoice.payment_ref,
+      invoiceId: invoice._id,
+      amount,
+      source,
+    });
+  } catch (err) {
+    console.warn('[payments] bank transfer notification failed:', err.message);
+  }
+}
+
 async function reconcileInvoiceFromSepay(invoice) {
   if (!invoice || String(invoice.payment_status) === 'paid' || !invoice.payment_ref) {
     return { matched: false };
@@ -120,6 +139,7 @@ async function reconcileInvoiceFromSepay(invoice) {
 
   await settlePreviousDebtIfNeeded(invoice._id);
   await settleInvoiceLoyaltyIfNeeded(invoice);
+  await notifyIfBankTransferPaid(invoice, 'sepay_poll');
 
   // Lưu transaction nếu chưa có (idempotent)
   const providerTxnId = String(matchedTx.id || matchedTx.reference_number || `${ref}-${targetAmount}`);
@@ -311,6 +331,7 @@ router.post('/sepay/webhook', express.raw({ type: 'application/json' }), async (
 
       await settlePreviousDebtIfNeeded(matchedInvoice._id);
       await settleInvoiceLoyaltyIfNeeded(matchedInvoice);
+      await notifyIfBankTransferPaid(matchedInvoice, 'sepay_webhook');
 
       console.log(`[SePay Webhook] Matched invoice ${matchedInvoice._id} with ref ${paymentRef}, amount ${amount}`);
     } else {

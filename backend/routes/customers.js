@@ -14,6 +14,7 @@ const {
   getPreferredAccountsForStore,
   fetchSepayTransactionsByAmount,
 } = require('../utils/sepayMatchUtils');
+const { notifyStoreBankTransferPaid } = require('../services/bankTransferNotificationService');
 
 const router = express.Router();
 const TRANSFER_PENDING_TTL_MS = 30 * 60 * 1000; // 30 phút
@@ -615,6 +616,18 @@ router.post('/:id/pay-debt/confirm-transfer', requireAuth, requireRole(['staff',
             entityType: 'Customer',
             entityId: customer._id,
         });
+
+        await notifyStoreBankTransferPaid({
+            storeId,
+            paymentRef: ref,
+            amount: payAmount,
+            source: 'customer_debt',
+            title: 'Khách đã thanh toán nợ (chuyển khoản)',
+            message: `Đã nhận ${payAmount.toLocaleString('vi-VN')}₫ — mã ${ref} (${customer.full_name}).`,
+            relatedEntity: 'customer_debt_payment',
+            relatedId: lockedPendingPayment._id,
+            uniqueKeyBase: `customer_debt_paid:${lockedPendingPayment._id}`,
+        }).catch(() => {});
 
         const refreshedCustomer = await Customer.findOne({ _id: id, store_id: storeId }).lean();
         res.json({ message: 'Xác nhận thanh toán nợ chuyển khoản thành công', customer: refreshedCustomer || customer });
