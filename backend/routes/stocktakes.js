@@ -12,13 +12,54 @@ const router = express.Router();
 const LIVE_MISMATCH_REQUIRE_NOTE_THRESHOLD = 5;
 
 function getRoleStoreFilter(req) {
-  const role = String(req.user?.role || '').toLowerCase();
-  if (role === 'admin') return {};
-  const isStoreScopedRole = ['manager', 'staff'].includes(role);
-  if (!isStoreScopedRole) return {};
-  const storeId = req.user?.storeId ? String(req.user.storeId) : null;
-  if (!storeId) return null;
-  return { storeId };
+    const role = String(req.user?.role || '').toLowerCase();
+    if (role === 'admin') return {};
+    const isStoreScopedRole = ['manager', 'staff'].includes(role);
+    if (!isStoreScopedRole) return {};
+    const storeId = req.user?.storeId ? String(req.user.storeId) : null;
+    if (!storeId) return null;
+    return { storeId };
+}
+
+function getStocktakeCreatorId(stocktake) {
+    return String(stocktake?.created_by?._id || stocktake?.created_by || '');
+}
+
+function applyStocktakeListVisibility(filter, req) {
+    const role = String(req.user?.role || '').toLowerCase();
+    const userId = req.user?.id ? String(req.user.id) : null;
+    if (!userId) return filter;
+
+    if (role === 'staff') {
+        filter.created_by = userId;
+        return filter;
+    }
+    if (role === 'manager') {
+        // Manager chỉ thấy nháp của chính mình; phiếu nháp của nhân viên chỉ hiện sau khi gửi duyệt.
+        filter.$or = [{ created_by: userId }, { status: { $ne: 'draft' } }];
+        return filter;
+    }
+    return filter;
+}
+
+function canViewStocktake(stocktake, req) {
+    const role = String(req.user?.role || '').toLowerCase();
+    const userId = req.user?.id ? String(req.user.id) : null;
+    if (!userId || !stocktake) return false;
+    const creatorId = getStocktakeCreatorId(stocktake);
+    if (role === 'admin') return true;
+    if (role === 'staff') return creatorId === userId;
+    if (role === 'manager') {
+        if (stocktake.status === 'draft') return creatorId === userId;
+        return true;
+    }
+    return false;
+}
+
+function isSelfManagerStocktake(stocktake, req) {
+    const role = String(req.user?.role || '').toLowerCase();
+    if (!['manager', 'admin'].includes(role)) return false;
+    return getStocktakeCreatorId(stocktake) === String(req.user.id);
 }
 
 // POST /api/stocktakes — Create stocktaking record (draft). Staff, Manager, Admin.
@@ -105,6 +146,7 @@ router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (
     if (status && ['draft', 'submitted', 'completed', 'cancelled'].includes(status)) {
       filter.status = status;
     }
+    applyStocktakeListVisibility(filter, req);
 
     const total = await Stocktake.countDocuments(filter);
     const skip = (pageNum - 1) * limitNum;
@@ -152,32 +194,41 @@ router.post('/:id/approve', requireAuth, requireRole(['manager', 'admin']), asyn
     let txErr = null;
     try {
       await mongoSession.withTransaction(async () => {
-        const stocktake = await Stocktake.findOneAndUpdate(
-          { _id: id, ...storeFilter, status: 'submitted' },
-          {
-            $set: {
-              status: 'completed',
-              completed_at: new Date(),
-              updated_at: new Date(),
-            },
-          },
-          { new: true, session: mongoSession }
-        ).lean();
-
-        if (!stocktake) {
-          const existing = await Stocktake.findOne({ _id: id, ...storeFilter })
-            .session(mongoSession)
-            .lean();
-          if (!existing) {
-            const e = new Error('STOCKTAKE_NOT_FOUND');
-            e.code = 'STOCKTAKE_NOT_FOUND';
-            throw e;
-          }
+        const existing = await Stocktake.findOne({ _id: id, ...storeFilter }).session(mongoSession);
+        if (!existing) {
+          const e = new Error('STOCKTAKE_NOT_FOUND');
+          e.code = 'STOCKTAKE_NOT_FOUND';
+          throw e;
+        }
+        const selfManagerApprove = isSelfManagerStocktake(existing, req) && existing.status === 'draft';
+        if (existing.status === 'draft' && !selfManagerApprove) {
           const e = new Error('STOCKTAKE_BAD_STATE');
           e.code = 'STOCKTAKE_BAD_STATE';
           e.existingStatus = existing.status;
           throw e;
         }
+        if (existing.status !== 'submitted' && existing.status !== 'draft') {
+          const e = new Error('STOCKTAKE_BAD_STATE');
+          e.code = 'STOCKTAKE_BAD_STATE';
+          e.existingStatus = existing.status;
+          throw e;
+        }
+        if (selfManagerApprove) {
+          const hasUncountedItem = (existing.items || []).some(
+            (it) => it.actual_qty === null || it.actual_qty === undefined
+          );
+          if (hasUncountedItem) {
+            const e = new Error('STOCKTAKE_UNCOUNTED_ITEMS');
+            e.code = 'STOCKTAKE_UNCOUNTED_ITEMS';
+            throw e;
+          }
+        }
+
+        existing.status = 'completed';
+        existing.completed_at = new Date();
+        existing.updated_at = new Date();
+        await existing.save({ session: mongoSession });
+        const stocktake = existing.toObject ? existing.toObject() : existing;
 
         const storeIdResolved = stocktake.storeId
           ? String(stocktake.storeId)
@@ -286,7 +337,16 @@ router.post('/:id/approve', requireAuth, requireRole(['manager', 'admin']), asyn
       }
       if (txErr.code === 'STOCKTAKE_BAD_STATE') {
         return res.status(400).json({
-          message: `Phiếu đang ở trạng thái "${txErr.existingStatus}", không thể xử lý lặp`,
+          message:
+            txErr.existingStatus === 'draft'
+              ? 'Phiếu đang ở trạng thái Nháp. Chỉ quản lý tạo phiếu mới được tự duyệt; nhân viên cần gửi duyệt trước.'
+              : `Phiếu đang ở trạng thái "${txErr.existingStatus}", không thể xử lý lặp`,
+        });
+      }
+      if (txErr.code === 'STOCKTAKE_UNCOUNTED_ITEMS') {
+        return res.status(400).json({
+          message: 'Không thể hoàn tất: cần nhập số lượng thực tế cho tất cả sản phẩm.',
+          code: 'STOCKTAKE_UNCOUNTED_ITEMS',
         });
       }
       if (txErr.code === 'STORE_ID_REQUIRED') {
@@ -456,6 +516,12 @@ router.get('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), asyn
       .populate('created_by', 'email')
       .lean();
     if (!stocktake) return res.status(404).json({ message: 'Stocktake not found' });
+    if (!canViewStocktake(stocktake, req)) {
+      return res.status(403).json({
+        message: 'Phiếu nháp của nhân viên chỉ hiển thị sau khi được gửi duyệt.',
+        code: 'STOCKTAKE_DRAFT_HIDDEN',
+      });
+    }
     return res.json({ stocktake });
   } catch (err) {
     return res.status(500).json({ message: err.message || 'Server error' });
@@ -479,6 +545,12 @@ router.patch('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), as
     }
     const doc = await Stocktake.findOne({ _id: id, ...storeFilter });
     if (!doc) return res.status(404).json({ message: 'Stocktake not found' });
+    if (!canViewStocktake(doc, req)) {
+      return res.status(403).json({
+        message: 'Không có quyền sửa phiếu kiểm kê này.',
+        code: 'STOCKTAKE_FORBIDDEN',
+      });
+    }
     if (doc.status !== 'draft') {
       return res.status(400).json({ message: 'Chỉ được sửa phiếu ở trạng thái Nháp' });
     }
@@ -520,6 +592,12 @@ router.patch('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), as
     }
 
     if (newStatus === 'submitted') {
+      if (isSelfManagerStocktake(doc, req)) {
+        return res.status(400).json({
+          message: 'Quản lý tự kiểm kê: vui lòng dùng "Hoàn tất & điều chỉnh tồn" thay vì gửi duyệt.',
+          code: 'MANAGER_SELF_SUBMIT_FORBIDDEN',
+        });
+      }
       const hasUncountedItem = (doc.items || []).some((it) => it.actual_qty === null || it.actual_qty === undefined);
       if (hasUncountedItem) {
         return res.status(400).json({ message: 'Không thể gửi duyệt: cần nhập số lượng thực tế cho tất cả sản phẩm' });
