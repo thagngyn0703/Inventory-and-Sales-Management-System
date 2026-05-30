@@ -43,8 +43,16 @@ export default function ManagerProductList() {
     const [importLoading, setImportLoading] = useState(false);
     const [importCommitting, setImportCommitting] = useState(false);
     const [importError, setImportError] = useState('');
+    const [imagePreview, setImagePreview] = useState({ open: false, url: '', alt: '' });
     const fileInputRef = useRef(null);
     const toastTimerRef = useRef(null);
+
+    const closeImagePreview = () => setImagePreview({ open: false, url: '', alt: '' });
+
+    const openImagePreview = (url, alt = 'Ảnh sản phẩm') => {
+        if (!url) return;
+        setImagePreview({ open: true, url, alt });
+    };
 
     const fetchList = useCallback(async () => {
         setLoading(true);
@@ -395,17 +403,17 @@ export default function ManagerProductList() {
                                                             <td>{(page - 1) * LIMIT + idx + 1}</td>
                                                             <td>
                                                                 {Array.isArray(p.image_urls) && p.image_urls[0] ? (
-                                                                    <img
-                                                                        src={p.image_urls[0]}
-                                                                        alt={p.name || 'product-image'}
-                                                                        style={{
-                                                                            width: 44,
-                                                                            height: 44,
-                                                                            objectFit: 'cover',
-                                                                            borderRadius: 6,
-                                                                            border: '1px solid #e5e7eb',
-                                                                        }}
-                                                                    />
+                                                                    <button
+                                                                        type="button"
+                                                                        className="manager-product-thumb-btn"
+                                                                        title="Xem ảnh lớn"
+                                                                        onClick={() => openImagePreview(p.image_urls[0], p.name || 'Ảnh sản phẩm')}
+                                                                    >
+                                                                        <img
+                                                                            src={p.image_urls[0]}
+                                                                            alt={p.name || 'product-image'}
+                                                                        />
+                                                                    </button>
                                                                 ) : (
                                                                     <span style={{ color: '#9ca3af' }}>—</span>
                                                                 )}
@@ -432,12 +440,12 @@ export default function ManagerProductList() {
                                                             <td>{formatMoney(p.sale_price)}</td>
                                                             <td>{Number(p.stock_qty ?? 0).toLocaleString('vi-VN')}</td>
                                                             <td>{p.base_unit || 'Cái'}</td>
-                                                            <td>
+                                                            <td className="manager-products-status-cell">
                                                                 <Badge
                                                                     className={
                                                                         p.status === 'inactive'
-                                                                            ? 'border border-rose-200/80 bg-rose-100 text-rose-800'
-                                                                            : 'border border-teal-200/80 bg-teal-50 text-teal-800'
+                                                                            ? 'manager-products-status-badge border border-rose-200/80 bg-rose-100 text-rose-800'
+                                                                            : 'manager-products-status-badge border border-teal-200/80 bg-teal-50 text-teal-800'
                                                                     }
                                                                 >
                                                                     {p.status === 'inactive' ? 'Ngừng' : 'Đang bán'}
@@ -496,7 +504,14 @@ export default function ManagerProductList() {
                                                     <div className="manager-product-card__row">
                                                         <div className="manager-product-card__thumb">
                                                             {Array.isArray(p.image_urls) && p.image_urls[0] ? (
-                                                                <img src={p.image_urls[0]} alt={p.name || 'Ảnh sản phẩm'} />
+                                                                <button
+                                                                    type="button"
+                                                                    className="manager-product-thumb-btn manager-product-thumb-btn--card"
+                                                                    title="Xem ảnh lớn"
+                                                                    onClick={() => openImagePreview(p.image_urls[0], p.name || 'Ảnh sản phẩm')}
+                                                                >
+                                                                    <img src={p.image_urls[0]} alt={p.name || 'Ảnh sản phẩm'} />
+                                                                </button>
                                                             ) : (
                                                                 <span className="manager-product-card__thumb--empty">—</span>
                                                             )}
@@ -544,8 +559,8 @@ export default function ManagerProductList() {
                                                                 <Badge
                                                                     className={
                                                                         p.status === 'inactive'
-                                                                            ? 'border border-rose-200/80 bg-rose-100 text-rose-800'
-                                                                            : 'border border-teal-200/80 bg-teal-50 text-teal-800'
+                                                                            ? 'manager-products-status-badge border border-rose-200/80 bg-rose-100 text-rose-800'
+                                                                            : 'manager-products-status-badge border border-teal-200/80 bg-teal-50 text-teal-800'
                                                                     }
                                                                 >
                                                                     {p.status === 'inactive' ? 'Ngừng' : 'Đang bán'}
@@ -771,6 +786,38 @@ export default function ManagerProductList() {
                 <div className="fixed right-4 top-4 z-[2500]">
                     <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700 shadow-lg">
                         {toast.message}
+                    </div>
+                </div>
+            )}
+            {imagePreview.open && (
+                <div
+                    className="manager-product-image-modal-backdrop"
+                    role="presentation"
+                    onClick={closeImagePreview}
+                >
+                    <div
+                        className="manager-product-image-modal"
+                        role="dialog"
+                        aria-modal="true"
+                        aria-label={imagePreview.alt}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <button
+                            type="button"
+                            className="manager-product-image-modal__close"
+                            aria-label="Đóng"
+                            onClick={closeImagePreview}
+                        >
+                            <X className="h-5 w-5" />
+                        </button>
+                        <img
+                            src={imagePreview.url}
+                            alt={imagePreview.alt}
+                            className="manager-product-image-modal__img"
+                        />
+                        {imagePreview.alt ? (
+                            <p className="manager-product-image-modal__caption">{imagePreview.alt}</p>
+                        ) : null}
                     </div>
                 </div>
             )}
