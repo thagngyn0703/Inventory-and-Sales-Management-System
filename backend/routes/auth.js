@@ -123,7 +123,14 @@ router.post('/register', async (req, res) => {
 });
 
 // POST /api/auth/create-staff — Manager tạo tài khoản nhân viên Staff (không cần xác thực email)
-router.post('/create-staff', requireAuth, requireRole(['manager']), async (req, res) => {
+router.post(
+    '/create-staff',
+    requireAuth,
+    requireRole(['manager'], {
+        allowApprovalBlockedWriteForManager: true,
+        allowExpiredSubscriptionForManager: true,
+    }),
+    async (req, res) => {
     try {
         const { fullName, email, password } = req.body;
         const manager = await User.findById(req.user.id).lean();
@@ -188,7 +195,11 @@ router.post('/create-staff', requireAuth, requireRole(['manager']), async (req, 
 });
 
 // GET /api/auth/staff/my-store — Manager lấy danh sách nhân viên thuộc cửa hàng của mình
-router.get('/staff/my-store', requireAuth, requireRole(['manager']), async (req, res) => {
+router.get(
+    '/staff/my-store',
+    requireAuth,
+    requireRole(['manager'], { allowApprovalBlockedWriteForManager: true, allowExpiredSubscriptionForManager: true }),
+    async (req, res) => {
     try {
         const manager = await User.findById(req.user.id).lean();
         if (!manager) {
@@ -217,7 +228,14 @@ router.get('/staff/my-store', requireAuth, requireRole(['manager']), async (req,
 });
 
 // PATCH /api/auth/staff/:id/remove-from-store — Manager gỡ nhân viên khỏi cửa hàng (không xóa tài khoản)
-router.patch('/staff/:id/remove-from-store', requireAuth, requireRole(['manager']), async (req, res) => {
+router.patch(
+    '/staff/:id/remove-from-store',
+    requireAuth,
+    requireRole(['manager'], {
+        allowApprovalBlockedWriteForManager: true,
+        allowExpiredSubscriptionForManager: true,
+    }),
+    async (req, res) => {
     try {
         const { id } = req.params;
         if (!mongoose.isValidObjectId(id)) {

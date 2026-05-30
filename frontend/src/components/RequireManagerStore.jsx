@@ -8,9 +8,12 @@ export default function RequireManagerStore({ children }) {
   const role = normalizeRole(user?.role);
   const hasStoreId = Boolean(user?.storeId);
   const approvalStatus = String(user?.storeApprovalStatus || "").toLowerCase();
-  const canAccessWhileLocked = ["/manager/store/register", "/manager/settings"].some((path) =>
-    location.pathname.startsWith(path)
-  );
+  const canAccessWhileLocked = [
+    "/manager/store/register",
+    "/manager/settings",
+    "/manager/staff/new",
+    "/manager/staff/manage",
+  ].some((path) => location.pathname.startsWith(path));
 
   if (
     role === "manager" &&
