@@ -678,15 +678,25 @@ export default function ManagerDashboard() {
                       )}
                     </div>
                     <div className="manager-kpi-item">
-                      <p className="manager-kpi-label">Lợi nhuận sau loyalty</p>
+                      <p className="manager-kpi-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        Tiền hàng hao hụt sau kiểm kê
+                        <span
+                          title="Tổng giá trị hàng thiếu so với tồn hệ thống trên các phiếu kiểm kê đã hoàn tất trong kỳ (số lượng thiếu × giá vốn sản phẩm). Ví dụ: tồn 100, kiểm còn 90 → 10 đơn vị × giá vốn."
+                          style={{ cursor: 'help', color: '#6366f1', fontSize: 13, lineHeight: 1 }}
+                        >
+                          <i className="fa-solid fa-circle-question" />
+                        </span>
+                      </p>
                       <p className="manager-kpi-value" style={{
-                        color: (summary?.gross_profit_after_loyalty ?? 0) >= 0 ? '#166534' : '#b91c1c',
+                        color: (summary?.stocktake_shrinkage_value ?? 0) > 0 ? '#c2410c' : '#64748b',
                         fontWeight: 700,
                       }}>
-                        {fmtVND(summary?.gross_profit_after_loyalty)}
+                        {fmtVND(summary?.stocktake_shrinkage_value ?? 0)}
                       </p>
                       <p style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
-                        Lãi gộp trừ chi phí điểm đã dùng: {fmtVND(summary?.loyalty_redeem_value)}
+                        {Number(summary?.stocktake_completed_count ?? 0) > 0
+                          ? `${summary.stocktake_completed_count} phiếu hoàn tất · thiếu ${Number(summary?.stocktake_shrinkage_qty ?? 0).toLocaleString('vi-VN')} đơn vị`
+                          : 'Chưa có phiếu kiểm kê hoàn tất trong kỳ'}
                       </p>
                     </div>
                   </div>

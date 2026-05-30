@@ -4,6 +4,7 @@ const analyticsRoutes = require('../../routes/analytics');
 const Product = require('../../models/Product');
 const SalesInvoice = require('../../models/SalesInvoice');
 const SalesReturn = require('../../models/SalesReturn');
+const Stocktake = require('../../models/Stocktake');
 const { createManagerUser, createManagerWithStore, getAuthHeader } = require('../fixtures/users');
 
 const app = express();
@@ -206,6 +207,48 @@ describe('Analytics Routes', () => {
       expect(res.body.revenue_net).toBe(0);
       expect(res.body.total_vat_collected).toBe(0);
       expect(res.body.gross_profit).toBe(0);
+    });
+
+    it('TC52-07: should report stocktake shrinkage from completed stocktakes in period', async () => {
+      const product = await Product.create({
+        name: 'Coca shrink test',
+        sku: `SKU-ST-${Date.now()}`,
+        category_id: null,
+        supplier_id: null,
+        storeId: managerWithStore.store._id,
+        cost_price: 10000,
+        sale_price: 15000,
+        stock_qty: 100,
+        reorder_level: 1,
+        status: 'active',
+      });
+
+      const now = new Date();
+      await Stocktake.create({
+        storeId: managerWithStore.store._id,
+        created_by: managerWithStore.manager._id,
+        status: 'completed',
+        completed_at: now,
+        snapshot_at: now,
+        items: [
+          {
+            product_id: product._id,
+            system_qty: 100,
+            actual_qty: 90,
+            variance: -10,
+            reason: 'Hỏng',
+          },
+        ],
+      });
+
+      const res = await request(app)
+        .get('/api/analytics/summary')
+        .set(getAuthHeader(managerWithStore.manager));
+
+      expect(res.status).toBe(200);
+      expect(res.body.stocktake_shrinkage_value).toBe(100000);
+      expect(res.body.stocktake_shrinkage_qty).toBe(10);
+      expect(res.body.stocktake_completed_count).toBe(1);
     });
   });
 
