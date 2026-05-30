@@ -24,7 +24,6 @@ export default function ManagerSupplierReturnCreate() {
     return_date: new Date().toISOString().slice(0, 10),
     refund_method: 'cash',
     reason: 'Trả hàng nhà cung cấp',
-    reference_code: '',
     note: '',
     items: [{ product_id: '', quantity: '1' }],
   });
@@ -125,7 +124,6 @@ export default function ManagerSupplierReturnCreate() {
         return_date: form.return_date || undefined,
         refund_method: form.refund_method || 'cash',
         reason: form.reason || undefined,
-        reference_code: form.reference_code || undefined,
         note: form.note || undefined,
       });
       const createdId = data?.supplier_return?._id;
@@ -271,25 +269,13 @@ export default function ManagerSupplierReturnCreate() {
                 </div>
               </div>
 
-              <div>
+              <div className="md:col-span-2">
                 <label className="mb-1 block text-sm font-medium text-slate-700">Lý do</label>
                 <input
                   type="text"
                   value={form.reason}
                   onChange={(e) => setForm((prev) => ({ ...prev, reason: e.target.value }))}
                   disabled={submitting}
-                  className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm"
-                />
-              </div>
-
-              <div>
-                <label className="mb-1 block text-sm font-medium text-slate-700">Mã tham chiếu</label>
-                <input
-                  type="text"
-                  value={form.reference_code}
-                  onChange={(e) => setForm((prev) => ({ ...prev, reference_code: e.target.value }))}
-                  disabled={submitting}
-                  placeholder="Tuỳ chọn"
                   className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm"
                 />
               </div>
