@@ -2677,9 +2677,6 @@ export default function POSContainer({
                 onChange={(e) => setCloseShiftCash(formatCurrencyInput(e.target.value))}
               />
             </label>
-            <p className="pos-shift-close-hint">
-              Tiền để lại ca sau = tiền đầu ca. Tiền bàn giao = tiền kiểm đếm − tiền để lại. Có thể nhập 0đ nếu mở ca rồi đóng ngay.
-            </p>
             <div className="pos-shift-close-actions">
               <button
                 type="button"
