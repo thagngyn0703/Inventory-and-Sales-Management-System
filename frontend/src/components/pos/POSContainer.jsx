@@ -26,6 +26,7 @@ import { getProduct, getProducts, getProductUnits, scanProductByCode } from '../
 import { getCustomers, createCustomer } from '../../services/customersApi';
 import { getStoreTaxSettings, getStoreBankSettings, getStoreLoyaltySettings } from '../../services/adminApi';
 import { sendLoyaltyUpdate } from '../../services/customerNotifyApi';
+import { getRealtimeSocket } from '../../services/realtimeSocket';
 import PaymentWaitModal from '../payment/PaymentWaitModal';
 import { Button } from '../ui/button';
 import { useToast } from '../../contexts/ToastContext';
@@ -193,6 +194,7 @@ export default function POSContainer({
   const [productInfoModal, setProductInfoModal] = useState({ open: false, loading: false, product: null, error: '' });
   const pollingRef = useRef(null);
   const pollingSessionRef = useRef(0);
+  const pendingPaymentRef = useRef(null);
   const searchWrapRef = useRef(null);
   const tabsListRef = useRef(null);
   const summaryScrollRef = useRef(null);
@@ -620,19 +622,46 @@ export default function POSContainer({
     [storeName]
   );
 
+  const isPaymentSettled = useCallback((status) => {
+    const normalized = String(status || '').trim().toLowerCase();
+    return normalized === 'paid' || normalized === 'success' || normalized === 'completed';
+  }, []);
+
+  const completeBankTransferSuccess = useCallback(
+    async (paymentRef, invoiceData, tabSnapshot, result) => {
+      stopPolling();
+      setPendingPayment(null);
+      handlePrintInvoice(invoiceData, tabSnapshot, { requireUserConfirm: true });
+      await notifyCustomerLoyaltyMessage(tabSnapshot?.customerData, {
+        earned_points: Number(result?.loyalty?.earned_points || 0),
+        used_points: 0,
+        current_points: Number(result?.loyalty?.current_points || 0),
+        next_nudge: result?.loyalty?.next_nudge || null,
+      }, tabSnapshot?.invoiceId || invoiceData?._id);
+      setTabs((prev) => {
+        const filtered = prev.filter((t) => t.tabId !== tabSnapshot.tabId);
+        if (filtered.length === 0) {
+          const newTab = createDefaultTab(1);
+          setActiveTabId(newTab.tabId);
+          return [newTab];
+        }
+        setActiveTabId(filtered[0].tabId);
+        return filtered;
+      });
+      loadProducts();
+      notify(`Khách đã chuyển khoản thành công (${paymentRef}).`, 'success');
+    },
+    [stopPolling, handlePrintInvoice, loadProducts, notify, notifyCustomerLoyaltyMessage]
+  );
+
   const startPolling = useCallback(
     (paymentRef, invoiceData, tabSnapshot) => {
-      const isPaymentSettled = (status) => {
-        const normalized = String(status || '').trim().toLowerCase();
-        return normalized === 'paid' || normalized === 'success' || normalized === 'completed';
-      };
-
       stopPolling();
       const sessionId = pollingSessionRef.current;
       let attempts = 0;
       const MAX_ATTEMPTS = 160;
       const getNextDelayMs = (nextAttempt) => {
-        if (nextAttempt <= 10) return 1200; // 12s đầu kiểm tra rất nhanh
+        if (nextAttempt <= 10) return 1200;
         if (nextAttempt <= 25) return 2000;
         if (nextAttempt <= 55) return 3000;
         return 5000;
@@ -644,26 +673,7 @@ export default function POSContainer({
         try {
           const result = await getPaymentStatus(paymentRef);
           if (isPaymentSettled(result?.payment_status)) {
-            stopPolling();
-            setPendingPayment(null);
-            handlePrintInvoice(invoiceData, tabSnapshot, { requireUserConfirm: true });
-            await notifyCustomerLoyaltyMessage(tabSnapshot?.customerData, {
-              earned_points: Number(result?.loyalty?.earned_points || 0),
-              used_points: 0,
-              current_points: Number(result?.loyalty?.current_points || 0),
-              next_nudge: result?.loyalty?.next_nudge || null,
-            }, tabSnapshot?.invoiceId || invoiceData?._id);
-            setTabs((prev) => {
-              const filtered = prev.filter((t) => t.tabId !== tabSnapshot.tabId);
-              if (filtered.length === 0) {
-                const newTab = createDefaultTab(1);
-                setActiveTabId(newTab.tabId);
-                return [newTab];
-              }
-              setActiveTabId(filtered[0].tabId);
-              return filtered;
-            });
-            loadProducts();
+            await completeBankTransferSuccess(paymentRef, invoiceData, tabSnapshot, result);
             return;
           }
         } catch (e) {
@@ -684,12 +694,46 @@ export default function POSContainer({
         pollingRef.current = setTimeout(pollOnce, delay);
       };
 
-      // Gọi lần đầu ngay lập tức để giảm độ trễ cảm nhận tại quầy.
       pollOnce();
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [stopPolling, handlePrintInvoice, loadProducts, notify, notifyCustomerLoyaltyMessage]
+    [stopPolling, isPaymentSettled, completeBankTransferSuccess, loadProducts, notify]
   );
+
+  useEffect(() => {
+    pendingPaymentRef.current = pendingPayment;
+  }, [pendingPayment]);
+
+  useEffect(() => {
+    if (!pendingPayment) return undefined;
+    const socket = getRealtimeSocket();
+    if (!socket) return undefined;
+
+    const onConfirmed = async (payload) => {
+      const pending = pendingPaymentRef.current;
+      if (!pending?.tabSnapshot) return;
+      const incomingRef = String(payload?.payment_ref || '').toUpperCase();
+      const expectedRef = String(pending.paymentRef || '').toUpperCase();
+      if (!incomingRef || incomingRef !== expectedRef) return;
+      try {
+        const result = await getPaymentStatus(pending.paymentRef);
+        if (isPaymentSettled(result?.payment_status)) {
+          await completeBankTransferSuccess(
+            pending.paymentRef,
+            pending.invoice,
+            pending.tabSnapshot,
+            result
+          );
+        }
+      } catch (e) {
+        console.warn('[Socket] payment-confirmed:', e.message);
+      }
+    };
+
+    socket.on('store:payment-confirmed', onConfirmed);
+    return () => {
+      socket.off('store:payment-confirmed', onConfirmed);
+    };
+  }, [pendingPayment, isPaymentSettled, completeBankTransferSuccess]);
 
   useEffect(() => () => stopPolling(), [stopPolling]);
 
@@ -1619,7 +1663,12 @@ export default function POSContainer({
         };
 
         if (activeTab.paymentMethod === 'bank_transfer' && payment_ref) {
-          setPendingPayment({ paymentRef: payment_ref, totalAmount: totalWithDebt, invoice: created });
+          setPendingPayment({
+            paymentRef: payment_ref,
+            totalAmount: totalWithDebt,
+            invoice: created,
+            tabSnapshot,
+          });
           startPolling(payment_ref, created, tabSnapshot);
           updateActiveTab({ saving: false });
         } else {

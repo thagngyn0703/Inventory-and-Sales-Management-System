@@ -9,6 +9,12 @@ const PaymentTransaction = require('../models/PaymentTransaction');
 const { upsertSystemCashFlow } = require('../utils/cashflowUtils');
 const { logAudit } = require('../utils/audit');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const {
+  findMatchingSepayTransaction,
+  getPreferredAccountsForStore,
+  fetchSepayTransactionsByAmount,
+} = require('../utils/sepayMatchUtils');
+const { notifyStoreBankTransferPaid } = require('../services/bankTransferNotificationService');
 
 const router = express.Router();
 const TRANSFER_PENDING_TTL_MS = 30 * 60 * 1000; // 30 phút
@@ -20,35 +26,6 @@ function generatePaymentRef() {
 
 function normalizePaymentRef(ref = '') {
     return String(ref).toUpperCase().replace(/[^A-Z0-9]/g, '');
-}
-
-function parseAmount(value) {
-    const n = Number(value);
-    return Number.isFinite(n) ? n : 0;
-}
-
-async function fetchSepayTransactionsByAmount(amount) {
-    const token = String(process.env.SEPAY_API_TOKEN || '').trim();
-    if (!token) return [];
-    const baseUrl = String(process.env.SEPAY_API_BASE_URL || 'https://my.sepay.vn').replace(/\/+$/, '');
-    const url = new URL(`${baseUrl}/userapi/transactions/list`);
-    url.searchParams.set('limit', '50');
-    url.searchParams.set('amount_in', String(Math.round(parseAmount(amount))));
-
-    const res = await fetch(url.toString(), {
-        method: 'GET',
-        headers: {
-            Authorization: `Bearer ${token}`,
-            'X-API-KEY': token,
-            Accept: 'application/json',
-        },
-    });
-    if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        throw new Error(`SePay API error ${res.status}: ${text || 'request failed'}`);
-    }
-    const data = await res.json();
-    return Array.isArray(data?.transactions) ? data.transactions : [];
 }
 
 async function settlePendingDebtInvoicesFIFO(customerId, payAmount, storeId, note, options = {}) {
@@ -486,25 +463,37 @@ router.post('/:id/pay-debt/confirm-transfer', requireAuth, requireRole(['staff',
             });
         }
 
-        const accountFilter = String(process.env.SEPAY_ACCOUNT_NUMBER || '').trim();
-        if (!accountFilter) {
+        const token = String(process.env.SEPAY_API_TOKEN || '').trim();
+        if (!token) {
             lockedPendingPayment.status = 'pending';
-            lockedPendingPayment.note = 'Thiếu cấu hình SEPAY_ACCOUNT_NUMBER';
+            lockedPendingPayment.note = 'Thiếu cấu hình SEPAY_API_TOKEN';
             await lockedPendingPayment.save();
             return res.status(500).json({
-                message: 'Thiếu cấu hình SEPAY_ACCOUNT_NUMBER. Không thể xác minh chuyển khoản an toàn.',
-                error_code: 'SEPAY_ACCOUNT_CONFIG_REQUIRED',
+                message: 'Thiếu cấu hình SEPAY_API_TOKEN. Không thể xác minh chuyển khoản.',
+                error_code: 'SEPAY_API_CONFIG_REQUIRED',
             });
         }
-        const transactions = await fetchSepayTransactionsByAmount(payAmount);
-        const normalizedRef = normalizePaymentRef(ref);
-        const matchedTx = transactions.find((tx) => {
-            const contentRaw = String(tx?.transaction_content || tx?.content || tx?.description || '').toUpperCase();
-            const normalizedContent = normalizePaymentRef(contentRaw);
-            const amountIn = parseAmount(tx?.amount_in ?? tx?.amount ?? tx?.transferAmount);
-            const accountNumber = String(tx?.account_number || tx?.accountNumber || '');
-            const accountOk = !accountFilter || accountNumber === accountFilter;
-            return accountOk && amountIn === payAmount && normalizedContent.includes(normalizedRef);
+
+        const storeBankConfig = await Store.findById(storeId).select('bank_account').lean();
+        const preferredAccounts = getPreferredAccountsForStore(storeBankConfig?.bank_account);
+
+        let transactions = [];
+        try {
+            transactions = await fetchSepayTransactionsByAmount(payAmount);
+        } catch (apiErr) {
+            lockedPendingPayment.status = 'pending';
+            lockedPendingPayment.note = 'Lỗi gọi API SePay';
+            await lockedPendingPayment.save();
+            return res.status(503).json({
+                message: 'Không kết nối được SePay để xác minh. Vui lòng thử lại sau.',
+                error_code: 'SEPAY_API_UNAVAILABLE',
+            });
+        }
+
+        const matchedTx = findMatchingSepayTransaction(transactions, {
+            paymentRef: ref,
+            expectedAmount: payAmount,
+            preferredAccountNumbers: preferredAccounts,
         });
 
         if (!matchedTx) {
@@ -517,7 +506,9 @@ router.post('/:id/pay-debt/confirm-transfer', requireAuth, requireRole(['staff',
             });
         }
 
-        const providerTxnId = String(matchedTx.id || matchedTx.reference_number || matchedTx.referenceCode || '').trim();
+        const providerTxnId = String(
+            matchedTx.id || matchedTx.reference_number || matchedTx.referenceCode || ''
+        ).trim();
         if (providerTxnId) {
             const usedInDebtPayment = await CustomerDebtPayment.findOne({
                 provider_txn_id: providerTxnId,
@@ -625,6 +616,18 @@ router.post('/:id/pay-debt/confirm-transfer', requireAuth, requireRole(['staff',
             entityType: 'Customer',
             entityId: customer._id,
         });
+
+        await notifyStoreBankTransferPaid({
+            storeId,
+            paymentRef: ref,
+            amount: payAmount,
+            source: 'customer_debt',
+            title: 'Khách đã thanh toán nợ (chuyển khoản)',
+            message: `Đã nhận ${payAmount.toLocaleString('vi-VN')}₫ — mã ${ref} (${customer.full_name}).`,
+            relatedEntity: 'customer_debt_payment',
+            relatedId: lockedPendingPayment._id,
+            uniqueKeyBase: `customer_debt_paid:${lockedPendingPayment._id}`,
+        }).catch(() => {});
 
         const refreshedCustomer = await Customer.findOne({ _id: id, store_id: storeId }).lean();
         res.json({ message: 'Xác nhận thanh toán nợ chuyển khoản thành công', customer: refreshedCustomer || customer });
