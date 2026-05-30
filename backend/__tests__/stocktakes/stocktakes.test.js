@@ -3,7 +3,7 @@ const request = require('supertest');
 const express = require('express');
 const stocktakeRoutes = require('../../routes/stocktakes');
 const Product = require('../../models/Product');
-const { createManagerWithStore, getAuthHeader } = require('../fixtures/users');
+const { createManagerWithStore, createStaffWithStore, getAuthHeader } = require('../fixtures/users');
 const { createProducts } = require('../fixtures/products');
 
 const app = express();
@@ -36,6 +36,25 @@ describe('Stocktakes Routes', () => {
       const res = await request(app).get('/api/stocktakes');
 
       expect(res.status).toBe(401);
+    });
+
+    it('should hide staff draft stocktakes from manager list', async () => {
+      const staff = await createStaffWithStore(store);
+      const staffToken = getAuthHeader(staff).Authorization;
+      const products = await createProducts(store._id, 1);
+      const productIds = products.map((p) => p._id.toString());
+
+      await request(app)
+        .post('/api/stocktakes')
+        .set('Authorization', staffToken)
+        .send({ product_ids: productIds });
+
+      const managerList = await request(app)
+        .get('/api/stocktakes')
+        .set('Authorization', managerToken);
+
+      expect(managerList.status).toBe(200);
+      expect(managerList.body.stocktakes).toHaveLength(0);
     });
   });
 
@@ -93,7 +112,35 @@ describe('Stocktakes Routes', () => {
       expect(res.body.stocktake.items[0].actual_qty).toBe(15);
     });
 
-    it('should submit stocktake when status is submitted', async () => {
+    it('should submit stocktake when staff sends for approval', async () => {
+      const staff = await createStaffWithStore(store);
+      const staffToken = getAuthHeader(staff).Authorization;
+      const products = await createProducts(store._id, 2);
+      const productIds = products.map(p => p._id.toString());
+
+      const createRes = await request(app)
+        .post('/api/stocktakes')
+        .set('Authorization', staffToken)
+        .send({ product_ids: productIds });
+
+      const stocktakeId = createRes.body.stocktake._id;
+
+      const res = await request(app)
+        .patch(`/api/stocktakes/${stocktakeId}`)
+        .set('Authorization', staffToken)
+        .send({
+          items: productIds.map(pid => ({
+            product_id: pid,
+            actual_qty: 10,
+          })),
+          status: 'submitted',
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.stocktake.status).toBe('submitted');
+    });
+
+    it('should forbid manager from submitting own draft for approval', async () => {
       const products = await createProducts(store._id, 2);
       const productIds = products.map(p => p._id.toString());
 
@@ -108,34 +155,33 @@ describe('Stocktakes Routes', () => {
         .patch(`/api/stocktakes/${stocktakeId}`)
         .set('Authorization', managerToken)
         .send({
-          items: productIds.map(pid => ({
-            product_id: pid,
-            actual_qty: 10,
-          })),
+          items: productIds.map((pid) => ({ product_id: pid, actual_qty: 10 })),
           status: 'submitted',
         });
 
-      expect(res.status).toBe(200);
-      expect(res.body.stocktake.status).toBe('submitted');
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe('MANAGER_SELF_SUBMIT_FORBIDDEN');
     });
   });
 
   describe('POST /api/stocktakes/:id/approve', () => {
     it('should approve stocktake and update product stock', async () => {
+      const staff = await createStaffWithStore(store);
+      const staffToken = getAuthHeader(staff).Authorization;
       const products = await createProducts(store._id, 2);
       const productIds = products.map(p => p._id.toString());
       const originalStock = products[0].stock_qty;
 
       const createRes = await request(app)
         .post('/api/stocktakes')
-        .set('Authorization', managerToken)
+        .set('Authorization', staffToken)
         .send({ product_ids: productIds });
 
       const stocktakeId = createRes.body.stocktake._id;
 
       await request(app)
         .patch(`/api/stocktakes/${stocktakeId}`)
-        .set('Authorization', managerToken)
+        .set('Authorization', staffToken)
         .send({
           items: productIds.map((pid, i) => ({
             product_id: pid,
@@ -155,13 +201,15 @@ describe('Stocktakes Routes', () => {
       expect(updatedProduct.stock_qty).toBe(originalStock + 5);
     });
 
-    it('should return 400 if stocktake not submitted', async () => {
+    it('should return 400 if staff draft not submitted yet', async () => {
+      const staff = await createStaffWithStore(store);
+      const staffToken = getAuthHeader(staff).Authorization;
       const products = await createProducts(store._id, 2);
       const productIds = products.map(p => p._id.toString());
 
       const createRes = await request(app)
         .post('/api/stocktakes')
-        .set('Authorization', managerToken)
+        .set('Authorization', staffToken)
         .send({ product_ids: productIds });
 
       const stocktakeId = createRes.body.stocktake._id;
@@ -173,19 +221,47 @@ describe('Stocktakes Routes', () => {
       expect(res.status).toBe(400);
     });
 
-    it('should require manager_note when live stock mismatch exceeds threshold', async () => {
+    it('should allow manager to complete own draft without submitting', async () => {
       const products = await createProducts(store._id, 1);
-      const productIds = products.map(p => p._id.toString());
+      const productIds = products.map((p) => p._id.toString());
+      const originalStock = products[0].stock_qty;
 
       const createRes = await request(app)
         .post('/api/stocktakes')
         .set('Authorization', managerToken)
         .send({ product_ids: productIds });
+
+      const stocktakeId = createRes.body.stocktake._id;
+
+      const res = await request(app)
+        .patch(`/api/stocktakes/${stocktakeId}`)
+        .set('Authorization', managerToken)
+        .send({
+          items: [{ product_id: productIds[0], actual_qty: originalStock + 3 }],
+          complete: true,
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.message).toContain('hoàn tất');
+      const updatedProduct = await Product.findById(products[0]._id);
+      expect(updatedProduct.stock_qty).toBe(originalStock + 3);
+    });
+
+    it('should require manager_note when live stock mismatch exceeds threshold', async () => {
+      const staff = await createStaffWithStore(store);
+      const staffToken = getAuthHeader(staff).Authorization;
+      const products = await createProducts(store._id, 1);
+      const productIds = products.map(p => p._id.toString());
+
+      const createRes = await request(app)
+        .post('/api/stocktakes')
+        .set('Authorization', staffToken)
+        .send({ product_ids: productIds });
       const stocktakeId = createRes.body.stocktake._id;
 
       await request(app)
         .patch(`/api/stocktakes/${stocktakeId}`)
-        .set('Authorization', managerToken)
+        .set('Authorization', staffToken)
         .send({
           items: [{ product_id: productIds[0], actual_qty: products[0].stock_qty }],
           status: 'submitted',
@@ -210,19 +286,21 @@ describe('Stocktakes Routes', () => {
 
   describe('POST /api/stocktakes/:id/reject', () => {
     it('should reject stocktake with reason', async () => {
+      const staff = await createStaffWithStore(store);
+      const staffToken = getAuthHeader(staff).Authorization;
       const products = await createProducts(store._id, 2);
       const productIds = products.map(p => p._id.toString());
 
       const createRes = await request(app)
         .post('/api/stocktakes')
-        .set('Authorization', managerToken)
+        .set('Authorization', staffToken)
         .send({ product_ids: productIds });
 
       const stocktakeId = createRes.body.stocktake._id;
 
       await request(app)
         .patch(`/api/stocktakes/${stocktakeId}`)
-        .set('Authorization', managerToken)
+        .set('Authorization', staffToken)
         .send({
           items: productIds.map(pid => ({
             product_id: pid,

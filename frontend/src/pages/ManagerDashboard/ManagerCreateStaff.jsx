@@ -6,7 +6,7 @@ import { UserPlus } from 'lucide-react';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
 
-const API_BASE = process.env.REACT_APP_API_URL || '/api';
+const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
 
 const defaultForm = {
     fullName: '',
@@ -129,6 +129,16 @@ export default function ManagerCreateStaff() {
                     }
                     if (data.code === 'STORE_LOCKED') {
                         setError('Cửa hàng của bạn đã bị khóa. Vui lòng liên hệ admin để được hỗ trợ.');
+                        setLoading(false);
+                        return;
+                    }
+                    if (data.code === 'STORE_APPROVAL_REQUIRED') {
+                        setError('Cửa hàng chưa được phê duyệt. Bạn vẫn có thể tạo nhân viên; nếu lỗi tiếp diễn, vui lòng tải lại trang hoặc đăng nhập lại.');
+                        setLoading(false);
+                        return;
+                    }
+                    if (data.code === 'SUBSCRIPTION_REQUIRED') {
+                        setError('Gói dịch vụ đã hết hạn. Vui lòng gia hạn gói trước khi tạo nhân viên.');
                         setLoading(false);
                         return;
                     }

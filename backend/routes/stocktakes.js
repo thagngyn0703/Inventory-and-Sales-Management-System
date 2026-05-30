@@ -12,13 +12,307 @@ const router = express.Router();
 const LIVE_MISMATCH_REQUIRE_NOTE_THRESHOLD = 5;
 
 function getRoleStoreFilter(req) {
-  const role = String(req.user?.role || '').toLowerCase();
-  if (role === 'admin') return {};
-  const isStoreScopedRole = ['manager', 'staff'].includes(role);
-  if (!isStoreScopedRole) return {};
-  const storeId = req.user?.storeId ? String(req.user.storeId) : null;
-  if (!storeId) return null;
-  return { storeId };
+    const role = String(req.user?.role || '').toLowerCase();
+    if (role === 'admin') return {};
+    const isStoreScopedRole = ['manager', 'staff'].includes(role);
+    if (!isStoreScopedRole) return {};
+    const storeId = req.user?.storeId ? String(req.user.storeId) : null;
+    if (!storeId) return null;
+    return { storeId };
+}
+
+function normalizeRoleToThreeTier(role) {
+    const r = String(role || '').toLowerCase().trim();
+    if (r === 'warehouse_staff' || r === 'warehouse staff' || r === 'warehouse') return 'staff';
+    if (r === 'sales_staff' || r === 'sales staff' || r === 'sales') return 'staff';
+    return r;
+}
+
+function normalizeUserId(value) {
+    if (value == null) return '';
+    if (typeof value === 'object' && value._id != null) return String(value._id);
+    return String(value);
+}
+
+function sameUserId(left, right) {
+    const a = normalizeUserId(left);
+    const b = normalizeUserId(right);
+    if (!a || !b) return false;
+    if (a === b) return true;
+    try {
+        if (mongoose.Types.ObjectId.isValid(a) && mongoose.Types.ObjectId.isValid(b)) {
+            return new mongoose.Types.ObjectId(a).equals(new mongoose.Types.ObjectId(b));
+        }
+    } catch {
+        /* ignore */
+    }
+    return false;
+}
+
+function getStocktakeCreatorId(stocktake) {
+    return normalizeUserId(stocktake?.created_by);
+}
+
+function applyStocktakeListVisibility(filter, req) {
+    const role = normalizeRoleToThreeTier(req.user?.role);
+    const userId = req.user?.id ? String(req.user.id) : null;
+    if (!userId) return filter;
+
+    if (role === 'staff') {
+        filter.created_by = userId;
+        return filter;
+    }
+    if (role === 'manager') {
+        // Manager chỉ thấy nháp của chính mình; phiếu nháp của nhân viên chỉ hiện sau khi gửi duyệt.
+        filter.$or = [{ created_by: userId }, { status: { $ne: 'draft' } }];
+        return filter;
+    }
+    return filter;
+}
+
+function canViewStocktake(stocktake, req) {
+    const role = String(req.user?.role || '').toLowerCase();
+    const userId = req.user?.id ? String(req.user.id) : null;
+    if (!userId || !stocktake) return false;
+    if (role === 'admin') return true;
+    if (role === 'staff') return sameUserId(stocktake?.created_by, userId);
+    if (role === 'manager') {
+        if (stocktake.status === 'draft') return sameUserId(stocktake?.created_by, userId);
+        return true;
+    }
+    return false;
+}
+
+function isSelfManagerStocktake(stocktake, req) {
+    const role = normalizeRoleToThreeTier(req.user?.role);
+    if (!['manager', 'admin'].includes(role)) return false;
+    return sameUserId(stocktake?.created_by, req.user?.id);
+}
+
+/** Manager/admin hoàn tất trực tiếp phiếu nháp do chính họ tạo (không gửi duyệt). */
+function canSelfCompleteDraft(stocktake, req) {
+    if (!stocktake || stocktake.status !== 'draft') return false;
+    const role = normalizeRoleToThreeTier(req.user?.role);
+    if (!['manager', 'admin'].includes(role)) return false;
+    return canViewStocktake(stocktake, req) && sameUserId(stocktake?.created_by, req.user?.id);
+}
+
+async function runStocktakeApprovalTransaction({ id, storeFilter, req, adjustmentReason, managerNoteText }) {
+    const mongoSession = await mongoose.startSession();
+    let populated = null;
+    let txErr = null;
+    try {
+        await mongoSession.withTransaction(async () => {
+            const existing = await Stocktake.findOne({ _id: id, ...storeFilter }).session(mongoSession);
+            if (!existing) {
+                const e = new Error('STOCKTAKE_NOT_FOUND');
+                e.code = 'STOCKTAKE_NOT_FOUND';
+                throw e;
+            }
+            const selfManagerApprove = canSelfCompleteDraft(existing, req);
+            if (existing.status === 'draft' && !selfManagerApprove) {
+                const e = new Error('STOCKTAKE_BAD_STATE');
+                e.code = 'STOCKTAKE_BAD_STATE';
+                e.existingStatus = existing.status;
+                throw e;
+            }
+            if (existing.status !== 'submitted' && existing.status !== 'draft') {
+                const e = new Error('STOCKTAKE_BAD_STATE');
+                e.code = 'STOCKTAKE_BAD_STATE';
+                e.existingStatus = existing.status;
+                throw e;
+            }
+            if (selfManagerApprove) {
+                const hasUncountedItem = (existing.items || []).some(
+                    (it) => it.actual_qty === null || it.actual_qty === undefined
+                );
+                if (hasUncountedItem) {
+                    const e = new Error('STOCKTAKE_UNCOUNTED_ITEMS');
+                    e.code = 'STOCKTAKE_UNCOUNTED_ITEMS';
+                    throw e;
+                }
+            }
+
+            existing.status = 'completed';
+            existing.completed_at = new Date();
+            existing.updated_at = new Date();
+            await existing.save({ session: mongoSession });
+            const stocktake = existing.toObject ? existing.toObject() : existing;
+
+            const storeIdResolved = stocktake.storeId
+                ? String(stocktake.storeId)
+                : req.user.storeId
+                    ? String(req.user.storeId)
+                    : '';
+            if (!storeIdResolved) {
+                const e = new Error('STORE_ID_REQUIRED');
+                e.code = 'STORE_ID_REQUIRED';
+                throw e;
+            }
+
+            const items = stocktake.items || [];
+            const productIds = items
+                .map((it) => (it?.product_id ? String(it.product_id) : null))
+                .filter(Boolean);
+            const liveProducts = await Product.find({
+                _id: { $in: productIds },
+                storeId: storeIdResolved,
+            })
+                .select('_id stock_qty')
+                .session(mongoSession)
+                .lean();
+            const liveQtyMap = new Map(liveProducts.map((p) => [String(p._id), Number(p.stock_qty) || 0]));
+            const significantMismatchItems = [];
+            for (const it of items) {
+                const pid = String(it.product_id);
+                const snapshotQty = Number(it.system_qty) || 0;
+                const liveQty = liveQtyMap.has(pid) ? Number(liveQtyMap.get(pid)) : snapshotQty;
+                const delta = liveQty - snapshotQty;
+                if (Math.abs(delta) > LIVE_MISMATCH_REQUIRE_NOTE_THRESHOLD) {
+                    significantMismatchItems.push({
+                        product_id: pid,
+                        snapshot_qty: snapshotQty,
+                        live_qty: liveQty,
+                        delta,
+                    });
+                }
+            }
+            if (significantMismatchItems.length > 0 && !managerNoteText) {
+                const e = new Error('MANAGER_NOTE_REQUIRED_ON_LIVE_MISMATCH');
+                e.code = 'MANAGER_NOTE_REQUIRED_ON_LIVE_MISMATCH';
+                e.threshold = LIVE_MISMATCH_REQUIRE_NOTE_THRESHOLD;
+                e.mismatchCount = significantMismatchItems.length;
+                throw e;
+            }
+
+            const adjustmentItems = [];
+            for (const it of items) {
+                const variance =
+                    it.variance != null
+                        ? Number(it.variance)
+                        : it.actual_qty != null && it.system_qty != null
+                            ? Number(it.actual_qty) - Number(it.system_qty)
+                            : null;
+                if (variance == null || variance === 0) continue;
+                adjustmentItems.push({
+                    product_id: it.product_id,
+                    adjusted_qty: variance,
+                });
+            }
+
+            for (const adjIt of adjustmentItems) {
+                await adjustStockFIFO(adjIt.product_id, storeIdResolved, adjIt.adjusted_qty, {
+                    note: `Kiểm kê (Phiếu #${id.substring(id.length - 6).toUpperCase()})`,
+                    movementType: 'ADJ_STOCKTAKE',
+                    referenceType: 'stocktake',
+                    referenceId: stocktake._id,
+                    actorId: req.user.id,
+                    session: mongoSession,
+                });
+            }
+
+            const [adjustment] = await StockAdjustment.create(
+                [
+                    {
+                        storeId: stocktake.storeId || undefined,
+                        stocktake_id: id,
+                        created_by: req.user.id,
+                        approved_by: req.user.id,
+                        status: 'approved',
+                        reason: adjustmentReason,
+                        items: adjustmentItems,
+                        approved_at: new Date(),
+                    },
+                ],
+                { session: mongoSession }
+            );
+
+            populated = await StockAdjustment.findById(adjustment._id)
+                .populate('stocktake_id', 'snapshot_at created_at')
+                .populate('approved_by', 'email')
+                .populate('items.product_id', 'name sku base_unit')
+                .session(mongoSession)
+                .lean();
+        });
+    } catch (err) {
+        txErr = err;
+    } finally {
+        mongoSession.endSession();
+    }
+    return { populated, txErr };
+}
+
+function respondStocktakeApprovalError(res, txErr) {
+    if (txErr.code === 'STOCKTAKE_NOT_FOUND') {
+        res.status(404).json({ message: 'Stocktake not found' });
+        return true;
+    }
+    if (txErr.code === 'STOCKTAKE_BAD_STATE') {
+        const statusLabel =
+            txErr.existingStatus === 'draft'
+                ? 'Nháp'
+                : txErr.existingStatus === 'submitted'
+                    ? 'Đã gửi'
+                    : txErr.existingStatus === 'completed'
+                        ? 'Hoàn thành'
+                        : txErr.existingStatus === 'cancelled'
+                            ? 'Đã hủy'
+                            : txErr.existingStatus;
+        res.status(400).json({
+            message:
+                txErr.existingStatus === 'draft'
+                    ? 'Phiếu đang ở trạng thái Nháp. Chỉ quản lý tạo phiếu mới dùng "Hoàn tất & điều chỉnh tồn"; nhân viên cần bấm "Gửi duyệt" trước.'
+                    : `Phiếu đang ở trạng thái ${statusLabel}, không thể duyệt lại.`,
+            code: 'STOCKTAKE_BAD_STATE',
+        });
+        return true;
+    }
+    if (txErr.code === 'STOCKTAKE_UNCOUNTED_ITEMS') {
+        res.status(400).json({
+            message: 'Không thể hoàn tất: cần nhập số lượng thực tế cho tất cả sản phẩm.',
+            code: 'STOCKTAKE_UNCOUNTED_ITEMS',
+        });
+        return true;
+    }
+    if (txErr.code === 'STORE_ID_REQUIRED') {
+        res.status(400).json({
+            message:
+                'Phiếu kiểm kê thiếu mã cửa hàng; không thể điều chỉnh tồn. Vui lòng liên hệ quản trị để gán storeId hoặc tạo lại phiếu.',
+            code: 'STORE_ID_REQUIRED',
+        });
+        return true;
+    }
+    if (txErr.code === 'MANAGER_NOTE_REQUIRED_ON_LIVE_MISMATCH') {
+        res.status(400).json({
+            message: `Tồn hiện tại lệch snapshot vượt ngưỡng ${txErr.threshold}. Vui lòng nhập lý do xác nhận trước khi duyệt.`,
+            code: 'MANAGER_NOTE_REQUIRED_ON_LIVE_MISMATCH',
+            threshold: txErr.threshold,
+            mismatch_count: txErr.mismatchCount,
+        });
+        return true;
+    }
+    if (txErr.code === 'INSUFFICIENT_STOCK' || String(txErr?.message || '') === 'INSUFFICIENT_STOCK') {
+        res.status(409).json({
+            message: 'Không thể duyệt kiểm kê vì tồn kho hiện tại không đủ để trừ theo chênh lệch.',
+            code: 'INSUFFICIENT_STOCK',
+        });
+        return true;
+    }
+    if (txErr.code === 'PRODUCT_NOT_FOUND_IN_STORE') {
+        res.status(400).json({
+            message: 'Một sản phẩm trong phiếu không còn trong cửa hàng hoặc đã bị xóa.',
+            code: 'PRODUCT_NOT_FOUND_IN_STORE',
+        });
+        return true;
+    }
+    if (txErr.code === 'STORE_ID_AND_PRODUCT_ID_REQUIRED') {
+        res.status(400).json({
+            message: 'Thiếu thông tin cửa hàng hoặc sản phẩm khi điều chỉnh tồn.',
+            code: 'STORE_ID_AND_PRODUCT_ID_REQUIRED',
+        });
+        return true;
+    }
+    return false;
 }
 
 // POST /api/stocktakes — Create stocktaking record (draft). Staff, Manager, Admin.
@@ -105,6 +399,7 @@ router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (
     if (status && ['draft', 'submitted', 'completed', 'cancelled'].includes(status)) {
       filter.status = status;
     }
+    applyStocktakeListVisibility(filter, req);
 
     const total = await Stocktake.countDocuments(filter);
     const skip = (pageNum - 1) * limitNum;
@@ -147,181 +442,16 @@ router.post('/:id/approve', requireAuth, requireRole(['manager', 'admin']), asyn
     const effectiveNote = managerNoteText || reasonText;
     const adjustmentReason = effectiveNote || 'Duyệt từ phiếu kiểm kê';
 
-    const mongoSession = await mongoose.startSession();
-    let populated = null;
-    let txErr = null;
-    try {
-      await mongoSession.withTransaction(async () => {
-        const stocktake = await Stocktake.findOneAndUpdate(
-          { _id: id, ...storeFilter, status: 'submitted' },
-          {
-            $set: {
-              status: 'completed',
-              completed_at: new Date(),
-              updated_at: new Date(),
-            },
-          },
-          { new: true, session: mongoSession }
-        ).lean();
-
-        if (!stocktake) {
-          const existing = await Stocktake.findOne({ _id: id, ...storeFilter })
-            .session(mongoSession)
-            .lean();
-          if (!existing) {
-            const e = new Error('STOCKTAKE_NOT_FOUND');
-            e.code = 'STOCKTAKE_NOT_FOUND';
-            throw e;
-          }
-          const e = new Error('STOCKTAKE_BAD_STATE');
-          e.code = 'STOCKTAKE_BAD_STATE';
-          e.existingStatus = existing.status;
-          throw e;
-        }
-
-        const storeIdResolved = stocktake.storeId
-          ? String(stocktake.storeId)
-          : req.user.storeId
-            ? String(req.user.storeId)
-            : '';
-        if (!storeIdResolved) {
-          const e = new Error('STORE_ID_REQUIRED');
-          e.code = 'STORE_ID_REQUIRED';
-          throw e;
-        }
-
-        const items = stocktake.items || [];
-        const productIds = items
-          .map((it) => (it?.product_id ? String(it.product_id) : null))
-          .filter(Boolean);
-        const liveProducts = await Product.find({
-          _id: { $in: productIds },
-          storeId: storeIdResolved,
-        })
-          .select('_id stock_qty')
-          .session(mongoSession)
-          .lean();
-        const liveQtyMap = new Map(liveProducts.map((p) => [String(p._id), Number(p.stock_qty) || 0]));
-        const significantMismatchItems = [];
-        for (const it of items) {
-          const pid = String(it.product_id);
-          const snapshotQty = Number(it.system_qty) || 0;
-          const liveQty = liveQtyMap.has(pid) ? Number(liveQtyMap.get(pid)) : snapshotQty;
-          const delta = liveQty - snapshotQty;
-          if (Math.abs(delta) > LIVE_MISMATCH_REQUIRE_NOTE_THRESHOLD) {
-            significantMismatchItems.push({
-              product_id: pid,
-              snapshot_qty: snapshotQty,
-              live_qty: liveQty,
-              delta,
-            });
-          }
-        }
-        if (significantMismatchItems.length > 0 && !managerNoteText) {
-          const e = new Error('MANAGER_NOTE_REQUIRED_ON_LIVE_MISMATCH');
-          e.code = 'MANAGER_NOTE_REQUIRED_ON_LIVE_MISMATCH';
-          e.threshold = LIVE_MISMATCH_REQUIRE_NOTE_THRESHOLD;
-          e.mismatchCount = significantMismatchItems.length;
-          throw e;
-        }
-
-        const adjustmentItems = [];
-        for (const it of items) {
-          const variance =
-            it.variance != null
-              ? Number(it.variance)
-              : it.actual_qty != null && it.system_qty != null
-                ? Number(it.actual_qty) - Number(it.system_qty)
-                : null;
-          if (variance == null || variance === 0) continue;
-          adjustmentItems.push({
-            product_id: it.product_id,
-            adjusted_qty: variance,
-          });
-        }
-
-        for (const adjIt of adjustmentItems) {
-          await adjustStockFIFO(adjIt.product_id, storeIdResolved, adjIt.adjusted_qty, {
-            note: `Kiểm kê (Phiếu #${id.substring(id.length - 6).toUpperCase()})`,
-            movementType: 'ADJ_STOCKTAKE',
-            referenceType: 'stocktake',
-            referenceId: stocktake._id,
-            actorId: req.user.id,
-            session: mongoSession,
-          });
-        }
-
-        const [adjustment] = await StockAdjustment.create(
-          [
-            {
-              storeId: stocktake.storeId || undefined,
-              stocktake_id: id,
-              created_by: req.user.id,
-              approved_by: req.user.id,
-              status: 'approved',
-              reason: adjustmentReason,
-              items: adjustmentItems,
-              approved_at: new Date(),
-            },
-          ],
-          { session: mongoSession }
-        );
-
-        populated = await StockAdjustment.findById(adjustment._id)
-          .populate('stocktake_id', 'snapshot_at created_at')
-          .populate('approved_by', 'email')
-          .populate('items.product_id', 'name sku base_unit')
-          .session(mongoSession)
-          .lean();
-      });
-    } catch (err) {
-      txErr = err;
-    } finally {
-      mongoSession.endSession();
-    }
+    const { populated, txErr } = await runStocktakeApprovalTransaction({
+      id,
+      storeFilter,
+      req,
+      adjustmentReason,
+      managerNoteText,
+    });
 
     if (txErr) {
-      if (txErr.code === 'STOCKTAKE_NOT_FOUND') {
-        return res.status(404).json({ message: 'Stocktake not found' });
-      }
-      if (txErr.code === 'STOCKTAKE_BAD_STATE') {
-        return res.status(400).json({
-          message: `Phiếu đang ở trạng thái "${txErr.existingStatus}", không thể xử lý lặp`,
-        });
-      }
-      if (txErr.code === 'STORE_ID_REQUIRED') {
-        return res.status(400).json({
-          message:
-            'Phiếu kiểm kê thiếu mã cửa hàng; không thể điều chỉnh tồn. Vui lòng liên hệ quản trị để gán storeId hoặc tạo lại phiếu.',
-          code: 'STORE_ID_REQUIRED',
-        });
-      }
-      if (txErr.code === 'MANAGER_NOTE_REQUIRED_ON_LIVE_MISMATCH') {
-        return res.status(400).json({
-          message: `Tồn hiện tại lệch snapshot vượt ngưỡng ${txErr.threshold}. Vui lòng nhập lý do xác nhận trước khi duyệt.`,
-          code: 'MANAGER_NOTE_REQUIRED_ON_LIVE_MISMATCH',
-          threshold: txErr.threshold,
-          mismatch_count: txErr.mismatchCount,
-        });
-      }
-      if (txErr.code === 'INSUFFICIENT_STOCK' || String(txErr?.message || '') === 'INSUFFICIENT_STOCK') {
-        return res.status(409).json({
-          message: 'Không thể duyệt kiểm kê vì tồn kho hiện tại không đủ để trừ theo chênh lệch.',
-          code: 'INSUFFICIENT_STOCK',
-        });
-      }
-      if (txErr.code === 'PRODUCT_NOT_FOUND_IN_STORE') {
-        return res.status(400).json({
-          message: 'Một sản phẩm trong phiếu không còn trong cửa hàng hoặc đã bị xóa.',
-          code: 'PRODUCT_NOT_FOUND_IN_STORE',
-        });
-      }
-      if (txErr.code === 'STORE_ID_AND_PRODUCT_ID_REQUIRED') {
-        return res.status(400).json({
-          message: 'Thiếu thông tin cửa hàng hoặc sản phẩm khi điều chỉnh tồn.',
-          code: 'STORE_ID_AND_PRODUCT_ID_REQUIRED',
-        });
-      }
+      if (respondStocktakeApprovalError(res, txErr)) return undefined;
       return res.status(500).json({ message: txErr.message || 'Server error' });
     }
 
@@ -456,14 +586,25 @@ router.get('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), asyn
       .populate('created_by', 'email')
       .lean();
     if (!stocktake) return res.status(404).json({ message: 'Stocktake not found' });
-    return res.json({ stocktake });
+    if (!canViewStocktake(stocktake, req)) {
+      return res.status(403).json({
+        message: 'Phiếu nháp của nhân viên chỉ hiển thị sau khi được gửi duyệt.',
+        code: 'STOCKTAKE_DRAFT_HIDDEN',
+      });
+    }
+    return res.json({
+      stocktake: {
+        ...stocktake,
+        can_self_complete: canSelfCompleteDraft(stocktake, req),
+      },
+    });
   } catch (err) {
     return res.status(500).json({ message: err.message || 'Server error' });
   }
 });
 
-// PATCH /api/stocktakes/:id — Update items (actual_qty, reason) and/or submit. Only when status is draft.
-// Body: { items?: [{ product_id, actual_qty?, reason? }], status?: 'submitted' }
+// PATCH /api/stocktakes/:id — Update items (actual_qty, reason), submit (staff), or complete (manager own draft).
+// Body: { items?, status?: 'submitted', complete?: true, reason?, manager_note? }
 router.patch('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), async (req, res) => {
   try {
     const { id } = req.params;
@@ -479,11 +620,23 @@ router.patch('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), as
     }
     const doc = await Stocktake.findOne({ _id: id, ...storeFilter });
     if (!doc) return res.status(404).json({ message: 'Stocktake not found' });
+    if (!canViewStocktake(doc, req)) {
+      return res.status(403).json({
+        message: 'Không có quyền sửa phiếu kiểm kê này.',
+        code: 'STOCKTAKE_FORBIDDEN',
+      });
+    }
     if (doc.status !== 'draft') {
       return res.status(400).json({ message: 'Chỉ được sửa phiếu ở trạng thái Nháp' });
     }
 
-    const { items: bodyItems, status: newStatus } = req.body || {};
+    const { items: bodyItems, status: newStatus, complete: wantComplete } = req.body || {};
+    if (wantComplete === true && newStatus === 'submitted') {
+      return res.status(400).json({
+        message: 'Không thể vừa gửi duyệt vừa hoàn tất trong một thao tác.',
+        code: 'STOCKTAKE_INVALID_ACTION',
+      });
+    }
     if (Array.isArray(bodyItems) && bodyItems.length > 0) {
       const productIdToUpdate = new Map(
         bodyItems.map((row) => {
@@ -519,7 +672,75 @@ router.patch('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), as
       doc.markModified('items');
     }
 
+    if (wantComplete === true) {
+      const role = normalizeRoleToThreeTier(req.user?.role);
+      if (!['manager', 'admin'].includes(role)) {
+        return res.status(403).json({
+          message: 'Chỉ quản lý mới được hoàn tất trực tiếp phiếu kiểm kê.',
+          code: 'STOCKTAKE_COMPLETE_FORBIDDEN',
+        });
+      }
+      if (!canSelfCompleteDraft(doc, req)) {
+        return res.status(403).json({
+          message: 'Chỉ được hoàn tất phiếu nháp do chính bạn tạo. Phiếu của nhân viên cần chờ họ gửi duyệt.',
+          code: 'STOCKTAKE_COMPLETE_FORBIDDEN',
+        });
+      }
+      const hasUncountedItem = (doc.items || []).some(
+        (it) => it.actual_qty === null || it.actual_qty === undefined
+      );
+      if (hasUncountedItem) {
+        return res.status(400).json({
+          message: 'Không thể hoàn tất: cần nhập số lượng thực tế cho tất cả sản phẩm.',
+          code: 'STOCKTAKE_UNCOUNTED_ITEMS',
+        });
+      }
+      doc.updated_at = new Date();
+      await doc.save();
+
+      const reasonText = req.body?.reason != null ? String(req.body.reason).trim() : '';
+      const managerNoteText = req.body?.manager_note != null ? String(req.body.manager_note).trim() : '';
+      const effectiveNote = managerNoteText || reasonText;
+      const adjustmentReason = effectiveNote || 'Quản lý tự kiểm kê và hoàn tất phiếu';
+
+      const { populated, txErr } = await runStocktakeApprovalTransaction({
+        id,
+        storeFilter,
+        req,
+        adjustmentReason,
+        managerNoteText,
+      });
+      if (txErr) {
+        if (respondStocktakeApprovalError(res, txErr)) return undefined;
+        return res.status(500).json({ message: txErr.message || 'Server error' });
+      }
+
+      await emitManagerBadgeRefresh({
+        storeId: populated?.storeId ? String(populated.storeId) : null,
+      });
+
+      const completedStocktake = await Stocktake.findById(doc._id)
+        .populate('items.product_id', 'name sku base_unit stock_qty')
+        .populate('created_by', 'email')
+        .lean();
+
+      return res.json({
+        adjustment: populated,
+        message: 'Đã hoàn tất kiểm kê và cập nhật tồn kho',
+        stocktake: {
+          ...completedStocktake,
+          can_self_complete: false,
+        },
+      });
+    }
+
     if (newStatus === 'submitted') {
+      if (isSelfManagerStocktake(doc, req)) {
+        return res.status(400).json({
+          message: 'Quản lý tự kiểm kê: vui lòng dùng "Hoàn tất & điều chỉnh tồn" thay vì gửi duyệt.',
+          code: 'MANAGER_SELF_SUBMIT_FORBIDDEN',
+        });
+      }
       const hasUncountedItem = (doc.items || []).some((it) => it.actual_qty === null || it.actual_qty === undefined);
       if (hasUncountedItem) {
         return res.status(400).json({ message: 'Không thể gửi duyệt: cần nhập số lượng thực tế cho tất cả sản phẩm' });
@@ -545,7 +766,12 @@ router.patch('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), as
       .populate('created_by', 'email')
       .lean();
 
-    return res.json({ stocktake: populated });
+    return res.json({
+      stocktake: {
+        ...populated,
+        can_self_complete: canSelfCompleteDraft(populated, req),
+      },
+    });
   } catch (err) {
     if (String(err.message || '').startsWith('INVALID_ACTUAL_QTY:')) {
       return res.status(400).json({ message: 'actual_qty phải là số và không được âm' });

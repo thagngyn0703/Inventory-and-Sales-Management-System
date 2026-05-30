@@ -147,7 +147,7 @@ export default function WarehouseStocktakingList() {
                       </td>
                       <td className="px-4 py-3 text-right">
                         <Button type="button" variant="outline" onClick={() => navigate(`${warehouseBase}/stocktakes/${st._id}`)}>
-                          Xem
+                          {st.status === 'draft' ? 'Tiếp tục nhập' : 'Xem'}
                         </Button>
                       </td>
                     </tr>

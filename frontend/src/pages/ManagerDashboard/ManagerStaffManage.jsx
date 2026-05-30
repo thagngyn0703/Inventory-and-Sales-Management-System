@@ -8,7 +8,7 @@ import { ConfirmDialog } from '../../components/ui/confirm-dialog';
 import './ManagerDashboard.css';
 import './ManagerProducts.css';
 
-const API_BASE = process.env.REACT_APP_API_URL || '/api';
+const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
 
 const roleLabel = (role) => {
     if (role === 'staff') return 'Staff';
