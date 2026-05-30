@@ -6,6 +6,16 @@ const { settlePreviousDebtIfNeeded } = require('../utils/invoiceDebtSettlement')
 const { upsertSystemCashFlow } = require('../utils/cashflowUtils');
 const { sumPayment, normalizeNonNegativeInt } = require('../utils/invoicePaymentUtils');
 const { appendLoyaltyTxn, getNextNudge, normalizeLoyaltySettings } = require('../utils/loyalty');
+const {
+  extractPaymentRef,
+  amountsMatch,
+  findMatchingSepayTransaction,
+  getPreferredAccountsForStore,
+  getTransactionAmountIn,
+  getTransactionContent,
+  parseAmount,
+  fetchSepayTransactionsByAmount,
+} = require('../utils/sepayMatchUtils');
 const Customer = require('../models/Customer');
 const Store = require('../models/Store');
 const { requireAuth, requireRole } = require('../middleware/auth');
@@ -55,81 +65,11 @@ function verifySepaySignature(rawBody, receivedChecksum) {
   return expected === String(receivedChecksum).toLowerCase();
 }
 
-/**
- * Trích xuất payment_ref từ nội dung chuyển khoản.
- * Ví dụ: "Thanh toan IMS-A1B2C3 cua hang ABC" → "IMS-A1B2C3"
- */
-function extractPaymentRef(content = '') {
-  // Hỗ trợ cả 2 kiểu nội dung ngân hàng:
-  // - IMS-ABC123
-  // - IMSABC123 (một số bank tự bỏ dấu '-')
-  const match = String(content).toUpperCase().match(/IMS[-\s]?([A-Z0-9]{6,10})/i);
-  return match ? `IMS-${match[1].toUpperCase()}` : null;
-}
-
-function normalizePaymentRef(ref = '') {
-  return String(ref).toUpperCase().replace(/[^A-Z0-9]/g, '');
-}
-
-function normalizeAccountNumber(value = '') {
-  return String(value).replace(/\D/g, '');
-}
-
-function parseAmount(value) {
-  if (value == null) return 0;
-  if (typeof value === 'number') return Number.isFinite(value) ? Math.round(value) : 0;
-
-  let raw = String(value).trim();
-  if (!raw) return 0;
-  raw = raw.replace(/\s+/g, '');
-
-  // Chuẩn hóa các định dạng số thường gặp: 5,000 | 5.000 | 5,000.00 | 5.000,00
-  if (raw.includes(',') && raw.includes('.')) {
-    if (raw.lastIndexOf(',') > raw.lastIndexOf('.')) {
-      // Kiểu EU: 5.000,00 -> 5000.00
-      raw = raw.replace(/\./g, '').replace(',', '.');
-    } else {
-      // Kiểu US: 5,000.00 -> 5000.00
-      raw = raw.replace(/,/g, '');
-    }
-  } else if (raw.includes(',')) {
-    const parts = raw.split(',');
-    raw = parts[parts.length - 1].length === 3 ? parts.join('') : raw.replace(',', '.');
-  } else if (raw.includes('.')) {
-    const parts = raw.split('.');
-    if (parts[parts.length - 1].length === 3) raw = parts.join('');
-  }
-
-  raw = raw.replace(/[^\d.-]/g, '');
-  const n = Number(raw);
-  return Number.isFinite(n) ? Math.round(n) : 0;
-}
-
-async function fetchSepayTransactionsByAmount(amount) {
-  const token = String(process.env.SEPAY_API_TOKEN || '').trim();
-  if (!token) return [];
-
-  const baseUrl = String(process.env.SEPAY_API_BASE_URL || 'https://my.sepay.vn').replace(/\/+$/, '');
-  const url = new URL(`${baseUrl}/userapi/transactions/list`);
-  url.searchParams.set('limit', '50');
-  url.searchParams.set('amount_in', String(Math.round(parseAmount(amount))));
-
-  const res = await fetch(url.toString(), {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'X-API-KEY': token,
-      Accept: 'application/json',
-    },
-  });
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`SePay API error ${res.status}: ${text || 'request failed'}`);
-  }
-
-  const data = await res.json();
-  return Array.isArray(data?.transactions) ? data.transactions : [];
+function getInvoiceBankTransferTarget(invoice) {
+  const paymentSplit = invoice.payment ? sumPayment(invoice.payment) : null;
+  return paymentSplit
+    ? parseAmount(paymentSplit.bank_transfer)
+    : parseAmount(invoice.total_amount) + parseAmount(invoice.previous_debt_paid);
 }
 
 async function reconcileInvoiceFromSepay(invoice) {
@@ -138,19 +78,11 @@ async function reconcileInvoiceFromSepay(invoice) {
   }
 
   const ref = String(invoice.payment_ref).trim().toUpperCase();
-  const normalizedRef = normalizePaymentRef(ref);
-  const paymentSplit = invoice.payment ? sumPayment(invoice.payment) : null;
-  // Số tiền cần đối soát SePay = phần bank_transfer (nếu có), fallback về logic cũ
-  const targetAmount = paymentSplit
-    ? parseAmount(paymentSplit.bank_transfer)
-    : parseAmount(invoice.total_amount) + parseAmount(invoice.previous_debt_paid);
+  const targetAmount = getInvoiceBankTransferTarget(invoice);
   const storeBank = invoice?.store_id
     ? await Store.findById(invoice.store_id).select('bank_account').lean()
     : null;
-  const storeAccountFilter = normalizeAccountNumber(storeBank?.bank_account || '');
-  const fallbackEnvAccountFilter = normalizeAccountNumber(process.env.SEPAY_ACCOUNT_NUMBER || '');
-  // Ưu tiên account của đúng cửa hàng; chỉ fallback env khi store chưa cấu hình.
-  const accountFilter = storeAccountFilter || fallbackEnvAccountFilter;
+  const preferredAccounts = getPreferredAccountsForStore(storeBank?.bank_account);
 
   let transactions = [];
   try {
@@ -160,20 +92,15 @@ async function reconcileInvoiceFromSepay(invoice) {
     return { matched: false, reason: 'sepay_api_unavailable' };
   }
 
-  const matchedTx = transactions.find((tx) => {
-    const contentRaw = String(tx?.transaction_content || tx?.content || tx?.description || '').toUpperCase();
-    const normalizedContent = normalizePaymentRef(contentRaw);
-    const amountIn = parseAmount(tx?.amount_in ?? tx?.amount ?? tx?.transferAmount);
-    const accountNumber = normalizeAccountNumber(
-      tx?.account_number || tx?.accountNumber || tx?.account_no || tx?.account || ''
-    );
-    // Một số response SePay API không luôn có account_number; khi thiếu thì bỏ qua filter này.
-    const accountOk = !accountFilter || !accountNumber || accountNumber === accountFilter;
-    const amountMatched = Math.abs(amountIn - targetAmount) <= 1;
-    return accountOk && amountMatched && normalizedContent.includes(normalizedRef);
+  const matchedTx = findMatchingSepayTransaction(transactions, {
+    paymentRef: ref,
+    expectedAmount: targetAmount,
+    preferredAccountNumbers: preferredAccounts,
   });
 
   if (!matchedTx) return { matched: false, reason: 'not_found' };
+
+  const paymentSplit = invoice.payment ? sumPayment(invoice.payment) : null;
 
   // Chuyển trạng thái hóa đơn sang paid
   invoice.payment_status = 'paid';
@@ -183,7 +110,7 @@ async function reconcileInvoiceFromSepay(invoice) {
     storeId: invoice.store_id,
     type: 'INCOME',
     category: 'SALES',
-    amount: paymentSplit ? parseAmount(paymentSplit.bank_transfer) : invoice.total_amount,
+    amount: paymentSplit ? parseAmount(paymentSplit.bank_transfer) : targetAmount,
     paymentMethod: 'bank_transfer',
     referenceModel: 'sales_invoice_bank',
     referenceId: invoice._id,
@@ -203,8 +130,8 @@ async function reconcileInvoiceFromSepay(invoice) {
       provider_txn_id: providerTxnId,
       invoice_id: invoice._id,
       storeId: invoice.store_id || null,
-      amount: parseAmount(matchedTx?.amount_in ?? matchedTx?.amount ?? matchedTx?.transferAmount),
-      content: String(matchedTx?.transaction_content || matchedTx?.content || ''),
+      amount: getTransactionAmountIn(matchedTx),
+      content: getTransactionContent(matchedTx),
       payment_ref_matched: ref,
       status: 'matched',
       raw_payload: matchedTx,
@@ -338,16 +265,27 @@ router.post('/sepay/webhook', express.raw({ type: 'application/json' }), async (
       const storeBank = matchedInvoice.store_id
         ? await Store.findById(matchedInvoice.store_id).select('bank_account').lean()
         : null;
-      const storeAccountNumber = normalizeAccountNumber(storeBank?.bank_account || '');
-      // Nếu payload có số tài khoản và khác account store thì KHÔNG auto-mark paid.
-      if (incomingAccountNumber && storeAccountNumber && incomingAccountNumber !== storeAccountNumber) {
+      const preferredAccounts = getPreferredAccountsForStore(storeBank?.bank_account);
+      const expectedBankAmount = getInvoiceBankTransferTarget(matchedInvoice);
+
+      if (!paymentRef || !amountsMatch(amount, expectedBankAmount)) {
         txn.status = 'unmatched';
         txn.storeId = matchedInvoice.store_id || null;
         await txn.save();
         console.warn(
-          `[SePay Webhook] Account mismatch for ref ${paymentRef}: incoming=${incomingAccountNumber}, store=${storeAccountNumber}`
+          `[SePay Webhook] Amount/ref mismatch for invoice ${matchedInvoice._id}: ref=${paymentRef}, amount=${amount}, expected=${expectedBankAmount}`
         );
         return res.status(200).json({ success: true });
+      }
+
+      if (
+        incomingAccountNumber &&
+        preferredAccounts.length > 0 &&
+        !preferredAccounts.includes(incomingAccountNumber)
+      ) {
+        console.warn(
+          `[SePay Webhook] Account ${incomingAccountNumber} not in preferred [${preferredAccounts.join(', ')}] but matched ref ${paymentRef} — accepting (multi-store SePay)`
+        );
       }
 
       txn.invoice_id = matchedInvoice._id;
