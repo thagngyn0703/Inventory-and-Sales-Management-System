@@ -89,12 +89,12 @@ export default function ManagerStocktakeDetail() {
     setError('');
     try {
       await approveStocktake(id, { reason: reasonInput.trim(), manager_note: reasonInput.trim() });
-      setSuccessMessage('Đã duyệt phiếu và cập nhật tồn kho.');
       closeModal();
-      load();
+      navigate('/manager/stocktakes', {
+        state: { success: 'Đã duyệt phiếu và cập nhật tồn kho.' },
+      });
     } catch (err) {
       setError(err.message || 'Không thể duyệt phiếu');
-    } finally {
       setActionLoading(false);
     }
   };

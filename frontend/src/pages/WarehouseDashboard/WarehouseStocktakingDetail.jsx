@@ -25,7 +25,6 @@ export default function WarehouseStocktakingDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
-  const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [completing, setCompleting] = useState(false);
   // Local edit state: array of { product_id, system_qty, actual_qty, reason }
@@ -94,22 +93,6 @@ export default function WarehouseStocktakingDetail() {
       reason: it.reason || '',
     }));
 
-  const handleSave = async () => {
-    if (!id) return;
-    setSaving(true);
-    setError('');
-    setSuccessMessage('');
-    try {
-      const updated = await updateStocktake(id, { items: getPayloadItems() });
-      setStocktake(updated);
-      setSuccessMessage('Đã lưu số lượng thực tế và lý do.');
-    } catch (e) {
-      setError(e.message || 'Không thể lưu');
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const handleSubmit = async () => {
     if (!id) return;
     setSubmitting(true);
@@ -117,11 +100,11 @@ export default function WarehouseStocktakingDetail() {
     setSuccessMessage('');
     try {
       await updateStocktake(id, { items: getPayloadItems(), status: 'submitted' });
-      setSuccessMessage('Đã gửi phiếu kiểm kê chờ duyệt.');
-      loadStocktake();
+      navigate(`${warehouseBase}/stocktakes`, {
+        state: { success: 'Đã gửi phiếu kiểm kê chờ duyệt.' },
+      });
     } catch (e) {
       setError(e.message || 'Không thể gửi');
-    } finally {
       setSubmitting(false);
     }
   };
@@ -316,15 +299,12 @@ export default function WarehouseStocktakingDetail() {
 
           {showEdit && (
             <div className="flex flex-wrap gap-2 border-t border-slate-100 bg-slate-50/30 p-4">
-              <Button type="button" onClick={handleSave} disabled={saving || submitting || completing}>
-                {saving ? 'Đang lưu...' : 'Lưu'}
-              </Button>
               {isManagerOwnDraft ? (
-                <Button type="button" onClick={handleManagerComplete} disabled={saving || submitting || completing}>
+                <Button type="button" onClick={handleManagerComplete} disabled={submitting || completing}>
                   {completing ? 'Đang hoàn tất...' : 'Hoàn tất & điều chỉnh tồn'}
                 </Button>
               ) : (
-                <Button type="button" variant="outline" onClick={handleSubmit} disabled={saving || submitting || completing}>
+                <Button type="button" onClick={handleSubmit} disabled={submitting || completing}>
                   {submitting ? 'Đang gửi...' : 'Gửi duyệt'}
                 </Button>
               )}
