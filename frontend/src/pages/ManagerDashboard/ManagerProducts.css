@@ -461,9 +461,77 @@
 }
 
 .manager-products-actions {
-    display: flex;
+    display: inline-flex;
+    align-items: center;
     gap: 6px;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+}
+
+/* Bảng danh sách sản phẩm — tránh SKU dài làm cột thao tác hẹp, nút xếp dọc, hàng cao bất thường */
+.manager-product-list-table {
+    table-layout: fixed;
+}
+
+.manager-product-list-table th,
+.manager-product-list-table td {
+    padding: 10px 12px;
+    vertical-align: middle;
+}
+
+.manager-product-list-table th:nth-child(1),
+.manager-product-list-table td:nth-child(1) {
+    width: 3rem;
+}
+
+.manager-product-list-table th:nth-child(2),
+.manager-product-list-table td:nth-child(2) {
+    width: 3.5rem;
+}
+
+.manager-product-list-table th:nth-child(3),
+.manager-product-list-table td:nth-child(3) {
+    width: 11%;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+}
+
+.manager-product-list-table th:nth-child(4),
+.manager-product-list-table td:nth-child(4) {
+    width: 16%;
+    word-break: break-word;
+}
+
+.manager-product-list-table th:nth-child(5),
+.manager-product-list-table td:nth-child(5) {
+    width: 10%;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+}
+
+.manager-product-list-table th:nth-child(6),
+.manager-product-list-table td:nth-child(6),
+.manager-product-list-table th:nth-child(7),
+.manager-product-list-table td:nth-child(7),
+.manager-product-list-table th:nth-child(8),
+.manager-product-list-table td:nth-child(8) {
+    width: 7%;
+    white-space: nowrap;
+}
+
+.manager-product-list-table th:nth-child(9),
+.manager-product-list-table td:nth-child(9) {
+    width: 5rem;
+}
+
+.manager-product-list-table th:nth-child(10),
+.manager-product-list-table td:nth-child(10) {
+    width: 6.5rem;
+}
+
+.manager-product-list-table th:last-child,
+.manager-product-list-table td:last-child {
+    width: 7.5rem;
+    white-space: nowrap;
 }
 
 .manager-btn-icon {
