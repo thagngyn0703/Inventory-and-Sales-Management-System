@@ -3,6 +3,7 @@ const request = require('supertest');
 const express = require('express');
 const stocktakeRoutes = require('../../routes/stocktakes');
 const Product = require('../../models/Product');
+const Stocktake = require('../../models/Stocktake');
 const { createManagerWithStore, createStaffWithStore, getAuthHeader } = require('../fixtures/users');
 const { createProducts } = require('../fixtures/products');
 
@@ -247,7 +248,7 @@ describe('Stocktakes Routes', () => {
       expect(updatedProduct.stock_qty).toBe(originalStock + 3);
     });
 
-    it('should require manager_note when live stock mismatch exceeds threshold', async () => {
+    it('should expire stocktake when live stock mismatch exceeds threshold', async () => {
       const staff = await createStaffWithStore(store);
       const staffToken = getAuthHeader(staff).Authorization;
       const products = await createProducts(store._id, 1);
@@ -269,18 +270,17 @@ describe('Stocktakes Routes', () => {
 
       await Product.findByIdAndUpdate(products[0]._id, { $inc: { stock_qty: -6 } });
 
-      const noNoteRes = await request(app)
+      const approveRes = await request(app)
         .post(`/api/stocktakes/${stocktakeId}/approve`)
         .set('Authorization', managerToken)
-        .send({ reason: '' });
-      expect(noNoteRes.status).toBe(400);
-      expect(noNoteRes.body.code).toBe('MANAGER_NOTE_REQUIRED_ON_LIVE_MISMATCH');
+        .send({ reason: 'thử duyệt' });
+      expect(approveRes.status).toBe(400);
+      expect(approveRes.body.code).toBe('STOCKTAKE_EXPIRED_LIVE_MISMATCH');
+      expect(approveRes.body.message).toBe('Tồn hệ thống đã thay đổi');
 
-      const withNoteRes = await request(app)
-        .post(`/api/stocktakes/${stocktakeId}/approve`)
-        .set('Authorization', managerToken)
-        .send({ manager_note: 'Đã xác nhận có bán hàng phát sinh trong khi kiểm kê' });
-      expect(withNoteRes.status).toBe(200);
+      const expired = await Stocktake.findById(stocktakeId).lean();
+      expect(expired.status).toBe('expired');
+      expect(expired.reject_reason).toBe('Tồn hệ thống đã thay đổi');
     });
   });
 

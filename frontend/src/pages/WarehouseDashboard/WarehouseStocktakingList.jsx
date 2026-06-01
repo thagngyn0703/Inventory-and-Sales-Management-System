@@ -16,6 +16,7 @@ const STATUS_LABEL = {
   submitted: 'Đã gửi',
   completed: 'Hoàn thành',
   cancelled: 'Đã hủy',
+  expired: 'Hết hiệu lực',
 };
 
 export default function WarehouseStocktakingList() {
@@ -107,6 +108,7 @@ export default function WarehouseStocktakingList() {
               <option value="submitted">Đã gửi</option>
               <option value="completed">Hoàn thành</option>
               <option value="cancelled">Đã hủy</option>
+              <option value="expired">Hết hiệu lực</option>
             </select>
           </div>
 
@@ -138,9 +140,11 @@ export default function WarehouseStocktakingList() {
                             ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
                             : st.status === 'cancelled'
                               ? 'bg-red-100 text-red-700 border border-red-200'
-                              : st.status === 'submitted'
-                                ? 'bg-amber-100 text-amber-700 border border-amber-200'
-                                : 'bg-slate-100 text-slate-700 border border-slate-200'
+                              : st.status === 'expired'
+                                ? 'bg-slate-200 text-slate-700 border border-slate-300'
+                                : st.status === 'submitted'
+                                  ? 'bg-amber-100 text-amber-700 border border-amber-200'
+                                  : 'bg-slate-100 text-slate-700 border border-slate-200'
                         }>
                           {STATUS_LABEL[st.status] ?? st.status}
                         </Badge>

@@ -16,8 +16,8 @@ const STATUS_LABEL = {
   submitted: 'Đã gửi',
   completed: 'Hoàn thành',
   cancelled: 'Đã hủy',
+  expired: 'Hết hiệu lực',
 };
-const LIVE_MISMATCH_REQUIRE_NOTE_THRESHOLD = 5;
 
 export default function ManagerStocktakeDetail() {
   const { id } = useParams();
@@ -144,12 +144,7 @@ export default function ManagerStocktakeDetail() {
 
   const items = stocktake?.items || [];
   const isPending = stocktake?.status === 'submitted';
-  const significantMismatchCount = items.filter((item) => {
-    const systemQty = Number(item?.system_qty ?? 0);
-    const liveQty = Number(item?.product_id?.stock_qty ?? systemQty);
-    return Math.abs(liveQty - systemQty) > LIVE_MISMATCH_REQUIRE_NOTE_THRESHOLD;
-  }).length;
-  const requireApproveNote = isPending && significantMismatchCount > 0;
+  const isExpired = stocktake?.status === 'expired';
   const hasLiveMismatch = items.some((item) => {
     const systemQty = Number(item?.system_qty ?? 0);
     const liveQty = Number(item?.product_id?.stock_qty ?? systemQty);
@@ -173,9 +168,7 @@ export default function ManagerStocktakeDetail() {
             <p className="manager-reason-modal-hint">
               {modal.type === 'reject'
                 ? 'Nhập lý do từ chối phiếu kiểm kê (có thể để trống).'
-                : requireApproveNote
-                  ? `Tồn hiện tại lệch snapshot vượt ngưỡng ${LIVE_MISMATCH_REQUIRE_NOTE_THRESHOLD}. Bạn phải nhập lý do xác nhận trước khi duyệt.`
-                  : 'Ghi chú lý do áp dụng điều chỉnh tồn (tùy chọn).'}
+                : 'Ghi chú lý do áp dụng điều chỉnh tồn (tùy chọn).'}
             </p>
             <textarea
               className="manager-reason-modal-input"
@@ -183,9 +176,7 @@ export default function ManagerStocktakeDetail() {
               onChange={(e) => setReasonInput(e.target.value)}
               placeholder={modal.type === 'reject'
                 ? 'Ví dụ: Số liệu chưa kiểm tra kỹ...'
-                : requireApproveNote
-                  ? 'Bắt buộc: ghi rõ lý do vẫn duyệt khi tồn hiện tại đã biến động...'
-                  : 'Ví dụ: Đã kiểm đếm lại cuối tháng...'}
+                : 'Ví dụ: Đã kiểm đếm lại cuối tháng...'}
               rows={4}
               autoFocus
             />
@@ -198,7 +189,7 @@ export default function ManagerStocktakeDetail() {
                 className={modal.type === 'reject' ? 'warehouse-btn' : 'warehouse-btn warehouse-btn-primary'}
                 style={modal.type === 'reject' ? { background: '#b91c1c', color: '#fff' } : undefined}
                 onClick={modal.type === 'approve' ? confirmApprove : confirmReject}
-                disabled={actionLoading || (modal.type === 'approve' && requireApproveNote && !reasonInput.trim())}
+                disabled={actionLoading}
               >
                 {actionLoading
                   ? 'Đang xử lý...'
@@ -220,7 +211,9 @@ export default function ManagerStocktakeDetail() {
               className={
                 stocktake?.status === 'submitted'
                   ? 'border border-amber-200 bg-amber-100 text-amber-800'
-                  : 'border border-slate-200 bg-slate-100 text-slate-800'
+                  : stocktake?.status === 'expired'
+                    ? 'border border-slate-300 bg-slate-200 text-slate-700'
+                    : 'border border-slate-200 bg-slate-100 text-slate-800'
               }
             >
               {STATUS_LABEL[stocktake?.status] ?? stocktake?.status}
@@ -247,17 +240,13 @@ export default function ManagerStocktakeDetail() {
           {stocktake?.status === 'cancelled' && stocktake?.reject_reason && (
             <InlineNotice message={`Lý do từ chối: ${stocktake.reject_reason}`} type="error" className="mb-4" />
           )}
+          {isExpired && (
+            <InlineNotice message="Tồn hệ thống đã thay đổi" type="error" className="mb-4" />
+          )}
           {isPending && hasLiveMismatch && (
             <InlineNotice
               message="Tồn hiện tại đã thay đổi so với thời điểm chụp phiếu kiểm kê. Vui lòng kiểm tra kỹ trước khi duyệt."
               type="info"
-              className="mb-4"
-            />
-          )}
-          {requireApproveNote && (
-            <InlineNotice
-              message={`Có ${significantMismatchCount} dòng lệch vượt ngưỡng ${LIVE_MISMATCH_REQUIRE_NOTE_THRESHOLD}. Khi duyệt bắt buộc nhập lý do xác nhận.`}
-              type="error"
               className="mb-4"
             />
           )}

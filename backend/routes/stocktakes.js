@@ -10,6 +10,69 @@ const { notifyManagersInStore } = require('../services/managerNotificationServic
 
 const router = express.Router();
 const LIVE_MISMATCH_REQUIRE_NOTE_THRESHOLD = 5;
+const STOCKTAKE_EXPIRED_REASON = 'Tồn hệ thống đã thay đổi';
+
+async function loadLiveQtyMapForStocktake(stocktake, storeIdResolved, session) {
+    const items = stocktake.items || [];
+    const productIds = items
+        .map((it) => (it?.product_id ? String(it.product_id) : null))
+        .filter(Boolean);
+    if (productIds.length === 0) return new Map();
+
+    const query = Product.find({
+        _id: { $in: productIds },
+        storeId: storeIdResolved,
+    }).select('_id stock_qty');
+    if (session) query.session(session);
+    const liveProducts = await query.lean();
+    return new Map(liveProducts.map((p) => [String(p._id), Number(p.stock_qty) || 0]));
+}
+
+function getSignificantLiveMismatchItems(items, liveQtyMap) {
+    const significantMismatchItems = [];
+    for (const it of items || []) {
+        const pid = String(it.product_id?._id ?? it.product_id);
+        const snapshotQty = Number(it.system_qty) || 0;
+        const liveQty = liveQtyMap.has(pid) ? Number(liveQtyMap.get(pid)) : snapshotQty;
+        const delta = liveQty - snapshotQty;
+        if (Math.abs(delta) > LIVE_MISMATCH_REQUIRE_NOTE_THRESHOLD) {
+            significantMismatchItems.push({
+                product_id: pid,
+                snapshot_qty: snapshotQty,
+                live_qty: liveQty,
+                delta,
+            });
+        }
+    }
+    return significantMismatchItems;
+}
+
+function resolveStocktakeStoreId(stocktake, req) {
+    return stocktake.storeId
+        ? String(stocktake.storeId)
+        : req.user?.storeId
+            ? String(req.user.storeId)
+            : '';
+}
+
+async function expireStocktakeOnLiveMismatch(stocktakeDoc, req, { session } = {}) {
+    if (!stocktakeDoc || stocktakeDoc.status !== 'submitted') return false;
+    const storeIdResolved = resolveStocktakeStoreId(
+        stocktakeDoc.toObject ? stocktakeDoc.toObject() : stocktakeDoc,
+        req
+    );
+    if (!storeIdResolved) return false;
+
+    const liveQtyMap = await loadLiveQtyMapForStocktake(stocktakeDoc, storeIdResolved, session);
+    const mismatches = getSignificantLiveMismatchItems(stocktakeDoc.items || [], liveQtyMap);
+    if (mismatches.length === 0) return false;
+
+    stocktakeDoc.status = 'expired';
+    stocktakeDoc.reject_reason = STOCKTAKE_EXPIRED_REASON;
+    stocktakeDoc.updated_at = new Date();
+    await stocktakeDoc.save(session ? { session } : undefined);
+    return true;
+}
 
 function getRoleStoreFilter(req) {
     const role = String(req.user?.role || '').toLowerCase();
@@ -98,6 +161,51 @@ function canSelfCompleteDraft(stocktake, req) {
 }
 
 async function runStocktakeApprovalTransaction({ id, storeFilter, req, adjustmentReason, managerNoteText }) {
+    const precheck = await Stocktake.findOne({ _id: id, ...storeFilter });
+    if (!precheck) {
+        const e = new Error('STOCKTAKE_NOT_FOUND');
+        e.code = 'STOCKTAKE_NOT_FOUND';
+        return { populated: null, txErr: e };
+    }
+    const selfManagerApprovePrecheck = canSelfCompleteDraft(precheck, req);
+    if (precheck.status === 'draft' && !selfManagerApprovePrecheck) {
+        const e = new Error('STOCKTAKE_BAD_STATE');
+        e.code = 'STOCKTAKE_BAD_STATE';
+        e.existingStatus = precheck.status;
+        return { populated: null, txErr: e };
+    }
+    if (precheck.status !== 'submitted' && precheck.status !== 'draft') {
+        const e = new Error('STOCKTAKE_BAD_STATE');
+        e.code = 'STOCKTAKE_BAD_STATE';
+        e.existingStatus = precheck.status;
+        return { populated: null, txErr: e };
+    }
+    if (selfManagerApprovePrecheck) {
+        const hasUncountedItem = (precheck.items || []).some(
+            (it) => it.actual_qty === null || it.actual_qty === undefined
+        );
+        if (hasUncountedItem) {
+            const e = new Error('STOCKTAKE_UNCOUNTED_ITEMS');
+            e.code = 'STOCKTAKE_UNCOUNTED_ITEMS';
+            return { populated: null, txErr: e };
+        }
+    }
+    const storeIdPrecheck = resolveStocktakeStoreId(precheck, req);
+    if (!storeIdPrecheck) {
+        const e = new Error('STORE_ID_REQUIRED');
+        e.code = 'STORE_ID_REQUIRED';
+        return { populated: null, txErr: e };
+    }
+    const liveQtyMapPrecheck = await loadLiveQtyMapForStocktake(precheck, storeIdPrecheck);
+    const mismatchPrecheck = getSignificantLiveMismatchItems(precheck.items || [], liveQtyMapPrecheck);
+    if (mismatchPrecheck.length > 0) {
+        await expireStocktakeOnLiveMismatch(precheck, req);
+        const e = new Error('STOCKTAKE_EXPIRED_LIVE_MISMATCH');
+        e.code = 'STOCKTAKE_EXPIRED_LIVE_MISMATCH';
+        e.mismatchCount = mismatchPrecheck.length;
+        return { populated: null, txErr: e };
+    }
+
     const mongoSession = await mongoose.startSession();
     let populated = null;
     let txErr = null;
@@ -133,60 +241,21 @@ async function runStocktakeApprovalTransaction({ id, storeFilter, req, adjustmen
                 }
             }
 
-            existing.status = 'completed';
-            existing.completed_at = new Date();
-            existing.updated_at = new Date();
-            await existing.save({ session: mongoSession });
-            const stocktake = existing.toObject ? existing.toObject() : existing;
-
-            const storeIdResolved = stocktake.storeId
-                ? String(stocktake.storeId)
-                : req.user.storeId
-                    ? String(req.user.storeId)
-                    : '';
+            const storeIdResolved = resolveStocktakeStoreId(existing, req);
             if (!storeIdResolved) {
                 const e = new Error('STORE_ID_REQUIRED');
                 e.code = 'STORE_ID_REQUIRED';
                 throw e;
             }
 
-            const items = stocktake.items || [];
-            const productIds = items
-                .map((it) => (it?.product_id ? String(it.product_id) : null))
-                .filter(Boolean);
-            const liveProducts = await Product.find({
-                _id: { $in: productIds },
-                storeId: storeIdResolved,
-            })
-                .select('_id stock_qty')
-                .session(mongoSession)
-                .lean();
-            const liveQtyMap = new Map(liveProducts.map((p) => [String(p._id), Number(p.stock_qty) || 0]));
-            const significantMismatchItems = [];
-            for (const it of items) {
-                const pid = String(it.product_id);
-                const snapshotQty = Number(it.system_qty) || 0;
-                const liveQty = liveQtyMap.has(pid) ? Number(liveQtyMap.get(pid)) : snapshotQty;
-                const delta = liveQty - snapshotQty;
-                if (Math.abs(delta) > LIVE_MISMATCH_REQUIRE_NOTE_THRESHOLD) {
-                    significantMismatchItems.push({
-                        product_id: pid,
-                        snapshot_qty: snapshotQty,
-                        live_qty: liveQty,
-                        delta,
-                    });
-                }
-            }
-            if (significantMismatchItems.length > 0 && !managerNoteText) {
-                const e = new Error('MANAGER_NOTE_REQUIRED_ON_LIVE_MISMATCH');
-                e.code = 'MANAGER_NOTE_REQUIRED_ON_LIVE_MISMATCH';
-                e.threshold = LIVE_MISMATCH_REQUIRE_NOTE_THRESHOLD;
-                e.mismatchCount = significantMismatchItems.length;
-                throw e;
-            }
+            existing.status = 'completed';
+            existing.completed_at = new Date();
+            existing.updated_at = new Date();
+            await existing.save({ session: mongoSession });
+            const stocktake = existing.toObject ? existing.toObject() : existing;
 
             const adjustmentItems = [];
-            for (const it of items) {
+            for (const it of stocktake.items || []) {
                 const variance =
                     it.variance != null
                         ? Number(it.variance)
@@ -257,7 +326,9 @@ function respondStocktakeApprovalError(res, txErr) {
                         ? 'Hoàn thành'
                         : txErr.existingStatus === 'cancelled'
                             ? 'Đã hủy'
-                            : txErr.existingStatus;
+                            : txErr.existingStatus === 'expired'
+                                ? 'Hết hiệu lực'
+                                : txErr.existingStatus;
         res.status(400).json({
             message:
                 txErr.existingStatus === 'draft'
@@ -282,11 +353,10 @@ function respondStocktakeApprovalError(res, txErr) {
         });
         return true;
     }
-    if (txErr.code === 'MANAGER_NOTE_REQUIRED_ON_LIVE_MISMATCH') {
+    if (txErr.code === 'STOCKTAKE_EXPIRED_LIVE_MISMATCH') {
         res.status(400).json({
-            message: `Tồn hiện tại lệch snapshot vượt ngưỡng ${txErr.threshold}. Vui lòng nhập lý do xác nhận trước khi duyệt.`,
-            code: 'MANAGER_NOTE_REQUIRED_ON_LIVE_MISMATCH',
-            threshold: txErr.threshold,
+            message: STOCKTAKE_EXPIRED_REASON,
+            code: 'STOCKTAKE_EXPIRED_LIVE_MISMATCH',
             mismatch_count: txErr.mismatchCount,
         });
         return true;
@@ -396,7 +466,7 @@ router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (
         code: 'STORE_REQUIRED',
       });
     }
-    if (status && ['draft', 'submitted', 'completed', 'cancelled'].includes(status)) {
+    if (status && ['draft', 'submitted', 'completed', 'cancelled', 'expired'].includes(status)) {
       filter.status = status;
     }
     applyStocktakeListVisibility(filter, req);
@@ -451,6 +521,11 @@ router.post('/:id/approve', requireAuth, requireRole(['manager', 'admin']), asyn
     });
 
     if (txErr) {
+      if (txErr.code === 'STOCKTAKE_EXPIRED_LIVE_MISMATCH') {
+        await emitManagerBadgeRefresh({
+          storeId: req.user?.storeId ? String(req.user.storeId) : null,
+        });
+      }
       if (respondStocktakeApprovalError(res, txErr)) return undefined;
       return res.status(500).json({ message: txErr.message || 'Server error' });
     }
@@ -581,11 +656,12 @@ router.get('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), asyn
         code: 'STORE_REQUIRED',
       });
     }
-    const stocktake = await Stocktake.findOne({ _id: id, ...storeFilter })
+    const stocktakeDoc = await Stocktake.findOne({ _id: id, ...storeFilter })
       .populate('items.product_id', 'name sku base_unit stock_qty')
-      .populate('created_by', 'email')
-      .lean();
-    if (!stocktake) return res.status(404).json({ message: 'Stocktake not found' });
+      .populate('created_by', 'email');
+    if (!stocktakeDoc) return res.status(404).json({ message: 'Stocktake not found' });
+    await expireStocktakeOnLiveMismatch(stocktakeDoc, req);
+    const stocktake = stocktakeDoc.toObject ? stocktakeDoc.toObject() : stocktakeDoc;
     if (!canViewStocktake(stocktake, req)) {
       return res.status(403).json({
         message: 'Phiếu nháp của nhân viên chỉ hiển thị sau khi được gửi duyệt.',
@@ -711,6 +787,11 @@ router.patch('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), as
         managerNoteText,
       });
       if (txErr) {
+        if (txErr.code === 'STOCKTAKE_EXPIRED_LIVE_MISMATCH') {
+          await emitManagerBadgeRefresh({
+            storeId: doc.storeId ? String(doc.storeId) : null,
+          });
+        }
         if (respondStocktakeApprovalError(res, txErr)) return undefined;
         return res.status(500).json({ message: txErr.message || 'Server error' });
       }
