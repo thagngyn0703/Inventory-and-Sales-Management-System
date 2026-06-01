@@ -667,14 +667,6 @@ export default function WarehouseGoodsReceiptCreate() {
                   <Button type="button" variant="outline" onClick={() => navigate(`${warehouseBase}/receipts`)}>
                     Hủy
                   </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => handleSubmit('draft')}
-                    disabled={submitting}
-                  >
-                    Lưu nháp
-                  </Button>
                   <Button type="button" onClick={() => handleSubmit('pending')} disabled={submitting}>
                     {submitting ? 'Đang xử lý...' : 'Gửi yêu cầu duyệt'}
                   </Button>
