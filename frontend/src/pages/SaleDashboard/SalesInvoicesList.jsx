@@ -69,7 +69,6 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
-  const [salesByShift, setSalesByShift] = useState([]);
 
   const basePath = basePathOverride || (location.pathname.startsWith('/manager') ? '/manager' : '/staff');
   const isReturnsPage = location.pathname.includes('/returns');
@@ -127,10 +126,6 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
         rawStatus: inv.status || '',
         paymentMethod: PAYMENT_LABEL[inv.payment_method] || inv.payment_method || '—',
         amount: Number(inv.total_amount || 0),
-        rawShiftKey:
-          String(inv.register_label_snapshot || '').trim() ||
-          (inv.shift_id ? String(inv.shift_id) : ''),
-        shiftLabel: 'Chưa gán ca',
         invoiceId: inv._id,
       }));
 
@@ -153,10 +148,6 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
             ? PAYMENT_LABEL[originInvoice.payment_method] || originInvoice.payment_method
             : '',
           amount: Number(rt.total_amount || 0),
-          rawShiftKey:
-            String(originInvoice?.register_label_snapshot || '').trim() ||
-            (originInvoice?.shift_id ? String(originInvoice.shift_id) : ''),
-          shiftLabel: 'Chưa gán ca',
           invoiceId: originInvoiceId || null,
           returnId: rt._id,
         };
@@ -184,54 +175,6 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
             (i.customerName && i.customerName.toLowerCase().includes(lowerSearch)) ||
             (i.sellerName && i.sellerName.toLowerCase().includes(lowerSearch))
         );
-      }
-
-      // Chuẩn hóa nhãn ca theo ngày: Ca 1, Ca 2, Ca 3...
-      // Sang ngày mới reset lại từ Ca 1.
-      const dayShiftMap = new Map();
-      const sortAscByTime = [...allInvoices].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-      sortAscByTime.forEach((row) => {
-        const d = new Date(row.createdAt);
-        const dayKey = Number.isNaN(d.getTime()) ? 'unknown' : d.toISOString().slice(0, 10);
-        const shiftKey = String(row.rawShiftKey || '').trim();
-        if (!shiftKey) {
-          row.shiftLabel = 'Chưa gán ca';
-          row.shiftDayKey = dayKey;
-          return;
-        }
-        if (!dayShiftMap.has(dayKey)) dayShiftMap.set(dayKey, new Map());
-        const perDay = dayShiftMap.get(dayKey);
-        if (!perDay.has(shiftKey)) {
-          perDay.set(shiftKey, perDay.size + 1);
-        }
-        row.shiftLabel = `Ca ${perDay.get(shiftKey)}`;
-        row.shiftDayKey = dayKey;
-      });
-      const normalizedById = new Map(sortAscByTime.map((row) => [String(row._id), row]));
-      allInvoices = allInvoices.map((row) => normalizedById.get(String(row._id)) || row);
-
-      if (!isReturnsPage) {
-        const byShiftMap = new Map();
-        allInvoices
-          .filter((row) => row.type === 'sale' && String(row.rawStatus || '').toLowerCase() !== 'cancelled')
-          .forEach((row) => {
-            const d = new Date(row.createdAt);
-            const dayLabel = Number.isNaN(d.getTime()) ? 'Không rõ ngày' : d.toLocaleDateString('vi-VN');
-            const shiftLabel = String(row.shiftLabel || 'Chưa gán ca').trim() || 'Chưa gán ca';
-            const key = `${dayLabel}__${shiftLabel}`;
-            const prev = byShiftMap.get(key) || { key, dayLabel, shiftLabel, invoiceCount: 0, totalAmount: 0 };
-            prev.invoiceCount += 1;
-            prev.totalAmount += Number(row.amount || 0);
-            byShiftMap.set(key, prev);
-          });
-        setSalesByShift(
-          Array.from(byShiftMap.values()).sort((a, b) => {
-            if (a.dayLabel === b.dayLabel) return Number(b.totalAmount || 0) - Number(a.totalAmount || 0);
-            return a.dayLabel > b.dayLabel ? -1 : 1;
-          })
-        );
-      } else {
-        setSalesByShift([]);
       }
 
       if (isReturnsPage && serverReturnMeta) {
@@ -429,11 +372,10 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
           ) : (
             <>
               <div className="overflow-x-auto rounded-xl border border-slate-200/80">
-                <table className={cn('w-full text-sm text-slate-700', isReturnsPage ? 'min-w-[760px]' : 'min-w-[860px]')}>
+                <table className={cn('w-full text-sm text-slate-700', isReturnsPage ? 'min-w-[700px]' : 'min-w-[760px]')}>
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50/90 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                       <th className="px-4 py-3">Ngày tạo</th>
-                      <th className="px-4 py-3">Ca</th>
                       <th className="px-4 py-3">Mã đơn</th>
                       <th className="px-4 py-3">Khách hàng</th>
                       {isReturnsPage ? <th className="px-4 py-3">Nhân viên</th> : null}
@@ -452,11 +394,6 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
                         <td className="whitespace-nowrap px-4 py-3.5 text-slate-600">
                           <div className="font-semibold text-slate-900">{dt.date}</div>
                           {dt.time ? <div className="text-xs text-slate-500">{dt.time}</div> : null}
-                        </td>
-                        <td className="px-4 py-3.5 text-slate-700">
-                          <span className="inline-flex rounded-full border border-slate-200 bg-white px-2.5 py-0.5 text-xs font-semibold">
-                            {inv.shiftLabel || 'Chưa gán ca'}
-                          </span>
                         </td>
                         <td className="max-w-[160px] truncate px-4 py-3.5 font-mono text-xs text-slate-700" title={inv.code}>{inv.code}</td>
                         <td className="max-w-[180px] truncate px-4 py-3.5 font-medium text-slate-900">
@@ -536,23 +473,6 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
                   </Button>
                 </div>
               </div>
-              {!isReturnsPage && salesByShift.length > 0 && (
-                <div className="border-t border-slate-100 px-4 py-4">
-                  <h3 className="mb-3 text-sm font-semibold text-slate-700">Tổng số tiền bán theo từng ca</h3>
-                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                    {salesByShift.map((row) => (
-                      <div key={row.key} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{row.dayLabel}</div>
-                        <div className="text-sm font-semibold text-slate-700">{row.shiftLabel}</div>
-                        <div className="mt-1 text-sm text-slate-600">{row.invoiceCount} hóa đơn</div>
-                        <div className="text-base font-bold text-emerald-700">
-                          {Number(row.totalAmount || 0).toLocaleString('vi-VN')}₫
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </>
           )}
         </CardContent>

@@ -534,7 +534,6 @@ export default function ManagerShiftSessionsPage() {
               <thead className="sticky top-0 z-10 bg-slate-100 text-[11px] uppercase tracking-wide text-slate-600 shadow-sm">
                 <tr>
                   <th className="px-3 py-2 text-left whitespace-nowrap">Nhân viên</th>
-                  <th className="px-3 py-2 text-left whitespace-nowrap">Quầy</th>
                   <th className="px-3 py-2 text-left whitespace-nowrap">Thời gian ca</th>
                   <th className="px-3 py-2 text-right whitespace-nowrap">Doanh thu</th>
                   <th className="px-3 py-2 text-right whitespace-nowrap">Lợi nhuận gộp</th>
@@ -571,9 +570,6 @@ export default function ManagerShiftSessionsPage() {
                           <UserRound className="h-4 w-4 text-teal-600" />
                           {openUser?.fullName || openUser?.email || 'Nhân viên chưa xác định'}
                         </div>
-                      </td>
-                      <td className="px-3 py-3 font-semibold text-slate-700">
-                        {shift?.register_id?.name || '—'}
                       </td>
                       <td className="px-3 py-3">
                         <div className="text-xs text-slate-500">{formatDateTime(shift.opened_at)} - {formatDateTime(shift.closed_at)}</div>
