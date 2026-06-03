@@ -373,6 +373,7 @@ router.post('/register-store', requireAuth, requireRole(['manager'], { allowMana
             address: (address || '').trim(),
             phone: (phone || '').trim(),
             managerId: manager._id,
+            status: 'inactive',
             approval_status: 'draft_profile',
             tax_code: '',
             legal_representative: '',

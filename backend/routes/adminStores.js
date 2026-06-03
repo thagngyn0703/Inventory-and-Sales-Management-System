@@ -124,7 +124,11 @@ router.patch('/:id/approval', requireAuth, requireRole(['admin']), async (req, r
       updates.rejection_reason = '';
       updates.status = 'active';
     } else if (String(approval_status) === 'rejected') {
-      updates.rejection_reason = String(rejection_reason || '').trim();
+      const reason = String(rejection_reason || '').trim();
+      if (!reason) {
+        return res.status(400).json({ message: 'Vui lòng nhập ghi chú lý do từ chối để gửi cho chủ cửa hàng.' });
+      }
+      updates.rejection_reason = reason;
       updates.approved_by = null;
       updates.approved_at = null;
       updates.status = 'inactive';

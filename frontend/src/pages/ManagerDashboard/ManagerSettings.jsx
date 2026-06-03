@@ -332,9 +332,9 @@ export default function ManagerSettings() {
         business_license_number: (legalConfig.business_license_number || '').trim(),
         bank_name: (legalConfig.bank_name || '').trim(),
         bank_account_number: (legalConfig.bank_account_number || '').trim(),
+        business_type: config.business_type,
       };
       const res = await updateStoreLegalSettings(payload);
-      await updateStoreTaxSettings({ business_type: config.business_type });
       setLegalConfig((prev) => ({
         ...prev,
         tax_code: res.tax_code || '',
@@ -348,6 +348,15 @@ export default function ManagerSettings() {
         rejection_reason: res.rejection_reason || '',
       }));
       setLegalMsg({ type: 'success', text: 'Đã cập nhật hồ sơ pháp lý.' });
+      try {
+        const user = JSON.parse(localStorage.getItem('user') || 'null');
+        if (user && res.approval_status) {
+          user.storeApprovalStatus = res.approval_status;
+          localStorage.setItem('user', JSON.stringify(user));
+        }
+      } catch {
+        /* ignore */
+      }
     } catch (err) {
       setLegalMsg({ type: 'error', text: err.message || 'Lỗi khi cập nhật hồ sơ pháp lý.' });
     } finally {
@@ -854,7 +863,7 @@ export default function ManagerSettings() {
               />
             </div>
             <div className="sm:col-span-2">
-              <label className="mb-1 block text-xs font-medium text-slate-500">Email xuất hóa đơn (tự động)</label>
+              <label className="mb-1 block text-xs font-medium text-slate-500">Email</label>
               <input
                 type="email"
                 value={legalConfig.billing_email}
@@ -863,7 +872,10 @@ export default function ManagerSettings() {
               />
             </div>
           </div>
-          <p className="mt-3 text-xs text-slate-500">
+          <p className="mt-3 text-xs text-slate-600">
+            Bạn có thể lưu hồ sơ pháp lý trước khi admin phê duyệt. Điền đủ các trường bắt buộc để chuyển sang <strong>Chờ duyệt</strong>.
+          </p>
+          <p className="mt-2 text-xs text-slate-500">
             Trạng thái duyệt hồ sơ: <strong>{approvalLabel}</strong>
             {legalConfig.rejection_reason ? ` - Lý do từ chối: ${legalConfig.rejection_reason}` : ''}
           </p>

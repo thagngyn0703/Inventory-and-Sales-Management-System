@@ -63,7 +63,14 @@ router.get('/tax', requireAuth, requireRole(['staff', 'manager', 'admin']), asyn
  *   - Nếu business_type = 'ho_kinh_doanh' → tax_rate bị ép về 0 (thuế khoán, không thu VAT)
  *   - Nếu business_type = 'doanh_nghiep'  → tax_rate từ 0-100, kê khai VAT bình thường
  */
-router.patch('/tax', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
+router.patch(
+    '/tax',
+    requireAuth,
+    requireRole(['manager', 'admin'], {
+        allowLockedStoreForManager: true,
+        allowApprovalBlockedWriteForManager: true,
+    }),
+    async (req, res) => {
     try {
         const storeId = req.user?.storeId;
         if (!storeId || !mongoose.isValidObjectId(storeId)) {
@@ -276,7 +283,14 @@ router.get('/bank', requireAuth, requireRole(['staff', 'manager', 'admin']), asy
  * Manager cập nhật thông tin ngân hàng cho cửa hàng.
  * Body: { bank_id?, bank_account?, bank_account_name? }
  */
-router.patch('/bank', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
+router.patch(
+    '/bank',
+    requireAuth,
+    requireRole(['manager', 'admin'], {
+        allowLockedStoreForManager: true,
+        allowApprovalBlockedWriteForManager: true,
+    }),
+    async (req, res) => {
     try {
         const storeId = req.user?.storeId;
         if (!storeId || !mongoose.isValidObjectId(storeId)) {
@@ -402,6 +416,7 @@ router.patch(
             business_license_file,
             bank_name,
             bank_account_number,
+            business_type,
         } = req.body || {};
         if (
             tax_code === undefined &&
@@ -409,7 +424,8 @@ router.patch(
             business_license_number === undefined &&
             business_license_file === undefined &&
             bank_name === undefined &&
-            bank_account_number === undefined
+            bank_account_number === undefined &&
+            business_type === undefined
         ) {
             return res.status(400).json({ message: 'Vui lòng cung cấp ít nhất một trường cần cập nhật.' });
         }
@@ -420,6 +436,17 @@ router.patch(
         if (business_license_file !== undefined) updates.business_license_file = String(business_license_file || '').trim();
         if (bank_name !== undefined) updates.bank_name = String(bank_name || '').trim();
         if (bank_account_number !== undefined) updates.bank_account_number = String(bank_account_number || '').trim();
+        if (business_type !== undefined) {
+            if (!ALLOWED_BUSINESS_TYPES.includes(business_type)) {
+                return res.status(400).json({
+                    message: `business_type không hợp lệ. Chấp nhận: ${ALLOWED_BUSINESS_TYPES.join(', ')}.`,
+                });
+            }
+            updates.business_type = business_type;
+            if (business_type === 'ho_kinh_doanh') {
+                updates.tax_rate = 0;
+            }
+        }
 
         const store = await Store.findByIdAndUpdate(storeId, { $set: updates }, { new: true })
             .select(
