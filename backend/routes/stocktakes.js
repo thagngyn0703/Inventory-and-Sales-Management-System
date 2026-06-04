@@ -12,10 +12,19 @@ const router = express.Router();
 const LIVE_MISMATCH_REQUIRE_NOTE_THRESHOLD = 5;
 const STOCKTAKE_EXPIRED_REASON = 'Tồn hệ thống đã thay đổi';
 
+function getProductIdString(value) {
+    if (value == null) return '';
+    if (typeof value === 'object' && value._id != null) return String(value._id);
+    return String(value);
+}
+
 async function loadLiveQtyMapForStocktake(stocktake, storeIdResolved, session) {
     const items = stocktake.items || [];
     const productIds = items
-        .map((it) => (it?.product_id ? String(it.product_id) : null))
+        .map((it) => {
+            const pid = getProductIdString(it?.product_id);
+            return pid || null;
+        })
         .filter(Boolean);
     if (productIds.length === 0) return new Map();
 
@@ -31,7 +40,7 @@ async function loadLiveQtyMapForStocktake(stocktake, storeIdResolved, session) {
 function getSignificantLiveMismatchItems(items, liveQtyMap) {
     const significantMismatchItems = [];
     for (const it of items || []) {
-        const pid = String(it.product_id?._id ?? it.product_id);
+        const pid = getProductIdString(it.product_id);
         const snapshotQty = Number(it.system_qty) || 0;
         const liveQty = liveQtyMap.has(pid) ? Number(liveQtyMap.get(pid)) : snapshotQty;
         const delta = liveQty - snapshotQty;
@@ -716,14 +725,14 @@ router.patch('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), as
     if (Array.isArray(bodyItems) && bodyItems.length > 0) {
       const productIdToUpdate = new Map(
         bodyItems.map((row) => {
-          const pid = row.product_id;
+          const pid = getProductIdString(row.product_id);
           const actual = row.actual_qty;
           const numActual = actual !== undefined && actual !== null && actual !== '' ? Number(actual) : null;
           if (numActual !== null && (!Number.isFinite(numActual) || numActual < 0)) {
-            throw new Error(`INVALID_ACTUAL_QTY:${String(pid)}`);
+            throw new Error(`INVALID_ACTUAL_QTY:${pid}`);
           }
           return [
-            String(pid),
+            pid,
             {
               actual_qty: numActual,
               reason: row.reason !== undefined ? String(row.reason || '').trim() : undefined,
@@ -732,17 +741,19 @@ router.patch('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), as
         })
       );
       doc.items = doc.items.map((item) => {
-        const key = String(item.product_id);
+        const key = getProductIdString(item.product_id);
         const upd = productIdToUpdate.get(key);
         if (!upd) return item;
         const systemQty = item.system_qty ?? 0;
         const actualQty = upd.actual_qty;
         const variance = actualQty !== null ? actualQty - systemQty : null;
+        const plain = item.toObject ? item.toObject() : item;
         return {
-          ...item.toObject ? item.toObject() : item,
+          product_id: getProductIdString(plain.product_id),
+          system_qty: plain.system_qty,
           actual_qty: actualQty,
           variance,
-          reason: upd.reason !== undefined ? upd.reason : (item.reason || ''),
+          reason: upd.reason !== undefined ? upd.reason : (plain.reason || ''),
         };
       });
       doc.markModified('items');
