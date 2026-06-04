@@ -370,6 +370,28 @@ export default function ManagerProductRequests() {
                             <p><strong>Ngày gửi:</strong> {detailModal.request.created_at ? new Date(detailModal.request.created_at).toLocaleString('vi-VN') : '—'}</p>
                             <p><strong>Trạng thái:</strong> {detailModal.request.status === 'pending' ? 'Chờ duyệt' : detailModal.request.status === 'approved' ? 'Đã duyệt' : 'Từ chối'}</p>
                         </div>
+                        {Array.isArray(detailModal.request.image_urls) && detailModal.request.image_urls.length > 0 && (
+                            <div className="mt-4">
+                                <p className="text-sm font-semibold text-slate-700 mb-2">Ảnh sản phẩm đề xuất</p>
+                                <div className="flex flex-wrap gap-3">
+                                    {detailModal.request.image_urls.map((url, idx) => (
+                                        <a 
+                                            key={`${url}-${idx}`} 
+                                            href={url} 
+                                            target="_blank" 
+                                            rel="noopener noreferrer"
+                                            className="group relative overflow-hidden rounded-lg border border-slate-200 bg-slate-50 transition hover:border-teal-500"
+                                        >
+                                            <img
+                                                src={url}
+                                                alt={`Ảnh sản phẩm ${idx + 1}`}
+                                                className="h-24 w-24 object-cover transition duration-300 group-hover:scale-105"
+                                            />
+                                        </a>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                         <div className="mt-3">
                             <p className="text-sm font-semibold text-slate-700">Đơn vị bán</p>
                             {Array.isArray(detailModal.request.selling_units) && detailModal.request.selling_units.length > 0 ? (

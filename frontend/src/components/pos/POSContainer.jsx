@@ -2095,176 +2095,285 @@ export default function POSContainer({
 
         {/* Right sidebar: summary + payment */}
         <div className="pos-right-sidebar">
-          {/* Customer */}
-          <div className="pos-customer-section">
-            <div className="pos-sidebar-panel pos-sidebar-panel--customer">
-              <div className="pos-sidebar-panel-head">Khách hàng</div>
-              <div className="pos-sidebar-panel-body pos-sidebar-panel-body-pad">
-                {showCreateCustomer ? (
-                  <div className="pos-customer-create-fields">
-                    <input
-                      type="text"
-                      placeholder="Tên khách hàng *"
-                      value={newCustomer.full_name}
-                      onChange={(e) => setNewCustomer({ ...newCustomer, full_name: e.target.value })}
-                      className="pos-search-input"
-                      style={{ marginBottom: 6 }}
-                      autoFocus
-                    />
-                    <input
-                      type="text"
-                      placeholder="Số điện thoại *"
-                      value={newCustomer.phone}
-                      onChange={(e) => setNewCustomer({ ...newCustomer, phone: e.target.value })}
-                      className="pos-search-input"
-                      style={{ marginBottom: 6 }}
-                    />
-                    {customerModalError && (
-                      <div style={{ color: '#ef4444', fontSize: 12, marginBottom: 6 }}>
-                        {customerModalError}
-                      </div>
-                    )}
-                    <button
-                      type="button"
-                      className="pos-sidebar-text-btn"
-                      onClick={() => {
-                        setShowCreateCustomer(false);
-                        setNewCustomer({ full_name: '', phone: '' });
-                        setCustomerModalError('');
-                      }}
-                    >
-                      <i className="fa-solid fa-xmark" style={{ marginRight: 6 }} /> Hủy thêm khách hàng
-                    </button>
-                  </div>
-                ) : (
-                  <div className="pos-customer-search">
-                    <div
-                      className={`pos-customer-search-field${activeTab.customerId ? ' pos-customer-search-field--has-clear' : ''}`}
-                    >
-                      <input
-                        type="text"
-                        placeholder={
-                          activeTab.customerId
-                            ? activeTab.customerData?.full_name
-                            : 'Khách lẻ (mặc định) (Tên/SĐT)'
-                        }
-                        title={
-                          loyaltySettings?.enabled && !activeTab.customerId
-                            ? 'Tùy chọn: chọn khách có tài khoản để được tích điểm khi có chương trình loyalty.'
-                            : undefined
-                        }
-                        className="pos-search-input"
-                        value={
-                          customerSearch !== ''
-                            ? customerSearch
-                            : activeTab.customerId
-                              ? activeTab.recipientName
-                              : activeTab.recipientName
-                        }
-                        onChange={(e) => {
-                          setCustomerSearch(e.target.value);
-                          updateActiveTab({ recipientName: e.target.value, customerId: null, customerData: null });
-                          searchCustomers(e.target.value);
-                        }}
-                        onFocus={() => {
-                          if (customerList.length > 0) setShowCustomerDropdown(true);
-                        }}
-                        onBlur={() => setTimeout(() => setShowCustomerDropdown(false), 200)}
-                      />
-                      {activeTab.customerId && (
-                        <button
-                          type="button"
-                          className="pos-customer-clear"
-                          aria-label="Bỏ chọn khách"
-                          onClick={() => {
-                            updateActiveTab({
-                              customerId: null,
-                              customerData: null,
-                              recipientName: '',
-                              paymentMethod: 'cash',
-                              payOldDebt: false,
-                              loyaltyApplyPoints: 0,
-                            });
-                            setCustomerSearch('');
-                          }}
-                        >
-                          <i className="fa-solid fa-xmark" />
-                        </button>
-                      )}
-                    </div>
-                    <button
-                      type="button"
-                      className="pos-customer-add-btn"
-                      onClick={() => setShowCreateCustomer(true)}
-                      aria-label="Thêm khách hàng"
-                    >
-                      <i className="fa-solid fa-plus" />
-                    </button>
-                    {showCustomerDropdown && customerList.length > 0 && (
-                      <div className="pos-customer-dropdown">
-                        {customerList.map((c) => (
-                          <div
-                            key={c._id}
-                            className="pos-customer-dropdown-item"
-                            role="button"
-                            tabIndex={0}
-                            onClick={() => {
-                              updateActiveTab({ customerId: c._id, customerData: c, recipientName: c.full_name, loyaltyApplyPoints: 0 });
-                              setCustomerSearch('');
-                              setShowCustomerDropdown(false);
-                            }}
-                          >
-                            <div className="pos-customer-dropdown-name">{c.full_name}</div>
-                            <div className="pos-customer-dropdown-phone">
-                              {c.phone} {` • ${Number(c.loyalty_points || 0).toLocaleString('vi-VN')} điểm`}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {activeTab.customerId && loyaltySettings.enabled && (
-                      <div style={{ marginTop: 8, border: '1px solid #e2e8f0', borderRadius: 8, padding: 8, background: '#f8fafc' }}>
-                        <div style={{ fontSize: 12, color: '#334155', marginBottom: 6 }}>
-                          Điểm hiện tại: <b>{loyaltyAvailablePoints}</b>
-                          {' • '}Có thể giảm: <b>{formatMoney(Math.min(loyaltyAvailablePoints * loyaltyPointValue, loyaltyMaxRedeemValue))}</b>
-                        </div>
-                        {loyaltyAvailablePoints >= Number(loyaltySettings?.redeem?.min_points || 10) ? (
-                          <button
-                            type="button"
-                            className="pos-quick-paid-full"
-                            onClick={() => {
-                              const autoPoints = Math.floor(
-                                Math.min(loyaltyAvailablePoints * loyaltyPointValue, loyaltyMaxRedeemValue) / loyaltyPointValue
-                              );
-                              updateActiveTab({
-                                loyaltyApplyPoints: activeTab.loyaltyApplyPoints > 0 ? 0 : autoPoints,
-                              });
-                            }}
-                          >
-                            {activeTab.loyaltyApplyPoints > 0
-                              ? `Bỏ dùng điểm (${activeTab.loyaltyApplyPoints} điểm)`
-                              : `Dùng điểm giảm ${formatMoney(Math.min(loyaltyAvailablePoints * loyaltyPointValue, loyaltyMaxRedeemValue))}`}
-                          </button>
-                        ) : (
-                          <div style={{ fontSize: 12, color: '#64748b' }}>
-                            Cần tối thiểu {Number(loyaltySettings?.redeem?.min_points || 10)} điểm để dùng.
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    {activeTab.customerId && !loyaltySettings.enabled && (
-                      <div style={{ marginTop: 8, fontSize: 12, color: '#64748b' }}>
-                        Chương trình tích điểm đang tắt trong cấu hình cửa hàng.
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
           {/* Summary + Payment */}
           <div className="pos-summary-section" ref={summaryScrollRef}>
+            {/* Customer */}
+            <div className="pos-customer-section" style={{ padding: 0, borderBottom: 'none' }}>
+              <div className="pos-sidebar-panel pos-sidebar-panel--customer">
+                <div className="pos-sidebar-panel-head">Khách hàng</div>
+                <div className="pos-sidebar-panel-body pos-sidebar-panel-body-pad">
+                  {showCreateCustomer ? (
+                    <div className="pos-customer-create-fields">
+                      <input
+                        type="text"
+                        placeholder="Tên khách hàng *"
+                        value={newCustomer.full_name}
+                        onChange={(e) => setNewCustomer({ ...newCustomer, full_name: e.target.value })}
+                        className="pos-search-input"
+                        style={{ marginBottom: 6 }}
+                        autoFocus
+                      />
+                      <input
+                        type="text"
+                        placeholder="Số điện thoại *"
+                        value={newCustomer.phone}
+                        onChange={(e) => setNewCustomer({ ...newCustomer, phone: e.target.value })}
+                        className="pos-search-input"
+                        style={{ marginBottom: 6 }}
+                      />
+                      {customerModalError && (
+                        <div style={{ color: '#ef4444', fontSize: 12, marginBottom: 6 }}>
+                          {customerModalError}
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        className="pos-sidebar-text-btn"
+                        onClick={() => {
+                          setShowCreateCustomer(false);
+                          setNewCustomer({ full_name: '', phone: '' });
+                          setCustomerModalError('');
+                        }}
+                      >
+                        <i className="fa-solid fa-xmark" style={{ marginRight: 6 }} /> Hủy thêm khách hàng
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="pos-customer-search">
+                      <div
+                        className={`pos-customer-search-field${activeTab.customerId ? ' pos-customer-search-field--has-clear' : ''}`}
+                      >
+                        <input
+                          type="text"
+                          placeholder={
+                            activeTab.customerId
+                              ? activeTab.customerData?.full_name
+                              : 'Khách lẻ (mặc định) (Tên/SĐT)'
+                          }
+                          title={
+                            loyaltySettings?.enabled && !activeTab.customerId
+                              ? 'Tùy chọn: chọn khách có tài khoản để được tích điểm khi có chương trình loyalty.'
+                              : undefined
+                          }
+                          className="pos-search-input"
+                          value={
+                            customerSearch !== ''
+                              ? customerSearch
+                              : activeTab.customerId
+                                ? activeTab.recipientName
+                                : activeTab.recipientName
+                          }
+                          onChange={(e) => {
+                            setCustomerSearch(e.target.value);
+                            updateActiveTab({ recipientName: e.target.value, customerId: null, customerData: null });
+                            searchCustomers(e.target.value);
+                          }}
+                          onFocus={() => {
+                            if (customerList.length > 0) setShowCustomerDropdown(true);
+                          }}
+                          onBlur={() => setTimeout(() => setShowCustomerDropdown(false), 200)}
+                        />
+                        {activeTab.customerId && (
+                          <button
+                            type="button"
+                            className="pos-customer-clear"
+                            aria-label="Bỏ chọn khách"
+                            onClick={() => {
+                              updateActiveTab({
+                                customerId: null,
+                                customerData: null,
+                                recipientName: '',
+                                paymentMethod: 'cash',
+                                payOldDebt: false,
+                                loyaltyApplyPoints: 0,
+                              });
+                              setCustomerSearch('');
+                            }}
+                          >
+                            <i className="fa-solid fa-xmark" />
+                          </button>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        className="pos-customer-add-btn"
+                        onClick={() => setShowCreateCustomer(true)}
+                        aria-label="Thêm khách hàng"
+                      >
+                        <i className="fa-solid fa-plus" />
+                      </button>
+                      {showCustomerDropdown && customerList.length > 0 && (
+                        <div className="pos-customer-dropdown">
+                          {customerList.map((c) => (
+                            <div
+                              key={c._id}
+                              className="pos-customer-dropdown-item"
+                              role="button"
+                              tabIndex={0}
+                              onClick={() => {
+                                updateActiveTab({ customerId: c._id, customerData: c, recipientName: c.full_name, loyaltyApplyPoints: 0 });
+                                setCustomerSearch('');
+                                setShowCustomerDropdown(false);
+                              }}
+                            >
+                              <div className="pos-customer-dropdown-name">{c.full_name}</div>
+                              <div className="pos-customer-dropdown-phone">
+                                {c.phone} {` • ${Number(c.loyalty_points || 0).toLocaleString('vi-VN')} điểm`}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {activeTab.customerId && loyaltySettings.enabled && (
+                        <div style={{ marginTop: 8, border: '1px solid #e2e8f0', borderRadius: 8, padding: 8, background: '#f8fafc' }}>
+                          <div style={{ fontSize: 12, color: '#334155', marginBottom: 6 }}>
+                            Điểm hiện tại: <b>{loyaltyAvailablePoints}</b>
+                            {' • '}Có thể giảm: <b>{formatMoney(Math.min(loyaltyAvailablePoints * loyaltyPointValue, loyaltyMaxRedeemValue))}</b>
+                          </div>
+                          {loyaltyAvailablePoints >= Number(loyaltySettings?.redeem?.min_points || 10) ? (
+                            <button
+                              type="button"
+                              className="pos-quick-paid-full"
+                              onClick={() => {
+                                const autoPoints = Math.floor(
+                                  Math.min(loyaltyAvailablePoints * loyaltyPointValue, loyaltyMaxRedeemValue) / loyaltyPointValue
+                                );
+                                updateActiveTab({
+                                  loyaltyApplyPoints: activeTab.loyaltyApplyPoints > 0 ? 0 : autoPoints,
+                                });
+                              }}
+                            >
+                              {activeTab.loyaltyApplyPoints > 0
+                                ? `Bỏ dùng điểm (${activeTab.loyaltyApplyPoints} điểm)`
+                                : `Dùng điểm giảm ${formatMoney(Math.min(loyaltyAvailablePoints * loyaltyPointValue, loyaltyMaxRedeemValue))}`}
+                            </button>
+                          ) : (
+                            <div style={{ fontSize: 12, color: '#64748b' }}>
+                              Cần tối thiểu {Number(loyaltySettings?.redeem?.min_points || 10)} điểm để dùng.
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {activeTab.customerId && !loyaltySettings.enabled && (
+                        <div style={{ marginTop: 8, fontSize: 12, color: '#64748b' }}>
+                          Chương trình tích điểm đang tắt trong cấu hình cửa hàng.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {activeTab.customerData?.debt_account > 0 && (
+                    <div
+                      style={{
+                        marginTop: 8,
+                        padding: '10px 12px',
+                        background: isDebtBlocked ? '#fef2f2' : '#fff7ed',
+                        border: isDebtBlocked ? '1px solid #fca5a5' : '1px solid #fed7aa',
+                        borderRadius: 8,
+                        boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
+                      }}
+                    >
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <i 
+                            className={isDebtBlocked ? 'fa-solid fa-ban' : 'fa-solid fa-triangle-exclamation'} 
+                            style={{ color: isDebtBlocked ? '#dc2626' : '#ea580c', fontSize: 13 }}
+                          />
+                          <span
+                            style={{
+                              fontSize: 11,
+                              color: isDebtBlocked ? '#991b1b' : '#9a3412',
+                              fontWeight: 700,
+                            }}
+                          >
+                            {isDebtBlocked ? 'BẮT BUỘC THANH TOÁN NỢ TRƯỚC' : 'THÔNG BÁO NỢ CŨ'}
+                          </span>
+                        </div>
+                        
+                        <div style={{ fontSize: 12, color: isDebtBlocked ? '#dc2626' : '#c2410c' }}>
+                          Khách đang nợ: <span style={{ fontWeight: 800 }}>{formatMoney(activeTab.customerData.debt_account)}</span>
+                        </div>
+
+                        {isDebtBlocked && (
+                          <div
+                            style={{
+                              fontSize: 11,
+                              color: '#991b1b',
+                              background: '#fee2e2',
+                              padding: '4px 8px',
+                              borderRadius: 4,
+                              border: '1px solid #fca5a5',
+                            }}
+                          >
+                            Nợ ≥ 100k — cần trả hết nợ cũ để mua tiếp. Chọn <strong>Trả luôn</strong>.
+                          </div>
+                        )}
+
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 8,
+                            background: 'white',
+                            padding: '4px 8px',
+                            borderRadius: 6,
+                            border: `1px solid ${isDebtBlocked ? '#fca5a5' : '#fdba74'}`,
+                          }}
+                        >
+                          <span style={{ fontSize: 11, fontWeight: 600, color: isDebtBlocked ? '#991b1b' : '#9a3412' }}>
+                            Trả cùng đơn này?
+                          </span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            {!isDebtBlocked && (
+                              <button
+                                type="button"
+                                onClick={() => updateActiveTab({ payOldDebt: false })}
+                                style={{
+                                  background: !activeTab.payOldDebt ? '#ea580c' : '#f1f5f9',
+                                  color: !activeTab.payOldDebt ? 'white' : '#64748b',
+                                  border: 'none',
+                                  padding: '4px 10px',
+                                  borderRadius: 4,
+                                  fontSize: 10,
+                                  fontWeight: 700,
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                Chưa trả
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const updates = { payOldDebt: true };
+                                if (activeTab.paymentMethod === 'debt') updates.paymentMethod = 'cash';
+                                updateActiveTab(updates);
+                              }}
+                              style={{
+                                background: activeTab.payOldDebt
+                                  ? '#ea580c'
+                                  : isDebtBlocked
+                                    ? '#dc2626'
+                                    : '#f1f5f9',
+                                color: activeTab.payOldDebt || isDebtBlocked ? 'white' : '#64748b',
+                                border: 'none',
+                                padding: '4px 10px',
+                                borderRadius: 4,
+                                fontSize: 10,
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              Trả luôn
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
             <div className="pos-sidebar-panel pos-summary-panel">
               <div className="pos-checkout-summary-bundle">
                 <div className="pos-checkout-summary-bundle-head">Tổng đơn</div>
@@ -2443,131 +2552,7 @@ export default function POSContainer({
               </div>
             </div>
 
-            {/* Debt alert */}
-            {activeTab.customerData?.debt_account > 0 && (
-              <div
-                style={{
-                  marginTop: 16,
-                  padding: '16px',
-                  background: isDebtBlocked ? '#fef2f2' : '#fff7ed',
-                  border: isDebtBlocked ? '1px solid #fca5a5' : '1px solid #fed7aa',
-                  borderRadius: 12,
-                  boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-                  <div
-                    style={{
-                      background: isDebtBlocked ? '#fee2e2' : '#ffedd5',
-                      color: isDebtBlocked ? '#dc2626' : '#ea580c',
-                      width: 32,
-                      height: 32,
-                      borderRadius: '50%',
-                      display: 'flex',
-                      alignItems: 'center',
-                      flexShrink: 0,
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <i className={isDebtBlocked ? 'fa-solid fa-ban' : 'fa-solid fa-triangle-exclamation'} />
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div
-                      style={{
-                        fontSize: 13,
-                        color: isDebtBlocked ? '#991b1b' : '#9a3412',
-                        fontWeight: 700,
-                        marginBottom: 4,
-                      }}
-                    >
-                      {isDebtBlocked ? 'BẮT BUỘC THANH TOÁN NỢ TRƯỚC' : 'THÔNG BÁO NỢ CŨ'}
-                    </div>
-                    <div style={{ fontSize: 13, color: isDebtBlocked ? '#dc2626' : '#c2410c' }}>
-                      Khách hàng đang còn nợ:{' '}
-                      <span style={{ fontWeight: 800 }}>{formatMoney(activeTab.customerData.debt_account)}</span>
-                    </div>
-                    {isDebtBlocked && (
-                      <div
-                        style={{
-                          marginTop: 8,
-                          fontSize: 12,
-                          color: '#991b1b',
-                          background: '#fee2e2',
-                          padding: '6px 10px',
-                          borderRadius: 6,
-                          border: '1px solid #fca5a5',
-                        }}
-                      >
-                        Số nợ ≥ 100.000₫ — khách phải thanh toán toàn bộ nợ cũ trước khi mua hàng mới. Chọn{' '}
-                        <strong>Trả luôn</strong> để tiếp tục.
-                      </div>
-                    )}
-                    <div
-                      style={{
-                        marginTop: 12,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        flexWrap: 'wrap',
-                        gap: 10,
-                        background: 'white',
-                        padding: '8px 12px',
-                        borderRadius: 8,
-                        border: `1px solid ${isDebtBlocked ? '#fca5a5' : '#fdba74'}`,
-                      }}
-                    >
-                      <span style={{ fontSize: 12, fontWeight: 600, color: isDebtBlocked ? '#991b1b' : '#9a3412' }}>
-                        Thanh toán cùng đơn này?
-                      </span>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        {!isDebtBlocked && (
-                          <button
-                            type="button"
-                            onClick={() => updateActiveTab({ payOldDebt: false })}
-                            style={{
-                              background: !activeTab.payOldDebt ? '#ea580c' : '#f1f5f9',
-                              color: !activeTab.payOldDebt ? 'white' : '#64748b',
-                              border: 'none',
-                              padding: '6px 14px',
-                              borderRadius: 6,
-                              fontSize: 11,
-                              fontWeight: 700,
-                              cursor: 'pointer',
-                            }}
-                          >
-                            Chưa trả
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const updates = { payOldDebt: true };
-                            if (activeTab.paymentMethod === 'debt') updates.paymentMethod = 'cash';
-                            updateActiveTab(updates);
-                          }}
-                          style={{
-                            background: activeTab.payOldDebt
-                              ? '#ea580c'
-                              : isDebtBlocked
-                                ? '#dc2626'
-                                : '#f1f5f9',
-                            color: activeTab.payOldDebt || isDebtBlocked ? 'white' : '#64748b',
-                            border: 'none',
-                            padding: '6px 14px',
-                            borderRadius: 6,
-                            fontSize: 11,
-                            fontWeight: 700,
-                            cursor: 'pointer',
-                          }}
-                        >
-                          Trả luôn
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
+
 
             <div className="pos-submit-wrap">
               {loyaltyEarnBadge && (

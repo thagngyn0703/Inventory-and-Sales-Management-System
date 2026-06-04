@@ -1,8 +1,8 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Platform } from 'react-bits/lib/modules/Platform';
-import { Search, Plus, X, Barcode } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { X, Barcode } from 'lucide-react';
 import { createProductRequest, getProducts, uploadProductImages } from '../../services/productsApi';
 import { getSuppliers } from '../../services/suppliersApi';
+import { getCategories } from '../../services/categoriesApi';
 import { minExpiryDateString, isExpiryDateNotInPast } from '../../utils/dateInput';
 import {
   trimString,
@@ -16,7 +16,6 @@ import { formatCurrencyInput, parseCurrencyInput, toCurrencyInputFromNumber } fr
 import { useToast } from '../../contexts/ToastContext';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
-import { Badge } from '../../components/ui/badge';
 import { InlineNotice } from '../../components/ui/inline-notice';
 
 const PRODUCT_BASE_UNITS = ['Cái', 'Chai', 'Lon', 'Thùng', 'Hộp', 'Kg', 'Gói', 'Lít'];
@@ -28,6 +27,7 @@ const createDefaultForm = () => ({
   sku: '',
   barcode: '',
   supplier_id: '',
+  category_id: '',
   cost_price: '',
   stock_qty: '',
   reorder_level: '',
@@ -41,16 +41,13 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
   const { toast } = useToast();
   const [form, setForm] = useState(createDefaultForm());
   const [suppliers, setSuppliers] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [existingProducts, setExistingProducts] = useState([]);
-  const [selectedExistingId, setSelectedExistingId] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [selectedImages, setSelectedImages] = useState([]);
   const [imagePreviews, setImagePreviews] = useState([]);
-  const [quickSearch, setQuickSearch] = useState('');
   const [scanMode, setScanMode] = useState(false);
-  const [scanConfirmOpen, setScanConfirmOpen] = useState(false);
-  const [pendingScanCode, setPendingScanCode] = useState('');
   const [existingMatch, setExistingMatch] = useState(null);
   const scanBufferRef = useRef('');
   const scanTimerRef = useRef(null);
@@ -63,6 +60,20 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
       })
       .catch(() => {
         if (!cancelled) setSuppliers([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    getCategories()
+      .then((list) => {
+        if (!cancelled) setCategories(list || []);
+      })
+      .catch(() => {
+        if (!cancelled) setCategories([]);
       });
     return () => {
       cancelled = true;
@@ -106,13 +117,13 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
         (p) => String(p.barcode || '').trim().toLowerCase() === code.toLowerCase()
       );
       if (found) {
-        fillFromExisting(found._id);
-        setError('');
-        toast(`Đã điền nhanh: ${found.name}`, 'success');
+        setExistingMatch(found);
+        setError(`Sản phẩm "${found.name}" với mã vạch này đã tồn tại. Theo SOP, hãy nhập hàng trên sản phẩm đã có.`);
+        toast(`Sản phẩm đã tồn tại: ${found.name}`, 'error');
         return;
       }
-      setPendingScanCode(code);
-      setScanConfirmOpen(true);
+      update('barcode', code);
+      toast('Đã điền barcode từ mã quét.', 'success');
     };
     const onKeyDown = (e) => {
       if (['Shift', 'Alt', 'Control', 'Meta', 'CapsLock', 'Escape'].includes(e.key)) return;
@@ -133,28 +144,6 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [scanMode, existingProducts, toast]);
-
-  const filteredExistingProducts = useMemo(() => {
-    const term = String(quickSearch || '').trim().toLowerCase();
-    if (!term) return existingProducts;
-    return existingProducts.filter(
-      (p) =>
-        String(p.name || '')
-          .toLowerCase()
-          .includes(term) ||
-        String(p.sku || '')
-          .toLowerCase()
-          .includes(term) ||
-        String(p.barcode || '')
-          .toLowerCase()
-          .includes(term)
-    );
-  }, [existingProducts, quickSearch]);
-
-  const quickFillHint = Platform.select({
-    web: 'Sửa SKU/tên sau khi điền nhanh để tạo yêu cầu sản phẩm mới (không trùng hàng đã có).',
-    default: 'Điền nhanh từ mẫu, sau đó chỉnh lại thông tin gửi duyệt.',
-  });
 
   const update = (field, value) => {
     setForm((prev) => {
@@ -209,74 +198,16 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
     setError('');
   };
 
-  const fillFromExisting = (productId) => {
-    setSelectedExistingId(productId);
-    const p = existingProducts.find((x) => x._id === productId);
-    if (!p) {
-      setForm(createDefaultForm());
-      setSelectedImages([]);
-      setImagePreviews([]);
-      setError('');
-      return;
-    }
-    setForm((prev) => ({
-      ...prev,
-      name: p.name || prev.name,
-      sku: '',
-      barcode: p.barcode || '',
-      supplier_id: typeof p.supplier_id === 'object' ? p.supplier_id?._id || '' : p.supplier_id || '',
-      cost_price: p.cost_price != null ? toCurrencyInputFromNumber(p.cost_price) : prev.cost_price,
-      expiry_date: (() => {
-        if (!p.expiry_date) return '';
-        const s = new Date(p.expiry_date).toISOString().slice(0, 10);
-        return s < minExpiryDateString() ? '' : s;
-      })(),
-      base_unit: p.base_unit || prev.base_unit,
-      selling_units:
-        Array.isArray(p.selling_units) && p.selling_units.length > 0
-          ? p.selling_units.map((u) => ({
-              name: u.name || p.base_unit || 'Cái',
-              ratio: u.ratio != null ? u.ratio : 1,
-              sale_price: u.sale_price != null ? toCurrencyInputFromNumber(u.sale_price) : '',
-              barcode: '',
-            }))
-          : prev.selling_units,
-      note: prev.note,
-    }));
-    setSelectedImages([]);
-    setImagePreviews([]);
-    setError('');
-  };
-
-  const handleQuickSearchKeyDown = (e) => {
-    if (e.key !== 'Enter') return;
-    e.preventDefault();
-    const term = String(quickSearch || '').trim().toLowerCase();
-    if (!term) {
-      setError('Vui lòng nhập tên/SKU/barcode để tìm nhanh.');
-      return;
-    }
-    const exact = existingProducts.find(
-      (p) =>
-        String(p.name || '').toLowerCase() === term ||
-        String(p.sku || '').toLowerCase() === term ||
-        String(p.barcode || '').toLowerCase() === term
-    );
-    const target = exact || filteredExistingProducts[0];
-    if (!target) {
-      setError('Không tìm thấy sản phẩm phù hợp để điền nhanh.');
-      return;
-    }
-    fillFromExisting(target._id);
-    setError('');
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     setExistingMatch(null);
     const nameCheck = validateRequiredText(form.name, 'Tên sản phẩm');
     if (!nameCheck.ok) {
       setError(nameCheck.message);
+      return;
+    }
+    if (!String(form.category_id || '').trim()) {
+      setError('Vui lòng chọn danh mục cho sản phẩm.');
       return;
     }
     const skuCheck = validateSku(form.sku);
@@ -411,6 +342,7 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
         sku: skuCheck.value,
         barcode: barcodeCheck.value || undefined,
         supplier_id: trimString(form.supplier_id) || undefined,
+        category_id: String(form.category_id || '').trim() || undefined,
         cost_price: costCheck.value,
         stock_qty: stockCheck.value,
         reorder_level: reorderCheck.value,
@@ -453,67 +385,18 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
         <div className="max-h-[min(78vh,720px)] overflow-y-auto px-5 py-4">
           <InlineNotice message={error} type="error" className="mb-4" />
 
-          <form id="warehouse-product-request-form" onSubmit={handleSubmit} className="space-y-4">
-            <Card className="border-slate-200/80">
-              <CardContent className="space-y-2 py-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h3 className="text-sm font-semibold text-slate-800">Điền nhanh từ sản phẩm có sẵn</h3>
-                  {selectedExistingId ? (
-                    <Badge className="bg-violet-100 text-violet-800">Đang dùng mẫu</Badge>
-                  ) : (
-                    <Badge className="bg-slate-100 text-slate-600">Không chọn mẫu</Badge>
-                  )}
-                </div>
-                <div className="grid gap-3 md:grid-cols-2">
-                  <div className="relative">
-                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                    <input
-                      type="text"
-                      value={quickSearch}
-                      onChange={(e) => setQuickSearch(e.target.value)}
-                      onKeyDown={handleQuickSearchKeyDown}
-                      placeholder="Tìm theo tên, SKU, barcode..."
-                      className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none ring-sky-200 focus:ring-2"
-                    />
-                  </div>
-                  <select
-                    value={selectedExistingId}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      if (!v) {
-                        setSelectedExistingId('');
-                        setForm(createDefaultForm());
-                        setSelectedImages([]);
-                        setImagePreviews([]);
-                        setError('');
-                        return;
-                      }
-                      fillFromExisting(v);
-                    }}
-                    className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none ring-sky-200 focus:ring-2"
-                  >
-                    <option value="">— Không chọn —</option>
-                    {filteredExistingProducts.map((p) => (
-                      <option key={p._id} value={p._id}>
-                        {p.name} — {p.sku}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <p className="text-xs text-slate-500">{quickFillHint}</p>
-                {existingMatch && (
-                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                    <div>
-                      Trùng với sản phẩm hiện có: <strong>{existingMatch.name}</strong> (SKU: {existingMatch.sku || '—'}).
-                    </div>
-                    <div className="mt-1">
-                      Vui lòng đóng form này và dùng màn nhập hàng để cộng thêm số lượng theo đúng SOP.
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+          {existingMatch && (
+            <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              <div>
+                Trùng với sản phẩm hiện có: <strong>{existingMatch.name}</strong> (SKU: {existingMatch.sku || '—'}).
+              </div>
+              <div className="mt-1">
+                Vui lòng đóng form này và dùng màn nhập hàng để cộng thêm số lượng theo đúng SOP.
+              </div>
+            </div>
+          )}
 
+          <form id="warehouse-product-request-form" onSubmit={handleSubmit} className="space-y-4">
             <Card className="border-slate-200/80">
               <CardContent className="space-y-2 py-4">
                 <h3 className="text-sm font-semibold text-slate-800">SOP chuẩn cho cả Staff và Manager</h3>
@@ -547,10 +430,7 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
                       <input
                         type="text"
                         value={form.sku}
-                        onChange={(e) => {
-                          update('sku', e.target.value);
-                          setSelectedExistingId('');
-                        }}
+                        onChange={(e) => update('sku', e.target.value)}
                         className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 focus:ring-2"
                         placeholder="Mã SKU mới (duy nhất)"
                       />
@@ -587,6 +467,22 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
                       )}
                     </div>
                     <div>
+                      <label className="mb-1 block text-sm font-medium text-slate-700">Danh mục *</label>
+                      <select
+                        value={form.category_id}
+                        onChange={(e) => update('category_id', e.target.value)}
+                        className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 focus:ring-2"
+                      >
+                        <option value="">— Chọn danh mục —</option>
+                        {categories.map((c) => (
+                          <option key={c._id} value={c._id}>
+                            {c.name}
+                            {c.vat_rate != null ? ` (${Number(c.vat_rate)}%)` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
                       <label className="mb-1 block text-sm font-medium text-slate-700">Nhà cung cấp</label>
                       <select
                         value={form.supplier_id}
@@ -611,7 +507,6 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
                   <div className="mb-3 flex items-center justify-between gap-2">
                     <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-600">Đơn vị bán</h3>
                     <Button type="button" variant="outline" size="default" className="h-9 gap-1 text-xs" onClick={addSellingUnit}>
-                      <Plus className="h-3.5 w-3.5" />
                       Thêm
                     </Button>
                   </div>
@@ -796,41 +691,6 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
           </Button>
         </div>
       </div>
-
-      {scanConfirmOpen && (
-        <div className="fixed inset-0 z-[7100] flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-5 shadow-xl">
-            <h3 className="text-base font-semibold text-slate-900">Mã chưa có trong hệ thống</h3>
-            <p className="mt-2 text-sm text-slate-600">
-              Barcode <span className="font-semibold text-slate-900">{pendingScanCode}</span> chưa tồn tại. Dùng mã này
-              cho sản phẩm mới?
-            </p>
-            <div className="mt-4 flex justify-end gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  setScanConfirmOpen(false);
-                  setPendingScanCode('');
-                }}
-              >
-                Hủy
-              </Button>
-              <Button
-                type="button"
-                onClick={() => {
-                  update('barcode', pendingScanCode);
-                  setScanConfirmOpen(false);
-                  setPendingScanCode('');
-                  toast('Đã điền barcode từ mã quét.', 'success');
-                }}
-              >
-                Đồng ý
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
