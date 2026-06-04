@@ -13,6 +13,7 @@ const Customer = require('../models/Customer');
 const CustomerLoyaltyTransaction = require('../models/CustomerLoyaltyTransaction');
 const AuditLog = require('../models/AuditLog');
 const Store = require('../models/Store');
+const Stocktake = require('../models/Stocktake');
 const xlsx = require('xlsx');
 const { requireAuth, requireRole } = require('../middleware/auth');
 
@@ -48,6 +49,79 @@ function startOfVNCalendarDay(y, mo, d) {
 
 function endOfVNCalendarDay(y, mo, d) {
   return new Date(`${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}T23:59:59.999+07:00`);
+}
+
+/** Tiền hao hụt từ phiếu kiểm kê đã hoàn tất: chỉ tính thiếu (actual < system) × giá vốn SP. */
+function buildStocktakeShrinkageMatch(storeIdObj, from, to) {
+  const match = {
+    status: 'completed',
+    completed_at: { $gte: from, $lte: to },
+  };
+  if (storeIdObj) match.storeId = storeIdObj;
+  return match;
+}
+
+async function aggregateStocktakeShrinkage(storeIdObj, from, to) {
+  const match = buildStocktakeShrinkageMatch(storeIdObj, from, to);
+  const [countAgg, shrinkAgg] = await Promise.all([
+    Stocktake.aggregate([{ $match: match }, { $count: 'stocktake_completed_count' }]),
+    Stocktake.aggregate([
+      { $match: match },
+      { $unwind: '$items' },
+      {
+        $lookup: {
+          from: 'products',
+          localField: 'items.product_id',
+          foreignField: '_id',
+          as: '__product',
+        },
+      },
+      { $unwind: { path: '$__product', preserveNullAndEmptyArrays: true } },
+      {
+        $addFields: {
+          __variance: {
+            $ifNull: [
+              '$items.variance',
+              {
+                $subtract: [
+                  { $ifNull: ['$items.actual_qty', 0] },
+                  { $ifNull: ['$items.system_qty', 0] },
+                ],
+              },
+            ],
+          },
+          __unitCost: { $ifNull: ['$__product.cost_price', 0] },
+        },
+      },
+      {
+        $addFields: {
+          __shortageQty: {
+            $cond: [{ $lt: ['$__variance', 0] }, { $multiply: ['$__variance', -1] }, 0],
+          },
+        },
+      },
+      {
+        $addFields: {
+          __lineShrinkage: { $multiply: ['$__shortageQty', '$__unitCost'] },
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          stocktake_shrinkage_value: { $sum: '$__lineShrinkage' },
+          stocktake_shrinkage_qty: { $sum: '$__shortageQty' },
+        },
+      },
+    ]),
+  ]);
+
+  const rawValue = shrinkAgg[0]?.stocktake_shrinkage_value ?? 0;
+  const rawQty = shrinkAgg[0]?.stocktake_shrinkage_qty ?? 0;
+  return {
+    stocktake_completed_count: countAgg[0]?.stocktake_completed_count ?? 0,
+    stocktake_shrinkage_value: Math.round(rawValue * 100) / 100,
+    stocktake_shrinkage_qty: Math.round(rawQty * 100) / 100,
+  };
 }
 
 /** Cộng/trừ N ngày trên lịch VN */
@@ -928,7 +1002,7 @@ router.get(
         : { status: 'confirmed', invoice_at: { $gte: yStart, $lte: yEnd }, ...PAID_TRANSFER_FILTER };
 
       // Doanh thu + số đơn + lợi nhuận gộp thực (từ cost_price snapshot trên từng dòng hóa đơn)
-      const [invoiceAgg, invoiceProfitAgg, returnAgg, returnAmountAgg, returnProfitAgg, grAgg, supplierReturnAgg, supplierPaymentAgg, todayAgg, yesterdayAgg, todayProfitAgg, yesterdayProfitAgg] = await Promise.all([
+      const [invoiceAgg, invoiceProfitAgg, returnAgg, returnAmountAgg, returnProfitAgg, grAgg, supplierReturnAgg, supplierPaymentAgg, todayAgg, yesterdayAgg, todayProfitAgg, yesterdayProfitAgg, stocktakeShrinkage] = await Promise.all([
         // Aggregate 1: đếm số hóa đơn, tổng doanh thu, tổng thuế thu hộ
         SalesInvoice.aggregate([
           { $match: invoiceMatchPeriod },
@@ -1064,6 +1138,8 @@ router.get(
 
         // Lợi nhuận gộp thực hôm qua
         SalesInvoice.aggregate(profitPipeline(yMatchCond)),
+
+        aggregateStocktakeShrinkage(storeIdObj, from, to),
       ]);
 
       const salesRevenue = invoiceAgg[0]?.total_revenue ?? 0;
@@ -1089,7 +1165,9 @@ router.get(
       const grossProfitFromSales = invoiceProfitAgg[0]?.gross_profit ?? 0;
       const grossProfitFromReturns = returnProfitAgg[0]?.return_profit_impact ?? 0;
       const grossProfit = grossProfitFromSales - grossProfitFromReturns;
-      const grossProfitAfterLoyalty = grossProfit - loyaltyRedeemValue;
+      const stocktakeShrinkageValue = stocktakeShrinkage?.stocktake_shrinkage_value ?? 0;
+      const stocktakeShrinkageQty = stocktakeShrinkage?.stocktake_shrinkage_qty ?? 0;
+      const stocktakeCompletedCount = stocktakeShrinkage?.stocktake_completed_count ?? 0;
       // Giữ lại gross_profit_estimate (dựa GoodsReceipt) để tham khảo
       const grossProfitEstimate = revenue - incomingCost;
       const returnRate = orderCount > 0 ? Math.round((returnCount / orderCount) * 10000) / 100 : 0;
@@ -1129,7 +1207,9 @@ router.get(
         // Lợi nhuận gộp thực: tính từ cost_price snapshot trên từng dòng hóa đơn (chính xác)
         gross_profit: grossProfit,
         loyalty_redeem_value: loyaltyRedeemValue,
-        gross_profit_after_loyalty: grossProfitAfterLoyalty,
+        stocktake_shrinkage_value: stocktakeShrinkageValue,
+        stocktake_shrinkage_qty: stocktakeShrinkageQty,
+        stocktake_completed_count: stocktakeCompletedCount,
         // Lợi nhuận ước tính cũ (doanh thu - tiền nhập kỳ): giữ để tham khảo, không dùng cho báo cáo chính
         gross_profit_estimate: grossProfitEstimate,
         // Thuế VAT

@@ -15,7 +15,7 @@ const stocktakeSchema = new Schema(
         },
         status: {
             type: String,
-            enum: ['draft', 'submitted', 'completed', 'cancelled'],
+            enum: ['draft', 'submitted', 'completed', 'cancelled', 'expired'],
             default: 'draft',
         },
         snapshot_at: {

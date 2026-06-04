@@ -374,7 +374,7 @@ export default function ManagerProductList() {
                             <>
                                 <div className="hidden lg:block">
                                     <div className="manager-products-table-wrap">
-                                        <table className="manager-products-table">
+                                        <table className="manager-products-table manager-product-list-table">
                                             <thead>
                                                 <tr>
                                                     <th>STT</th>
@@ -418,7 +418,7 @@ export default function ManagerProductList() {
                                                                     <span style={{ color: '#9ca3af' }}>—</span>
                                                                 )}
                                                             </td>
-                                                            <td>{p.sku || '—'}</td>
+                                                            <td title={p.sku || undefined}>{p.sku || '—'}</td>
                                                             <td>
                                                                 <button
                                                                     type="button"

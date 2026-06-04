@@ -9,7 +9,6 @@ import {
     prepareCustomerDebtTransfer,
     confirmCustomerDebtTransfer,
     cancelCustomerDebtTransfer,
-    getCustomerDebtPayments,
     getTopCustomersAnalytics,
 } from '../../services/customersApi';
 import { getInvoices } from '../../services/invoicesApi';
@@ -23,18 +22,6 @@ import { Loader2, Search, Users, ChevronLeft, ChevronRight, Send } from 'lucide-
 import { formatCurrencyInput, parseCurrencyInput, toCurrencyInputFromNumber } from '../../utils/currencyInput';
 
 const PAGE_SIZE = 20;
-const OVERDUE_DAYS = 30;
-
-function getInvoiceDate(invoice) {
-    return invoice?.invoice_at || invoice?.created_at || null;
-}
-
-function getInvoiceAgeDays(invoiceDate) {
-    if (!invoiceDate) return 0;
-    const issuedAt = new Date(invoiceDate);
-    if (Number.isNaN(issuedAt.getTime())) return 0;
-    return Math.max(0, Math.floor((Date.now() - issuedAt.getTime()) / 86400000));
-}
 
 export default function SalesCustomerPage({ managerMode = false }) {
     const navigate = useNavigate();
@@ -77,35 +64,22 @@ export default function SalesCustomerPage({ managerMode = false }) {
         error: '' 
     });
     
-    // History Modal — BUG-07: tabs cho lịch sử nợ vs toàn bộ hóa đơn
     const [historyModal, setHistoryModal] = useState({
         show: false,
         customer: null,
-        tab: 'debt', // 'debt' | 'all'
-        debtInvoices: [],
-        allInvoices: [],
-        debtPayments: [],
+        invoices: [],
         loading: false,
     });
-    const [historyDebtFilter, setHistoryDebtFilter] = useState('all');
     // Notify send state: { show, customerName, jobId, status, channel, error, messagePreview, sending }
     const [notifyResult, setNotifyResult] = useState({ show: false, customerName: '', jobId: '', status: '', channel: null, error: null, messagePreview: '', sending: false, alreadySent: false });
 
-    // BUG-07: tải cả 2 loại lịch sử song song
-    const fetchCustomerHistory = async (customer, tab = 'debt') => {
-        setHistoryDebtFilter('all');
-        setHistoryModal({ show: true, customer, tab, debtInvoices: [], allInvoices: [], debtPayments: [], loading: true });
+    const fetchCustomerHistory = async (customer) => {
+        setHistoryModal({ show: true, customer, invoices: [], loading: true });
         try {
-            const [debtData, allData, paymentData] = await Promise.all([
-                getInvoices({ customer_id: customer._id, payment_method: 'debt', limit: 100 }),
-                getInvoices({ customer_id: customer._id, limit: 100 }),
-                getCustomerDebtPayments(customer._id, 100),
-            ]);
+            const data = await getInvoices({ customer_id: customer._id, limit: 100 });
             setHistoryModal(prev => ({
                 ...prev,
-                debtInvoices: debtData.invoices || [],
-                allInvoices: allData.invoices || [],
-                debtPayments: paymentData.payments || [],
+                invoices: data.invoices || [],
                 loading: false,
             }));
         } catch (e) {
@@ -379,15 +353,6 @@ export default function SalesCustomerPage({ managerMode = false }) {
         }
     }, [toast]);
 
-    const overdueDebtInvoices = historyModal.debtInvoices.filter((inv) => {
-        if (inv.status !== 'pending') return false;
-        const ageDays = getInvoiceAgeDays(getInvoiceDate(inv));
-        return ageDays > OVERDUE_DAYS;
-    });
-    const displayedDebtInvoices = historyDebtFilter === 'overdue' ? overdueDebtInvoices : historyModal.debtInvoices;
-    const overdueTotalAmount = overdueDebtInvoices.reduce((sum, inv) => sum + Number(inv.total_amount || 0), 0);
-    const oldestOverdueDays = overdueDebtInvoices.reduce((max, inv) => Math.max(max, getInvoiceAgeDays(getInvoiceDate(inv))), 0);
-
     return (
         <StaffPageShell
             eyebrow={managerMode ? 'Quản lý cửa hàng' : 'Bán hàng'}
@@ -529,7 +494,7 @@ export default function SalesCustomerPage({ managerMode = false }) {
                                                 <td className="px-4 py-3.5 whitespace-nowrap text-right">
                                                     <div className="flex items-center justify-end gap-2">
                                     <Button
-                                        onClick={() => fetchCustomerHistory(c, 'debt')}
+                                        onClick={() => fetchCustomerHistory(c)}
                                         type="button"
                                         className="h-9 min-w-[88px] rounded-lg border border-sky-200 bg-sky-50 px-3 text-xs font-semibold text-sky-700 hover:bg-sky-100"
                                     >
@@ -888,13 +853,10 @@ export default function SalesCustomerPage({ managerMode = false }) {
                 </div>
             )}
 
-            {/* History Modal — BUG-07: tabs Lịch sử nợ vs Tất cả hóa đơn, BUG-13: navigate đúng role */}
+            {/* History Modal — danh sách hóa đơn của khách */}
             {historyModal.show && (() => {
-                // BUG-13: navigate đúng route theo role
                 const invoiceBasePath = managerMode ? '/manager/invoices' : '/staff/invoices';
-                const activeInvoices = historyModal.tab === 'debt'
-                    ? displayedDebtInvoices
-                    : historyModal.allInvoices;
+                const invoices = historyModal.invoices;
 
                 const PAYMENT_LABELS = {
                     cash: 'Tiền mặt',
@@ -915,13 +877,15 @@ export default function SalesCustomerPage({ managerMode = false }) {
                             width: '760px', maxWidth: '95%', maxHeight: '85vh', display: 'flex', flexDirection: 'column',
                             boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)'
                         }}>
-                            {/* Header */}
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
                                 <div>
                                     <h3 style={{ margin: '0 0 4px', fontSize: '18px', color: '#1e293b', fontWeight: 800 }}>
                                         {historyModal.customer?.full_name}
                                     </h3>
                                     <p style={{ margin: 0, fontSize: 13, color: '#64748b' }}>{historyModal.customer?.phone || ''}</p>
+                                    <p style={{ margin: '8px 0 0', fontSize: 13, fontWeight: 700, color: '#0081ff' }}>
+                                        Tất cả hóa đơn ({invoices.length})
+                                    </p>
                                 </div>
                                 <button
                                     onClick={() => setHistoryModal(prev => ({ ...prev, show: false }))}
@@ -929,75 +893,11 @@ export default function SalesCustomerPage({ managerMode = false }) {
                                 >✕</button>
                             </div>
 
-                            {/* Tabs — BUG-07 */}
-                            <div style={{ display: 'flex', gap: 8, marginBottom: 16, borderBottom: '1px solid #e2e8f0', paddingBottom: 0 }}>
-                                {[
-                                    { key: 'debt', label: `Lịch sử nợ (${historyModal.debtInvoices.length})` },
-                                    { key: 'all', label: `Tất cả hóa đơn (${historyModal.allInvoices.length})` },
-                                ].map(tab => (
-                                    <button
-                                        key={tab.key}
-                                        type="button"
-                                        onClick={() => setHistoryModal(prev => ({ ...prev, tab: tab.key }))}
-                                        style={{
-                                            padding: '8px 16px', border: 'none', background: 'none', cursor: 'pointer',
-                                            fontSize: 13, fontWeight: 700,
-                                            color: historyModal.tab === tab.key ? '#0081ff' : '#64748b',
-                                            borderBottom: historyModal.tab === tab.key ? '2px solid #0081ff' : '2px solid transparent',
-                                            marginBottom: -1,
-                                        }}
-                                    >
-                                        {tab.label}
-                                    </button>
-                                ))}
-                            </div>
-                            {historyModal.tab === 'debt' && (
-                                <div style={{ marginBottom: 12, display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', justifyContent: 'space-between' }}>
-                                    <div style={{ display: 'flex', gap: 8 }}>
-                                        <button
-                                            type="button"
-                                            onClick={() => setHistoryDebtFilter('all')}
-                                            style={{
-                                                padding: '6px 12px',
-                                                borderRadius: 6,
-                                                border: historyDebtFilter === 'all' ? '1px solid #14b8a6' : '1px solid #cbd5e1',
-                                                background: historyDebtFilter === 'all' ? '#f0fdfa' : '#fff',
-                                                color: historyDebtFilter === 'all' ? '#0f766e' : '#475569',
-                                                fontSize: 12,
-                                                fontWeight: 700,
-                                                cursor: 'pointer',
-                                            }}
-                                        >
-                                            FIFO toàn bộ
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => setHistoryDebtFilter('overdue')}
-                                            style={{
-                                                padding: '6px 12px',
-                                                borderRadius: 6,
-                                                border: historyDebtFilter === 'overdue' ? '1px solid #f59e0b' : '1px solid #cbd5e1',
-                                                background: historyDebtFilter === 'overdue' ? '#fffbeb' : '#fff',
-                                                color: historyDebtFilter === 'overdue' ? '#b45309' : '#475569',
-                                                fontSize: 12,
-                                                fontWeight: 700,
-                                                cursor: 'pointer',
-                                            }}
-                                        >
-                                            Quá {OVERDUE_DAYS} ngày ({overdueDebtInvoices.length})
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Table */}
                             <div style={{ overflowY: 'auto', flex: 1 }}>
                                 {historyModal.loading ? (
                                     <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>Đang tải...</div>
-                                ) : activeInvoices.length === 0 ? (
-                                    <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>
-                                        {historyModal.tab === 'debt' ? 'Chưa có hóa đơn ghi nợ nào.' : 'Chưa có hóa đơn nào.'}
-                                    </div>
+                                ) : invoices.length === 0 ? (
+                                    <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>Chưa có hóa đơn nào.</div>
                                 ) : (
                                     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                                         <thead style={{ background: '#f8fafc', position: 'sticky', top: 0 }}>
@@ -1012,18 +912,13 @@ export default function SalesCustomerPage({ managerMode = false }) {
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {activeInvoices.map(inv => (
+                                            {invoices.map(inv => (
                                                 <tr key={inv._id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                                                     <td style={{ padding: '10px 12px', fontSize: 12, fontWeight: 600, color: '#334155' }}>
                                                         #{inv._id.slice(-8).toUpperCase()}
                                                     </td>
                                                     <td style={{ padding: '10px 12px', fontSize: 12, color: '#475569' }}>
                                                         {new Date(inv.created_at).toLocaleDateString('vi-VN')}
-                                                        {historyModal.tab === 'debt' && getInvoiceAgeDays(getInvoiceDate(inv)) > OVERDUE_DAYS && (
-                                                            <span style={{ marginLeft: 6, color: '#b45309', fontWeight: 700 }}>
-                                                                +{getInvoiceAgeDays(getInvoiceDate(inv))} ngày
-                                                            </span>
-                                                        )}
                                                     </td>
                                                     <td style={{ padding: '10px 12px', fontSize: 12, color: '#475569' }}>
                                                         {inv.paid_at ? new Date(inv.paid_at).toLocaleDateString('vi-VN') : '—'}
@@ -1050,7 +945,6 @@ export default function SalesCustomerPage({ managerMode = false }) {
                                                         </span>
                                                     </td>
                                                     <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                                                        {/* BUG-13: navigate đúng route theo role */}
                                                         <button
                                                             onClick={() => navigate(`${invoiceBasePath}/${inv._id}`)}
                                                             style={{ background: '#f1f5f9', border: '1px solid #e2e8f0', padding: '4px 10px', borderRadius: 4, cursor: 'pointer', fontSize: 11, fontWeight: 600, color: '#475569' }}
@@ -1062,38 +956,6 @@ export default function SalesCustomerPage({ managerMode = false }) {
                                             ))}
                                         </tbody>
                                     </table>
-                                )}
-                            </div>
-
-                            <div style={{ marginTop: 12, border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden' }}>
-                                <div style={{ padding: '8px 12px', background: '#f8fafc', fontSize: 12, fontWeight: 700, color: '#334155' }}>
-                                    Lịch sử thanh toán nợ ({historyModal.debtPayments.length})
-                                </div>
-                                {historyModal.debtPayments.length === 0 ? (
-                                    <div style={{ padding: '10px 12px', fontSize: 12, color: '#94a3b8' }}>Chưa có giao dịch thanh toán nợ.</div>
-                                ) : (
-                                    <div style={{ maxHeight: 140, overflowY: 'auto' }}>
-                                        {historyModal.debtPayments.map((p) => (
-                                            <div
-                                                key={p._id}
-                                                style={{
-                                                    display: 'grid',
-                                                    gridTemplateColumns: '1fr auto auto',
-                                                    gap: 8,
-                                                    padding: '8px 12px',
-                                                    borderTop: '1px solid #f1f5f9',
-                                                    fontSize: 12,
-                                                }}
-                                            >
-                                                <span style={{ color: '#334155' }}>
-                                                    {p.payment_method === 'bank_transfer' ? 'Chuyển khoản' : 'Tiền mặt'}
-                                                    {p.payment_ref ? ` (${p.payment_ref})` : ''}
-                                                </span>
-                                                <span style={{ color: '#0f172a', fontWeight: 700 }}>{Number(p.amount || 0).toLocaleString('vi-VN')}₫</span>
-                                                <span style={{ color: '#64748b' }}>{new Date(p.received_at).toLocaleString('vi-VN')}</span>
-                                            </div>
-                                        ))}
-                                    </div>
                                 )}
                             </div>
 

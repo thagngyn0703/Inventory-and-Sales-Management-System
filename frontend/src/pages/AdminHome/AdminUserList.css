@@ -744,6 +744,12 @@
     border-color: #fdba74;
 }
 
+.admin-stores-pill--pending-ops {
+    color: #1d4ed8;
+    background: #eff6ff;
+    border-color: #93c5fd;
+}
+
 .admin-stores-pill--approval.admin-stores-pill--approved {
     color: #0f766e;
     background: #ecfeff;

@@ -15,10 +15,14 @@ const {
   getTransactionContent,
   parseAmount,
   fetchSepayTransactionsByAmount,
+  getSepayWebhookSecrets,
+  getSepayApiTokens,
+  normalizeAccountNumber,
 } = require('../utils/sepayMatchUtils');
 const Customer = require('../models/Customer');
 const Store = require('../models/Store');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const { notifyStoreBankTransferPaid } = require('../services/bankTransferNotificationService');
 
 const router = express.Router();
 
@@ -35,20 +39,44 @@ function assertStoreScope(req, res) {
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 /**
- * Xác thực chữ ký HMAC-SHA256 từ SePay.
- * SePay gửi header: X-Checksum = HMAC_SHA256(rawBody, SEPAY_SECRET)
+ * Xác thực webhook SePay: X-Checksum (legacy), X-SePay-Signature + timestamp, hoặc Apikey.
  */
-function verifySepaySignature(rawBody, receivedChecksum) {
-  const secret = process.env.SEPAY_SECRET;
+function verifySepayWebhook(req, rawBody) {
+  const secrets = getSepayWebhookSecrets();
   const allowInsecureWebhook = String(process.env.SEPAY_ALLOW_INSECURE_WEBHOOK || '').toLowerCase() === 'true';
   const strictByEnv = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
   const strictMode = strictByEnv && !allowInsecureWebhook;
-  if (!secret) {
+
+  const authHeader = String(req.headers.authorization || '').trim();
+  if (authHeader.toLowerCase().startsWith('apikey ')) {
+    const key = authHeader.slice(7).trim();
+    if (getSepayApiTokens().includes(key)) return true;
+  }
+
+  const sepaySig = String(req.headers['x-sepay-signature'] || req.headers['x-sepay-signature'.toLowerCase()] || '');
+  const sepayTs = String(req.headers['x-sepay-timestamp'] || '');
+  if (sepaySig && sepayTs && secrets.length) {
+    const payload = `${sepayTs}.${rawBody}`;
+    const ok = secrets.some((secret) => {
+      const expected = `sha256=${crypto.createHmac('sha256', secret).update(payload).digest('hex')}`;
+      return expected === sepaySig || expected.toLowerCase() === sepaySig.toLowerCase();
+    });
+    if (ok) return true;
+  }
+
+  const receivedChecksum =
+    req.headers['x-checksum'] ||
+    req.headers['checksum'] ||
+    req.headers['x-signature'] ||
+    req.headers['sepay-signature'] ||
+    '';
+
+  if (!secrets.length) {
     if (strictMode) {
       console.error('[SePay Webhook] Missing SEPAY_SECRET in strict mode');
       return false;
     }
-    return true; // dev mode
+    return true;
   }
   if (!receivedChecksum) {
     if (strictMode) {
@@ -56,13 +84,30 @@ function verifySepaySignature(rawBody, receivedChecksum) {
       return false;
     }
     console.warn('[SePay Webhook] Missing checksum header, skip signature verify');
-    return true; // dev mode
+    return true;
   }
-  const expected = crypto
-    .createHmac('sha256', secret)
-    .update(rawBody)
-    .digest('hex');
-  return expected === String(receivedChecksum).toLowerCase();
+  const sig = String(receivedChecksum).toLowerCase().replace(/^sha256=/, '');
+  return secrets.some((secret) => {
+    const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
+    return expected === sig;
+  });
+}
+
+function resolvePaymentRefFromPayload(payload = {}) {
+  const fields = [
+    payload.content,
+    payload.description,
+    payload.transferContent,
+    payload.remark,
+    payload.referenceCode,
+    payload.code,
+    payload.ref,
+  ];
+  for (const field of fields) {
+    const ref = extractPaymentRef(String(field || ''));
+    if (ref) return ref;
+  }
+  return null;
 }
 
 function getInvoiceBankTransferTarget(invoice) {
@@ -70,6 +115,24 @@ function getInvoiceBankTransferTarget(invoice) {
   return paymentSplit
     ? parseAmount(paymentSplit.bank_transfer)
     : parseAmount(invoice.total_amount) + parseAmount(invoice.previous_debt_paid);
+}
+
+async function notifyIfBankTransferPaid(invoice, source = 'sepay') {
+  if (!invoice?.store_id || !invoice?.payment_ref) return;
+  if (String(invoice.payment_status) !== 'paid') return;
+  const amount = getInvoiceBankTransferTarget(invoice);
+  if (amount <= 0) return;
+  try {
+    await notifyStoreBankTransferPaid({
+      storeId: invoice.store_id,
+      paymentRef: invoice.payment_ref,
+      invoiceId: invoice._id,
+      amount,
+      source,
+    });
+  } catch (err) {
+    console.warn('[payments] bank transfer notification failed:', err.message);
+  }
 }
 
 async function reconcileInvoiceFromSepay(invoice) {
@@ -120,6 +183,7 @@ async function reconcileInvoiceFromSepay(invoice) {
 
   await settlePreviousDebtIfNeeded(invoice._id);
   await settleInvoiceLoyaltyIfNeeded(invoice);
+  await notifyIfBankTransferPaid(invoice, 'sepay_poll');
 
   // Lưu transaction nếu chưa có (idempotent)
   const providerTxnId = String(matchedTx.id || matchedTx.reference_number || `${ref}-${targetAmount}`);
@@ -173,14 +237,8 @@ router.post('/sepay/webhook', express.raw({ type: 'application/json' }), async (
   try {
     // Lấy raw body để verify chữ ký
     const rawBody = req.body instanceof Buffer ? req.body.toString('utf8') : JSON.stringify(req.body);
-    const checksum =
-      req.headers['x-checksum'] ||
-      req.headers['checksum'] ||
-      req.headers['x-signature'] ||
-      req.headers['sepay-signature'] ||
-      '';
 
-    if (!verifySepaySignature(rawBody, checksum)) {
+    if (!verifySepayWebhook(req, rawBody)) {
       console.warn('[SePay Webhook] Chữ ký không hợp lệ');
       return res.status(401).json({ success: false, message: 'Invalid signature' });
     }
@@ -228,25 +286,34 @@ router.post('/sepay/webhook', express.raw({ type: 'application/json' }), async (
 
     // Chống xử lý lặp (idempotent)
     const existing = await PaymentTransaction.findOne({ provider_txn_id: String(providerTxnId) });
-    if (existing) {
+    if (existing?.status === 'matched' && existing.invoice_id) {
       console.log(`[SePay Webhook] Duplicate txn: ${providerTxnId}`);
       return res.status(200).json({ success: true, message: 'Already processed' });
     }
 
     const amount = Number(transferAmount) || 0;
-    const paymentRef = (extractPaymentRef(String(content)) || String(referenceCode || '').toUpperCase() || null);
+    const paymentRef = resolvePaymentRefFromPayload(payload);
 
-    // Tạo bản ghi giao dịch
-    const txn = new PaymentTransaction({
-      provider: 'sepay',
-      provider_txn_id: String(providerTxnId),
-      amount,
-      content,
-      payment_ref_matched: paymentRef,
-      status: 'received',
-      raw_payload: payload,
-      received_at: transactionDate ? new Date(transactionDate) : new Date(),
-    });
+    let txn = existing;
+    if (!txn) {
+      txn = new PaymentTransaction({
+        provider: 'sepay',
+        provider_txn_id: String(providerTxnId),
+        amount,
+        content,
+        payment_ref_matched: paymentRef,
+        status: 'received',
+        raw_payload: payload,
+        received_at: transactionDate ? new Date(transactionDate) : new Date(),
+      });
+    } else {
+      txn.amount = amount;
+      txn.content = content;
+      txn.payment_ref_matched = paymentRef;
+      txn.raw_payload = payload;
+      txn.status = 'received';
+      if (transactionDate) txn.received_at = new Date(transactionDate);
+    }
 
     // Tìm hóa đơn khớp với payment_ref
     let matchedInvoice = null;
@@ -311,6 +378,7 @@ router.post('/sepay/webhook', express.raw({ type: 'application/json' }), async (
 
       await settlePreviousDebtIfNeeded(matchedInvoice._id);
       await settleInvoiceLoyaltyIfNeeded(matchedInvoice);
+      await notifyIfBankTransferPaid(matchedInvoice, 'sepay_webhook');
 
       console.log(`[SePay Webhook] Matched invoice ${matchedInvoice._id} with ref ${paymentRef}, amount ${amount}`);
     } else {
@@ -357,10 +425,17 @@ router.get('/status/:paymentRef', requireAuth, requireRole(['staff', 'manager', 
       }
     }
 
-    // Fallback: nếu webhook chưa tới, thử đối soát trực tiếp qua SePay API.
-    // Dựa vào phần tiền chuyển khoản > 0 để cover cả đơn "split".
-    if (invoice.payment_status !== 'paid' && Number(invoice.payment?.bank_transfer || 0) > 0) {
+    const wasUnpaid = String(invoice.payment_status) !== 'paid';
+    const bankDue = getInvoiceBankTransferTarget(invoice);
+
+    // Fallback: webhook chưa tới (localhost) → đối soát qua SePay API khi POS poll.
+    if (wasUnpaid && bankDue > 0) {
       await reconcileInvoiceFromSepay(invoice);
+    }
+
+    // Đã paid (webhook/poll trước đó) nhưng chưa có thông báo → bù một lần (idempotent).
+    if (String(invoice.payment_status) === 'paid' && invoice.payment_ref) {
+      await notifyIfBankTransferPaid(invoice, 'status_poll');
     }
     const customer = invoice.customer_id ? await Customer.findById(invoice.customer_id).select('loyalty_points').lean() : null;
     const store = await Store.findById(invoice.store_id).select('loyalty_settings').lean();

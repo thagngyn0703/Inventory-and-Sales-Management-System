@@ -60,7 +60,7 @@ export default function ManagerNotifications() {
         eyebrow="Quản lý cửa hàng"
         eyebrowIcon={Bell}
         title="Thông báo"
-        subtitle="Cảnh báo hạn sử dụng sản phẩm theo cửa hàng của bạn."
+        subtitle="Hạn sử dụng, chuyển khoản khách hàng và các cảnh báo khác theo cửa hàng của bạn."
         headerActions={
           <Button type="button" variant="outline" className="h-10 rounded-xl" onClick={onMarkAll}>
             Đánh dấu đã đọc tất cả

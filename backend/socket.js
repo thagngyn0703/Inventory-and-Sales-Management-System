@@ -47,6 +47,18 @@ async function emitNotificationCountRefresh({ storeId, userId }) {
   });
 }
 
+/** Realtime cho POS / quầy khi khách CK thành công (theo cửa hàng, mọi STK). */
+function emitStorePaymentConfirmed({ storeId, payment_ref, invoice_id, amount, source }) {
+  if (!io || !storeId || !payment_ref) return;
+  io.to(`store:${storeId}`).emit('store:payment-confirmed', {
+    payment_ref: String(payment_ref).trim().toUpperCase(),
+    invoice_id: invoice_id ? String(invoice_id) : null,
+    amount: Number(amount) || 0,
+    payment_status: 'paid',
+    source: source || 'sepay',
+  });
+}
+
 function initSocket(server, socketCors) {
   io = new Server(server, {
     cors: socketCors || { origin: true, credentials: true },
@@ -76,6 +88,9 @@ function initSocket(server, socketCors) {
     const role = socket.user?.role;
 
     if (userId) socket.join(`user:${userId}`);
+    if (storeId && ['manager', 'staff', 'admin'].includes(role)) {
+      socket.join(`store:${storeId}`);
+    }
     if (storeId && (role === 'manager' || role === 'admin')) {
       socket.join(`store:${storeId}:managers`);
       try {
@@ -97,4 +112,5 @@ module.exports = {
   buildManagerCounts,
   emitManagerBadgeRefresh,
   emitNotificationCountRefresh,
+  emitStorePaymentConfirmed,
 };
