@@ -11,7 +11,7 @@ import { useToast } from '../../contexts/ToastContext';
 import { createProduct, createQuickGoodsReceipt, getProductUnits, getProducts, scanProductByCode, lookupBarcodeOnline, updateProductUnits, uploadProductImages } from '../../services/productsApi';
 import { createSupplier, getSuppliers } from '../../services/suppliersApi';
 import { getCategories } from '../../services/categoriesApi';
-import { minExpiryDateString } from '../../utils/dateInput';
+import { minExpiryDateString, isExpiryDateNotInPast } from '../../utils/dateInput';
 import { formatCurrencyInput, parseCurrencyInput, toCurrencyInputFromNumber } from '../../utils/currencyInput';
 import { validateBarcode } from '../../utils/productValidation';
 
@@ -741,6 +741,8 @@ export default function ManagerQuickGoodsReceipt() {
         if (newProductForm.sale_price === '' || parseCurrencyInput(newProductForm.sale_price) < 0) return toast('Giá bán không hợp lệ.', 'error');
         if (newProductForm.cost_price === '' || parseCurrencyInput(newProductForm.cost_price) < 0) return toast('Giá nhập không hợp lệ.', 'error');
         if (newProductForm.stock_qty === '' || Number(newProductForm.stock_qty) < 0) return toast('Số lượng nhập ban đầu không hợp lệ.', 'error');
+        if (!expiryDate) return toast('Vui lòng chọn hạn sử dụng cho sản phẩm.', 'error');
+        if (!isExpiryDateNotInPast(expiryDate)) return toast('Ngày hết hạn phải từ hôm nay trở đi.', 'error');
         const existingProduct = await findExistingProductForCreateFlow({
             name: newProductForm.name,
             sku: newProductForm.sku,
@@ -1340,14 +1342,16 @@ export default function ManagerQuickGoodsReceipt() {
                                             </select>
                                         </div>
                                         <div>
-                                            <label className="mb-1 block text-sm font-medium text-slate-600">Hạn sử dụng</label>
+                                            <label className="mb-1 block text-sm font-medium text-slate-600">Hạn sử dụng *</label>
                                             <input
                                                 type="date"
+                                                required
                                                 min={minExpiryDateString()}
                                                 value={expiryDate}
                                                 onChange={(e) => setExpiryDate(e.target.value)}
                                                 className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
                                             />
+                                            <p className="mt-1 text-xs text-slate-500">Bắt buộc khi tạo sản phẩm mới.</p>
                                         </div>
                                         <div>
                                             <label className="mb-1 block text-sm font-medium text-slate-600">Thanh toán NCC</label>
@@ -1531,7 +1535,9 @@ export default function ManagerQuickGoodsReceipt() {
                                     </div>
                                     <div className="flex justify-end gap-2">
                                         <Button type="button" variant="outline" onClick={() => setCreateMode(false)}>Quay lại tìm kiếm</Button>
-                                        <Button type="submit" disabled={loading}>{loading ? 'Đang lưu...' : 'Tạo mới và nhập hàng'}</Button>
+                                        <Button type="submit" disabled={loading || !String(expiryDate || '').trim()}>
+                                            {loading ? 'Đang lưu...' : 'Tạo mới và nhập hàng'}
+                                        </Button>
                                     </div>
                                 </CardContent>
                             </Card>

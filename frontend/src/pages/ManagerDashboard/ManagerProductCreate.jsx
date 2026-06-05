@@ -805,6 +805,7 @@ export default function ManagerProductCreate() {
                                             <label className="mb-1 block text-sm font-medium text-slate-600">Hạn sử dụng *</label>
                                             <input
                                                 type="date"
+                                                required
                                                 min={minExpiryDateString()}
                                                 value={form.expiry_date}
                                                 onChange={(e) => update('expiry_date', e.target.value)}
@@ -861,7 +862,7 @@ export default function ManagerProductCreate() {
                             <Button type="button" variant="outline" onClick={() => navigate('/manager/products')}>
                                 Hủy
                             </Button>
-                            <Button type="submit" disabled={loading}>
+                            <Button type="submit" disabled={loading || !String(form.expiry_date || '').trim()}>
                                 {loading ? 'Đang lưu...' : 'Tạo sản phẩm'}
                             </Button>
                         </div>

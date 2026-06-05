@@ -664,6 +664,9 @@ router.post('/', requireAuth, requireRole(['manager', 'admin']), async (req, res
       });
     }
 
+    if (expiry_date === undefined || expiry_date === null || String(expiry_date).trim() === '') {
+      return res.status(400).json({ message: 'Vui lòng chọn hạn sử dụng cho sản phẩm.' });
+    }
     const expCheck = validateExpiryDateForWrite(expiry_date);
     if (!expCheck.ok) {
       return res.status(400).json({ message: expCheck.message });

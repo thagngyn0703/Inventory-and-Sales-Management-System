@@ -745,6 +745,7 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
                       <label className="mb-1 block text-sm font-medium text-slate-700">Hạn sử dụng *</label>
                       <input
                         type="date"
+                        required
                         min={minExpiryDateString()}
                         value={form.expiry_date}
                         onChange={(e) => update('expiry_date', e.target.value)}
@@ -801,7 +802,11 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
           <Button type="button" variant="outline" onClick={onClose} disabled={loading}>
             Hủy
           </Button>
-          <Button type="submit" form="warehouse-product-request-form" disabled={loading}>
+          <Button
+            type="submit"
+            form="warehouse-product-request-form"
+            disabled={loading || !String(form.expiry_date || '').trim()}
+          >
             {loading ? 'Đang gửi...' : 'Gửi yêu cầu'}
           </Button>
         </div>

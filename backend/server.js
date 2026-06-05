@@ -42,6 +42,7 @@ const ShiftSession = require('./models/ShiftSession');
 const Product = require('./models/Product');
 const ProductUnit = require('./models/ProductUnit');
 const { startBackupScheduler } = require('./services/backupScheduler');
+const { startExpiryNotificationScheduler } = require('./services/expiryNotificationScheduler');
 const { hasSmtpConfig } = require('./services/emailService');
 
 const app = express();
@@ -247,6 +248,7 @@ mongoose
             console.log(`Server chạy tại http://localhost:${PORT}`);
             // Khởi động backup scheduler sau khi server đã kết nối DB thành công
             startBackupScheduler();
+            startExpiryNotificationScheduler();
         });
     })
     .catch((err) => {

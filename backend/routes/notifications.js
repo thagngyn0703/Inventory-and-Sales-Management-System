@@ -1,77 +1,16 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const Notification = require('../models/Notification');
-const Product = require('../models/Product');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { buildManagerCounts, emitNotificationCountRefresh } = require('../socket');
 const { syncSupplierPayableDueNotificationsFromRequest } = require('../services/supplierPayableDueNotificationService');
+const { syncExpiryNotificationsFromRequest } = require('../services/productExpiryNotificationService');
 
 const router = express.Router();
 
-function startOfDay(d) {
-  const x = new Date(d);
-  x.setHours(0, 0, 0, 0);
-  return x;
-}
-
-function daysUntil(expiryDate) {
-  const today = startOfDay(new Date());
-  const exp = startOfDay(expiryDate);
-  const msPerDay = 24 * 60 * 60 * 1000;
-  return Math.round((exp.getTime() - today.getTime()) / msPerDay);
-}
-
-async function createExpiryNotification({ userId, storeId, product, days }) {
-  const uniqueKey = `product-expiry:${storeId}:${userId}:${product._id}:${days}`;
-  const title = days === 30 ? 'Cảnh báo hạn sử dụng còn 1 tháng' : 'Cảnh báo hạn sử dụng còn 1 ngày';
-  const message =
-    days === 30
-      ? `Sản phẩm "${product.name}" (SKU: ${product.sku}) còn khoảng 1 tháng là hết hạn.`
-      : `Sản phẩm "${product.name}" (SKU: ${product.sku}) còn 1 ngày là hết hạn.`;
-  try {
-    await Notification.create({
-      user_id: userId,
-      storeId,
-      type: days === 30 ? 'product_expiry_30_days' : 'product_expiry_1_day',
-      title,
-      message,
-      related_entity: 'product',
-      related_id: product._id,
-      unique_key: uniqueKey,
-      is_read: false,
-      created_at: new Date(),
-    });
-  } catch (err) {
-    if (err?.code !== 11000) throw err;
-  }
-}
-
-async function syncExpiryNotifications(req) {
-  const storeId = req.user?.storeId ? String(req.user.storeId) : null;
-  if (!storeId) return;
-  const products = await Product.find({
-    storeId,
-    expiry_date: { $exists: true, $ne: null },
-    status: { $ne: 'inactive' },
-  })
-    .select('_id name sku expiry_date')
-    .lean();
-
-  for (const p of products) {
-    const d = daysUntil(p.expiry_date);
-    if (d < 0) continue;
-    if (d <= 30) {
-      await createExpiryNotification({ userId: req.user.id, storeId, product: p, days: 30 });
-    }
-    if (d <= 1) {
-      await createExpiryNotification({ userId: req.user.id, storeId, product: p, days: 1 });
-    }
-  }
-}
-
 router.get('/unread-count', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
   try {
-    await syncExpiryNotifications(req);
+    await syncExpiryNotificationsFromRequest(req);
     await syncSupplierPayableDueNotificationsFromRequest(req);
     const storeId = req.user?.storeId ? String(req.user.storeId) : null;
     const count = await Notification.countDocuments({
@@ -100,7 +39,7 @@ router.get('/manager-badge-counts', requireAuth, requireRole(['manager', 'admin'
 
 router.get('/', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
   try {
-    await syncExpiryNotifications(req);
+    await syncExpiryNotificationsFromRequest(req);
     await syncSupplierPayableDueNotificationsFromRequest(req);
     const storeId = req.user?.storeId ? String(req.user.storeId) : null;
     const list = await Notification.find({

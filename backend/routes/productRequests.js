@@ -7,6 +7,7 @@ const Category = require('../models/Category');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { emitManagerBadgeRefresh } = require('../socket');
 const { notifyManagersInStore } = require('../services/managerNotificationService');
+const { validateRequiredExpiryDateForWrite } = require('../utils/product-helpers');
 
 const router = express.Router();
 
@@ -242,11 +243,11 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
       : [];
     if (image_urls.length === 0) image_urls = undefined;
 
-    let expiry_date;
-    if (bodyExpiry) {
-      const d = new Date(bodyExpiry);
-      if (!Number.isNaN(d.getTime())) expiry_date = d;
+    const expCheck = validateRequiredExpiryDateForWrite(bodyExpiry);
+    if (!expCheck.ok) {
+      return res.status(400).json({ message: expCheck.message });
     }
+    const expiry_date = expCheck.date;
 
     const supplier_id = bodySupplierId && mongoose.isValidObjectId(bodySupplierId)
       ? bodySupplierId
@@ -382,6 +383,11 @@ router.post('/:id/approve', requireAuth, requireRole(['manager', 'admin']), asyn
     const finalCategoryId = category_id || request.category_id;
     if (!finalCategoryId || !mongoose.isValidObjectId(finalCategoryId)) {
       return res.status(400).json({ message: 'Vui lòng chọn danh mục để áp dụng thuế trước khi duyệt.' });
+    }
+    if (!request.expiry_date) {
+      return res.status(400).json({
+        message: 'Yêu cầu thiếu hạn sử dụng. Vui lòng từ chối và yêu cầu nhân viên gửi lại phiếu đăng ký.',
+      });
     }
 
     const categoryDoc = await Category.findById(finalCategoryId).select('vat_rate tax_profile tax_tags').lean();

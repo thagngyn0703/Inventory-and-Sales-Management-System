@@ -64,6 +64,13 @@ function validateExpiryDateForWrite(value) {
   return { ok: true, date: d };
 }
 
+function validateRequiredExpiryDateForWrite(value) {
+  if (value === undefined || value === null || String(value).trim() === '') {
+    return { ok: false, message: 'Vui lòng chọn hạn sử dụng cho sản phẩm.' };
+  }
+  return validateExpiryDateForWrite(value);
+}
+
 function normalizeProduct(p) {
   if (!p) return p;
   const base = p.base_unit || 'Cái';
@@ -104,6 +111,7 @@ module.exports = {
   extensionFromMimetype,
   startOfDay,
   validateExpiryDateForWrite,
+  validateRequiredExpiryDateForWrite,
   normalizeProduct,
   getRoleStoreFilter,
 };
