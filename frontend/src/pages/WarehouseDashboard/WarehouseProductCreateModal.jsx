@@ -575,7 +575,7 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
                       />
                     </div>
                     <div>
-                      <label className="mb-1 block text-sm font-medium text-slate-700">Tồn kho đề xuất</label>
+                      <label className="mb-1 block text-sm font-medium text-slate-700">Tồn kho </label>
                       <input
                         type="number"
                         min="0"

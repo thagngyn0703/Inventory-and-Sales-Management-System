@@ -3,7 +3,7 @@ const request = require('supertest');
 const express = require('express');
 const stocktakeRoutes = require('../../routes/stocktakes');
 const Product = require('../../models/Product');
-const { createManagerWithStore, getAuthHeader } = require('../fixtures/users');
+const { createManagerWithStore, getAuthHeader, createStaffWithStore } = require('../fixtures/users');
 const { createProducts } = require('../fixtures/products');
 
 const app = express();
@@ -14,12 +14,16 @@ describe('Stocktakes Routes', () => {
   let manager;
   let store;
   let managerToken;
+  let staff;
+  let staffToken;
 
   beforeEach(async () => {
     const { manager: m, store: s } = await createManagerWithStore();
     manager = m;
     store = s;
     managerToken = getAuthHeader(manager).Authorization;
+    staff = await createStaffWithStore(store);
+    staffToken = getAuthHeader(staff).Authorization;
   });
 
   describe('GET /api/stocktakes', () => {
@@ -70,16 +74,17 @@ describe('Stocktakes Routes', () => {
       const products = await createProducts(store._id, 2);
       const productIds = products.map(p => p._id.toString());
 
+      // Staff creates the stocktake
       const createRes = await request(app)
         .post('/api/stocktakes')
-        .set('Authorization', managerToken)
+        .set('Authorization', staffToken)
         .send({ product_ids: productIds });
 
       const stocktakeId = createRes.body.stocktake._id;
 
       const res = await request(app)
         .patch(`/api/stocktakes/${stocktakeId}`)
-        .set('Authorization', managerToken)
+        .set('Authorization', staffToken)
         .send({
           items: [
             {
@@ -97,16 +102,18 @@ describe('Stocktakes Routes', () => {
       const products = await createProducts(store._id, 2);
       const productIds = products.map(p => p._id.toString());
 
+      // Staff creates the stocktake
       const createRes = await request(app)
         .post('/api/stocktakes')
-        .set('Authorization', managerToken)
+        .set('Authorization', staffToken)
         .send({ product_ids: productIds });
 
       const stocktakeId = createRes.body.stocktake._id;
 
+      // Staff submits with all items counted
       const res = await request(app)
         .patch(`/api/stocktakes/${stocktakeId}`)
-        .set('Authorization', managerToken)
+        .set('Authorization', staffToken)
         .send({
           items: productIds.map(pid => ({
             product_id: pid,
@@ -126,16 +133,18 @@ describe('Stocktakes Routes', () => {
       const productIds = products.map(p => p._id.toString());
       const originalStock = products[0].stock_qty;
 
+      // Staff creates the stocktake
       const createRes = await request(app)
         .post('/api/stocktakes')
-        .set('Authorization', managerToken)
+        .set('Authorization', staffToken)
         .send({ product_ids: productIds });
 
       const stocktakeId = createRes.body.stocktake._id;
 
+      // Staff counts and submits
       await request(app)
         .patch(`/api/stocktakes/${stocktakeId}`)
-        .set('Authorization', managerToken)
+        .set('Authorization', staffToken)
         .send({
           items: productIds.map((pid, i) => ({
             product_id: pid,
@@ -144,6 +153,7 @@ describe('Stocktakes Routes', () => {
           status: 'submitted',
         });
 
+      // Manager approves
       const res = await request(app)
         .post(`/api/stocktakes/${stocktakeId}/approve`)
         .set('Authorization', managerToken);
@@ -161,7 +171,7 @@ describe('Stocktakes Routes', () => {
 
       const createRes = await request(app)
         .post('/api/stocktakes')
-        .set('Authorization', managerToken)
+        .set('Authorization', staffToken)
         .send({ product_ids: productIds });
 
       const stocktakeId = createRes.body.stocktake._id;
@@ -177,20 +187,23 @@ describe('Stocktakes Routes', () => {
       const products = await createProducts(store._id, 1);
       const productIds = products.map(p => p._id.toString());
 
+      // Staff creates stocktake
       const createRes = await request(app)
         .post('/api/stocktakes')
-        .set('Authorization', managerToken)
+        .set('Authorization', staffToken)
         .send({ product_ids: productIds });
       const stocktakeId = createRes.body.stocktake._id;
 
+      // Staff submits with all items counted (actual_qty = system_qty at snapshot time)
       await request(app)
         .patch(`/api/stocktakes/${stocktakeId}`)
-        .set('Authorization', managerToken)
+        .set('Authorization', staffToken)
         .send({
           items: [{ product_id: productIds[0], actual_qty: products[0].stock_qty }],
           status: 'submitted',
         });
 
+      // Simulate stock change after snapshot (live mismatch > threshold of 5)
       await Product.findByIdAndUpdate(products[0]._id, { $inc: { stock_qty: -6 } });
 
       const noNoteRes = await request(app)
@@ -213,16 +226,18 @@ describe('Stocktakes Routes', () => {
       const products = await createProducts(store._id, 2);
       const productIds = products.map(p => p._id.toString());
 
+      // Staff creates stocktake
       const createRes = await request(app)
         .post('/api/stocktakes')
-        .set('Authorization', managerToken)
+        .set('Authorization', staffToken)
         .send({ product_ids: productIds });
 
       const stocktakeId = createRes.body.stocktake._id;
 
+      // Staff counts and submits
       await request(app)
         .patch(`/api/stocktakes/${stocktakeId}`)
-        .set('Authorization', managerToken)
+        .set('Authorization', staffToken)
         .send({
           items: productIds.map(pid => ({
             product_id: pid,
@@ -231,6 +246,7 @@ describe('Stocktakes Routes', () => {
           status: 'submitted',
         });
 
+      // Manager rejects
       const res = await request(app)
         .post(`/api/stocktakes/${stocktakeId}/reject`)
         .set('Authorization', managerToken)

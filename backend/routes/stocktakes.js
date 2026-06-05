@@ -208,11 +208,13 @@ async function runStocktakeApprovalTransaction({ id, storeFilter, req, adjustmen
     const liveQtyMapPrecheck = await loadLiveQtyMapForStocktake(precheck, storeIdPrecheck);
     const mismatchPrecheck = getSignificantLiveMismatchItems(precheck.items || [], liveQtyMapPrecheck);
     if (mismatchPrecheck.length > 0) {
-        await expireStocktakeOnLiveMismatch(precheck, req);
-        const e = new Error('STOCKTAKE_EXPIRED_LIVE_MISMATCH');
-        e.code = 'STOCKTAKE_EXPIRED_LIVE_MISMATCH';
-        e.mismatchCount = mismatchPrecheck.length;
-        return { populated: null, txErr: e };
+        if (!managerNoteText) {
+            const e = new Error('MANAGER_NOTE_REQUIRED_ON_LIVE_MISMATCH');
+            e.code = 'MANAGER_NOTE_REQUIRED_ON_LIVE_MISMATCH';
+            e.mismatchCount = mismatchPrecheck.length;
+            return { populated: null, txErr: e };
+        }
+        // Manager acknowledged the live mismatch via manager_note — proceed with approval
     }
 
     const mongoSession = await mongoose.startSession();
@@ -359,6 +361,14 @@ function respondStocktakeApprovalError(res, txErr) {
             message:
                 'Phiếu kiểm kê thiếu mã cửa hàng; không thể điều chỉnh tồn. Vui lòng liên hệ quản trị để gán storeId hoặc tạo lại phiếu.',
             code: 'STORE_ID_REQUIRED',
+        });
+        return true;
+    }
+    if (txErr.code === 'MANAGER_NOTE_REQUIRED_ON_LIVE_MISMATCH') {
+        res.status(400).json({
+            message: 'Tồn kho thực tế đã thay đổi đáng kể kể từ khi chụp ảnh. Vui lòng nhập ghi chú giải thích (manager_note) để tiếp tục duyệt.',
+            code: 'MANAGER_NOTE_REQUIRED_ON_LIVE_MISMATCH',
+            mismatch_count: txErr.mismatchCount,
         });
         return true;
     }
