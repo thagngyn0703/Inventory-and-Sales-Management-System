@@ -1604,23 +1604,29 @@ export default function POSContainer({
     if (showCreateCustomer && newCustomer.full_name.trim()) {
       const cleanPhone = newCustomer.phone.trim().replace(/\s/g, '');
       if (cleanPhone && (cleanPhone.length < 10 || cleanPhone.length > 11)) {
-        updateActiveTab({ error: 'Số điện thoại phải có 10 hoặc 11 chữ số.', saving: false });
+        const phoneErr = 'Số điện thoại phải có 10 hoặc 11 chữ số.';
+        updateActiveTab({ error: phoneErr, saving: false });
+        notify(phoneErr, 'error');
         return;
       }
       try {
-        const created = await createCustomer({
+        const res = await createCustomer({
           full_name: newCustomer.full_name.trim(),
           phone: cleanPhone,
           status: 'active',
           is_regular: true,
         });
+        // Backend returns { customer: { ... } }
+        const created = res.customer || res;
         customerId = created._id;
         recipientName = created.full_name;
         updateActiveTab({ customerId: created._id, customerData: created, recipientName: created.full_name });
         setShowCreateCustomer(false);
         setNewCustomer({ full_name: '', phone: '' });
       } catch (e) {
-        updateActiveTab({ error: e.message || 'Lỗi khi thêm khách hàng mới', saving: false });
+        const errMsg = e.message || 'Lỗi khi thêm khách hàng mới';
+        updateActiveTab({ error: errMsg, saving: false });
+        notify(errMsg, 'error');
         return;
       }
     }

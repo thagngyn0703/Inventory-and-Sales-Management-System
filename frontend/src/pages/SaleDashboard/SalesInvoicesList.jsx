@@ -251,12 +251,14 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
 
       <Card className="border-slate-200/80 shadow-sm shadow-slate-900/5">
         <CardContent className="p-4 sm:p-6">
-          {!isReturnsPage && isStaffViewer ? (
+          {isStaffViewer ? (
             <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Phạm vi xem</p>
                 <p className="mt-1 text-xs text-slate-600">
-                  Ca của tôi — hóa đơn do bạn bán. Tất cả hóa đơn — tra cứu đơn của cả cửa hàng.
+                  {isReturnsPage
+                    ? 'Ca của tôi — đơn trả hàng do bạn thực hiện. Tất cả đơn trả — tra cứu đơn trả hàng của cả cửa hàng.'
+                    : 'Ca của tôi — hóa đơn do bạn bán. Tất cả hóa đơn — tra cứu đơn của cả cửa hàng.'}
                 </p>
               </div>
               <div className="inline-flex shrink-0 rounded-xl border border-slate-200 bg-slate-50/90 p-0.5 shadow-inner shadow-slate-900/5">
@@ -270,7 +272,7 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
                   )}
                   onClick={() => setStaffSalesScope('mine')}
                 >
-                  Ca của tôi
+                  {isReturnsPage ? 'Đơn trả của tôi' : 'Ca của tôi'}
                 </button>
                 <button
                   type="button"
@@ -282,7 +284,7 @@ export default function SalesInvoicesList({ basePathOverride = null, detailPathB
                   )}
                   onClick={() => setStaffSalesScope('store')}
                 >
-                  Tất cả hóa đơn
+                  {isReturnsPage ? 'Tất cả đơn trả' : 'Tất cả hóa đơn'}
                 </button>
               </div>
             </div>

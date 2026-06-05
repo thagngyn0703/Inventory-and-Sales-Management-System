@@ -306,7 +306,10 @@ router.get('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async (
                 store_id: req.user.storeId,
                 created_by: req.user.id,
             });
-            filter.invoice_id = { $in: myInvoiceIds };
+            filter.$or = [
+                { created_by: req.user.id },
+                { invoice_id: { $in: myInvoiceIds } }
+            ];
         }
 
         const q = String(searchKey || '').trim();
