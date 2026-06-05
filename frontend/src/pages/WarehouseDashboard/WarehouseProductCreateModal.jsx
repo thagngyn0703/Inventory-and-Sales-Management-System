@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { X, Barcode } from 'lucide-react';
 import { createProductRequest, getProducts, uploadProductImages } from '../../services/productsApi';
 import { getSuppliers } from '../../services/suppliersApi';
-import { getCategories } from '../../services/categoriesApi';
 import { minExpiryDateString, isExpiryDateNotInPast } from '../../utils/dateInput';
 import {
   trimString,
@@ -41,7 +40,6 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
   const { toast } = useToast();
   const [form, setForm] = useState(createDefaultForm());
   const [suppliers, setSuppliers] = useState([]);
-  const [categories, setCategories] = useState([]);
   const [existingProducts, setExistingProducts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -66,19 +64,7 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
     };
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    getCategories()
-      .then((list) => {
-        if (!cancelled) setCategories(list || []);
-      })
-      .catch(() => {
-        if (!cancelled) setCategories([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+
 
   useEffect(() => {
     let cancelled = false;
@@ -206,10 +192,6 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
       setError(nameCheck.message);
       return;
     }
-    if (!String(form.category_id || '').trim()) {
-      setError('Vui lòng chọn danh mục cho sản phẩm.');
-      return;
-    }
     const skuCheck = validateSku(form.sku);
     if (!skuCheck.ok) {
       setError(skuCheck.message);
@@ -219,6 +201,18 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
     if (!barcodeCheck.ok) {
       setError(barcodeCheck.message);
       return;
+    }
+    const baseUnitInForm = form.selling_units.find((u) => Number(u.ratio) === 1);
+    if (baseUnitInForm) {
+      const baseBarcode = String(baseUnitInForm.barcode || '').trim();
+      if (!baseBarcode) {
+        setError('Vui lòng nhập mã vạch cho đơn vị bán gốc (tỉ lệ 1).');
+        return;
+      }
+      if (baseBarcode !== String(form.barcode || '').trim()) {
+        setError('Mã vạch ở Thông tin chung và Đơn vị bán (tỷ lệ 1) phải trùng khớp nhau.');
+        return;
+      }
     }
     const baseUnitCheck = validateNoSpecialText(form.base_unit, 'Đơn vị tồn kho', { required: true });
     if (!baseUnitCheck.ok) {
@@ -342,7 +336,6 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
         sku: skuCheck.value,
         barcode: barcodeCheck.value || undefined,
         supplier_id: trimString(form.supplier_id) || undefined,
-        category_id: String(form.category_id || '').trim() || undefined,
         cost_price: costCheck.value,
         stock_qty: stockCheck.value,
         reorder_level: reorderCheck.value,
@@ -364,7 +357,7 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
 
   return (
     <div className="fixed inset-0 z-[7000] flex items-center justify-center overflow-y-auto bg-slate-900/50 p-4 backdrop-blur-sm">
-      <div className="relative my-6 w-full max-w-4xl rounded-2xl border border-slate-200/80 bg-white shadow-2xl">
+      <div className="relative my-6 w-full max-w-5xl rounded-2xl border border-slate-200/80 bg-white shadow-2xl">
         <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-slate-100 bg-white/95 px-5 py-4 backdrop-blur-md">
           <div>
             <h2 className="text-lg font-bold text-slate-900">Đăng ký sản phẩm mới</h2>
@@ -466,22 +459,7 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
                         <p className="mt-1 text-xs font-semibold text-sky-700">Đang bật chế độ quét mã vạch.</p>
                       )}
                     </div>
-                    <div>
-                      <label className="mb-1 block text-sm font-medium text-slate-700">Danh mục *</label>
-                      <select
-                        value={form.category_id}
-                        onChange={(e) => update('category_id', e.target.value)}
-                        className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 focus:ring-2"
-                      >
-                        <option value="">— Chọn danh mục —</option>
-                        {categories.map((c) => (
-                          <option key={c._id} value={c._id}>
-                            {c.name}
-                            {c.vat_rate != null ? ` (${Number(c.vat_rate)}%)` : ''}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+
                     <div>
                       <label className="mb-1 block text-sm font-medium text-slate-700">Nhà cung cấp</label>
                       <select

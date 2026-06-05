@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const ProductRequest = require('../models/ProductRequest');
 const Product = require('../models/Product');
 const ProductUnit = require('../models/ProductUnit');
+const Category = require('../models/Category');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { emitManagerBadgeRefresh } = require('../socket');
 const { notifyManagersInStore } = require('../services/managerNotificationService');
@@ -210,6 +211,18 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
       }
     }
 
+    const baseUnits = selling_units.filter((u) => Number(u.ratio) === 1);
+    for (const bu of baseUnits) {
+      const buBarcode = trimText(bu.barcode);
+      if (!buBarcode) {
+        bu.barcode = trimmedBarcode;
+      } else if (buBarcode !== trimmedBarcode) {
+        return res.status(400).json({
+          message: 'Mã vạch ở đơn vị bán gốc (tỷ lệ 1) phải trùng khớp với mã vạch thông tin chung.',
+        });
+      }
+    }
+
     const allBarcodesToCheck = new Set([trimmedBarcode, ...selling_units.map((u) => trimText(u.barcode))].filter(Boolean));
     for (const bc of allBarcodesToCheck) {
       const dup = await findBarcodeDuplicate({ barcode: bc, storeId: storeFilter.storeId || null });
@@ -351,6 +364,7 @@ router.get('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
 router.post('/:id/approve', requireAuth, requireRole(['manager', 'admin']), async (req, res) => {
   try {
     const { id } = req.params;
+    const { category_id } = req.body || {};
     if (!mongoose.isValidObjectId(id)) {
       return res.status(400).json({ message: 'Invalid request id' });
     }
@@ -363,6 +377,16 @@ router.post('/:id/approve', requireAuth, requireRole(['manager', 'admin']), asyn
     if (!request) return res.status(404).json({ message: 'Product request not found' });
     if (request.status !== 'pending') {
       return res.status(400).json({ message: `Request is already ${request.status}` });
+    }
+
+    const finalCategoryId = category_id || request.category_id;
+    if (!finalCategoryId || !mongoose.isValidObjectId(finalCategoryId)) {
+      return res.status(400).json({ message: 'Vui lòng chọn danh mục để áp dụng thuế trước khi duyệt.' });
+    }
+
+    const categoryDoc = await Category.findById(finalCategoryId).select('vat_rate tax_profile tax_tags').lean();
+    if (!categoryDoc) {
+      return res.status(400).json({ message: 'Danh mục không tồn tại hoặc đã bị xóa.' });
     }
 
     // Check if SKU exists in the specific store
@@ -387,7 +411,7 @@ router.post('/:id/approve', requireAuth, requireRole(['manager', 'admin']), asyn
 
     // Create product
     const newProduct = await Product.create({
-      category_id: request.category_id,
+      category_id: finalCategoryId,
       storeId: request.storeId,
       supplier_id: request.supplier_id,
       name: request.name,
@@ -401,12 +425,16 @@ router.post('/:id/approve', requireAuth, requireRole(['manager', 'admin']), asyn
       reorder_level: request.reorder_level,
       base_unit: request.base_unit,
       selling_units: request.selling_units,
+      vat_rate: categoryDoc.vat_rate != null ? Number(categoryDoc.vat_rate) : 0,
+      tax_profile: categoryDoc.tax_profile || 'default',
+      tax_tags: Array.isArray(categoryDoc.tax_tags) ? categoryDoc.tax_tags : [],
       status: 'active'
     });
 
     await syncProductUnitsFromRequest(newProduct, request);
 
     // Update request status
+    request.category_id = finalCategoryId;
     request.status = 'approved';
     request.approved_by = req.user.id;
     request.updated_at = new Date();

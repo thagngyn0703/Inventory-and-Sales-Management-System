@@ -2,8 +2,9 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
-import { FileStack, Loader2, Search, SlidersHorizontal } from 'lucide-react';
+import { FileStack, Loader2, Search, SlidersHorizontal, X } from 'lucide-react';
 import { getProductRequests, approveProductRequest, rejectProductRequest } from '../../services/productsApi';
+import { getCategories } from '../../services/categoriesApi';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
 import { Badge } from '../../components/ui/badge';
@@ -28,8 +29,11 @@ export default function ManagerProductRequests() {
     const [order, setOrder] = useState('desc');
     const [successMessage, setSuccessMessage] = useState('');
     const [processingId, setProcessingId] = useState(null);
-    const [confirmModal, setConfirmModal] = useState({ show: false, action: null, id: null, title: '', message: '' });
+    const [confirmModal, setConfirmModal] = useState({ show: false, action: null, id: null, title: '', message: '', category_id: '' });
     const [detailModal, setDetailModal] = useState({ show: false, request: null });
+    const [categories, setCategories] = useState([]);
+    const [selectedCategory, setSelectedCategory] = useState('');
+    const [zoomedImage, setZoomedImage] = useState(null);
 
     const fetchList = useCallback(async () => {
         setLoading(true);
@@ -50,6 +54,18 @@ export default function ManagerProductRequests() {
     useEffect(() => {
         fetchList();
     }, [fetchList]);
+
+    useEffect(() => {
+        getCategories()
+            .then((list) => setCategories(list || []))
+            .catch((err) => console.error('Error loading categories:', err));
+    }, []);
+
+    const getCategoryName = (catId) => {
+        const cat = categories.find((c) => c._id === catId);
+        if (!cat) return '—';
+        return `${cat.name}${cat.vat_rate != null ? ` (${cat.vat_rate}%)` : ''}`;
+    };
 
     const handleSearchSubmit = (e) => {
         e.preventDefault();
@@ -79,16 +95,17 @@ export default function ManagerProductRequests() {
             : <i className="fa-solid fa-sort-down" style={{ marginLeft: 8, color: '#0d9488' }} />;
     };
 
-    const openConfirm = (action, id, title, message) => {
-        setConfirmModal({ show: true, action, id, title, message });
+    const openConfirm = (action, id, title, message, categoryId = '') => {
+        setConfirmModal({ show: true, action, id, title, message, category_id: categoryId });
     };
 
     const handleConfirmClose = () => {
-        setConfirmModal({ show: false, action: null, id: null, title: '', message: '' });
+        setConfirmModal({ show: false, action: null, id: null, title: '', message: '', category_id: '' });
     };
 
     const openDetailModal = (request) => {
         setDetailModal({ show: true, request });
+        setSelectedCategory(request.category_id || '');
     };
 
     const closeDetailModal = () => {
@@ -96,15 +113,19 @@ export default function ManagerProductRequests() {
     };
 
     const handleConfirmSubmit = async () => {
-        const { action, id } = confirmModal;
+        const { action, id, category_id } = confirmModal;
         handleConfirmClose();
 
         if (action === 'approve') {
+            if (!category_id) {
+                setError('Vui lòng chọn danh mục để áp dụng thuế.');
+                return;
+            }
             setProcessingId(id);
             setError('');
             setSuccessMessage('');
             try {
-                await approveProductRequest(id);
+                await approveProductRequest(id, { category_id });
                 setSuccessMessage('Đã duyệt yêu cầu tạo sản phẩm thành công.');
                 fetchList();
             } catch (err) {
@@ -338,6 +359,25 @@ export default function ManagerProductRequests() {
                     <div className="manager-reason-modal-box" onClick={(e) => e.stopPropagation()}>
                         <h3 className="manager-reason-modal-title">{confirmModal.title}</h3>
                         <p className="manager-reason-modal-hint">{confirmModal.message}</p>
+
+                        {confirmModal.action === 'approve' && (
+                            <div className="mt-4 mb-2 text-left">
+                                <label className="block text-xs font-semibold text-slate-700 mb-1">Chọn danh mục để áp dụng thuế *</label>
+                                <select
+                                    value={confirmModal.category_id}
+                                    onChange={(e) => setConfirmModal(prev => ({ ...prev, category_id: e.target.value }))}
+                                    className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-teal-500"
+                                >
+                                    <option value="">— Chọn danh mục —</option>
+                                    {categories.map((c) => (
+                                        <option key={c._id} value={c._id}>
+                                            {c.name} {c.vat_rate != null ? `(${c.vat_rate}%)` : ''}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
+
                         <div className="manager-reason-modal-actions">
                             <button className="manager-btn-secondary" onClick={handleConfirmClose}>
                                 Hủy
@@ -346,6 +386,7 @@ export default function ManagerProductRequests() {
                                 className="manager-btn-primary"
                                 style={confirmModal.action === 'reject' ? { background: '#dc2626' } : {}}
                                 onClick={handleConfirmSubmit}
+                                disabled={confirmModal.action === 'approve' && !confirmModal.category_id}
                             >
                                 Xác nhận
                             </button>
@@ -369,25 +410,24 @@ export default function ManagerProductRequests() {
                             <p><strong>Người gửi:</strong> {detailModal.request.requested_by?.fullName || '—'}</p>
                             <p><strong>Ngày gửi:</strong> {detailModal.request.created_at ? new Date(detailModal.request.created_at).toLocaleString('vi-VN') : '—'}</p>
                             <p><strong>Trạng thái:</strong> {detailModal.request.status === 'pending' ? 'Chờ duyệt' : detailModal.request.status === 'approved' ? 'Đã duyệt' : 'Từ chối'}</p>
+                            <p><strong>Danh mục (Thuế):</strong> {getCategoryName(detailModal.request.category_id)}</p>
                         </div>
                         {Array.isArray(detailModal.request.image_urls) && detailModal.request.image_urls.length > 0 && (
                             <div className="mt-4">
                                 <p className="text-sm font-semibold text-slate-700 mb-2">Ảnh sản phẩm đề xuất</p>
                                 <div className="flex flex-wrap gap-3">
                                     {detailModal.request.image_urls.map((url, idx) => (
-                                        <a 
+                                        <div 
                                             key={`${url}-${idx}`} 
-                                            href={url} 
-                                            target="_blank" 
-                                            rel="noopener noreferrer"
-                                            className="group relative overflow-hidden rounded-lg border border-slate-200 bg-slate-50 transition hover:border-teal-500"
+                                            onClick={() => setZoomedImage(url)}
+                                            className="group relative cursor-pointer overflow-hidden rounded-lg border border-slate-200 bg-slate-50 transition hover:border-teal-500"
                                         >
                                             <img
                                                 src={url}
                                                 alt={`Ảnh sản phẩm ${idx + 1}`}
                                                 className="h-24 w-24 object-cover transition duration-300 group-hover:scale-105"
                                             />
-                                        </a>
+                                        </div>
                                     ))}
                                 </div>
                             </div>
@@ -425,12 +465,90 @@ export default function ManagerProductRequests() {
                             <p className="text-sm font-semibold text-slate-700">Ghi chú</p>
                             <p className="mt-1 text-sm text-slate-600">{detailModal.request.note || '—'}</p>
                         </div>
-                        <div className="manager-reason-modal-actions">
+
+                        {detailModal.request.status === 'pending' && (
+                            <div className="mt-4 border-t pt-3">
+                                <label className="block text-sm font-semibold text-slate-700 mb-1">Chọn danh mục để áp dụng thuế *</label>
+                                <select
+                                    value={selectedCategory}
+                                    onChange={(e) => setSelectedCategory(e.target.value)}
+                                    className="h-10 w-full max-w-xs rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-teal-500"
+                                >
+                                    <option value="">— Chọn danh mục —</option>
+                                    {categories.map((c) => (
+                                        <option key={c._id} value={c._id}>
+                                            {c.name} {c.vat_rate != null ? `(${c.vat_rate}%)` : ''}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
+
+                        <div className="manager-reason-modal-actions mt-4">
+                            {detailModal.request.status === 'pending' && (
+                                <>
+                                    <button
+                                        type="button"
+                                        className="manager-btn-primary bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50"
+                                        onClick={() => {
+                                            if (!selectedCategory) return;
+                                            closeDetailModal();
+                                            openConfirm(
+                                                'approve',
+                                                detailModal.request._id,
+                                                'Xác nhận duyệt',
+                                                'Bạn có chắc chắn muốn duyệt yêu cầu này? Sản phẩm sẽ được tạo trong hệ thống.',
+                                                selectedCategory
+                                            );
+                                        }}
+                                        disabled={!selectedCategory}
+                                    >
+                                        Duyệt
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="manager-btn-primary bg-amber-500 hover:bg-amber-600"
+                                        onClick={() => {
+                                            closeDetailModal();
+                                            openConfirm(
+                                                'reject',
+                                                detailModal.request._id,
+                                                'Từ chối yêu cầu',
+                                                'Bạn có chắc chắn muốn từ chối yêu cầu tạo sản phẩm này?'
+                                            );
+                                        }}
+                                    >
+                                        Từ chối
+                                    </button>
+                                </>
+                            )}
                             <button className="manager-btn-secondary" onClick={closeDetailModal}>
                                 Đóng
                             </button>
                         </div>
                     </div>
+                </div>
+            )}
+
+            {zoomedImage && (
+                <div 
+                    className="fixed inset-0 z-[8000] flex items-center justify-center bg-black/90 p-4 backdrop-blur-sm"
+                    onClick={() => setZoomedImage(null)}
+                >
+                    <button
+                        type="button"
+                        className="absolute top-4 right-4 rounded-full bg-white/10 p-3 text-white backdrop-blur-md transition hover:bg-white/25 hover:scale-105"
+                        onClick={() => setZoomedImage(null)}
+                        aria-label="Đóng ảnh"
+                    >
+                        <X className="h-6 w-6" />
+                    </button>
+                    <img
+                        src={zoomedImage}
+                        alt="Phóng to ảnh sản phẩm"
+                        className="max-h-[90vh] max-w-[90vw] rounded-xl object-contain shadow-2xl"
+                        onClick={(e) => e.stopPropagation()}
+                    />
                 </div>
             )}
         </ManagerPageFrame>

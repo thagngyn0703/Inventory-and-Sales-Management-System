@@ -280,11 +280,15 @@ export async function getProductRequests(page = 1, limit = 20, query = '', statu
     return res.json();
 }
 
-export async function approveProductRequest(id) {
+export async function approveProductRequest(id, body) {
     const token = getToken();
     const res = await fetch(`${API_BASE}/product-requests/${id}/approve`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+        },
+        body: body ? JSON.stringify(body) : undefined,
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.message || 'Không thể duyệt yêu cầu');
