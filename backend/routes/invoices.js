@@ -634,6 +634,17 @@ function generatePaymentRef() {
 function getInvoiceRefLabel(invoiceId) {
     const id = String(invoiceId || '').trim();
     if (!id) return '#N/A';
+    if (id.length === 24) {
+        const timestamp = parseInt(id.substring(0, 8), 16) * 1000;
+        if (!isNaN(timestamp)) {
+            const dt = new Date(timestamp);
+            const yy = String(dt.getFullYear()).slice(-2);
+            const mm = String(dt.getMonth() + 1).padStart(2, '0');
+            const dd = String(dt.getDate()).padStart(2, '0');
+            const suffix = id.slice(-6).toUpperCase();
+            return `HD${yy}${mm}${dd}-${suffix}`;
+        }
+    }
     return `#${id}`;
 }
 
@@ -1025,7 +1036,14 @@ router.post('/', requireAuth, requireRole(['staff', 'manager', 'admin']), async 
             .populate('customer_id', 'full_name phone email debt_account')
             .populate('created_by', 'fullName email')
             .populate('items.product_id', 'name sku stock_qty image_urls')
+            .populate('debt_settlement_by_invoice_id', 'display_code created_at invoice_at')
             .lean();
+
+        if (populated && populated.previous_debt_paid > 0) {
+            populated.settled_invoices = await SalesInvoice.find({ debt_settlement_by_invoice_id: populated._id })
+                .select('_id display_code total_amount created_at invoice_at')
+                .lean();
+        }
 
         const productIds = (populated.items || [])
             .map((item) => normalizeId(item.product_id))
@@ -1335,8 +1353,15 @@ router.get('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), asyn
             .populate('customer_id', 'full_name phone email debt_account')
             .populate('created_by', 'fullName email')
             .populate('items.product_id', 'name sku stock_qty image_urls')
+            .populate('debt_settlement_by_invoice_id', 'display_code created_at invoice_at')
             .lean();
         if (!invoice) return res.status(404).json({ message: 'Không tìm thấy hóa đơn' });
+
+        if (invoice && invoice.previous_debt_paid > 0) {
+            invoice.settled_invoices = await SalesInvoice.find({ debt_settlement_by_invoice_id: invoice._id })
+                .select('_id display_code total_amount created_at invoice_at')
+                .lean();
+        }
         if (userRole2 !== 'admin' && req.user.storeId && String(invoice.store_id) !== String(req.user.storeId)) {
             return res.status(403).json({ message: 'Không có quyền xem hóa đơn này' });
         }
@@ -1519,7 +1544,14 @@ router.patch('/:id', requireAuth, requireRole(['staff', 'manager', 'admin']), as
             .populate('customer_id', 'full_name phone email debt_account')
             .populate('created_by', 'fullName email')
             .populate('items.product_id', 'name sku stock_qty image_urls')
+            .populate('debt_settlement_by_invoice_id', 'display_code created_at invoice_at')
             .lean();
+
+        if (populated && populated.previous_debt_paid > 0) {
+            populated.settled_invoices = await SalesInvoice.find({ debt_settlement_by_invoice_id: populated._id })
+                .select('_id display_code total_amount created_at invoice_at')
+                .lean();
+        }
 
         const productIds = (populated.items || [])
             .map((item) => normalizeId(item.product_id))

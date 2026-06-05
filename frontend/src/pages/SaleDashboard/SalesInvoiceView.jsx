@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getInvoice } from '../../services/invoicesApi';
+import { buildInvoiceDisplayCode } from '../../utils/invoiceDisplayCode';
 import './SalesPOS.css'; // Optional: reuse some table styles or write inline/new styles
 
 function formatMoney(n) {
@@ -51,7 +52,7 @@ export default function SalesInvoiceView() {
   const isDebtUnpaid = invoice.payment_method === 'debt' && invoice.payment_status !== 'paid';
   const debtSettlementNote =
     invoice?.debt_settlement_by_invoice_id
-      ? `Trả nợ thông qua đơn hàng #${invoice.debt_settlement_by_invoice_id}`
+      ? `Trả nợ thông qua đơn hàng ${buildInvoiceDisplayCode(invoice.debt_settlement_by_invoice_id)}`
       : invoice?.debt_settlement_note;
   const statusLabel = isDebtUnpaid
     ? 'Nợ'
@@ -226,6 +227,40 @@ export default function SalesInvoiceView() {
               </div>
             </div>
           </div>
+
+          {invoice.previous_debt_paid > 0 && (
+            <div style={{ background: 'white', padding: 24, borderRadius: 12, boxShadow: '0 1px 3px rgba(0,0,0,0.1)', border: '1px solid #99f6e4' }}>
+              <h3 style={{ margin: '0 0 16px', color: '#0f766e', fontSize: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <i className="fa-solid fa-wallet"></i> Chi tiết thu nợ
+              </h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, fontSize: 14 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#64748b' }}>Thu nợ cũ:</span>
+                  <span style={{ fontWeight: 600, color: '#0f766e' }}>{formatMoney(invoice.previous_debt_paid)}</span>
+                </div>
+                {invoice.settled_invoices && invoice.settled_invoices.length > 0 && (
+                  <div style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: 10, background: '#f8fafc' }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6 }}>Thanh toán cho các đơn:</div>
+                    {invoice.settled_invoices.map((settled, idx) => (
+                      <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+                        <span style={{ color: '#475569', fontFamily: 'monospace' }}>{settled.display_code || settled._id}</span>
+                        <span style={{ color: '#334155', fontWeight: 600 }}>{formatMoney(settled.total_amount)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#64748b' }}>Đơn mới này:</span>
+                  <span style={{ fontWeight: 500, color: '#1e293b' }}>{formatMoney(invoice.total_amount)}</span>
+                </div>
+                <div style={{ borderTop: '1px solid #f1f5f9', margin: '8px 0' }}></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ color: '#334155', fontWeight: 600 }}>Tổng khách đã trả:</span>
+                  <span style={{ fontWeight: 700, fontSize: 18, color: '#0f766e' }}>{formatMoney(invoice.total_amount + invoice.previous_debt_paid)}</span>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

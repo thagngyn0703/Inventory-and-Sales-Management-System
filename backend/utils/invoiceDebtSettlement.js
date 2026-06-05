@@ -4,6 +4,17 @@ const { applyCustomerDebtAfterNewInvoice } = require('./customerDebt');
 function getInvoiceRefLabel(invoiceId) {
     const id = String(invoiceId || '').trim();
     if (!id) return '#N/A';
+    if (id.length === 24) {
+        const timestamp = parseInt(id.substring(0, 8), 16) * 1000;
+        if (!isNaN(timestamp)) {
+            const dt = new Date(timestamp);
+            const yy = String(dt.getFullYear()).slice(-2);
+            const mm = String(dt.getMonth() + 1).padStart(2, '0');
+            const dd = String(dt.getDate()).padStart(2, '0');
+            const suffix = id.slice(-6).toUpperCase();
+            return `HD${yy}${mm}${dd}-${suffix}`;
+        }
+    }
     return `#${id}`;
 }
 

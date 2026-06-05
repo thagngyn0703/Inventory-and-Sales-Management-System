@@ -1,5 +1,6 @@
 import React from 'react';
 import { AlertTriangle } from 'lucide-react';
+import { buildInvoiceDisplayCode } from '../../utils/invoiceDisplayCode';
 import '../SaleDashboard/SalesPOS.css';
 
 function formatMoney(n) {
@@ -38,7 +39,7 @@ export default function ManagerInvoiceReadOnlyPreview({ invoice }) {
   const invoiceLevelDiscount = Number(invoice?.invoice_level_discount || 0);
   const debtSettlementNote =
     invoice?.debt_settlement_by_invoice_id
-      ? `Trả nợ thông qua đơn hàng #${invoice.debt_settlement_by_invoice_id}`
+      ? `Trả nợ thông qua đơn hàng ${buildInvoiceDisplayCode(invoice.debt_settlement_by_invoice_id)}`
       : invoice?.debt_settlement_note;
 
   return (
@@ -172,6 +173,43 @@ export default function ManagerInvoiceReadOnlyPreview({ invoice }) {
             )}
           </div>
         </div>
+
+        {invoice.previous_debt_paid > 0 && (
+          <div className="rounded-2xl border border-teal-200 bg-white p-5 shadow-sm sm:p-6">
+            <h3 className="mb-3 text-base font-bold text-teal-800 flex items-center gap-2">
+              <i className="fa-solid fa-wallet"></i> Chi tiết thu nợ
+            </h3>
+            <div className="space-y-3 text-sm">
+              <div className="flex justify-between text-slate-600">
+                <span>Thu nợ cũ</span>
+                <span className="font-semibold text-teal-700">{formatMoney(invoice.previous_debt_paid)}</span>
+              </div>
+              {invoice.settled_invoices && invoice.settled_invoices.length > 0 && (
+                <div className="rounded-lg border border-slate-100 bg-slate-50 p-2.5 text-xs text-slate-700 space-y-1">
+                  <div className="font-semibold text-slate-500 mb-1">Thanh toán cho các đơn:</div>
+                  {invoice.settled_invoices.map((settled, idx) => (
+                    <div key={idx} className="flex justify-between">
+                      <span className="font-mono">{settled.display_code || settled._id}</span>
+                      <span className="font-medium text-slate-900">{formatMoney(settled.total_amount)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="flex justify-between text-slate-600">
+                <span>Đơn mới này</span>
+                <span className="font-medium text-slate-900">{formatMoney(invoice.total_amount)}</span>
+              </div>
+              <div className="border-t border-slate-100 pt-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-slate-800">Tổng khách đã trả</span>
+                  <span className="text-lg font-bold text-teal-700">
+                    {formatMoney(invoice.total_amount + invoice.previous_debt_paid)}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
