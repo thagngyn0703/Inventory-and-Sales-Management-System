@@ -316,6 +316,10 @@ export default function ManagerProductCreate() {
             if (baseUnit) baseUnit.barcode = barcodeCheck.value;
         }
 
+        if (!form.expiry_date) {
+            setError('Vui lòng chọn hạn sử dụng cho sản phẩm.');
+            return;
+        }
         if (form.expiry_date && !isExpiryDateNotInPast(form.expiry_date)) {
             setError('Ngày hết hạn phải từ hôm nay trở đi (không chọn ngày quá khứ).');
             return;
@@ -798,7 +802,7 @@ export default function ManagerProductCreate() {
                                             Thuế sản phẩm đang lấy theo <strong>Danh mục</strong> để giảm thao tác. Cần chỉnh đặc biệt thì thực hiện ở chế độ nâng cao sau.
                                         </div>
                                         <div className="md:col-span-2">
-                                            <label className="mb-1 block text-sm font-medium text-slate-600">Hạn sử dụng</label>
+                                            <label className="mb-1 block text-sm font-medium text-slate-600">Hạn sử dụng *</label>
                                             <input
                                                 type="date"
                                                 min={minExpiryDateString()}
@@ -806,7 +810,7 @@ export default function ManagerProductCreate() {
                                                 onChange={(e) => update('expiry_date', e.target.value)}
                                                 className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 transition focus:ring-2"
                                             />
-                                            <p className="mt-1 text-xs text-slate-500">Chỉ chọn ngày từ hôm nay trở đi.</p>
+                                            <p className="mt-1 text-xs text-slate-500">Bắt buộc — chọn ngày từ hôm nay trở đi.</p>
                                         </div>
                                     </div>
                                 </CardContent>

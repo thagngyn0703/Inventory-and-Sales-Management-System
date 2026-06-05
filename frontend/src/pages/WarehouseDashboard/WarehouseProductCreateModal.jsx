@@ -15,7 +15,7 @@ import { formatCurrencyInput, parseCurrencyInput, toCurrencyInputFromNumber } fr
 import { useToast } from '../../contexts/ToastContext';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
-import { InlineNotice } from '../../components/ui/inline-notice';
+
 
 const PRODUCT_BASE_UNITS = ['Cái', 'Chai', 'Lon', 'Thùng', 'Hộp', 'Kg', 'Gói', 'Lít'];
 
@@ -61,7 +61,6 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
   const [suppliers, setSuppliers] = useState([]);
   const [existingProducts, setExistingProducts] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
   const [selectedImages, setSelectedImages] = useState([]);
   const [imagePreviews, setImagePreviews] = useState([]);
   const [scanMode, setScanMode] = useState(false);
@@ -189,11 +188,19 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
           const ext = String(mime).includes('/') ? String(mime).split('/').pop() : 'jpg';
           const codeForName = String(off.barcode || code || '').trim() || 'off-image';
           const file = new File([blob], `${codeForName}.${ext}`, { type: mime });
+          const previewUrl = URL.createObjectURL(blob);
           setSelectedImages((prev) => {
             const list = Array.isArray(prev) ? prev : [];
             if (list.length >= 3) return list;
             const next = list.length > 0 ? [...list] : [];
             next.push(file);
+            return next.slice(0, 3);
+          });
+          setImagePreviews((prev) => {
+            const list = Array.isArray(prev) ? prev : [];
+            if (list.length >= 3) return list;
+            const next = list.length > 0 ? [...list] : [];
+            next.push(previewUrl);
             return next.slice(0, 3);
           });
         }
@@ -203,12 +210,23 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
     }
 
     const nextBarcode = off.barcode ? String(off.barcode).trim() : code;
-    setForm((prev) => ({
-      ...prev,
-      name: prev.name?.trim() ? prev.name : combinedName || prev.name || '',
-      barcode: nextBarcode,
-    }));
-    toast('Đã nạp thông tin từ Open Food Facts vào form.', 'success');
+    const nextName = combinedName || '';
+    setForm((prev) => {
+      const resolvedName = prev.name?.trim() ? prev.name : nextName;
+      const resolvedSku = prev.sku?.trim()
+        ? prev.sku
+        : resolvedName
+          ? resolvedName.replace(/\s+/g, '').toUpperCase().slice(0, 32)
+          : '';
+      return {
+        ...prev,
+        name: resolvedName,
+        sku: resolvedSku,
+        barcode: nextBarcode,
+      };
+    });
+    // Toast sau khi modal đóng để người dùng nhìn thấy
+    setTimeout(() => toast('Đã nạp thông tin từ Open Food Facts vào form.', 'success'), 100);
   }, [barcodeNotFoundModal.code, closeBarcodeNotFoundModal, lastOnlineLookup, toast]);
 
   useEffect(() => {
@@ -228,8 +246,7 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
       );
       if (found) {
         setExistingMatch(found);
-        setError(`Sản phẩm "${found.name}" với mã vạch này đã tồn tại. Theo SOP, hãy nhập hàng trên sản phẩm đã có.`);
-        toast(`Sản phẩm đã tồn tại: ${found.name}`, 'error');
+        toast(`Sản phẩm đã tồn tại: ${found.name}. Theo SOP, hãy nhập hàng trên sản phẩm đã có.`, 'error');
         return;
       }
       // Barcode not found locally — open OFF lookup modal
@@ -266,7 +283,6 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
       }
       return next;
     });
-    setError('');
   };
 
   const updateSellingUnit = (index, field, value) => {
@@ -274,7 +290,6 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
       ...prev,
       selling_units: prev.selling_units.map((u, i) => (i === index ? { ...u, [field]: value } : u)),
     }));
-    setError('');
   };
 
   const addSellingUnit = () => {
@@ -301,12 +316,11 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
       setSelectedImages([]);
       setImagePreviews([]);
       if (e.target) e.target.value = '';
-      setError('Chỉ được chọn tối đa 3 ảnh.');
+      toast('Chỉ được chọn tối đa 3 ảnh.', 'error');
       return;
     }
     setSelectedImages(files);
     setImagePreviews(files.map((f) => URL.createObjectURL(f)));
-    setError('');
   };
 
   const handleSubmit = async (e) => {
@@ -314,66 +328,74 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
     setExistingMatch(null);
     const nameCheck = validateRequiredText(form.name, 'Tên sản phẩm');
     if (!nameCheck.ok) {
-      setError(nameCheck.message);
+      toast(nameCheck.message, 'error');
       return;
     }
     const skuCheck = validateSku(form.sku);
     if (!skuCheck.ok) {
-      setError(skuCheck.message);
+      toast(skuCheck.message, 'error');
       return;
     }
     const barcodeCheck = validateBarcode(form.barcode);
     if (!barcodeCheck.ok) {
-      setError(barcodeCheck.message);
+      toast(barcodeCheck.message, 'error');
       return;
     }
     const baseUnitInForm = form.selling_units.find((u) => Number(u.ratio) === 1);
     if (baseUnitInForm) {
       const baseBarcode = String(baseUnitInForm.barcode || '').trim();
       if (!baseBarcode) {
-        setError('Vui lòng nhập mã vạch cho đơn vị bán gốc (tỉ lệ 1).');
+        toast('Vui lòng nhập mã vạch cho đơn vị bán gốc (tỉ lệ 1).', 'error');
         return;
       }
       if (baseBarcode !== String(form.barcode || '').trim()) {
-        setError('Mã vạch ở Thông tin chung và Đơn vị bán (tỷ lệ 1) phải trùng khớp nhau.');
+        toast('Mã vạch ở Thông tin chung và Đơn vị bán (tỷ lệ 1) phải trùng khớp nhau.', 'error');
         return;
       }
     }
     const baseUnitCheck = validateNoSpecialText(form.base_unit, 'Đơn vị tồn kho', { required: true });
     if (!baseUnitCheck.ok) {
-      setError(baseUnitCheck.message);
+      toast(baseUnitCheck.message, 'error');
       return;
     }
     const costCheck = validateNonNegativeNumber(parseCurrencyInput(form.cost_price), 'Giá vốn');
     if (!costCheck.ok) {
-      setError(costCheck.message);
+      toast(costCheck.message, 'error');
       return;
     }
-    const stockCheck = validateNonNegativeNumber(form.stock_qty, 'Tồn kho');
+    const stockCheck = validateNonNegativeNumber(form.stock_qty, 'Số lượng');
     if (!stockCheck.ok) {
-      setError(stockCheck.message);
+      toast(stockCheck.message, 'error');
       return;
     }
     const reorderCheck = validateNonNegativeNumber(form.reorder_level, 'Mức tồn tối thiểu');
     if (!reorderCheck.ok) {
-      setError(reorderCheck.message);
+      toast(reorderCheck.message, 'error');
+      return;
+    }
+    if (
+      String(form.reorder_level).trim() !== '' &&
+      String(form.stock_qty).trim() !== '' &&
+      reorderCheck.value >= stockCheck.value
+    ) {
+      toast('Mức tồn tối thiểu phải nhỏ hơn số lượng nhập ban đầu.', 'error');
       return;
     }
     const units = [];
     for (const u of form.selling_units) {
       const nameUnitCheck = validateNoSpecialText(u.name, 'Tên đơn vị bán', { required: true });
       if (!nameUnitCheck.ok) {
-        setError(nameUnitCheck.message);
+        toast(nameUnitCheck.message, 'error');
         return;
       }
       const ratioCheck = validateNonNegativeNumber(u.ratio, 'Tỉ lệ đơn vị bán', { required: true });
       if (!ratioCheck.ok || ratioCheck.value <= 0) {
-        setError('Tỉ lệ đơn vị bán phải lớn hơn 0.');
+        toast('Tỉ lệ đơn vị bán phải lớn hơn 0.', 'error');
         return;
       }
       const salePriceCheck = validateNonNegativeNumber(parseCurrencyInput(u.sale_price), 'Giá bán đơn vị', { required: true });
       if (!salePriceCheck.ok) {
-        setError(salePriceCheck.message);
+        toast(salePriceCheck.message, 'error');
         return;
       }
       units.push({
@@ -384,7 +406,7 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
       });
     }
     if (units.length === 0) {
-      setError('Vui lòng thêm ít nhất một đơn vị bán với giá.');
+      toast('Vui lòng thêm ít nhất một đơn vị bán với giá.', 'error');
       return;
     }
     const hasBase = units.some((u) => u.ratio === 1);
@@ -401,19 +423,19 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
     for (const u of units) {
       const unitKey = String(u.name || '').trim().toLowerCase();
       if (seenUnitNames.has(unitKey)) {
-        setError(`Đơn vị "${u.name}" bị trùng trên cùng sản phẩm.`);
+        toast(`Đơn vị "${u.name}" bị trùng trên cùng sản phẩm.`, 'error');
         return;
       }
       seenUnitNames.add(unitKey);
       const unitBarcodeCheck = validateBarcode(u.barcode || '');
       if (!unitBarcodeCheck.ok) {
-        setError(`${u.name}: ${unitBarcodeCheck.message}`);
+        toast(`${u.name}: ${unitBarcodeCheck.message}`, 'error');
         return;
       }
       const ub = unitBarcodeCheck.value || '';
       if (ub) {
         if (seenUnitBarcodes.has(ub)) {
-          setError(`Barcode "${ub}" bị trùng giữa các đơn vị.`);
+          toast(`Barcode "${ub}" bị trùng giữa các đơn vị.`, 'error');
           return;
         }
         seenUnitBarcodes.add(ub);
@@ -435,22 +457,26 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
     });
     if (duplicate) {
       setExistingMatch(duplicate);
-      setError(
-        `Sản phẩm "${duplicate.name}" đã tồn tại. Theo SOP, hãy nhập hàng trên sản phẩm đã có thay vì tạo yêu cầu mới.`
+      toast(
+        `Sản phẩm "${duplicate.name}" đã tồn tại. Theo SOP, hãy nhập hàng trên sản phẩm đã có thay vì tạo yêu cầu mới.`,
+        'error'
       );
       return;
     }
+    if (!form.expiry_date) {
+      toast('Vui lòng chọn hạn sử dụng cho sản phẩm.', 'error');
+      return;
+    }
     if (form.expiry_date && !isExpiryDateNotInPast(form.expiry_date)) {
-      setError('Ngày hết hạn phải từ hôm nay trở đi.');
+      toast('Ngày hết hạn phải từ hôm nay trở đi.', 'error');
       return;
     }
     if (selectedImages.length > 3) {
-      setError('Chỉ được chọn tối đa 3 ảnh.');
+      toast('Chỉ được chọn tối đa 3 ảnh.', 'error');
       return;
     }
 
     setLoading(true);
-    setError('');
     try {
       let image_urls = [];
       if (selectedImages.length > 0) {
@@ -472,9 +498,7 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
       });
       onSuccess?.();
     } catch (err) {
-      const msg = err.message || 'Không thể gửi yêu cầu tạo sản phẩm.';
-      setError(msg);
-      toast(msg, 'error');
+      toast(err.message || 'Không thể gửi yêu cầu tạo sản phẩm.', 'error');
     } finally {
       setLoading(false);
     }
@@ -501,8 +525,6 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
         </div>
 
         <div className="max-h-[min(78vh,720px)] overflow-y-auto px-5 py-4">
-          <InlineNotice message={error} type="error" className="mb-4" />
-
           {existingMatch && (
             <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
               <div>
@@ -700,7 +722,7 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
                       />
                     </div>
                     <div>
-                      <label className="mb-1 block text-sm font-medium text-slate-700">Tồn kho </label>
+                      <label className="mb-1 block text-sm font-medium text-slate-700">Số lượng</label>
                       <input
                         type="number"
                         min="0"
@@ -720,7 +742,7 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
                       />
                     </div>
                     <div className="md:col-span-2">
-                      <label className="mb-1 block text-sm font-medium text-slate-700">Hạn sử dụng</label>
+                      <label className="mb-1 block text-sm font-medium text-slate-700">Hạn sử dụng *</label>
                       <input
                         type="date"
                         min={minExpiryDateString()}
@@ -728,7 +750,7 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
                         onChange={(e) => update('expiry_date', e.target.value)}
                         className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none ring-sky-200 focus:ring-2"
                       />
-                      <p className="mt-1 text-xs text-slate-500">Chỉ chọn ngày từ hôm nay trở đi.</p>
+                      <p className="mt-1 text-xs text-slate-500">Bắt buộc — chọn ngày từ hôm nay trở đi.</p>
                     </div>
                   </div>
                 </CardContent>

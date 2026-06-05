@@ -21,7 +21,7 @@ export function ToastProvider({ children }) {
     <ToastContext.Provider value={{ toast }}>
       {children}
       <div
-        className="pointer-events-none fixed right-4 top-4 z-[6000] flex w-full max-w-sm flex-col gap-2 p-0 sm:right-6 sm:top-6"
+        className="pointer-events-none fixed right-4 top-4 z-[9000] flex w-full max-w-sm flex-col gap-2 p-0 sm:right-6 sm:top-6"
         aria-live="polite"
       >
         <AnimatePresence mode="popLayout">
