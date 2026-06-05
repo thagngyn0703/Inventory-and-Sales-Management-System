@@ -4,7 +4,7 @@ const express = require('express');
 const productRoutes = require('../../routes/products');
 const Product = require('../../models/Product');
 const { createManagerWithStore, createAdminUser, getAuthHeader } = require('../fixtures/users');
-const { createTestProduct, createProducts } = require('../fixtures/products');
+const { createTestProduct, createProducts, getFutureExpiryDate } = require('../fixtures/products');
 
 const app = express();
 app.use(express.json());
@@ -110,6 +110,7 @@ describe('Products Routes', () => {
         sale_price: 15000,
         stock_qty: 100,
         reorder_level: 10,
+        expiry_date: getFutureExpiryDate(),
       };
 
       const res = await request(app)
@@ -146,6 +147,7 @@ describe('Products Routes', () => {
           barcode: `${Date.now()}1`,
           cost_price: 10000,
           sale_price: 15000,
+          expiry_date: getFutureExpiryDate(),
         });
 
       expect(res.status).toBe(409);
@@ -164,6 +166,7 @@ describe('Products Routes', () => {
           cost_price: 10000,
           sale_price: 15000,
           stock_qty: 50,
+          expiry_date: getFutureExpiryDate(),
         });
 
       expect(res.status).toBe(201);

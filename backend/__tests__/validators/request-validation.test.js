@@ -5,7 +5,7 @@ const authRoutes = require('../../routes/auth');
 const productRoutes = require('../../routes/products');
 const customerRoutes = require('../../routes/customers');
 const { createManagerWithStore, createAdminUser, getAuthHeader } = require('../fixtures/users');
-const { createTestProduct } = require('../fixtures/products');
+const { createTestProduct, getFutureExpiryDate } = require('../fixtures/products');
 
 const app = express();
 app.use(express.json());
@@ -93,6 +93,7 @@ describe('Request Validation Tests', () => {
           barcode: `${suffix}`,
           cost_price: 10000,
           sale_price: 15000,
+          expiry_date: getFutureExpiryDate(),
         });
 
       expect(res.status).toBe(201);

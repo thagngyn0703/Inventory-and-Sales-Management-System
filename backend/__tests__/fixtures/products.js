@@ -1,6 +1,12 @@
 const mongoose = require('mongoose');
 const Product = require('../../models/Product');
 
+function getFutureExpiryDate(daysFromNow = 365) {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() + daysFromNow);
+  return d.toISOString().slice(0, 10);
+}
+
 async function createTestProduct(storeId = null, overrides = {}) {
   const defaultData = {
     name: 'Test Product',
@@ -11,6 +17,7 @@ async function createTestProduct(storeId = null, overrides = {}) {
     stock_qty: 100,
     reorder_level: 10,
     base_unit: 'Cái',
+    expiry_date: new Date(getFutureExpiryDate()),
     status: 'active',
     storeId,
   };
@@ -45,6 +52,7 @@ async function createOutOfStockProduct(storeId = null, overrides = {}) {
 }
 
 module.exports = {
+  getFutureExpiryDate,
   createTestProduct,
   createProducts,
   createProductWithLowStock,
