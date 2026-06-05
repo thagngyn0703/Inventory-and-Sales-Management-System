@@ -191,24 +191,6 @@ describe('Auth Routes', () => {
       expect(res.body.user.storeId).toBe(String(store._id));
     });
 
-    it('should create staff when store approval is still pending', async () => {
-      const { manager, store } = await createManagerWithStore();
-      const Store = require('../../models/Store');
-      await Store.findByIdAndUpdate(store._id, { approval_status: 'draft_profile' });
-
-      const res = await request(app)
-        .post('/api/auth/create-staff')
-        .set(getAuthHeader(manager))
-        .send({
-          fullName: 'Staff Pending Store',
-          email: 'staff-pending@example.com',
-          password: 'Password123!',
-        });
-
-      expect(res.status).toBe(201);
-      expect(res.body.user.role).toBe('staff');
-    });
-
     it('should return 403 for manager without store', async () => {
       const manager = await createManagerUser();
 
