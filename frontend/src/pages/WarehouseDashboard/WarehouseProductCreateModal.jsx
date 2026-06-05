@@ -357,7 +357,7 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
 
   return (
     <div className="fixed inset-0 z-[7000] flex items-center justify-center overflow-y-auto bg-slate-900/50 p-4 backdrop-blur-sm">
-      <div className="relative my-6 w-full max-w-5xl rounded-2xl border border-slate-200/80 bg-white shadow-2xl">
+      <div className="relative my-6 w-full max-w-7xl rounded-2xl border border-slate-200/80 bg-white shadow-2xl">
         <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-slate-100 bg-white/95 px-5 py-4 backdrop-blur-md">
           <div>
             <h2 className="text-lg font-bold text-slate-900">Đăng ký sản phẩm mới</h2>
@@ -391,16 +391,7 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
 
           <form id="warehouse-product-request-form" onSubmit={handleSubmit} className="space-y-4">
             <Card className="border-slate-200/80">
-              <CardContent className="space-y-2 py-4">
-                <h3 className="text-sm font-semibold text-slate-800">SOP chuẩn cho cả Staff và Manager</h3>
-                <ol className="list-decimal space-y-1 pl-5 text-xs text-slate-600">
-                  <li>Tạo sản phẩm một lần duy nhất cho mỗi mặt hàng.</li>
-                  <li>Khai báo đủ đơn vị bán và barcode riêng cho từng đơn vị (lon/thùng/...)</li>
-                  <li>Nhập hàng theo đơn vị thực tế, hệ thống tự quy đổi về đơn vị gốc.</li>
-                  <li>Các lần sau chỉ nhập hàng trên sản phẩm đã có, không tạo yêu cầu mới trùng.</li>
-                  <li>Chỉ tạo thêm đơn vị khi có quy cách đóng gói mới từ nhà cung cấp.</li>
-                </ol>
-              </CardContent>
+
             </Card>
 
             <div className="grid gap-4 xl:grid-cols-12">
@@ -446,11 +437,10 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
                             setScanMode((v) => !v);
                             scanBufferRef.current = '';
                           }}
-                          className={`absolute right-1 top-1 inline-flex h-8 w-8 items-center justify-center rounded-md border transition ${
-                            scanMode
-                              ? 'border-sky-300 bg-sky-100 text-sky-700'
-                              : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50'
-                          }`}
+                          className={`absolute right-1 top-1 inline-flex h-8 w-8 items-center justify-center rounded-md border transition ${scanMode
+                            ? 'border-sky-300 bg-sky-100 text-sky-700'
+                            : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50'
+                            }`}
                         >
                           <Barcode className="h-4 w-4" />
                         </button>

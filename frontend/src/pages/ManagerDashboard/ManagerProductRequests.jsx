@@ -4,6 +4,7 @@ import ManagerPageFrame from '../../components/manager/ManagerPageFrame';
 import { StaffPageShell } from '../../components/staff/StaffPageShell';
 import { FileStack, Loader2, Search, SlidersHorizontal, X } from 'lucide-react';
 import { getProductRequests, approveProductRequest, rejectProductRequest } from '../../services/productsApi';
+import { useToast } from '../../contexts/ToastContext';
 import { getCategories } from '../../services/categoriesApi';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
@@ -15,6 +16,7 @@ const LIMIT = 10;
 
 export default function ManagerProductRequests() {
     const navigate = useNavigate();
+    const { toast } = useToast();
     const [requests, setRequests] = useState([]);
     const [total, setTotal] = useState(0);
     const [totalPages, setTotalPages] = useState(1);
@@ -24,10 +26,8 @@ export default function ManagerProductRequests() {
     const [statusFilter, setStatusFilter] = useState('');
 
     const [loading, setLoading] = useState(true);
-    const [error, setError] = useState('');
     const [sortBy, setSortBy] = useState('created_at');
     const [order, setOrder] = useState('desc');
-    const [successMessage, setSuccessMessage] = useState('');
     const [processingId, setProcessingId] = useState(null);
     const [confirmModal, setConfirmModal] = useState({ show: false, action: null, id: null, title: '', message: '', category_id: '' });
     const [detailModal, setDetailModal] = useState({ show: false, request: null });
@@ -37,19 +37,18 @@ export default function ManagerProductRequests() {
 
     const fetchList = useCallback(async () => {
         setLoading(true);
-        setError('');
         try {
             const data = await getProductRequests(page, LIMIT, search, statusFilter, { sortBy, order });
             setRequests(data.productRequests || []);
             setTotal(data.total ?? 0);
             setTotalPages(data.totalPages ?? 1);
         } catch (e) {
-            setError(e.message || 'Lỗi tải danh sách yêu cầu');
+            toast(e.message || 'Lỗi tải danh sách yêu cầu', 'error');
             setRequests([]);
         } finally {
             setLoading(false);
         }
-    }, [page, search, statusFilter, sortBy, order]);
+    }, [page, search, statusFilter, sortBy, order, toast]);
 
     useEffect(() => {
         fetchList();
@@ -118,31 +117,27 @@ export default function ManagerProductRequests() {
 
         if (action === 'approve') {
             if (!category_id) {
-                setError('Vui lòng chọn danh mục để áp dụng thuế.');
+                toast('Vui lòng chọn danh mục để áp dụng thuế.', 'error');
                 return;
             }
             setProcessingId(id);
-            setError('');
-            setSuccessMessage('');
             try {
                 await approveProductRequest(id, { category_id });
-                setSuccessMessage('Đã duyệt yêu cầu tạo sản phẩm thành công.');
+                toast('Đã duyệt yêu cầu tạo sản phẩm thành công.', 'success');
                 fetchList();
             } catch (err) {
-                setError(err.message || 'Lỗi khi duyệt yêu cầu');
+                toast(err.message || 'Lỗi khi duyệt yêu cầu', 'error');
             } finally {
                 setProcessingId(null);
             }
         } else if (action === 'reject') {
             setProcessingId(id);
-            setError('');
-            setSuccessMessage('');
             try {
                 await rejectProductRequest(id);
-                setSuccessMessage('Đã từ chối yêu cầu tạo sản phẩm.');
+                toast('Đã từ chối yêu cầu tạo sản phẩm.', 'success');
                 fetchList();
             } catch (err) {
-                setError(err.message || 'Lỗi khi từ chối yêu cầu');
+                toast(err.message || 'Lỗi khi từ chối yêu cầu', 'error');
             } finally {
                 setProcessingId(null);
             }
@@ -221,10 +216,7 @@ export default function ManagerProductRequests() {
                         </CardContent>
                     </Card>
 
-                    {successMessage && (
-                        <div className="manager-products-success">{successMessage}</div>
-                    )}
-                    {error && <div className="manager-products-error">{error}</div>}
+
 
                     <Card className="border-slate-200/80 shadow-sm">
                         <CardContent className="p-0">
@@ -280,37 +272,15 @@ export default function ManagerProductRequests() {
                                                             </Badge>
                                                         </td>
                                                         <td className="whitespace-nowrap px-4 py-3 text-right">
-                                                            <div className="flex items-center justify-end gap-2">
-                                                                <Button
-                                                                    type="button"
-                                                                    variant="outline"
-                                                                    className="h-8 px-3 text-xs"
-                                                                    onClick={() => openDetailModal(r)}
-                                                                >
-                                                                    Chi tiết
-                                                                </Button>
-                                                                {r.status === 'pending' && (
-                                                                    <>
-                                                                        <Button
-                                                                            type="button"
-                                                                            className="h-8 bg-emerald-600 px-3 text-xs hover:bg-emerald-700"
-                                                                            onClick={() => openConfirm('approve', r._id, 'Xác nhận duyệt', 'Bạn có chắc chắn muốn duyệt yêu cầu này? Sản phẩm sẽ được tạo trong hệ thống.')}
-                                                                            disabled={processingId === r._id}
-                                                                        >
-                                                                            Duyệt
-                                                                        </Button>
-                                                                        <Button
-                                                                            type="button"
-                                                                            variant="warning"
-                                                                            className="h-8 px-3 text-xs"
-                                                                            onClick={() => openConfirm('reject', r._id, 'Từ chối yêu cầu', 'Bạn có chắc chắn muốn từ chối yêu cầu tạo sản phẩm này?')}
-                                                                            disabled={processingId === r._id}
-                                                                        >
-                                                                            Từ chối
-                                                                        </Button>
-                                                                    </>
-                                                                )}
-                                                            </div>
+                                                            <Button
+                                                                type="button"
+                                                                variant="outline"
+                                                                className="h-8 px-3 text-xs"
+                                                                onClick={() => openDetailModal(r)}
+                                                                disabled={processingId === r._id}
+                                                            >
+                                                                {processingId === r._id ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Chi tiết'}
+                                                            </Button>
                                                         </td>
                                                     </tr>
                                                 ))
