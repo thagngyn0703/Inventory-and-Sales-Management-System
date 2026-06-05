@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { X, Barcode } from 'lucide-react';
-import { createProductRequest, getProducts, uploadProductImages } from '../../services/productsApi';
+import { createProductRequest, getProducts, uploadProductImages, lookupBarcodeOnline } from '../../services/productsApi';
 import { getSuppliers } from '../../services/suppliersApi';
 import { minExpiryDateString, isExpiryDateNotInPast } from '../../utils/dateInput';
 import {
@@ -36,6 +36,25 @@ const createDefaultForm = () => ({
   note: '',
 });
 
+function OpenFoodFactsLogo({ size = 16 }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <rect x="3" y="3" width="18" height="18" rx="4" fill="#06B6D4" opacity="0.18" />
+      <path d="M6.5 18V6.5H17.5V18H6.5Z" stroke="#0EA5E9" strokeWidth="1.5" strokeLinejoin="round" />
+      <path d="M8.2 14.4V9.6H10.3C11.1 9.6 11.7 10 11.7 10.7C11.7 11.4 11.1 11.8 10.3 11.8H9.6V14.4H8.2Z" fill="#0284C7" />
+      <path d="M12.3 14.4V9.6H13.7V14.4H12.3Z" fill="#0284C7" />
+      <path d="M14.7 14.4V13.2L16.4 10.3H14.7V9.6H18V10.7L16.2 13.6H18V14.4H14.7Z" fill="#0284C7" />
+    </svg>
+  );
+}
+
 export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
   const { toast } = useToast();
   const [form, setForm] = useState(createDefaultForm());
@@ -49,6 +68,18 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
   const [existingMatch, setExistingMatch] = useState(null);
   const scanBufferRef = useRef('');
   const scanTimerRef = useRef(null);
+
+  // --- Open Food Facts states ---
+  const [barcodeNotFoundModal, setBarcodeNotFoundModal] = useState({ open: false, code: '' });
+  const [onlineLookupLoading, setOnlineLookupLoading] = useState(false);
+  const [lastOnlineLookup, setLastOnlineLookup] = useState(null);
+  const [onlineLookupError, setOnlineLookupError] = useState('');
+
+  const closeBarcodeNotFoundModal = useCallback(() => {
+    setBarcodeNotFoundModal({ open: false, code: '' });
+    setLastOnlineLookup(null);
+    setOnlineLookupError('');
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -87,6 +118,99 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
     };
   }, [imagePreviews]);
 
+  // --- OFF: auto-lookup when modal opens ---
+  useEffect(() => {
+    if (!barcodeNotFoundModal.open || !barcodeNotFoundModal.code) return undefined;
+    let cancelled = false;
+    const code = String(barcodeNotFoundModal.code || '').trim();
+    if (!code) return undefined;
+    const runLookup = async () => {
+      setOnlineLookupLoading(true);
+      setOnlineLookupError('');
+      try {
+        const data = await lookupBarcodeOnline(code);
+        if (cancelled) return;
+        setOnlineLookupLoading(false);
+        setLastOnlineLookup({ code, source: data?.source || 'none', product: data?.product || null });
+        if (data?.source === 'off_rate_limited') {
+          const msg = data?.message || 'Open Food Facts đang giới hạn lượt truy cập. Hãy thử lại trong vài phút.';
+          setOnlineLookupError(msg);
+          toast(msg, 'warning');
+        }
+      } catch (_) {
+        if (cancelled) return;
+        setOnlineLookupLoading(false);
+        setOnlineLookupError('Không thể lấy thông tin online. Hãy thử lại trong vài phút.');
+      }
+    };
+    runLookup();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [barcodeNotFoundModal.open, barcodeNotFoundModal.code]);
+
+  // Close OFF modal on Escape
+  useEffect(() => {
+    if (!barcodeNotFoundModal.open) return undefined;
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') closeBarcodeNotFoundModal();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [barcodeNotFoundModal.open, closeBarcodeNotFoundModal]);
+
+  const offPreviewProduct = useMemo(() => {
+    if (!lastOnlineLookup || lastOnlineLookup.source !== 'open_food_facts') return null;
+    return lastOnlineLookup.product || null;
+  }, [lastOnlineLookup]);
+
+  const importOpenFoodFactsToForm = useCallback(async () => {
+    const off = lastOnlineLookup?.source === 'open_food_facts' ? lastOnlineLookup.product : null;
+    if (!off) {
+      toast('Chưa có thông tin từ Open Food Facts.', 'warning');
+      return;
+    }
+    const code = String(lastOnlineLookup.code || barcodeNotFoundModal.code || '').trim();
+    const offName = String(off.name || '').trim();
+    const offBrand = String(off.brand || '').trim();
+    const combinedName =
+      offName && offBrand && !offName.toLowerCase().includes(offBrand.toLowerCase())
+        ? `${offName} - ${offBrand}`
+        : offName || offBrand;
+    closeBarcodeNotFoundModal();
+
+    // Try to download OFF image and set it as selected image
+    const offImageUrl = off.image_url ? String(off.image_url).trim() : '';
+    if (offImageUrl) {
+      try {
+        const res = await fetch(offImageUrl, { mode: 'cors' });
+        if (res.ok) {
+          const blob = await res.blob();
+          const mime = blob?.type || 'image/jpeg';
+          const ext = String(mime).includes('/') ? String(mime).split('/').pop() : 'jpg';
+          const codeForName = String(off.barcode || code || '').trim() || 'off-image';
+          const file = new File([blob], `${codeForName}.${ext}`, { type: mime });
+          setSelectedImages((prev) => {
+            const list = Array.isArray(prev) ? prev : [];
+            if (list.length >= 3) return list;
+            const next = list.length > 0 ? [...list] : [];
+            next.push(file);
+            return next.slice(0, 3);
+          });
+        }
+      } catch (_) {
+        toast('Không tải được ảnh từ Open Food Facts, bạn vẫn có thể lưu sản phẩm.', 'warning');
+      }
+    }
+
+    const nextBarcode = off.barcode ? String(off.barcode).trim() : code;
+    setForm((prev) => ({
+      ...prev,
+      name: prev.name?.trim() ? prev.name : combinedName || prev.name || '',
+      barcode: nextBarcode,
+    }));
+    toast('Đã nạp thông tin từ Open Food Facts vào form.', 'success');
+  }, [barcodeNotFoundModal.code, closeBarcodeNotFoundModal, lastOnlineLookup, toast]);
+
   useEffect(() => {
     if (!scanMode) return;
     const flushScanBuffer = () => {
@@ -108,8 +232,9 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
         toast(`Sản phẩm đã tồn tại: ${found.name}`, 'error');
         return;
       }
+      // Barcode not found locally — open OFF lookup modal
       update('barcode', code);
-      toast('Đã điền barcode từ mã quét.', 'success');
+      setBarcodeNotFoundModal({ open: true, code });
     };
     const onKeyDown = (e) => {
       if (['Shift', 'Alt', 'Control', 'Meta', 'CapsLock', 'Escape'].includes(e.key)) return;
@@ -659,6 +784,111 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
           </Button>
         </div>
       </div>
+
+      {/* ===== OFF Barcode Not Found Modal ===== */}
+      {barcodeNotFoundModal.open && (
+        <div
+          className="fixed inset-0 z-[8000] flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm"
+          role="presentation"
+          onClick={closeBarcodeNotFoundModal}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="wh-barcode-not-found-title"
+            className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-5 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <h4 id="wh-barcode-not-found-title" className="text-base font-semibold text-slate-900">
+                Không tìm thấy sản phẩm
+              </h4>
+              <button
+                type="button"
+                onClick={closeBarcodeNotFoundModal}
+                className="rounded-md p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                aria-label="Đóng"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <p className="mt-2 text-sm text-slate-600">
+              Barcode <strong>{barcodeNotFoundModal.code}</strong> chưa có trong hệ thống.
+            </p>
+            {onlineLookupLoading && (
+              <p className="mt-2 text-xs font-medium text-sky-600">
+                Đang lấy thông tin từ Open Food Facts...
+              </p>
+            )}
+            {!onlineLookupLoading && onlineLookupError && (
+              <p className="mt-2 text-xs font-semibold text-amber-700">
+                {onlineLookupError}
+              </p>
+            )}
+            {!onlineLookupLoading && offPreviewProduct && (
+              <div className="mt-3 rounded-lg border border-sky-200 bg-sky-50/60 p-3">
+                <p className="text-xs font-semibold text-sky-800">
+                  Tìm thấy trên Open Food Facts — có thể tạo nhanh từ dữ liệu này.
+                </p>
+                <div className="mt-2 flex gap-3">
+                  {offPreviewProduct.image_url ? (
+                    <img
+                      src={offPreviewProduct.image_url}
+                      alt={offPreviewProduct.name || 'Ảnh sản phẩm OFF'}
+                      className="h-16 w-16 shrink-0 rounded-lg border border-slate-200 bg-white object-contain"
+                    />
+                  ) : null}
+                  <div className="min-w-0 text-sm">
+                    <div className="font-semibold text-slate-900 line-clamp-2">
+                      {offPreviewProduct.name || 'Không có tên'}
+                    </div>
+                    {offPreviewProduct.brand ? (
+                      <div className="mt-0.5 text-xs text-slate-600">{offPreviewProduct.brand}</div>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            )}
+            {!onlineLookupLoading && lastOnlineLookup && !offPreviewProduct && !onlineLookupError && (
+              <p className="mt-2 text-xs text-slate-500">
+                Không tìm thấy thông tin sản phẩm này trên Open Food Facts. Bạn có thể nhập thủ công.
+              </p>
+            )}
+            <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              {offPreviewProduct ? (
+                <>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={onlineLookupLoading}
+                    onClick={closeBarcodeNotFoundModal}
+                  >
+                    Nhập thủ công
+                  </Button>
+                  <Button
+                    type="button"
+                    disabled={onlineLookupLoading}
+                    onClick={importOpenFoodFactsToForm}
+                  >
+                    <span className="inline-flex items-center gap-2">
+                      <OpenFoodFactsLogo size={14} />
+                      Tạo từ OFF
+                    </span>
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  type="button"
+                  disabled={onlineLookupLoading}
+                  onClick={closeBarcodeNotFoundModal}
+                >
+                  Nhập thủ công
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
