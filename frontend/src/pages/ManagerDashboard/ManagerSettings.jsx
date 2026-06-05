@@ -573,8 +573,9 @@ export default function ManagerSettings() {
                     </div>
                   ) : (
                     <p className="mt-2 text-xs text-amber-700">
-                      Chưa tạo được ảnh QR vì thiếu cấu hình ngân hàng nhận SePay ở backend
-                      (`SEPAY_BANK_CODE`, `SEPAY_ACCOUNT_NUMBER`, `SEPAY_ACCOUNT_NAME`).
+                      Chưa tạo được ảnh QR. Admin cần cấu hình backend: ít nhất `SEPAY_API_TOKEN` và
+                      `SEPAY_ACCOUNT_NUMBER`, hoặc đủ bộ `SEPAY_BANK_CODE`, `SEPAY_ACCOUNT_NUMBER`,
+                      `SEPAY_ACCOUNT_NAME` trong file `.env` rồi khởi động lại server.
                     </p>
                   )}
                 </div>

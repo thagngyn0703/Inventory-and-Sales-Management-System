@@ -11,6 +11,7 @@ const {
   getPlanByCode,
   evaluateStoreSubscription,
 } = require('../utils/subscriptionAccess');
+const { resolveSepayQrConfig, buildVietQrUrl } = require('../utils/sepayMatchUtils');
 
 const router = express.Router();
 
@@ -76,24 +77,9 @@ function buildPaymentRef() {
   return `SUB-${Date.now().toString(36).toUpperCase()}${rand}`;
 }
 
-function getSepayQrConfig() {
-  return {
-    bank_code: String(process.env.SEPAY_BANK_CODE || process.env.SEPAY_BANK_ID || '').trim().toLowerCase(),
-    bank_account_number: String(process.env.SEPAY_ACCOUNT_NUMBER || '').trim(),
-    account_name: String(process.env.SEPAY_ACCOUNT_NAME || '').trim(),
-  };
-}
-
-function buildVietQrUrl({ bank_code, bank_account_number, amount_vnd, payment_content, account_name }) {
-  if (!bank_code || !bank_account_number || !amount_vnd || !payment_content) return '';
-  return `https://img.vietqr.io/image/${bank_code}-${bank_account_number}-compact2.png?amount=${Math.round(
-    Number(amount_vnd || 0)
-  )}&addInfo=${encodeURIComponent(String(payment_content || ''))}&accountName=${encodeURIComponent(account_name || '')}`;
-}
-
-function buildCheckoutPayload(orderDoc) {
+async function buildCheckoutPayload(orderDoc) {
   const paymentContent = `ISMS ${orderDoc.payment_ref}`;
-  const qrConfig = getSepayQrConfig();
+  const qrConfig = await resolveSepayQrConfig();
   return {
     order: orderDoc,
     bank_code: qrConfig.bank_code,
@@ -209,7 +195,7 @@ router.post(
         .lean();
 
       if (pending) {
-        return res.json(buildCheckoutPayload(pending));
+        return res.json(await buildCheckoutPayload(pending));
       }
 
       const paymentRef = buildPaymentRef();
@@ -226,7 +212,7 @@ router.post(
       });
 
       return res.status(201).json(
-        buildCheckoutPayload({
+        await buildCheckoutPayload({
           _id: order._id,
           plan_code: order.plan_code,
           plan_name: order.plan_name,

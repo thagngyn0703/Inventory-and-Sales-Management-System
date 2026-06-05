@@ -117,6 +117,13 @@ if (!hasSepayApi) {
 if (!process.env.SEPAY_ACCOUNT_NUMBER || !String(process.env.SEPAY_ACCOUNT_NUMBER).trim()) {
     console.warn('Cảnh báo: SEPAY_ACCOUNT_NUMBER chưa cấu hình — hệ thống đối soát theo mã IMS + số tiền và STK QR từng cửa hàng (multi-store).');
 }
+const hasSepayBankQrEnv =
+    (process.env.SEPAY_BANK_CODE || process.env.SEPAY_BANK_ID) &&
+    process.env.SEPAY_ACCOUNT_NUMBER &&
+    process.env.SEPAY_ACCOUNT_NAME;
+if (!hasSepayBankQrEnv && hasSepayApi) {
+    console.warn('Cảnh báo: thiếu SEPAY_BANK_CODE / SEPAY_ACCOUNT_NAME — QR gói dịch vụ sẽ tự lấy từ SePay API nếu có SEPAY_API_TOKEN.');
+}
 if (hasSmtpConfig) {
     console.log('SMTP: đã cấu hình — email xác minh sẽ gửi vào email đăng ký');
 } else {

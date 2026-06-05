@@ -192,6 +192,131 @@ async function fetchSepayTransactionsByAmount(amount) {
   return merged;
 }
 
+const SEPAY_QR_CONFIG_CACHE_TTL_MS = 10 * 60 * 1000;
+let sepayQrConfigCache = { value: null, expiresAt: 0 };
+
+function getSepayQrConfigFromEnv() {
+  return {
+    bank_code: String(process.env.SEPAY_BANK_CODE || process.env.SEPAY_BANK_ID || '').trim().toLowerCase(),
+    bank_account_number: String(process.env.SEPAY_ACCOUNT_NUMBER || '').trim(),
+    account_name: String(process.env.SEPAY_ACCOUNT_NAME || '').trim(),
+  };
+}
+
+function mergeSepayQrConfig(base = {}, override = {}) {
+  return {
+    bank_code: String(override.bank_code || base.bank_code || '').trim().toLowerCase(),
+    bank_account_number: String(override.bank_account_number || base.bank_account_number || '').trim(),
+    account_name: String(override.account_name || base.account_name || '').trim(),
+  };
+}
+
+function isSepayQrConfigComplete(config = {}) {
+  return Boolean(config.bank_code && config.bank_account_number);
+}
+
+function mapSepayBankAccountToQrConfig(account = {}) {
+  return {
+    bank_code: String(account.bank_code || '').trim().toLowerCase(),
+    bank_account_number: String(account.account_number || '').trim(),
+    account_name: String(account.account_holder_name || '').trim(),
+  };
+}
+
+function normalizeSepayBankAccountsPayload(data) {
+  if (!data || typeof data !== 'object') return [];
+  if (Array.isArray(data.bankaccounts)) return data.bankaccounts;
+  if (Array.isArray(data.data)) return data.data;
+  if (Array.isArray(data)) return data;
+  return [];
+}
+
+async function fetchSepayBankAccountsWithToken(token) {
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    'X-API-KEY': token,
+    Accept: 'application/json',
+  };
+
+  const baseUrl = String(process.env.SEPAY_API_BASE_URL || 'https://my.sepay.vn').replace(/\/+$/, '');
+  const endpoints = [
+    `${baseUrl}/userapi/bankaccounts/list?limit=20`,
+    'https://userapi.sepay.vn/v2/bank-accounts?limit=20',
+  ];
+
+  for (const url of endpoints) {
+    try {
+      const res = await fetch(url, { method: 'GET', headers });
+      if (!res.ok) continue;
+      const data = await res.json();
+      const accounts = normalizeSepayBankAccountsPayload(data);
+      if (accounts.length) return accounts;
+    } catch (err) {
+      console.warn('[SePay QR] bankaccounts fetch failed:', err.message);
+    }
+  }
+
+  return [];
+}
+
+function pickSepayBankAccount(accounts = [], preferredAccountNumber = '') {
+  if (!Array.isArray(accounts) || accounts.length === 0) return null;
+
+  const preferred = normalizeAccountNumber(preferredAccountNumber);
+  const activeAccounts = accounts.filter((account) => {
+    const active = account?.active;
+    return active === 1 || active === '1' || active === true;
+  });
+  const pool = activeAccounts.length ? activeAccounts : accounts;
+
+  if (preferred) {
+    const matched = pool.find((account) => normalizeAccountNumber(account?.account_number) === preferred);
+    if (matched) return matched;
+  }
+
+  return pool
+    .slice()
+    .sort((a, b) => String(b?.last_transaction || '').localeCompare(String(a?.last_transaction || '')))[0];
+}
+
+async function resolveSepayQrConfig() {
+  const fromEnv = getSepayQrConfigFromEnv();
+  if (isSepayQrConfigComplete(fromEnv)) return fromEnv;
+
+  const now = Date.now();
+  if (sepayQrConfigCache.value && sepayQrConfigCache.expiresAt > now) {
+    const cached = mergeSepayQrConfig(fromEnv, sepayQrConfigCache.value);
+    if (isSepayQrConfigComplete(cached)) return cached;
+  }
+
+  const tokens = getSepayApiTokens();
+  if (!tokens.length) return fromEnv;
+
+  for (const token of tokens) {
+    const accounts = await fetchSepayBankAccountsWithToken(token);
+    const picked = pickSepayBankAccount(accounts, fromEnv.bank_account_number);
+    if (!picked) continue;
+
+    const resolved = mergeSepayQrConfig(fromEnv, mapSepayBankAccountToQrConfig(picked));
+    if (!isSepayQrConfigComplete(resolved)) continue;
+
+    sepayQrConfigCache = {
+      value: resolved,
+      expiresAt: now + SEPAY_QR_CONFIG_CACHE_TTL_MS,
+    };
+    return resolved;
+  }
+
+  return fromEnv;
+}
+
+function buildVietQrUrl({ bank_code, bank_account_number, amount_vnd, payment_content, account_name }) {
+  if (!bank_code || !bank_account_number || !amount_vnd || !payment_content) return '';
+  return `https://img.vietqr.io/image/${bank_code}-${bank_account_number}-compact2.png?amount=${Math.round(
+    Number(amount_vnd || 0)
+  )}&addInfo=${encodeURIComponent(String(payment_content || ''))}&accountName=${encodeURIComponent(account_name || '')}`;
+}
+
 module.exports = {
   normalizePaymentRef,
   normalizeAccountNumber,
@@ -207,4 +332,7 @@ module.exports = {
   getSepayWebhookSecrets,
   fetchSepayTransactionsByAmount,
   fetchSepayTransactionsWithToken,
+  getSepayQrConfigFromEnv,
+  resolveSepayQrConfig,
+  buildVietQrUrl,
 };
