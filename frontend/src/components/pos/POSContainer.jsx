@@ -195,6 +195,7 @@ export default function POSContainer({
   const pollingRef = useRef(null);
   const pollingSessionRef = useRef(0);
   const pendingPaymentRef = useRef(null);
+  const processedPaymentsRef = useRef(new Set());
   const searchWrapRef = useRef(null);
   const tabsListRef = useRef(null);
   const summaryScrollRef = useRef(null);
@@ -629,6 +630,9 @@ export default function POSContainer({
 
   const completeBankTransferSuccess = useCallback(
     async (paymentRef, invoiceData, tabSnapshot, result) => {
+      if (processedPaymentsRef.current.has(paymentRef)) return;
+      processedPaymentsRef.current.add(paymentRef);
+
       stopPolling();
       setPendingPayment(null);
       handlePrintInvoice(invoiceData, tabSnapshot, { requireUserConfirm: true });
