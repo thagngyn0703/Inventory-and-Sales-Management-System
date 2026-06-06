@@ -405,8 +405,8 @@ export default function ManagerReceiptDetail() {
                                             />
                                         </td>
                                     )}
-                                    <td style={{ padding: '12px', textAlign: 'right', fontSize: 14, fontWeight: 500 }}>
-                                        {(displayQty * displayUnitCost).toLocaleString()}
+                                    <td style={{ padding: '12px', textAlign: 'right', fontSize: 14, fontWeight: 500, maxWidth: 120, wordBreak: 'break-all', whiteSpace: 'normal' }}>
+                                        {(displayQty * displayUnitCost).toLocaleString('vi-VN')}
                                     </td>
                                     <td style={{ padding: '12px', fontSize: 13, color: '#7c2d12', minWidth: 220 }}>
                                         {receipt.status === 'pending' ? (

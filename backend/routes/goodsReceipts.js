@@ -645,6 +645,11 @@ router.patch('/:id/items', requireAuth, requireRole(['manager', 'admin']), async
                 }
                 product.updated_at = new Date();
                 await product.save();
+
+                await ProductUnit.updateOne(
+                    { product_id: product._id, unit_name: itemUnit },
+                    { $set: { price: nextSalePrice, updated_at: new Date() } }
+                );
                 await logPriceHistory({
                     productId: product._id,
                     storeId: product.storeId,

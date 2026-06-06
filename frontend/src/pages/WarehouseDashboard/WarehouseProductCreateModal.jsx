@@ -398,6 +398,19 @@ export default function WarehouseProductCreateModal({ onClose, onSuccess }) {
         toast(salePriceCheck.message, 'error');
         return;
       }
+      // Validate giá bán phải lớn hơn giá vốn
+      const costNum = costCheck.value;
+      const salePriceNum = salePriceCheck.value;
+      const ratioNum = ratioCheck.value;
+      // Quy đổi: giá bán trên 1 đơn vị gốc = sale_price / ratio
+      const salePricePerBase = salePriceNum / ratioNum;
+      if (costNum > 0 && salePricePerBase <= costNum) {
+        toast(
+          `Giá bán đơn vị "${u.name || nameUnitCheck.value}" phải lớn hơn giá vốn (${costNum.toLocaleString('vi-VN')} đ). Vui lòng kiểm tra lại.`,
+          'error'
+        );
+        return;
+      }
       units.push({
         name: nameUnitCheck.value,
         ratio: ratioCheck.value,

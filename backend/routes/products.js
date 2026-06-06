@@ -1781,6 +1781,7 @@ router.put('/:id', requireAuth, requireRole(['manager', 'admin']), async (req, r
       if (saleNum == null) return res.status(400).json({ message: 'Giá bán không hợp lệ.' });
       product.sale_price = Math.round(saleNum);
       product.selling_units = [{ name: product.base_unit || 'Cái', ratio: 1, sale_price: product.sale_price }];
+      shouldSyncUnits = true;
     }
     const hasDocChanges = product.isModified();
     if (hasDocChanges || shouldSyncUnits) {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { getGoodsReceipts } from '../../services/goodsReceiptsApi';
 import { useWarehouseBase } from '../../utils/useWarehouseBase';
@@ -54,13 +54,12 @@ export default function WarehouseGoodsReceiptList() {
   const [statusFilter, setStatusFilter] = useState('');
   const [searchInput, setSearchInput] = useState('');
   const [debouncedQ, setDebouncedQ] = useState('');
-  const [sortByPrice, setSortByPrice] = useState(null);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const sortBy = sortByPrice ? 'total_amount' : 'received_at';
-  const order = sortByPrice === 'asc' ? 'asc' : 'desc';
+  const sortBy = 'received_at';
+  const order = 'desc';
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQ(searchInput.trim()), 400);
@@ -69,7 +68,7 @@ export default function WarehouseGoodsReceiptList() {
 
   useEffect(() => {
     setPage(1);
-  }, [statusFilter, debouncedQ, sortByPrice]);
+  }, [statusFilter, debouncedQ]);
 
   const fetchList = useCallback(async () => {
     setLoading(true);
@@ -117,20 +116,10 @@ export default function WarehouseGoodsReceiptList() {
     }
   };
 
-  const handleSortPrice = () => {
-    if (sortByPrice === null) setSortByPrice('asc');
-    else if (sortByPrice === 'asc') setSortByPrice('desc');
-    else setSortByPrice(null);
-  };
 
   const start = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
   const end = Math.min(page * PAGE_SIZE, total);
 
-  const sortLabel = useMemo(() => {
-    if (sortByPrice === 'asc') return 'Giá trị: thấp → cao';
-    if (sortByPrice === 'desc') return 'Giá trị: cao → thấp';
-    return 'Thời gian nhận (mới nhất)';
-  }, [sortByPrice]);
 
   return (
     <StaffPageShell
@@ -181,9 +170,6 @@ export default function WarehouseGoodsReceiptList() {
                   <option value="rejected">Từ chối</option>
                 </select>
               </div>
-              <Button type="button" variant="outline" className="h-11 gap-2" onClick={handleSortPrice}>
-                {sortLabel}
-              </Button>
             </div>
           </div>
 
